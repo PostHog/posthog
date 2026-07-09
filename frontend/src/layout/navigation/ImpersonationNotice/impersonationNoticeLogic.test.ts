@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -328,6 +329,10 @@ describe('impersonationNoticeLogic', () => {
 
     describe('returnToPostHog listener', () => {
         it('navigates to the loginas logout endpoint with next pointing back to the app', async () => {
+            // Drain mount-time requests first: while window.location.href holds the relative
+            // logout URL below, MSW can't resolve request URLs against it and errors out
+            await expectLogic(preflightLogic).toFinishAllListeners()
+
             const originalLocation = window.location
             Object.defineProperty(window, 'location', {
                 configurable: true,

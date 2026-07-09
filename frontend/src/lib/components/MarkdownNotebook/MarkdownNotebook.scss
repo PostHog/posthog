@@ -1875,7 +1875,7 @@ button.MarkdownNotebook__component-title:focus-visible {
 .MarkdownNotebook__real-node {
     display: flex;
     flex-direction: column;
-    min-height: 8rem;
+    min-height: var(--markdown-notebook-real-node-min-height, 8rem);
     background: var(--markdown-notebook-component-background);
 }
 
@@ -1891,7 +1891,7 @@ button.MarkdownNotebook__component-title:focus-visible {
     // overrides the inline `height` and the resize drag has no visible effect.
     flex: 1 1 auto;
     flex-direction: column;
-    min-height: 8rem;
+    min-height: var(--markdown-notebook-real-node-min-height, 8rem);
     overflow: hidden;
 }
 
@@ -1924,6 +1924,21 @@ button.MarkdownNotebook__component-title:focus-visible {
 .MarkdownNotebook__ref--active,
 .MarkdownNotebook__ref:hover {
     background: var(--color-bg-fill-highlight-200, rgb(235 145 0 / 30%));
+}
+
+/* Code comment anchors: code carries no inline marks, so highlights are measured from each
+   anchor's text range and painted as positioned boxes behind the text. */
+.MarkdownNotebook__code-ref-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.MarkdownNotebook__code-ref-highlight {
+    position: absolute;
+    background: var(--color-bg-fill-highlight-100, rgb(235 145 0 / 15%));
+    border-bottom: 2px solid var(--color-border-warning, rgb(235 145 0 / 60%));
+    border-radius: 2px;
 }
 
 /* Inline mentions keep their person id in the markdown; the text is the display label. */

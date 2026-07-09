@@ -38,8 +38,12 @@ def inline_css(value: str) -> str:
     """
     Returns an HTML document with inline CSS.
     Forked from getsentry/sentry
+
+    `keep_at_rules=True` preserves at-rules that can't be inlined onto elements — chiefly the
+    `@media` responsive block. Without it, css_inline drops every `<style>` block after
+    inlining and media queries never apply.
     """
-    inlined = css_inline.inline(value)
+    inlined = css_inline.inline(value, keep_at_rules=True)
     tree = lxml_html.document_fromstring(inlined)
     # CSS media query support is inconsistent when the DOCTYPE declaration is
     # missing, so we force it to HTML5 here.

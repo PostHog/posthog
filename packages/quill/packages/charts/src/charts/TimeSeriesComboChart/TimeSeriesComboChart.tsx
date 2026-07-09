@@ -2,6 +2,7 @@ import React from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import type {
+    AxisLinesConfig,
     ChartLegendConfig,
     ChartTheme,
     ComboChartConfig,
@@ -15,7 +16,7 @@ import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import type { GoalLineConfig } from '../../utils/goal-lines'
-import type { XAxisConfig, YAxisConfig } from '../../utils/use-axis-formatters'
+import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { ComboChart } from '../ComboChart/ComboChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
 import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
@@ -36,8 +37,15 @@ export interface TimeSeriesComboChartConfig {
     barCornerRadius?: number
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Horizontal grid lines, aligned to the primary y-axis ticks. `showGrid` on the primary
+     *  `yAxis` config, when set, wins. */
+    showGrid?: boolean
     /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
-    showAxisLines?: boolean
+    showAxisLines?: AxisLinesConfig
+    /** Draw short tick marks next to each visible axis label. Pairs with `showAxisLines`. */
+    showTickMarks?: boolean
+    /** Line interpolation for line/area series: `linear` (default) or `monotone` (smooth curve). */
+    curve?: 'linear' | 'monotone'
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
     tooltip?: TooltipConfig
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
@@ -83,7 +91,10 @@ export function TimeSeriesComboChart<Meta = unknown>({
         barLayout,
         barCornerRadius,
         showCrosshair,
+        showGrid,
         showAxisLines,
+        showTickMarks,
+        curve,
         tooltip: tooltipConfig,
         legend,
         trendLines,
@@ -99,6 +110,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         primaryYAxis,
         yAxes,
     } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
+    const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis)
 
     const { referenceLines, valueDomain } = useGoalLines(goalLines, chartSeries)
 
@@ -109,16 +121,18 @@ export function TimeSeriesComboChart<Meta = unknown>({
         xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
-        hideYAxis: primaryYAxis?.hide,
+        hideYAxis: yAxes ? yAxes.length > 0 && yAxes.every((a) => a.hide) : primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
         yAxisLabel: primaryYAxis?.label,
-        showGrid: primaryYAxis?.showGrid,
+        showGrid: primaryYAxis?.showGrid ?? showGrid,
         showAxisLines,
+        showTickMarks,
+        curve,
         showCrosshair,
         defaultSeriesType,
         barLayout,
         barCornerRadius,
-        tooltip: tooltipConfig,
+        tooltip: timeSeriesTooltipConfig,
         valueDomain,
         yAxes,
     }

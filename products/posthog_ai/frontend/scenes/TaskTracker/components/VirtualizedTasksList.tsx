@@ -1,57 +1,15 @@
-import { CSSProperties, useEffect, useRef } from 'react'
-import { List, useDynamicRowHeight } from 'react-window'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { useCallback, useEffect, useRef } from 'react'
 
-import { AutoSizer } from 'lib/components/AutoSizer'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { Task } from '../../../types/taskTypes'
 import { TaskListItem } from './TaskListItem'
 
-// Menu-item row height; the dynamic measurer corrects rows whose title wraps to two lines.
+// Menu-item row height; the virtualizer's dynamic measurement corrects rows whose title wraps to two lines.
 const DEFAULT_TASK_ROW_HEIGHT = 40
 // Start fetching the next page this many rows before the end so it lands before the user hits the bottom.
 const LOAD_MORE_THRESHOLD = 5
-
-interface TaskRowProps {
-    tasks: Task[]
-    selectedTaskId: string | null
-    dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
-}
-
-function TaskRow({
-    index,
-    style,
-    tasks,
-    selectedTaskId,
-    dynamicRowHeight,
-}: {
-    ariaAttributes: Record<string, unknown>
-    index: number
-    style: CSSProperties
-} & TaskRowProps): JSX.Element {
-    const rowRef = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        if (rowRef.current) {
-            return dynamicRowHeight.observeRowElements([rowRef.current])
-        }
-    }, [dynamicRowHeight])
-
-    // The trailing row past the end of `tasks` is the infinite-scroll loader.
-    const task = tasks[index]
-
-    return (
-        <div ref={rowRef} style={style} data-index={index} className="px-4 lg:pl-0">
-            {task ? (
-                <TaskListItem task={task} isActive={task.id === selectedTaskId} />
-            ) : (
-                <div className="flex items-center justify-center py-3">
-                    <Spinner />
-                </div>
-            )}
-        </div>
-    )
-}
 
 interface VirtualizedTasksListProps {
     tasks: Task[]
@@ -71,31 +29,65 @@ export function VirtualizedTasksList({
     loadingMore,
     onLoadMore,
 }: VirtualizedTasksListProps): JSX.Element {
-    const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: DEFAULT_TASK_ROW_HEIGHT })
+    const scrollRef = useRef<HTMLDivElement>(null)
 
-    // One extra row hosts the loader spinner while more pages remain.
-    const rowCount = tasks.length + (hasMore ? 1 : 0)
+    // Stable per-task keys so pagination appends don't remount already-measured rows.
+    const getItemKey = useCallback((index: number): string => tasks[index]?.id ?? '__tasks_loader__', [tasks])
+
+    const virtualizer = useVirtualizer({
+        // One extra row hosts the loader spinner while more pages remain.
+        count: tasks.length + (hasMore ? 1 : 0),
+        getScrollElement: () => scrollRef.current,
+        estimateSize: () => DEFAULT_TASK_ROW_HEIGHT,
+        overscan: 10,
+        paddingStart: 16,
+        paddingEnd: 16,
+        getItemKey,
+    })
+
+    const virtualItems = virtualizer.getVirtualItems()
+    const lastRenderedIndex = virtualItems[virtualItems.length - 1]?.index ?? -1
+
+    useEffect(() => {
+        if (hasMore && !loadingMore && lastRenderedIndex >= tasks.length - LOAD_MORE_THRESHOLD) {
+            onLoadMore()
+        }
+    }, [hasMore, loadingMore, lastRenderedIndex, tasks.length, onLoadMore])
 
     return (
-        <AutoSizer
-            renderProp={({ height, width }) =>
-                height && width ? (
-                    <List<TaskRowProps>
-                        style={{ height, width }}
-                        className="py-4 overflow-x-hidden"
-                        overscanCount={10}
-                        rowCount={rowCount}
-                        rowHeight={dynamicRowHeight}
-                        rowComponent={TaskRow}
-                        rowProps={{ tasks, selectedTaskId, dynamicRowHeight }}
-                        onRowsRendered={({ stopIndex }) => {
-                            if (hasMore && !loadingMore && stopIndex >= tasks.length - LOAD_MORE_THRESHOLD) {
-                                onLoadMore()
-                            }
-                        }}
-                    />
-                ) : null
-            }
-        />
+        <div
+            ref={scrollRef}
+            className="h-full overflow-y-auto overflow-x-hidden pb-[calc(5rem_+_env(safe-area-inset-bottom))]"
+        >
+            <div style={{ position: 'relative', width: '100%', height: virtualizer.getTotalSize() }}>
+                {virtualItems.map((virtualRow) => {
+                    const task = tasks[virtualRow.index]
+
+                    return (
+                        <div
+                            key={virtualRow.key}
+                            data-index={virtualRow.index}
+                            ref={virtualizer.measureElement}
+                            className="px-4 lg:px-0"
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                width: '100%',
+                                transform: `translateY(${virtualRow.start}px)`,
+                            }}
+                        >
+                            {task ? (
+                                <TaskListItem task={task} isActive={task.id === selectedTaskId} />
+                            ) : (
+                                <div className="flex items-center justify-center py-3">
+                                    <Spinner />
+                                </div>
+                            )}
+                        </div>
+                    )
+                })}
+            </div>
+        </div>
     )
 }

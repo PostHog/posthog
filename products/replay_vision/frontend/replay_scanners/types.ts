@@ -37,6 +37,7 @@ export type FailureKind =
     | 'rasterization_failed'
     | 'validation_failed'
     | 'internal_error'
+    | 'orphaned'
 
 const FAILURE_KINDS: Record<FailureKind, { label: string; description: string }> = {
     provider_transient: {
@@ -61,6 +62,11 @@ const FAILURE_KINDS: Record<FailureKind, { label: string; description: string }>
     internal_error: {
         label: 'Internal error',
         description: 'An unexpected PostHog error occurred. Please contact support.',
+    },
+    orphaned: {
+        label: 'Interrupted',
+        description:
+            'The analysis was interrupted before finishing and has been cleaned up. Run the scanner on this recording again if needed.',
     },
 }
 
@@ -188,6 +194,26 @@ export type ScannerConfig =
     | ClassifierScannerConfig
     | ScorerScannerConfig
 
+export type SamplingMode = 'focused' | 'balanced' | 'comprehensive'
+
+export const SAMPLING_MODE_OPTIONS: { value: SamplingMode; label: string; description: string }[] = [
+    {
+        value: 'focused',
+        label: 'Focused',
+        description: 'Only the most eventful sessions. Skips routine ones.',
+    },
+    {
+        value: 'balanced',
+        label: 'Balanced',
+        description: 'Skips the quietest sessions, keeps a broad mix.',
+    },
+    {
+        value: 'comprehensive',
+        label: 'Comprehensive',
+        description: 'Every session that matches your filters.',
+    },
+]
+
 // hedgehog_config's nullable index-signature type trips DeepPartial and ProfilePicture; the UI never reads it.
 export type ScannerCreatedBy = Omit<UserBasicApi, 'hedgehog_config'>
 
@@ -196,6 +222,7 @@ export type BaseReplayScanner = Omit<ReplayScannerApi, 'scanner_type' | 'scanner
     Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider'>> & {
         query: RecordingsQuery | null
         created_by: ScannerCreatedBy | null
+        sampling_mode: SamplingMode
     }
 
 export interface MonitorScanner extends BaseReplayScanner {

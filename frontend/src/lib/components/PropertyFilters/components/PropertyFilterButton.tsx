@@ -76,7 +76,22 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         const closable = onClose !== undefined
         const clickable = onClick !== undefined
 
-        const ButtonComponent = clickable ? 'button' : 'div'
+        // A native <button> can't contain the nested close <button> (invalid DOM nesting),
+        // so a closeable chip renders as a div with button semantics instead
+        const ButtonComponent = clickable && !closable ? 'button' : 'div'
+        const buttonRoleProps =
+            clickable && ButtonComponent === 'div'
+                ? {
+                      role: 'button',
+                      tabIndex: 0,
+                      onKeyDown: (e: React.KeyboardEvent) => {
+                          if (!disabledReason && (e.key === 'Enter' || e.key === ' ')) {
+                              e.preventDefault()
+                              onClick?.()
+                          }
+                      },
+                  }
+                : {}
 
         const button = (
             <ButtonComponent
@@ -89,6 +104,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                 })}
                 aria-disabled={!!disabledReason}
                 type={ButtonComponent === 'button' ? 'button' : undefined}
+                {...buttonRoleProps}
             >
                 <PropertyFilterIcon type={item.type} />
                 <span className="PropertyFilterButton-content" title={showGroupCard ? undefined : label}>

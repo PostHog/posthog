@@ -5,10 +5,11 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { HedgehogConstruction2 } from '@posthog/brand/hoggies'
+import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -44,16 +45,40 @@ import {
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
+import { SampleDataState, SampleDataVariant } from './SampleDataState'
+import { sampleDataStateLogic } from './sampleDataStateLogic'
+
+const HedgehogConstruction2 = pngHoggie(construction2Png)
 
 export function InsightEmptyState({
-    heading = 'There are no matching events for this query',
-    detail = 'Try changing the date range, or pick another action, event or breakdown.',
+    heading,
+    detail,
     icon: iconProp,
+    sampleDataVariant,
 }: {
     heading?: string
     detail?: string | JSX.Element
     icon?: JSX.Element
+    /**
+     * Shape of the pre-ingestion sample-data placeholder. When omitted, a line chart is shown unless
+     * custom heading/detail copy was provided; pass a variant to opt in even with custom copy, or
+     * `null` to opt this call site out entirely.
+     */
+    sampleDataVariant?: SampleDataVariant | null
 }): JSX.Element {
+    const { shouldShowSampleData } = useValues(sampleDataStateLogic)
+
+    // Before a project has ingested any events, "no matching events" is misleading — every chart is
+    // empty because nothing is flowing in yet. Show clearly-fake sample data instead, explaining on
+    // hover how to get real data. Call sites with purposeful custom copy keep their empty state
+    // unless they explicitly opted in with a variant.
+    const hasCustomCopy = heading !== undefined || detail !== undefined
+    if (shouldShowSampleData && sampleDataVariant !== null && (sampleDataVariant !== undefined || !hasCustomCopy)) {
+        return <SampleDataState variant={sampleDataVariant ?? 'line'} />
+    }
+
+    heading = heading ?? 'There are no matching events for this query'
+    detail = detail ?? 'Try changing the date range, or pick another action, event or breakdown.'
     const icon =
         iconProp ??
         (isChristmas() ? (

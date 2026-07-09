@@ -69,19 +69,23 @@ def _target_from_schema(schema: ExternalDataSchema) -> RepartitionTarget:
     )
 
 
-def _needs_pre_extraction_detection(schema: ExternalDataSchema) -> bool:
-    """Whether to measure the on-disk table for a repartition need, using only in-memory schema state.
+def _needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) -> bool:
+    """Whether to read the live on-disk partition sizes to decide if a repartition is needed.
 
-    Keeps the healthy no-op path free of any I/O (no job fetch, no delta-log read): we only fall through
-    to the on-disk measurement for a non-CDC table (CDC is excluded from the controller, matching the
-    post-load call site in load.py) whose last post-load measurement is over budget or was never
-    recorded. The never-recorded case covers a table whose merge OOMs every run, so post-load detection
-    never ran to record one — the chicken-and-egg this whole path exists to break.
+    We deliberately do NOT gate on the recorded `max_partition_bytes`. That value is only refreshed by
+    post-load detection, so for a table whose merge OOMs before post-load it goes stale and can sit far
+    below the true partition size — precisely the tables this path exists to rescue (e.g. a partition
+    that has since grown to many GB while the recorded value still reads a few hundred MB). Instead,
+    whenever the rollout flag is on (a targeted set of schemas) and the table isn't CDC-excluded, we
+    read the live partition sizes from the Delta log each run and let `maybe_flag_for_repartition` judge
+    against the real, current size. The cost is one metadata-only Delta-log read per sync, bounded to
+    flagged schemas; a disabled flag still short-circuits to a zero-I/O no-op.
     """
+    if not enabled:
+        return False
     if schema.sync_type == ExternalDataSchema.SyncType.CDC:
         return False
-    last_measured = schema.max_partition_bytes
-    return last_measured is None or last_measured > target_partition_bytes()
+    return True
 
 
 def _maybe_flag_pre_extraction(
@@ -128,7 +132,11 @@ def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
     # Always bracket the run with start/finish INFO lines so the Syncs UI shows the activity ran even
     # on the healthy no-op path (which otherwise only logs at DEBUG). The finally guarantees the finish
     # line regardless of which branch returns, including swallowed failures.
-    logger.info("repartition: activity started", job_id=inputs.job_id, source_id=inputs.source_id)
+    logger.info(
+        f"repartition: activity started job_id={inputs.job_id} source_id={inputs.source_id}",
+        job_id=inputs.job_id,
+        source_id=inputs.source_id,
+    )
     try:
         _maybe_repartition_table(inputs, logger)
     finally:
@@ -139,36 +147,46 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     try:
         schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
     except ExternalDataSchema.DoesNotExist:
-        logger.warning("repartition: schema not found, skipping activity", schema_id=inputs.schema_id)
+        logger.warning(
+            f"repartition: schema not found, skipping activity schema_id={inputs.schema_id}",
+            schema_id=inputs.schema_id,
+        )
         return
 
-    # Log the rollout-flag verdict (and the sizes that gate detection) so it's clear from the Syncs UI
-    # why a table does or doesn't repartition — a disabled flag is the most common reason for a no-op.
-    # Evaluate once here and thread the result into the pre-extraction detection path so the flag
-    # (a Team DB query plus a PostHog API call) isn't re-evaluated inside maybe_flag_for_repartition.
+    # Log the rollout-flag verdict (and the recorded/budget sizes) so it's clear from the Syncs UI why a
+    # table does or doesn't repartition — a disabled flag is the most common reason for a no-op. Note
+    # `max_partition_bytes` here is the last *recorded* value (can be stale); the gate no longer trusts
+    # it, the live size is read below. Evaluate the flag once and thread the result into the
+    # pre-extraction detection path so it isn't re-evaluated inside maybe_flag_for_repartition.
     enabled = is_auto_repartition_enabled(schema)
+    recorded_max_partition_bytes = schema.max_partition_bytes
+    budget = target_partition_bytes()
     logger.info(
-        "repartition: feature flag evaluated",
+        f"repartition: feature flag evaluated flag={WAREHOUSE_AUTO_REPARTITION_FLAG} enabled={enabled} "
+        f"max_partition_bytes={recorded_max_partition_bytes} target_partition_bytes={budget}",
         flag=WAREHOUSE_AUTO_REPARTITION_FLAG,
         enabled=enabled,
-        max_partition_bytes=schema.max_partition_bytes,
-        target_partition_bytes=target_partition_bytes(),
+        max_partition_bytes=recorded_max_partition_bytes,
+        target_partition_bytes=budget,
     )
 
     pending = schema.repartition_pending
     swap = schema.repartition_swap
 
-    # Fast no-op path: nothing queued and the in-memory gate says no on-disk measurement is needed.
-    # Return here — before fetching the job and reading the delta log — so the common healthy
-    # invocation avoids all on-disk I/O.
-    if pending is None and swap is None and not _needs_pre_extraction_detection(schema):
+    # Fast no-op path: nothing queued and the gate says no on-disk measurement is needed (flag off, or
+    # CDC). Return here — before fetching the job and reading the delta log — so the common healthy
+    # invocation avoids all on-disk I/O. Flagged tables fall through and measure the live size below.
+    if pending is None and swap is None and not _needs_pre_extraction_detection(schema, enabled):
         logger.info("repartition: nothing queued and no detection needed, nothing to do")
         return
 
     try:
         job = ExternalDataJob.objects.get(id=inputs.job_id)
     except ExternalDataJob.DoesNotExist:
-        logger.warning("repartition: job not found, skipping activity", job_id=inputs.job_id)
+        logger.warning(
+            f"repartition: job not found, skipping activity job_id={inputs.job_id}",
+            job_id=inputs.job_id,
+        )
         return
 
     helper = DeltaTableHelper(resource_name=schema.name, job=job, logger=logger)
@@ -188,7 +206,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     started_props = base_event_props(schema, schema.source, inputs.job_id)
     started_props["trigger_reason"] = trigger_reason
     capture_repartition_event("warehouse_repartition_started", started_props)
-    logger.info("repartition: starting", trigger_reason=trigger_reason)
+    logger.info(f"repartition: starting trigger_reason={trigger_reason}", trigger_reason=trigger_reason)
 
     start = time.monotonic()
     try:
@@ -230,7 +248,12 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         "warehouse_repartition_completed" if result.get("outcome") == "completed" else "warehouse_repartition_skipped"
     )
     capture_repartition_event(event, props)
-    logger.info("repartition: finished", outcome=result.get("outcome"), duration_seconds=duration)
+    outcome = result.get("outcome")
+    logger.info(
+        f"repartition: finished outcome={outcome} duration_seconds={duration}",
+        outcome=outcome,
+        duration_seconds=duration,
+    )
 
 
 def _handle_failure(

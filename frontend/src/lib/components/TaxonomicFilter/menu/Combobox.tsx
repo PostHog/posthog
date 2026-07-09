@@ -1054,6 +1054,7 @@ export function MenuFilterCombobox({
                                 <Autocomplete.Collection>
                                     {(entry: MenuFilterEntry) => (
                                         <Row
+                                            key={rowDomId(entry)}
                                             entry={entry}
                                             // Show the category label on mixed-group views (All,
                                             // Recent, Pinned) — those mix items from multiple

@@ -11,8 +11,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AccountApi,
     AccountNotebookApi,
+    AccountNotesListParams,
+    AccountRelationshipApi,
+    AccountRelationshipDefinitionApi,
+    AccountRelationshipDefinitionsListParams,
+    AccountRelationshipWriteApi,
     AccountsListParams,
     AccountsNotebooksListParams,
+    AccountsRelationshipsListParams,
     CustomPropertyDefinitionApi,
     CustomPropertyDefinitionsListParams,
     CustomPropertySourceApi,
@@ -27,13 +33,16 @@ import type {
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
     PaginatedAccountListApi,
+    PaginatedAccountNoteListApi,
     PaginatedAccountNotebookListApi,
+    PaginatedAccountRelationshipDefinitionListApi,
     PaginatedCustomPropertyDefinitionListApi,
     PaginatedCustomPropertySourceListApi,
     PaginatedCustomerJourneyListApi,
     PaginatedCustomerProfileConfigListApi,
     PaginatedGroupUsageMetricListApi,
     PatchedAccountApi,
+    PatchedAccountRelationshipDefinitionApi,
     PatchedCustomPropertyDefinitionApi,
     PatchedCustomPropertySourceUpdateApi,
     PatchedCustomerJourneyApi,
@@ -57,6 +66,152 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getAccountNotesListUrl = (projectId: string, params?: AccountNotesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/account_notes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/account_notes/`
+}
+
+export const accountNotesList = async (
+    projectId: string,
+    params?: AccountNotesListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountNoteListApi> => {
+    return apiMutator<PaginatedAccountNoteListApi>(getAccountNotesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountRelationshipDefinitionsListUrl = (
+    projectId: string,
+    params?: AccountRelationshipDefinitionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/account_relationship_definitions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/account_relationship_definitions/`
+}
+
+export const accountRelationshipDefinitionsList = async (
+    projectId: string,
+    params?: AccountRelationshipDefinitionsListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountRelationshipDefinitionListApi> => {
+    return apiMutator<PaginatedAccountRelationshipDefinitionListApi>(
+        getAccountRelationshipDefinitionsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAccountRelationshipDefinitionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_relationship_definitions/`
+}
+
+export const accountRelationshipDefinitionsCreate = async (
+    projectId: string,
+    accountRelationshipDefinitionApi: NonReadonly<AccountRelationshipDefinitionApi>,
+    options?: RequestInit
+): Promise<AccountRelationshipDefinitionApi> => {
+    return apiMutator<AccountRelationshipDefinitionApi>(getAccountRelationshipDefinitionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountRelationshipDefinitionApi),
+    })
+}
+
+export const getAccountRelationshipDefinitionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/account_relationship_definitions/${id}/`
+}
+
+export const accountRelationshipDefinitionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AccountRelationshipDefinitionApi> => {
+    return apiMutator<AccountRelationshipDefinitionApi>(getAccountRelationshipDefinitionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountRelationshipDefinitionsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/account_relationship_definitions/${id}/`
+}
+
+export const accountRelationshipDefinitionsUpdate = async (
+    projectId: string,
+    id: string,
+    accountRelationshipDefinitionApi: NonReadonly<AccountRelationshipDefinitionApi>,
+    options?: RequestInit
+): Promise<AccountRelationshipDefinitionApi> => {
+    return apiMutator<AccountRelationshipDefinitionApi>(getAccountRelationshipDefinitionsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountRelationshipDefinitionApi),
+    })
+}
+
+export const getAccountRelationshipDefinitionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/account_relationship_definitions/${id}/`
+}
+
+export const accountRelationshipDefinitionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedAccountRelationshipDefinitionApi?: NonReadonly<PatchedAccountRelationshipDefinitionApi>,
+    options?: RequestInit
+): Promise<AccountRelationshipDefinitionApi> => {
+    return apiMutator<AccountRelationshipDefinitionApi>(
+        getAccountRelationshipDefinitionsPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedAccountRelationshipDefinitionApi),
+        }
+    )
+}
+
+export const getAccountRelationshipDefinitionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/account_relationship_definitions/${id}/`
+}
+
+export const accountRelationshipDefinitionsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAccountRelationshipDefinitionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
 
 export const getAccountsListUrl = (projectId: string, params?: AccountsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -214,6 +369,72 @@ export const accountsNotebooksDestroy = async (
     return apiMutator<void>(getAccountsNotebooksDestroyUrl(projectId, accountId, shortId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAccountsRelationshipsListUrl = (
+    projectId: string,
+    accountId: string,
+    params?: AccountsRelationshipsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${accountId}/relationships/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${accountId}/relationships/`
+}
+
+export const accountsRelationshipsList = async (
+    projectId: string,
+    accountId: string,
+    params?: AccountsRelationshipsListParams,
+    options?: RequestInit
+): Promise<AccountRelationshipApi[]> => {
+    return apiMutator<AccountRelationshipApi[]>(getAccountsRelationshipsListUrl(projectId, accountId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsRelationshipsCreateUrl = (projectId: string, accountId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/relationships/`
+}
+
+export const accountsRelationshipsCreate = async (
+    projectId: string,
+    accountId: string,
+    accountRelationshipWriteApi: AccountRelationshipWriteApi,
+    options?: RequestInit
+): Promise<AccountRelationshipApi> => {
+    return apiMutator<AccountRelationshipApi>(getAccountsRelationshipsCreateUrl(projectId, accountId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountRelationshipWriteApi),
+    })
+}
+
+export const getAccountsRelationshipsEndCreateUrl = (projectId: string, accountId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/relationships/${id}/end/`
+}
+
+export const accountsRelationshipsEndCreate = async (
+    projectId: string,
+    accountId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AccountRelationshipApi> => {
+    return apiMutator<AccountRelationshipApi>(getAccountsRelationshipsEndCreateUrl(projectId, accountId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

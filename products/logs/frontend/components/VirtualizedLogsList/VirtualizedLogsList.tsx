@@ -4,9 +4,10 @@ import { useActions, useValues } from 'kea'
 import { CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react'
 import { List, getScrollbarSize, useDynamicRowHeight, useListRef } from 'react-window'
 
-import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { TZLabelProps } from 'lib/components/TZLabel'
@@ -31,6 +32,8 @@ import { VirtualizedTableColumn } from 'products/logs/frontend/components/Virtua
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+
 const DEFAULT_ROW_HEIGHT = 32
 
 interface VirtualizedLogsListProps {
@@ -48,6 +51,8 @@ interface VirtualizedLogsListProps {
     onExpandTimeRange?: () => void
     orderBy?: LogsOrderBy
     onChangeOrderBy?: (orderBy: LogsOrderBy) => void
+    /** Uuids of the latest live-tail batch — these rows play the one-shot arrival highlight. */
+    newLogUuids?: Set<string>
 }
 
 interface LogsListRowProps {
@@ -68,6 +73,7 @@ interface LogsListRowProps {
     prettifiedLogIds: Set<string>
     togglePrettifyLog: (logId: string) => void
     dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
+    newLogUuids?: Set<string>
 }
 
 function LogsListRow({
@@ -90,6 +96,7 @@ function LogsListRow({
     prettifiedLogIds,
     togglePrettifyLog,
     dynamicRowHeight,
+    newLogUuids,
 }: {
     ariaAttributes: Record<string, unknown>
     index: number
@@ -126,6 +133,7 @@ function LogsListRow({
                 }}
                 isPrettified={prettifiedLogIds.has(log.uuid)}
                 onTogglePrettify={(l) => togglePrettifyLog(l.uuid)}
+                isNew={newLogUuids?.has(log.uuid) ?? false}
             />
         </div>
     )
@@ -146,6 +154,7 @@ export function VirtualizedLogsList({
     onExpandTimeRange,
     orderBy,
     onChangeOrderBy,
+    newLogUuids,
 }: VirtualizedLogsListProps): JSX.Element {
     const {
         id,
@@ -305,6 +314,7 @@ export function VirtualizedLogsList({
             prettifiedLogIds,
             togglePrettifyLog,
             dynamicRowHeight,
+            newLogUuids,
         }),
         [
             dataSource,
@@ -323,6 +333,7 @@ export function VirtualizedLogsList({
             prettifiedLogIds,
             togglePrettifyLog,
             dynamicRowHeight,
+            newLogUuids,
         ]
     )
 
