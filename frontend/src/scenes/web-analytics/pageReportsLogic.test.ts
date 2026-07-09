@@ -48,6 +48,17 @@ describe('createPageReportsFilters', () => {
         expect(filters.map((filter) => filter.key).sort()).toEqual([...expectKeys].sort())
     })
 
+    // A malformed persisted value or a bracket-notation pageURL query param can reach the selector as a
+    // non-string, which used to hit url.split and crash every page report tile with "e.split is not a function".
+    test.each([
+        { name: 'object', url: { foo: 'bar' } },
+        { name: 'nested array', url: [['a']] },
+        { name: 'number', url: 123 },
+    ])('non-string pageUrl ($name) yields no filters instead of throwing', ({ url }) => {
+        expect(() => createPageReportsFilters(url as unknown as string, true, null)).not.toThrow()
+        expect(createPageReportsFilters(url as unknown as string, true, null)).toEqual([])
+    })
+
     test.each([
         {
             name: 'cleaning off keeps the pathname an exact match',

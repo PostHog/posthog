@@ -64,6 +64,12 @@ export interface PageURLSearchResult {
 }
 
 export function createUrlPropertyFilter(url: string, stripQueryParams: boolean): WebAnalyticsPropertyFilters {
+    // Guard against a non-string pageUrl (e.g. a malformed persisted value or a bracket-notation
+    // query param parsed into an object/array) reaching url.split below and crashing the scene.
+    if (typeof url !== 'string') {
+        return []
+    }
+
     const parsed = parseWebAnalyticsURL(url)
 
     if (parsed.isValid && parsed.host && parsed.pathname) {
@@ -297,9 +303,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 setPageUrl: (_state, { url }) => {
                     if (Array.isArray(url)) {
                         // We're querying by url and count()
-                        return url.length > 0 ? url[0] : null
+                        const first = url.length > 0 ? url[0] : null
+                        return typeof first === 'string' ? first : null
                     }
-                    return url
+                    // kea-router can parse bracket-notation or repeated pageURL params into an
+                    // object/nested array, so coerce anything that isn't a plain string to null.
+                    return typeof url === 'string' ? url : null
                 },
             },
         ],
