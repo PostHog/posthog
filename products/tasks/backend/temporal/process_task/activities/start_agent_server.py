@@ -20,12 +20,13 @@ from products.tasks.backend.logic.services.connection_token import create_sandbo
 from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import StepTimer, record_agent_server_session_init_ms, record_boot_total_ms
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     format_allowed_domains_for_log,
     get_sandbox_ph_mcp_configs,
+    get_task_run_credential_user,
     get_user_mcp_server_configs,
     mark_mcp_token_issued,
 )
@@ -177,8 +178,9 @@ def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
 
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _LaunchParams:
     try:
-        task = Task.objects.select_related("created_by").get(id=ctx.task_id)
-        access_token = create_oauth_access_token(task, scopes=scopes)
+        task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
+        actor_user = get_task_run_credential_user(task, ctx.state)
+        access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
     except OAuthTokenError:
         raise
     except Exception as e:
@@ -212,11 +214,11 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         interaction_origin=ctx.interaction_origin,
         task_id=str(ctx.task_id),
     )
-    if task.created_by_id:
+    if actor_user and actor_user.id:
         user_mcp_configs = get_user_mcp_server_configs(
             token=access_token,
             team_id=ctx.team_id,
-            user_id=task.created_by_id,
+            user_id=actor_user.id,
             interaction_origin=ctx.interaction_origin,
         )
         if user_mcp_configs:
@@ -292,6 +294,7 @@ def _invoke_start_agent_server(
             provider=ctx.provider,
             model=ctx.model,
             reasoning_effort=ctx.reasoning_effort,
+            initial_permission_mode=ctx.initial_permission_mode,
             mcp_configs=params.mcp_configs or None,
             allowed_domains=params.agentsh_domains,
             event_ingest_token=params.event_ingest_token,
