@@ -32,7 +32,7 @@ source of truth for freshness.
 
 Force-refresh is used deliberately. The DEFAULT execution mode gates on the
 HogQL query result cache (6h staleness), which is the wrong clock for a
-precompute warmer whose buckets expire on a much shorter TTL (2h for
+precompute warmer whose buckets expire on a much shorter TTL (4h for
 today's bucket) — it would skip tiles whose Redis result is still "fresh"
 while the precompute they feed has gone cold. Force-refresh always recomputes,
 so every tick re-enters the precompute path. Crucially it goes through `run()`
