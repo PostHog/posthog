@@ -23,6 +23,7 @@ from posthog.temporal.weekly_digest.activities import (
     generate_product_suggestion_lookup,
     generate_recording_lookup,
     generate_survey_lookup,
+    generate_usage_trends_lookup,
     generate_user_notification_lookup,
     send_weekly_digest_batch,
 )
@@ -32,6 +33,7 @@ from posthog.temporal.weekly_digest.types import (
     GenerateDigestDataBatchInput,
     GenerateOrganizationDigestInput,
     SendWeeklyDigestBatchInput,
+    UsageTrends,
 )
 
 
@@ -951,3 +953,32 @@ def test_query_team_usage_trends_windows_persons_and_test_accounts(team):
     events, users = result.metrics
     assert (events.label, events.current, events.previous) == ("Events", 3, 1)
     assert (users.label, users.current, users.previous) == ("Active users", 2, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "side_effects,should_raise",
+    [
+        # Systemic failure (broken query / offline outage): every team errors -> fail the run loudly.
+        ([Exception("boom"), Exception("boom")], True),
+        # Isolated failure: one team errors, another succeeds -> tolerate and keep going.
+        ([Exception("boom"), UsageTrends(metrics=[])], False),
+    ],
+)
+async def test_generate_usage_trends_lookup_raises_only_when_every_team_fails(
+    side_effects, should_raise, mock_redis, common_input, digest
+):
+    input_data = GenerateDigestDataBatchInput(batch=(0, 2), digest=digest, common=common_input)
+    team_1, team_2 = MagicMock(), MagicMock()
+    team_1.id, team_2.id = 1, 2
+    mock_team_queryset = MockAsyncQuerySet([team_1, team_2])
+
+    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
+        with patch("posthog.temporal.weekly_digest.activities.database_sync_to_async") as mock_sync:
+            mock_sync.return_value = AsyncMock(side_effect=side_effects)
+            with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
+                if should_raise:
+                    with pytest.raises(RuntimeError):
+                        await generate_usage_trends_lookup(input_data)
+                else:
+                    await generate_usage_trends_lookup(input_data)

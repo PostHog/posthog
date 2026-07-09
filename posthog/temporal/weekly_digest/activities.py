@@ -436,15 +436,19 @@ async def generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> N
         logger.info("Generating usage trends batch")
 
         team_count = 0
+        attempted = 0
+        error_count = 0
 
         async with redis.from_url(_redis_url(input.common)) as r:
             batch_start, batch_end = input.batch
             async for team in query_teams_for_digest()[batch_start:batch_end]:
+                attempted += 1
                 try:
                     usage_trends = await database_sync_to_async(_query_team_usage_trends)(
                         team.id, input.digest.period_start, input.digest.period_end
                     )
                 except Exception as e:
+                    error_count += 1
                     logger.warning(
                         f"Failed to generate usage trends for team {team.id}, skipping...",
                         error=str(e),
@@ -459,7 +463,13 @@ async def generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> N
                 await r.setex(key, input.common.redis_ttl, usage_trends.model_dump_json())
                 team_count += 1
 
-        logger.info("Finished generating usage trends batch", team_count=team_count)
+        # A malformed query (or an offline-cluster outage) fails for every team, which would
+        # otherwise look identical to "no active teams" and silently ship an empty section for
+        # the whole batch. Surface it so the activity retries and then fails the run loudly.
+        if attempted > 0 and error_count == attempted:
+            raise RuntimeError(f"Usage trends query failed for all {attempted} teams in batch")
+
+        logger.info("Finished generating usage trends batch", team_count=team_count, error_count=error_count)
 
 
 @activity.defn(name="generate-user-notification-lookup")
