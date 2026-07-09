@@ -38,6 +38,17 @@ class TestPlainSource:
         assert "401 Client Error" in errors
         assert "403 Client Error" in errors
 
+    def test_source_config_documents_scopes_the_queries_require(self):
+        # The customers/threads queries read assignee (user:read) and label (label:read) data, and Plain
+        # 403s the whole request when the key lacks a scope any requested field needs. Keep the setup
+        # caption and the forbidden-error guidance in sync with what the queries actually fetch.
+        required_scopes = ["customer:read", "thread:read", "timeline:read", "user:read", "label:read"]
+        caption = self.source.get_source_config.caption
+        forbidden_message = self.source.get_non_retryable_errors()["403 Client Error"]
+        for scope in required_scopes:
+            assert scope in caption
+            assert forbidden_message is not None and scope in forbidden_message
+
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
