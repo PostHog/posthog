@@ -745,6 +745,31 @@ describe('sqlLineGraphAdapter', () => {
             expect((config.yAxis as YAxisConfig)?.scale).toBe('linear')
         })
 
+        it.each<[string, ChartDisplayType, ChartSettings, boolean]>([
+            [
+                'enables divergingStack for stacked bars so negatives render below zero',
+                ChartDisplayType.ActionsStackedBar,
+                {},
+                true,
+            ],
+            [
+                'disables divergingStack for percent-stacked bars',
+                ChartDisplayType.ActionsStackedBar,
+                { stackBars100: true },
+                false,
+            ],
+            ['disables divergingStack for grouped bars', ChartDisplayType.ActionsBar, {}, false],
+        ])('%s', (_name, visualizationType, chartSettings, expected) => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings,
+                timezone: 'UTC',
+                visualizationType,
+                ySeriesData: [ySeries('a', [1, -2])],
+            })
+            expect(config.divergingStack).toBe(expected)
+        })
+
         it('formats y-axis ticks with the first series column settings for plain bars', () => {
             const config = buildBarChartConfig({
                 xData: dateXData,

@@ -54,6 +54,7 @@ import {
     partitionContainsShortcuts,
     urlContainsRowLabel,
 } from '../utils/collapsedContainsRow'
+import { floatToFront } from '../utils/floatToFront'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { MatchedValueBadge } from './MatchedValueBadge'
@@ -151,15 +152,6 @@ function entryLabelMatchesSelection(entry: MenuFilterEntry, selected: MenuFilter
  *  selection means we must not also prepend a synthetic placeholder. */
 function entryMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry): boolean {
     return entryValueMatchesSelection(entry, selected) || entryLabelMatchesSelection(entry, selected)
-}
-
-/** Move the element at `index` to the front, preserving the order of the rest.
- *  No-op when `index <= 0` (already first, or not found via `findIndex` -> -1). */
-function floatToFront<T>(list: T[], index: number): T[] {
-    if (index <= 0) {
-        return list
-    }
-    return [list[index], ...list.slice(0, index), ...list.slice(index + 1)]
 }
 
 function fuseMatchEntries(entries: MenuFilterEntry[], query: string): MenuFilterEntry[] {

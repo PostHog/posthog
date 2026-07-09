@@ -44,7 +44,7 @@ ROLES=(
 )
 
 # Pin to the same chschema build as bin/hclexp; override via repo variable.
-HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-bf84186}"
+HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-0409212}"
 
 # hclexp that can reach ClickHouse on the host's published ports. Prefer a local
 # binary; otherwise a container sharing the host network namespace so localhost
@@ -58,6 +58,13 @@ run_hclexp() {
   local tmp="${TMPDIR:-/tmp}"; tmp="${tmp%/}"
   docker run --rm --network host -v "$PWD:/work" -v "$tmp:$tmp" -w /work "$HCLEXP_IMAGE" "$@"
 }
+
+# Record the hclexp build that produced this dump (informational provenance; not
+# gated by check-live). Best-effort: an image predating `-version` must not fail
+# the dump, so keep it off the rc path.
+run_hclexp -version > "$OUTDIR/hclexp-version.txt" 2>&1 \
+  || echo "WARN: hclexp -version unavailable (older image?) — see $OUTDIR/hclexp-version.txt" >&2
+chmod 0644 "$OUTDIR/hclexp-version.txt" 2>/dev/null || true
 
 rc=0
 for spec in "${ROLES[@]}"; do

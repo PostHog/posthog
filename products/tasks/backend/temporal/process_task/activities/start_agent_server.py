@@ -285,6 +285,7 @@ def _invoke_start_agent_server(
             run_id=ctx.run_id,
             mode=ctx.mode,
             create_pr=ctx.create_pr,
+            auto_publish=ctx.auto_publish,
             interaction_origin=ctx.interaction_origin,
             branch=params.protected_base_branch,
             runtime_adapter=ctx.runtime_adapter,
@@ -298,12 +299,21 @@ def _invoke_start_agent_server(
             event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             wait_for_health=wait_for_health,
+            rtk_enabled=ctx.rtk_enabled,
         )
 
         # Mark startup-time token issuance so follow-ups within the next
         # 30m window skip the redundant refresh.
         if params.mcp_configs:
             mark_mcp_token_issued(ctx.run_id)
+
+        # Persist the effective rtk posture the agent launched with, so terminal
+        # analytics can cohort runs by it (the state override alone misses the
+        # kill-switch flag). Best-effort: never fail the launch over it.
+        try:
+            TaskRun.update_state_atomic(ctx.run_id, updates={"rtk_effective": ctx.rtk_enabled})
+        except Exception:
+            logger.warning("persist_rtk_effective_failed", run_id=ctx.run_id, exc_info=True)
     except Exception as e:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)

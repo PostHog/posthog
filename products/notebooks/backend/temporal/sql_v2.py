@@ -69,7 +69,8 @@ class NotebookSQLV2RunWorkflow(PostHogWorkflow):
                 retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=2)),
             )
         except Exception:
-            # Dispatch exhausted its retries — make sure the run reaches a terminal state.
+            # All workflow related errors are caught and re-tried within 'await'.
+            # This catch clause means dispatch exhausted its retries — let's make sure the run reaches a terminal state.
             await workflow.execute_activity(
                 mark_sql_v2_run_failed_activity,
                 input,
