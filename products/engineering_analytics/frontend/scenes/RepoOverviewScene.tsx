@@ -85,9 +85,8 @@ function HeroStat({
     )
 }
 
-/** The page's thesis: is the pipeline healthy right now? Default-branch verdict (a calm dot when clean, a
- *  red "N failing" that jumps to the triage table) plus the open-PR backlog pressure. Both are current-state,
- *  not windowed — so this sits above the date filter, which governs everything below it. */
+/** The page's thesis: is the pipeline healthy right now? Default-branch verdict plus open-PR backlog
+ *  pressure, both current-state, so it sits above the date filter that scopes everything below. */
 function PipelineVerdictHero({
     failingCount,
     failingWorkflows,
@@ -102,39 +101,40 @@ function PipelineVerdictHero({
     backlog: { open: number | null; failingCi: number | null; stuck: number | null }
 }): JSX.Element {
     const failing = failingCount > 0
-    const branchLabel = defaultBranch === 'main' ? 'Main' : 'Master'
     const dotColor = loading ? 'var(--muted)' : failing ? 'var(--danger)' : 'var(--success)'
-    const status = loading ? 'Checking…' : failing ? `${failingCount} failing` : 'Passing'
-    const subline = loading
-        ? `Checking ${branchLabel.toLowerCase()}…`
-        : failing
-          ? failingWorkflows.slice(0, 3).join(' · ') + (failingCount > 3 ? ` · +${failingCount - 3} more` : '')
-          : `Nothing failing on ${defaultBranch} in the last 24 hours`
+    const status = loading ? 'Checking' : failing ? `${failingCount} failing` : 'Passing'
+    // Only the failing state earns a subline (which workflows broke). "Passing" already says the rest.
+    const failingNames = failingWorkflows.slice(0, 3).join(', ') + (failingCount > 3 ? ` +${failingCount - 3}` : '')
     return (
         <LemonCard
             hoverEffect={failing}
             onClick={failing ? () => scrollToSection('now') : undefined}
-            className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 px-6 py-5"
+            className={cn(
+                'flex flex-wrap items-center justify-between gap-x-8 gap-y-4 px-6 py-5',
+                failing && 'bg-fill-error-tertiary'
+            )}
         >
-            <div className="flex min-w-0 flex-col gap-1">
-                <span className="text-xs text-secondary">{branchLabel} · last 24 hours</span>
-                <span className="flex items-center gap-2.5">
+            <div className="flex min-w-0 flex-col gap-1.5">
+                <Tooltip title="Default-branch workflow runs failing in the last 24 hours.">
+                    <span className="w-fit cursor-default font-mono text-xs text-tertiary">{defaultBranch}</span>
+                </Tooltip>
+                <span className="flex items-baseline gap-2.5">
                     <span
-                        className="inline-block size-3 shrink-0 rounded-full"
+                        className="inline-block size-2.5 shrink-0 translate-y-[-0.15em] rounded-full"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ backgroundColor: dotColor }}
                     />
                     <span
                         className={cn(
-                            'text-3xl font-bold leading-none',
+                            'text-3xl font-bold leading-none tracking-tight',
                             loading ? 'text-tertiary' : failing ? 'text-danger' : 'text-primary'
                         )}
                     >
                         {status}
                     </span>
-                    {failing && <span className="text-base text-danger">→</span>}
+                    {failing && <span className="text-sm font-medium text-danger">View →</span>}
                 </span>
-                <span className="truncate text-xs text-tertiary">{subline}</span>
+                {failing && <span className="truncate text-xs text-secondary">{failingNames}</span>}
             </div>
             <div className="flex items-center gap-6">
                 <HeroStat label="Open PRs" value={backlog.open} />
@@ -359,8 +359,8 @@ export function RepoOverviewScene(): JSX.Element {
                 }}
             />
 
-            {/* Now zone: current-state surfaces sit above the filter — what's broken and what's stuck right
-                now. The backlog summary is the hero's; this section is just the triage table. */}
+            {/* Now zone: current-state surfaces above the filter. The hero owns the backlog summary, so this
+                section is just the triage table. */}
             <MasterFailuresSection />
 
             <Section id="prs" title="Pull requests needing attention">
@@ -393,20 +393,15 @@ export function RepoOverviewScene(): JSX.Element {
                 </LemonCard>
             </Section>
 
-            {/* The date filter divides the page: the hero and the two sections above are current-state; every
-                surface below reflects the selected window. */}
-            <div className="mt-1 flex flex-wrap items-center gap-2 border-t border-primary pt-4">
-                <span className="text-xs font-medium text-secondary">This window</span>
-                <span className="ml-auto flex items-center gap-2">
-                    {hubReloading && <Spinner className="text-secondary" />}
-                    <SourceScopeChip pickerOnly />
-                    <ScopeDateFilter />
-                </span>
+            {/* The filter is the seam: everything above is current-state, everything below reflects its window. */}
+            <div className="mt-1 flex flex-wrap items-center justify-end gap-2 border-t border-primary pt-4">
+                {hubReloading && <Spinner className="text-secondary" />}
+                <SourceScopeChip pickerOnly />
+                <ScopeDateFilter />
             </div>
 
-            {/* The windowed headline metrics — each a value + colored delta over a sentiment-colored sparkline
-                (the same treatment for every metric, so nothing reads as a lesser "tile"). CI cost is not
-                here: it's a window total, not a rate, so its number lives on the Workflows section below. */}
+            {/* The windowed headline metrics, each a value + colored delta over a sentiment-colored sparkline.
+                CI cost is a window total, not a rate, so its number lives on the Workflows section below. */}
             <Section id="trends" title="Trends" busy={overviewLoading}>
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                     {/* CI health: share of completed runs that passed, all branches. */}
@@ -417,7 +412,7 @@ export function RepoOverviewScene(): JSX.Element {
                         renderTooltipValue={(value) => percent(value, 1)}
                         loading={overviewPending}
                         emptyText="Not enough completed CI runs in the window yet."
-                        caption="Share of completed CI runs that passed, across all branches. Higher is healthier."
+                        caption="Share of completed CI runs that passed, all branches."
                     />
 
                     {/* Median time-to-green on PR runs (success-only, PR-scoped; see #67398). */}
@@ -429,7 +424,7 @@ export function RepoOverviewScene(): JSX.Element {
                         goodWhenDown
                         loading={overviewPending}
                         emptyText="Not enough successful PR CI runs in the window yet."
-                        caption="Median CI time-to-green on pull requests — successful runs only, default branch excluded. Lower is faster."
+                        caption="Median time-to-green on pull requests: successful runs only, default branch excluded."
                     />
 
                     {/* PR throughput: coarse created→merged time, bots and drafts excluded. */}
@@ -441,7 +436,7 @@ export function RepoOverviewScene(): JSX.Element {
                         goodWhenDown
                         loading={overviewPending}
                         emptyText="No PRs merged in the window yet."
-                        caption="Median created-to-merged time, bots and drafts excluded. Coarse: draft and ready time are fused. Lower is faster."
+                        caption="Median created-to-merged time, bots and drafts excluded. Coarse: draft and ready time are fused."
                     />
 
                     {/* CI cost per merged PR. */}
@@ -457,7 +452,7 @@ export function RepoOverviewScene(): JSX.Element {
                                 ? 'No costable jobs in the window.'
                                 : 'Cost appears once the job-level source is synced.'
                         }
-                        caption="Estimated Depot CI cost per merged PR (trailing-window ratio). Per-workflow spend is in the Workflows section below."
+                        caption="Estimated Depot CI cost per merged PR, trailing-window ratio. Per-workflow spend is in Workflows below."
                     />
                 </div>
             </Section>
