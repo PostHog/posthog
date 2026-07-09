@@ -12,8 +12,11 @@ from products.dashboards.backend.api.dashboard import collect_tile_futures, seri
 
 class TestTileSerializationPool(SimpleTestCase):
     def test_collect_returns_results_in_submission_order(self):
+        def make(i: int) -> tuple[int, dict, list]:
+            return (i, {"order": i}, [])
+
         with ThreadPoolExecutor(max_workers=2) as pool:
-            futures = [pool.submit(lambda i=i: (i, {"order": i}, [])) for i in range(4)]
+            futures = [pool.submit(make, i) for i in range(4)]
             results, failure = collect_tile_futures(futures, timeout=5)
 
         assert failure is None
