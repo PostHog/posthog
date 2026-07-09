@@ -17,7 +17,6 @@ from posthog.hogql.database.database import get_data_warehouse_table_name
 from posthog.hogql_queries.access_controlled_resources import (
     _references_data_warehouse,
     queried_access_controlled_resources,
-    warehouse_names_cache_scope,
 )
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -135,7 +134,7 @@ class TestQueriedAccessControlledResources(BaseTest):
         )
         assert result == {"warehouse_table", "notebook"}
 
-    def test_catalog_lookup_is_memoized_within_scope_and_fetches_narrowly(self):
+    def test_catalog_fetch_loads_only_name_fields(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="s",
@@ -149,29 +148,8 @@ class TestQueriedAccessControlledResources(BaseTest):
         table.save()
 
         query = HogQLQuery(query="select * from stripe_customers")
-        with warehouse_names_cache_scope():
-            # One query each for tables and views. A third means the .only() field list no
-            # longer covers what get_data_warehouse_table_name reads, i.e. a per-row defer-load.
-            with self.assertNumQueries(2):
-                assert queried_access_controlled_resources(query, self.team) == {"warehouse_table"}
-            with self.assertNumQueries(0):
-                assert queried_access_controlled_resources(query, self.team) == {"warehouse_table"}
-
-    def test_catalog_writes_invalidate_the_scope_cache(self):
-        query = HogQLQuery(query="select * from fresh_table")
-        with warehouse_names_cache_scope():
-            assert queried_access_controlled_resources(query, self.team) == set()
-            # post_save must clear the scope cache, or this table would be fingerprinted as
-            # nonexistent (unpartitioned cache key) for the rest of the request.
-            self._create_warehouse_table("fresh_table")
-            assert queried_access_controlled_resources(query, self.team) == {"warehouse_table"}
-
-    def test_catalog_lookup_is_uncached_outside_a_scope(self):
-        self._create_warehouse_table("my_warehouse_table")
-        query = HogQLQuery(query="select * from my_warehouse_table")
-        queried_access_controlled_resources(query, self.team)
-        # No scope is active, so nothing may be cached: a cache outliving the request/task
-        # scope could fingerprint against a stale catalog after access-relevant rows change.
+        # One query each for tables and views. A third means the .only() field list no longer
+        # covers what get_data_warehouse_table_name reads, i.e. rows silently defer-load per row.
         with self.assertNumQueries(2):
             assert queried_access_controlled_resources(query, self.team) == {"warehouse_table"}
 
