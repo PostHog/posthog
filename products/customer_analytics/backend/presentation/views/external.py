@@ -124,7 +124,7 @@ def _update_error_response(result: contracts.ExternalAccountUpdateResult) -> Res
         )
     if result.error == contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND:
         return Response(
-            {"error": f"{result.error_field}: no relationship definition with this name"},
+            {"error": f"{result.error_field}: no relationship definition with this ID"},
             status=status.HTTP_400_BAD_REQUEST,
         )
     assert result.error is not None
@@ -142,9 +142,9 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
         child=serializers.JSONField(allow_null=True),
         required=False,
         help_text=(
-            "Relationship assignments keyed by definition name (e.g. 'CSM'). Each value is an "
-            "assignee object `{type: 'user', id}` or null to end the active assignment. Only the "
-            "named definitions are changed."
+            "Relationship assignments keyed by definition UUID. Each value is an assignee object "
+            "`{type: 'user', id}` or null to end the active assignment. Only the supplied "
+            "definitions are changed."
         ),
     )
     tags = serializers.ListField(
