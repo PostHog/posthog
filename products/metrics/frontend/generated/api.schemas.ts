@@ -419,7 +419,7 @@ export interface _MetricSamplesBodyApi {
     /** Upper bound (exclusive) for the sample window. Defaults to now if omitted. */
     dateTo?: string
     /**
-     * Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.
+     * Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.
      * @maxLength 255
      */
     traceId?: string
@@ -465,9 +465,9 @@ export interface _MetricEventSampleApi {
     is_monotonic: boolean
     /** Service that emitted the metric. */
     service_name: string
-    /** Trace this emission belongs to; empty if none. Use it to pivot to the trace. */
+    /** Trace this emission belongs to (hex, same form the tracing product uses); empty if none. Use it to pivot to the trace. */
     trace_id: string
-    /** Span this emission belongs to; empty if none. */
+    /** Span this emission belongs to (hex); empty if none. */
     span_id: string
     /** Per-emission attributes (high-cardinality labels on the data point). */
     attributes: _MetricEventSampleApiAttributes

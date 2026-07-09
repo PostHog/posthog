@@ -248,6 +248,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "posthog_business_hours",
             "non_failure_status_codes",
             "customer_analytics_account_properties",
+            "customer_analytics_account_relationships",
         ]
     )
     key = serializers.CharField()
@@ -325,7 +326,11 @@ class InputsItemSerializer(serializers.Serializer):
             else:
                 if not isinstance(value, bool):
                     raise serializers.ValidationError({"input": f"Value must be a boolean."})
-        elif item_type in ("dictionary", "customer_analytics_account_properties"):
+        elif item_type in (
+            "dictionary",
+            "customer_analytics_account_properties",
+            "customer_analytics_account_relationships",
+        ):
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be a dictionary."})
         elif item_type == "integration":
@@ -372,6 +377,7 @@ class InputsItemSerializer(serializers.Serializer):
                         "native_email",
                         "posthog_ticket_tags",
                         "customer_analytics_account_properties",
+                        "customer_analytics_account_relationships",
                     ] or (item_type == "boolean" and isinstance(value, str))
                     if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):

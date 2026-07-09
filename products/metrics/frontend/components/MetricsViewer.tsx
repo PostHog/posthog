@@ -27,6 +27,8 @@ import { DateMappingOption, FilterLogicalOperator, UniversalFiltersGroup, Univer
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { MetricsChartLegend } from './MetricsChartLegend'
+import { metricsSamplesLogic } from './metricsSamplesLogic'
+import { MetricsSamplesPanel } from './MetricsSamplesPanel'
 import { MetricStatPanel } from './MetricStatPanel'
 import {
     LIVE_REFRESH_MS,
@@ -98,6 +100,9 @@ export const MetricsViewer = (): JSX.Element => {
     // Keep the picker logic mounted alongside the viewer so the chosen metric's
     // metric_type stays available for the aggregation hint after the dropdown closes.
     const pickerLogic = useMountedLogic(metricNamePickerLogic())
+    // The side panel's logic listens to this viewer's filter changes; mounting it
+    // here keeps samples in sync even while the panel itself is off-screen.
+    useMountedLogic(metricsSamplesLogic())
     const {
         metricName,
         aggregation,
@@ -270,44 +275,53 @@ export const MetricsViewer = (): JSX.Element => {
                     bordered
                 />
             </div>
-            <div className="relative h-[360px] border rounded p-3">
-                {!hasMetricName ? (
-                    <div className="h-full flex items-center justify-center text-secondary text-sm">
-                        Pick a metric to see its time series.
+            <div className="flex flex-col xl:flex-row gap-3 items-stretch">
+                <div className="flex-1 min-w-0">
+                    <div className="relative h-[360px] border rounded p-3">
+                        {!hasMetricName ? (
+                            <div className="h-full flex items-center justify-center text-secondary text-sm">
+                                Pick a metric to see its time series.
+                            </div>
+                        ) : queryError ? (
+                            <div className="h-full flex items-center justify-center">
+                                <LemonBanner type="error" className="max-w-md">
+                                    {queryError}
+                                </LemonBanner>
+                            </div>
+                        ) : hasResults && viewMode === 'stat' ? (
+                            <MetricStatPanel
+                                title={metricName}
+                                summary={statSummary}
+                                aggregation={aggregation}
+                                total={statTotal}
+                                values={sparklineValues}
+                                labels={sparklineLabels.map(renderLabel)}
+                                anomaly={anomalyBadge}
+                            />
+                        ) : hasResults ? (
+                            <Sparkline
+                                type="line"
+                                data={chartSeries}
+                                labels={sparklineLabels}
+                                className="w-full h-full"
+                                withXScale={withXScale}
+                                renderLabel={renderLabel}
+                            />
+                        ) : !queryResultsLoading ? (
+                            <div className="h-full flex items-center justify-center text-secondary text-sm">
+                                No data for this metric in the selected range.
+                            </div>
+                        ) : null}
+                        {queryResultsLoading && <SpinnerOverlay />}
                     </div>
-                ) : queryError ? (
-                    <div className="h-full flex items-center justify-center">
-                        <LemonBanner type="error" className="max-w-md">
-                            {queryError}
-                        </LemonBanner>
+                    {viewMode === 'chart' && hasResults && <MetricsChartLegend series={chartSeries} />}
+                </div>
+                {viewMode === 'chart' && hasMetricName && (
+                    <div className="xl:w-[26rem] shrink-0 xl:max-h-[360px] flex flex-col">
+                        <MetricsSamplesPanel />
                     </div>
-                ) : hasResults && viewMode === 'stat' ? (
-                    <MetricStatPanel
-                        title={metricName}
-                        summary={statSummary}
-                        aggregation={aggregation}
-                        total={statTotal}
-                        values={sparklineValues}
-                        labels={sparklineLabels.map(renderLabel)}
-                        anomaly={anomalyBadge}
-                    />
-                ) : hasResults ? (
-                    <Sparkline
-                        type="line"
-                        data={chartSeries}
-                        labels={sparklineLabels}
-                        className="w-full h-full"
-                        withXScale={withXScale}
-                        renderLabel={renderLabel}
-                    />
-                ) : !queryResultsLoading ? (
-                    <div className="h-full flex items-center justify-center text-secondary text-sm">
-                        No data for this metric in the selected range.
-                    </div>
-                ) : null}
-                {queryResultsLoading && <SpinnerOverlay />}
+                )}
             </div>
-            {viewMode === 'chart' && hasResults && <MetricsChartLegend series={chartSeries} />}
         </div>
     )
 }
