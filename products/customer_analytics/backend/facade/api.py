@@ -16,6 +16,7 @@ Do NOT:
 """
 
 from collections.abc import Iterable
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
@@ -256,6 +257,10 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
     ``properties`` is the exact ``model_dump(mode="json")`` of the validated
     pydantic properties and ``tags`` the sorted tag names — byte-identical to
     what the CDP worker consumed before this moved behind the facade.
+
+    ``custom_properties`` includes every team definition keyed by name, with the
+    account's active value (scalar) or ``None`` when unset, so workflow result
+    paths are deterministic regardless of whether the property has been set.
     """
     relationships: dict[str, list[dict]] = {}
     for relationship in (
@@ -268,6 +273,19 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
         relationships.setdefault(relationship.definition.name, []).append(
             {"user_id": relationship.user.id, "email": relationship.user.email}
         )
+
+    definitions = list(CustomPropertyDefinition.objects.for_team(account.team_id).values("id", "name"))
+    active_values = {
+        row.definition_id: row
+        for row in _custom_property_values_logic.list_active_custom_property_values(
+            team_id=account.team_id, account_id=account.id
+        )
+    }
+    custom_properties: dict[str, float | bool | str | None] = {
+        defn["name"]: _scalar_value(active_values[defn["id"]]) if defn["id"] in active_values else None
+        for defn in definitions
+    }
+
     return contracts.ExternalAccount(
         id=str(account.id),
         external_id=account.external_id,
@@ -275,7 +293,18 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
         properties=account.properties.model_dump(mode="json"),
         tags=sorted(account.tagged_items.values_list("tag__name", flat=True)),
         relationships=relationships,
+        custom_properties=custom_properties,
     )
+
+
+def _scalar_value(row: "CustomPropertyValue") -> float | bool | str | None:
+    """Return the row's value as a JSON-safe scalar; datetimes become ISO strings."""
+    v = _custom_property_values_logic.value_of(row)
+    if isinstance(v, datetime):
+        return v.isoformat()
+    if isinstance(v, float | bool | str):
+        return v
+    return None
 
 
 def _get_external_account_by_external_id(team_id: int, external_id: str) -> Account | None:

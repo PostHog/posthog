@@ -123,6 +123,7 @@ def _external_account_body(account: contracts.ExternalAccount) -> dict[str, Any]
         "properties": account.properties,
         "tags": account.tags,
         "relationships": account.relationships,
+        "custom_properties": account.custom_properties,
     }
 
 
