@@ -108,6 +108,14 @@ impl FrameResolver {
         let server_resolved = frames.first().is_some_and(|f| f.resolved);
         if server_resolved {
             if frames.len() > 1 {
+                // Replaces even a slightly shallower multi-frame expansion:
+                // same-build symbols normally match the client's depth, and
+                // deferring to the server keeps debug-built and stripped
+                // clients of the same binary converging on identical stacks
+                // and fingerprints once symbols exist. Splicing the client's
+                // extra layers in would need chain alignment between two
+                // symbolications, which is exactly the duplication hazard the
+                // group contract avoids.
                 metrics::counter!(NATIVE_INLINE_GROUPS, "outcome" => "replaced").increment(1);
                 return Ok(frames);
             }
