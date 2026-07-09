@@ -3,10 +3,11 @@
 Postgres is the single source of truth for a review (there is no on-disk store), so this one
 command is the entire "clean state" story while iterating: it deletes every `ReviewReportArtefact`
 (findings, verdicts, commit snapshots, and the `chunk_set` / `perspective_result` working state the
-DB-driven resume reads back), every `ReviewReport`, and every
-`ReviewSkillConfig` (per-user perspective enablement + validator selection) — across all teams. Wiping the
-configs resets every user to the default 3 canonical perspectives and canonical validator, re-seeded
-on their next run.
+DB-driven resume reads back), every `ReviewReport`, every
+`ReviewSkillConfig` (per-user perspective enablement + validator selection), and every
+`ReviewUserSettings` (per-user trigger opt-outs + urgency threshold, which drive what gets reviewed
+and what gets published) — across all teams. Wiping the configs and settings resets every user to
+the defaults, re-seeded on their next run or read.
 
 Local iteration helper only — refuses to run unless `DEBUG=True`.
 """
@@ -16,13 +17,13 @@ from typing import Any
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
-from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig, ReviewUserSettings
 
 
 class Command(BaseCommand):
     help = (
-        "Wipe all ReviewHog DB state (every ReviewReport + ReviewReportArtefact + ReviewSkillConfig, "
-        "across all teams). DEBUG only."
+        "Wipe all ReviewHog DB state (every ReviewReport + ReviewReportArtefact + ReviewSkillConfig "
+        "+ ReviewUserSettings, across all teams). DEBUG only."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -49,17 +50,19 @@ class Command(BaseCommand):
         artefacts = ReviewReportArtefact.objects.unscoped()
         reports = ReviewReport.objects.unscoped()
         configs = ReviewSkillConfig.objects.unscoped()
+        user_settings = ReviewUserSettings.objects.unscoped()
         artefact_count = artefacts.count()
         report_count = reports.count()
         config_count = configs.count()
+        settings_count = user_settings.count()
 
-        if report_count == 0 and artefact_count == 0 and config_count == 0:
+        if report_count == 0 and artefact_count == 0 and config_count == 0 and settings_count == 0:
             self.stdout.write("ReviewHog DB is already empty — nothing to delete.")
             return
 
         summary = (
             f"{report_count} ReviewReport(s), {artefact_count} ReviewReportArtefact(s), "
-            f"and {config_count} ReviewSkillConfig(s)"
+            f"{config_count} ReviewSkillConfig(s), and {settings_count} ReviewUserSettings"
         )
 
         if dry_run:
@@ -74,9 +77,10 @@ class Command(BaseCommand):
 
         # Delete artefacts first, then reports. The artefact→report FK is CASCADE, so deleting the
         # reports alone would also drop the artefacts, but the explicit order keeps the tallies true.
-        # Perspective configs are independent (no FK to reports), so wipe them too.
+        # Skill configs and user settings are independent (no FK to reports), so wipe them too.
         artefacts.delete()
         reports.delete()
         configs.delete()
+        user_settings.delete()
 
         self.stdout.write(self.style.SUCCESS(f"Done. Deleted {summary}."))
