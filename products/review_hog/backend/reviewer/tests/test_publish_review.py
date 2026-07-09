@@ -1,8 +1,11 @@
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+
+from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import published_priorities_for
@@ -136,6 +139,58 @@ class TestPostGithubReview:
         (promo,) = _promo_posts(mock_request)
         # The idempotency marker rides inside the posted comment body.
         assert "pm" in promo["body"]
+
+    @parameterized.expand(
+        [
+            ("server_error", GitHubAPIError("GitHub API POST returned 500: boom", status=500)),
+            ("rate_limited", GitHubRateLimitError("rate limited", retry_after=60)),
+        ]
+    )
+    def test_transient_comment_post_failure_raises_instead_of_dropping_comments(
+        self, mock_request: MagicMock, mock_paginated: MagicMock, _name: str, error: Exception
+    ) -> None:
+        # A 5xx / rate limit says nothing about the comment payload — falling back to a body-only post
+        # here would permanently discard every inline comment; raising lets the activity retry keep them.
+        _wire_readbacks(mock_paginated)
+        comments: list[ReviewComment] = [{"path": "a.py", "body": "x", "side": "RIGHT", "line": 1}]
+
+        def request(method: str, path: str, **kwargs: Any) -> MagicMock:
+            if method == "POST" and path.endswith("/reviews"):
+                raise error
+            return MagicMock()
+
+        mock_request.side_effect = request
+
+        with pytest.raises(type(error)):
+            _post_github_review(
+                "o", "r", 1, "body", comments, token="t", head_sha="", post_promo=False, marker="m", promo_marker="pm"
+            )
+
+        (payload,) = _review_posts(mock_request)  # exactly one attempt — no body-only fallback post
+        assert payload["comments"] == comments
+
+    def test_comment_payload_rejection_falls_back_to_body_only(
+        self, mock_request: MagicMock, mock_paginated: MagicMock
+    ) -> None:
+        # 422 = GitHub rejected the comment payload itself; a retry would hit the same wall, so the
+        # review must still land as body-only rather than failing the publish forever.
+        _wire_readbacks(mock_paginated)
+        comments: list[ReviewComment] = [{"path": "a.py", "body": "x", "side": "RIGHT", "line": 1}]
+
+        def request(method: str, path: str, **kwargs: Any) -> MagicMock:
+            if method == "POST" and path.endswith("/reviews") and "comments" in (kwargs.get("json") or {}):
+                raise GitHubAPIError("GitHub API POST returned 422: Unprocessable Entity", status=422)
+            return MagicMock()
+
+        mock_request.side_effect = request
+
+        _post_github_review(
+            "o", "r", 1, "body", comments, token="t", head_sha="", post_promo=False, marker="m", promo_marker="pm"
+        )
+
+        first, second = _review_posts(mock_request)
+        assert first["comments"] == comments
+        assert "comments" not in second
 
     def test_skips_when_a_review_with_our_marker_is_already_present(
         self, mock_request: MagicMock, mock_paginated: MagicMock

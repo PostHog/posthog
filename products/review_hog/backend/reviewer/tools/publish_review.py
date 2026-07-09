@@ -416,7 +416,11 @@ def _post_github_review(
             review_url = _create_review({**review_payload, "comments": comments})
             logger.info(f"Review posted with {len(comments)} inline comments")
             return review_url
-        except (GitHubAPIError, GitHubRateLimitError) as e:
+        except GitHubAPIError as e:
+            # 422 = GitHub rejected the comment payload itself (e.g. a bad diff position) — the one case a
+            # body-only fallback fixes. Anything else is transient: raise so the retry keeps the comments.
+            if e.status != 422:
+                raise
             logger.warning(f"Failed to post review with inline comments: {e}. Posting review body only.")
 
     review_url = _create_review(review_payload)
