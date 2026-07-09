@@ -35,6 +35,7 @@ import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
+import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
 import { marketingOnboardingLogic } from './Onboarding/marketingOnboardingLogic'
 import { Onboarding } from './Onboarding/Onboarding'
 
@@ -205,39 +206,37 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     const { activeTab } = useValues(marketingAnalyticsLogic)
     const { setActiveTab } = useActions(marketingAnalyticsLogic)
 
-    const showIntegrationHealth = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
+    // The redesigned dashboard replaces the current one under the same "Dashboard" tab when its flag is
+    // on, so the eventual cutover is just flipping the flag — no tab rename, no extra tab key to strand.
+    const dashboard = featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ? (
+        <NewMarketingAnalyticsDashboard />
+    ) : (
+        <>
+            <MarketingAnalyticsFilters tabs={<></>} />
+            <MarketingAnalyticsDashboard />
+        </>
+    )
+
+    const tabs = [
+        { key: MarketingAnalyticsTab.DASHBOARD, label: 'Dashboard', content: dashboard },
+        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
+            ? [
+                  {
+                      key: MarketingAnalyticsTab.INTEGRATION_HEALTH,
+                      label: 'Integration health',
+                      content: <UtmAuditTab />,
+                  },
+              ]
+            : []),
+    ]
+
+    // Only surface the tab bar once a secondary tab is enabled; otherwise show the dashboard directly.
+    if (tabs.length === 1) {
+        return dashboard
+    }
 
     return (
-        <>
-            {showIntegrationHealth ? (
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)}
-                    tabs={[
-                        {
-                            key: MarketingAnalyticsTab.DASHBOARD,
-                            label: 'Dashboard',
-                            content: (
-                                <>
-                                    <MarketingAnalyticsFilters tabs={<></>} />
-                                    <MarketingAnalyticsDashboard />
-                                </>
-                            ),
-                        },
-                        {
-                            key: MarketingAnalyticsTab.INTEGRATION_HEALTH,
-                            label: 'Integration health',
-                            content: <UtmAuditTab />,
-                        },
-                    ]}
-                />
-            ) : (
-                <>
-                    <MarketingAnalyticsFilters tabs={<></>} />
-                    <MarketingAnalyticsDashboard />
-                </>
-            )}
-        </>
+        <LemonTabs activeKey={activeTab} onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)} tabs={tabs} />
     )
 }
 

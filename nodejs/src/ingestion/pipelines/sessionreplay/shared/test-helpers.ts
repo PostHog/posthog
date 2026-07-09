@@ -1,4 +1,13 @@
-import { KeyStore, RecordingEncryptor } from './types'
+import { KeyStore, RecordingEncryptor, SessionKey } from './types'
+
+export function createMockSessionKey(overrides: Partial<SessionKey> = {}): SessionKey {
+    return {
+        plaintextKey: Buffer.alloc(0),
+        encryptedKey: Buffer.alloc(0),
+        sessionState: 'cleartext',
+        ...overrides,
+    }
+}
 
 export function createMockKeyStore(): jest.Mocked<KeyStore> {
     return {

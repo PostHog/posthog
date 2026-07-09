@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 import psycopg
@@ -273,6 +274,7 @@ class DuckgresBatchConsumerAdapter:
         job_state: str,
         attempt: int,
         error_response: dict[str, Any] | None = None,
+        batch_created_at: datetime | None = None,  # delta-sink denormalization only; unused here
     ) -> None:
         # Invariant: never write ANY status over a terminal 'failed' — statuses
         # are latest-row-wins, so an unconditional write would un-retire a batch

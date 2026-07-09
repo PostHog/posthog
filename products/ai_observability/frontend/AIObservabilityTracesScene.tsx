@@ -6,11 +6,9 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -46,10 +44,17 @@ export function AIObservabilityTraces(): JSX.Element {
     const { applyUrlState, setShouldFilterSupportTraces } = useActions(aiObservabilitySharedLogic)
     const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(aiObservabilitySharedLogic)
     const { tracesQuery } = useValues(aiObservabilityTracesTabLogic)
+    const appliedSearchTerm = isTracesQuery(tracesQuery.source) ? tracesQuery.source.searchTerm : undefined
 
     const baseContext = useTracesQueryContext()
     const context: QueryContext<DataTableNode> = {
         ...baseContext,
+        ...(appliedSearchTerm
+            ? {
+                  emptyStateHeading: 'No traces matched your search',
+                  emptyStateDetail: 'Try a different search term, date range, or filters.',
+              }
+            : {}),
         customActions: <TracesOptionsMenu key="traces-options-menu" />,
     }
 
@@ -69,15 +74,13 @@ export function AIObservabilityTraces(): JSX.Element {
                     // separate — it cannot contribute to the URL-change counter.
                     setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
 
-                    // Batch the remaining three URL-synced fields into a single
-                    // applyUrlState dispatch so the DataTable's setQuery emits
-                    // one URL change instead of three.
                     applyUrlState(
                         buildApplyUrlStatePayload({
                             dateFrom: query.source.dateRange?.date_from || null,
                             dateTo: query.source.dateRange?.date_to || null,
                             shouldFilterTestAccounts: query.source.filterTestAccounts || false,
                             propertyFilters: query.source.properties || [],
+                            searchQuery: query.source.searchTerm || '',
                             currentDateFilter: dateFilter,
                             currentPropertyFilters,
                         })
@@ -91,11 +94,8 @@ export function AIObservabilityTraces(): JSX.Element {
 }
 
 function TracesOptionsMenu(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { showInputOutputColumns, showSentimentColumn } = useValues(aiObservabilityTracesTabLogic)
     const { setShowInputOutputColumns, setShowSentimentColumn } = useActions(aiObservabilityTracesTabLogic)
-
-    const showInputOutputToggleEnabled = !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
 
     return (
         <LemonDropdown
@@ -103,16 +103,14 @@ function TracesOptionsMenu(): JSX.Element | null {
             placement="bottom-end"
             overlay={
                 <div className="flex flex-col gap-2 py-1 px-2 min-w-64">
-                    {showInputOutputToggleEnabled && (
-                        <LemonSwitch
-                            checked={showInputOutputColumns}
-                            onChange={setShowInputOutputColumns}
-                            label="Show input/output"
-                            fullWidth
-                            tooltip="Preview each trace's first input and last output in the table. Turn off for a denser view."
-                            data-attr="llm-traces-show-input-output-toggle"
-                        />
-                    )}
+                    <LemonSwitch
+                        checked={showInputOutputColumns}
+                        onChange={setShowInputOutputColumns}
+                        label="Show input/output"
+                        fullWidth
+                        tooltip="Preview each trace's first input and last output in the table. Turn off for a denser view."
+                        data-attr="llm-traces-show-input-output-toggle"
+                    />
                     <LemonSwitch
                         checked={showSentimentColumn}
                         onChange={setShowSentimentColumn}

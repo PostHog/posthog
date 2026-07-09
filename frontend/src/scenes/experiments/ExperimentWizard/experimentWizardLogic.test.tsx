@@ -183,19 +183,23 @@ describe('experimentWizardLogic', () => {
             logic.actions.setLinkedFeatureFlag(flag)
             logic.actions.setFeatureFlagConfig({
                 feature_flag_key: flag.key,
-                feature_flag_variants: flag.filters?.multivariate?.variants || [],
+                variants: flag.filters?.multivariate?.variants || [],
             })
 
             await expectLogic(logic).toMatchValues({
                 linkedFeatureFlag: partial({ id: 20, key: 'another-flag' }),
                 experiment: partial({
                     feature_flag_key: 'another-flag',
-                    parameters: partial({
-                        feature_flag_variants: [
-                            partial({ key: 'control' }),
-                            partial({ key: 'variant-a' }),
-                            partial({ key: 'variant-b' }),
-                        ],
+                    feature_flag_config: partial({
+                        filters: partial({
+                            multivariate: {
+                                variants: [
+                                    partial({ key: 'control' }),
+                                    partial({ key: 'variant-a' }),
+                                    partial({ key: 'variant-b' }),
+                                ],
+                            },
+                        }),
                     }),
                 }),
             })
@@ -207,6 +211,7 @@ describe('experimentWizardLogic', () => {
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
                 error: 'A feature flag with this key already exists.',
+                key: 'existing-flag',
                 existingFlag: mockEligibleFlags[0] as FeatureFlagType,
             })
 
@@ -238,6 +243,7 @@ describe('experimentWizardLogic', () => {
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
                 error: 'A feature flag with this key already exists.',
+                key: 'existing-flag',
                 existingFlag: flag,
             })
 
@@ -272,7 +278,7 @@ describe('experimentWizardLogic', () => {
             logic.actions.setLinkedFeatureFlag(mockEligibleFlags[0] as FeatureFlagType)
             logic.actions.setFeatureFlagConfig({
                 feature_flag_key: 'existing-flag',
-                feature_flag_variants: mockEligibleFlags[0].filters?.multivariate?.variants || [],
+                variants: mockEligibleFlags[0].filters?.multivariate?.variants || [],
             })
 
             // Now remove it (mirrors AboutStep onRemove handler)
@@ -513,11 +519,15 @@ describe('experimentWizardLogic', () => {
         it('variant split not summing to 100% triggers error on variants step', async () => {
             createLogic.actions.setExperiment({
                 ...NEW_EXPERIMENT,
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', rollout_percentage: 40 },
-                        { key: 'test', rollout_percentage: 40 },
-                    ],
+                feature_flag_config: {
+                    filters: {
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 40 },
+                                { key: 'test', rollout_percentage: 40 },
+                            ],
+                        },
+                    },
                 },
             })
 
@@ -556,7 +566,7 @@ describe('experimentWizardLogic', () => {
         ])('variants step: $desc', async ({ variants, expectedErrors }) => {
             createLogic.actions.setExperiment({
                 ...NEW_EXPERIMENT,
-                parameters: { feature_flag_variants: variants },
+                feature_flag_config: { filters: { multivariate: { variants } } },
             })
 
             await expectLogic(logic).toMatchValues({
@@ -571,10 +581,15 @@ describe('experimentWizardLogic', () => {
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
                 error: 'A feature flag with this key already exists.',
+                key: 'existing-flag',
             })
 
             await expectLogic(logic).toMatchValues({
-                featureFlagKeyValidation: { valid: false, error: 'A feature flag with this key already exists.' },
+                featureFlagKeyValidation: {
+                    valid: false,
+                    error: 'A feature flag with this key already exists.',
+                    key: 'existing-flag',
+                },
                 stepValidationErrors: partial({
                     about: ['A feature flag with this key already exists.'],
                 }),
@@ -588,6 +603,7 @@ describe('experimentWizardLogic', () => {
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
                 error: 'A feature flag with this key already exists.',
+                key: 'existing-flag',
             })
 
             await expectLogic(logic).toMatchValues({
@@ -679,6 +695,12 @@ describe('experimentWizardLogic', () => {
         it('posts the experiment to the backend on save', async () => {
             createLogic.actions.setExperimentValue('name', 'Ship it')
             createLogic.actions.setExperimentValue('feature_flag_key', 'ship-it')
+            // The About step validates the key as the user types; a confirmed-available key is
+            // what makes the save send the flag config (via the feature_flag object).
+            logic.actions.validateFeatureFlagKey('ship-it')
+            await waitFor(() => {
+                expect(createLogic.values.featureFlagKeyValidation).toMatchObject({ valid: true })
+            })
 
             logic.actions.saveExperiment()
 
@@ -689,13 +711,19 @@ describe('experimentWizardLogic', () => {
             expect(capturedPayload).toMatchObject({
                 name: 'Ship it',
                 feature_flag_key: 'ship-it',
-                parameters: expect.objectContaining({
-                    feature_flag_variants: expect.arrayContaining([
-                        expect.objectContaining({ key: 'control' }),
-                        expect.objectContaining({ key: 'test' }),
-                    ]),
-                }),
+                feature_flag: {
+                    filters: expect.objectContaining({
+                        multivariate: {
+                            variants: expect.arrayContaining([
+                                expect.objectContaining({ key: 'control' }),
+                                expect.objectContaining({ key: 'test' }),
+                            ]),
+                        },
+                    }),
+                },
             })
+            // Flag config no longer travels through the deprecated parameters keys.
+            expect(capturedPayload.parameters).not.toHaveProperty('feature_flag_variants')
         })
     })
 
