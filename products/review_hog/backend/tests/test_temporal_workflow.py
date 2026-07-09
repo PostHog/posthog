@@ -78,6 +78,7 @@ async def _run_full_review_pr_workflow(
     fail_dedup: bool = False,
     selection: PerspectiveSelectionDTO | None = None,
     fail_selection: bool = False,
+    fail_review_units: frozenset[tuple[int, int]] = frozenset(),
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -177,6 +178,8 @@ async def _run_full_review_pr_workflow(
                 tuple(p.skill_name for p in input.wave_perspectives),
             )
         )
+        if (input.pass_number, input.chunk_id) in fail_review_units:
+            raise ApplicationError("sandbox died", non_retryable=True)
         return True
 
     @activity.defn(name="dedup_activity")
@@ -320,6 +323,17 @@ async def test_review_pr_workflow_selection_prunes_fan_out_and_scopes_blind_spot
     assert sorted((p, c) for p, c, *_ in wave) == [(1, 1), (2, 1)]
     assert sorted((p, c) for p, c, *_ in blind) == [(BLIND_SPOT_PASS_NUMBER, 1), (BLIND_SPOT_PASS_NUMBER, 2)]
     assert {c[1]: c[4] for c in blind} == {1: ("s-logic", "s-sec"), 2: ()}
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_excludes_a_failed_perspective_from_blind_spot_lenses():
+    # A failed wave unit left no persisted review, so its ground is NOT spoken for: telling the
+    # blind-spot sweep it ran would hide exactly the coverage gap the failure created. The other
+    # chunk's unit succeeded, so that chunk still reports the full roster.
+    recorded = await _run_full_review_pr_workflow(publish=False, fail_review_units=frozenset({(2, 1)}))
+    assert recorded["failed"] is False  # one unit of six is under the failure floor
+    blind = [c for c in recorded["review"] if c[2]]
+    assert {c[1]: c[4] for c in blind} == {1: ("s-logic", "s-perf"), 2: ("s-logic", "s-sec", "s-perf")}
 
 
 @pytest.mark.asyncio

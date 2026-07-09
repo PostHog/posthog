@@ -198,10 +198,6 @@ class ReviewPerspectivesWorkflow:
         dense_total = len(ordered) * len(inputs.chunk_ids)
         if len(units) < dense_total:
             workflow.logger.info(f"Perspective selection kept {len(units)}/{dense_total} (perspective, chunk) pair(s)")
-        # The lenses that actually ran per chunk — the blind-spot check below is told exactly these.
-        ran_by_chunk: dict[int, list[LoadedPerspectiveDTO]] = {c: [] for c in inputs.chunk_ids}
-        for p, c in units:
-            ran_by_chunk[c].append(p)
         results = await asyncio.gather(
             *(_review(p.pass_number, p.skill_name, p.version, c, False, []) for p, c in units),
             return_exceptions=True,
@@ -215,6 +211,12 @@ class ReviewPerspectivesWorkflow:
             workflow.logger.warning(
                 f"Reviewed {reviewed}/{total} (perspective, chunk) pair(s); {failed} failed best-effort"
             )
+        # The lenses that actually SUCCEEDED per chunk — built from the gather results, not the plan,
+        # so a failed perspective's ground isn't reported to the blind-spot sweep as spoken for.
+        ran_by_chunk: dict[int, list[LoadedPerspectiveDTO]] = {c: [] for c in inputs.chunk_ids}
+        for (p, c), result in zip(units, results):
+            if not isinstance(result, BaseException):
+                ran_by_chunk[c].append(p)
 
         # Blind-spot check: after the perspective wave, one broad "what did everyone miss?" unit per
         # chunk reads every wave finding and sweeps for what none of the lenses surfaced.
