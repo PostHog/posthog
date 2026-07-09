@@ -57,10 +57,20 @@ class SlackAgentDesignSignalEmitter:
     ``relay_sandbox_events._relay_loop`` — keep the two in sync.
     """
 
-    def __init__(self, slack_thread_context: dict[str, Any] | None, turn_active: bool = False) -> None:
+    def __init__(
+        self,
+        slack_thread_context: dict[str, Any] | None,
+        turn_active: bool = False,
+        awaiting_turn: bool = True,
+    ) -> None:
         self._slack_thread_context = slack_thread_context or {}
         # Seeded on a resumed activity attempt so a retry landing mid-turn doesn't re-open the turn.
         self._turn_active = turn_active
+        # A turn opens only once a user prompt has been seen while idle. Armed for the run's first
+        # turn, then re-armed by each ``session/prompt`` observed between turns, so a trailing
+        # ``session/update`` emitted after turn-complete can't open a phantom turn. A resumed attempt
+        # starts disarmed and waits for the next prompt.
+        self._awaiting_turn = awaiting_turn
         self._emitted_tool_call_ids: set[str] = set()
 
     @property
@@ -69,6 +79,13 @@ class SlackAgentDesignSignalEmitter:
 
     def process(self, event_data: dict) -> list[tuple[str, Any]]:
         """Return the ordered ``(signal_name, arg)`` pairs to send for one event."""
+        # A prompt received between turns arms the next turn; one received mid-turn belongs to the
+        # turn already open (the stream can interleave it just after the first response event).
+        if _is_session_prompt(event_data):
+            if not self._turn_active:
+                self._awaiting_turn = True
+            return []
+
         if is_turn_complete(event_data):
             if self._turn_active:
                 self._turn_active = False
@@ -76,8 +93,9 @@ class SlackAgentDesignSignalEmitter:
             return []
 
         signals: list[tuple[str, Any]] = []
-        if not self._turn_active and _is_session_update(event_data):
+        if not self._turn_active and self._awaiting_turn and _is_session_update(event_data):
             self._turn_active = True
+            self._awaiting_turn = False
             signals.append(("turn_started", {"slack_thread_context": self._slack_thread_context}))
 
         if self._turn_active:
@@ -121,6 +139,11 @@ def _event_method(event_data: dict) -> str | None:
     if isinstance(notification, dict):
         return notification.get("method")
     return None
+
+
+def _is_session_prompt(event_data: dict) -> bool:
+    """Whether the event is a user ``session/prompt`` — the start of a new conversational turn."""
+    return _event_method(event_data) == "session/prompt"
 
 
 def _resume_position() -> tuple[str | None, bool]:
@@ -224,9 +247,13 @@ async def _relay_from_agent_proxy(
 
     async with Heartbeater() as heartbeater:
         # Resume past what a prior attempt already relayed rather than replaying the stream from 0,
-        # seeding the emitter's turn state so a retry mid-turn doesn't re-open the turn.
+        # seeding the emitter's turn state so a retry mid-turn doesn't re-open the turn. A resume
+        # starts disarmed (awaiting_turn=False) and waits for the next prompt, since any turn already
+        # under way was open before the crash.
         last_event_id, turn_active = _resume_position()
-        emitter = SlackAgentDesignSignalEmitter(input.slack_thread_context, turn_active=turn_active)
+        emitter = SlackAgentDesignSignalEmitter(
+            input.slack_thread_context, turn_active=turn_active, awaiting_turn=last_event_id is None
+        )
         if last_event_id:
             heartbeater.details = (last_event_id, turn_active)
             logger.info(
