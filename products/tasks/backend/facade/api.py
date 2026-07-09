@@ -1622,6 +1622,7 @@ def update_task_run(
     )
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
+        observe_wizard_run_unbound,
     )
 
     run = _get_visible_run(run_id, task_id, team_id)
@@ -1692,6 +1693,7 @@ def update_task_run(
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         if new_status == TaskRun.Status.FAILED:
             observe_agent_turn_failed(run)
+        observe_wizard_run_unbound(run)
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
