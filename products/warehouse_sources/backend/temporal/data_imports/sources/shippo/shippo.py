@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.settings import SHIPPO_ENDPOINTS
 
 SHIPPO_BASE_URL = "https://api.goshippo.com"
+SHIPPO_HOST = "api.goshippo.com"
 # List endpoints cap `results` at 100 (values over 200 truncate); the largest page minimises
 # round trips against Shippo's tight GET-list rate limit (50/min live, 10/min test).
 PAGE_SIZE = 100
@@ -29,6 +30,24 @@ DEFAULT_PROBE_PATH = "/shipments"
 
 class ShippoRetryableError(Exception):
     pass
+
+
+class ShippoUntrustedURLError(Exception):
+    pass
+
+
+def _validate_pagination_url(url: str) -> str:
+    """Pin every authenticated request to the Shippo API origin.
+
+    The `next` cursor comes from the response body (and is persisted in resume state), so a
+    tampered response or a poisoned cursor must not be able to retarget the credential-bearing
+    request at another host and leak the customer's Shippo token (SSRF). Returns the URL
+    unchanged when it is trusted.
+    """
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.netloc != SHIPPO_HOST:
+        raise ShippoUntrustedURLError(f"Refusing to follow pagination URL outside {SHIPPO_BASE_URL}/")
+    return url
 
 
 @dataclasses.dataclass
@@ -107,13 +126,16 @@ def _paginate(
 ) -> Iterator[list[dict[str, Any]]]:
     url: str | None = first_url
     while url:
-        data = _fetch_page(session, url, logger)
+        data = _fetch_page(session, _validate_pagination_url(url), logger)
         items: list[dict[str, Any]] = data["results"]
         if items:
             yield items
 
         url = data.get("next") or None
         if url:
+            # Reject an off-origin cursor before it is persisted, so a poisoned resume state can
+            # never later replay the token to another host.
+            _validate_pagination_url(url)
             # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages
             # are persisted); merge dedupes the re-pulled page on the primary key.
             resumable_source_manager.save_state(ShippoResumeConfig(next_url=url, window_start=window_start))
@@ -128,7 +150,7 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = SHIPPO_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
+    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,), allow_redirects=False)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     watermark = _parse_datetime(db_incremental_field_last_value) if should_use_incremental_field else None
@@ -215,7 +237,7 @@ def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Opt
     Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
     connection problem, other HTTP status otherwise.
     """
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
+    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,), allow_redirects=False)
     try:
         response = session.get(f"{SHIPPO_BASE_URL}{path}/?{urlencode({'results': 1})}", timeout=15)
     except Exception as e:

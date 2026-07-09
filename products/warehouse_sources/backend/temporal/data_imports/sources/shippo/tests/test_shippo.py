@@ -15,6 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.shi
     SHIPPO_BASE_URL,
     ShippoResumeConfig,
     ShippoRetryableError,
+    ShippoUntrustedURLError,
+    _validate_pagination_url,
     check_access,
     get_rows,
     shippo_source,
@@ -190,6 +192,25 @@ class TestGetRows:
             endpoint="customs_items",
         )
         assert requested == [f"{SHIPPO_BASE_URL}/customs/items/?results={PAGE_SIZE}"]
+
+
+class TestValidatePaginationURL:
+    def test_on_origin_url_passes_through(self) -> None:
+        url = f"{SHIPPO_BASE_URL}/shipments/?page=2&results={PAGE_SIZE}"
+        assert _validate_pagination_url(url) == url
+
+    @parameterized.expand(
+        [
+            ("off_origin_host", "https://evil.example.com/shipments/?results=100"),
+            ("look_alike_host", "https://api.goshippo.com.evil.com/shipments/"),
+            ("plain_http", "http://api.goshippo.com/shipments/"),
+            ("credential_in_host", "https://api.goshippo.com@evil.example.com/shipments/"),
+        ]
+    )
+    def test_off_origin_cursor_rejected(self, _name: str, url: str) -> None:
+        # A tampered `next` cursor must never redirect the token-bearing request off-origin.
+        with pytest.raises(ShippoUntrustedURLError):
+            _validate_pagination_url(url)
 
 
 class TestFetchPage:
