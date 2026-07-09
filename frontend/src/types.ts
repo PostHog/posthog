@@ -1657,6 +1657,8 @@ export type SearchResultType = {
     type: SearchableEntity
     rank: number | null
     extra_fields: Record<string, unknown>
+    /** Resolved access level the user has for this object ('none' means no access); null when access controls don't apply */
+    user_access_level?: AccessControlLevel | null
 }
 
 export type SearchResponse = {
