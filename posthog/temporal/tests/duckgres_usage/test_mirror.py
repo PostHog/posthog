@@ -1,10 +1,10 @@
-"""Tests for the duckgres usage staging table and its replace-window semantics.
+"""Tests for the duckgres usage mirror tables and their replace-window semantics.
 
-The staging table holds day-keyed usage pulled from duckgres. Because we only
-ack at UTC day boundaries, every pull returns complete day-so-far totals for
-the open window, so applying a response is a pure replace: delete the window's
-dates, insert the response's rows, in one transaction. Idempotent and
-self-healing — a bad write is overwritten by the next pull.
+The mirror holds day-keyed usage pulled from duckgres. Because we only ack at
+UTC day boundaries, every pull returns complete day-so-far totals for the open
+window, so applying a response is a pure replace: delete the window's dates,
+insert the response's rows, in one transaction. Idempotent and self-healing —
+a bad write is overwritten by the next pull.
 
 Watermark subtlety encoded here: duckgres watermarks are bucket-START labels
 and ack deletes `bucket_start <= watermark`, so our acks are
@@ -21,7 +21,7 @@ import pytest
 
 from posthog.ducklake.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
 from posthog.temporal.duckgres_usage.client import StorageRow, UsageResponse, UsageRow
-from posthog.temporal.duckgres_usage.staging import replace_window
+from posthog.temporal.duckgres_usage.mirror import replace_window
 
 pytestmark = pytest.mark.django_db
 

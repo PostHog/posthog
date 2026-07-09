@@ -1,10 +1,10 @@
-"""Replace-window persistence for duckgres usage pulls.
+"""Replace-window persistence into the local duckgres usage mirror.
 
 Because acks only ever happen at UTC day boundaries, every pull's response
 carries complete day-so-far totals for the whole un-acked window. Applying a
 response is therefore a pure replace — delete the window's dates, insert the
 response's rows, one transaction. Idempotent for a fixed response, and
-memoryless across responses: the table's open-window state is a function of
+memoryless across responses: the mirror's open-window state is a function of
 the latest response only, so any bad write self-heals on the next pull.
 
 Watermark subtlety: duckgres watermarks are bucket-START labels and ack
