@@ -307,6 +307,12 @@ function DeliverySection(): JSX.Element {
                     )}
                 </LemonField>
             )}
+            {!actionForm.channel && (
+                <span className="text-xs text-muted">
+                    No channel selected — this summary will appear on the scanner page and in its run history, without a
+                    Slack notification.
+                </span>
+            )}
         </div>
     )
 }
@@ -393,7 +399,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
                             </LemonField>
 
                             <div>
-                                <h4 className="mb-1">Deliver to Slack</h4>
+                                <h4 className="mb-1">Deliver to Slack (optional)</h4>
                                 <DeliverySection />
                             </div>
 
