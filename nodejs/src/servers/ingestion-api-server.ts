@@ -364,6 +364,7 @@ export class IngestionApiServer implements NodeServer {
             overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
+            groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
             outputs: ingestionOutputs,
             perDistinctIdOptions: {

@@ -129,6 +129,7 @@ export type IngestionConsumerConfig = {
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
     PERSONS_PREFETCH_ENABLED: boolean
+    GROUPS_PREFETCH_ENABLED: boolean
 
     // Person properties config
     PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: number
@@ -243,6 +244,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         PERSONS_PREFETCH_ENABLED: false,
+        GROUPS_PREFETCH_ENABLED: false,
 
         // Person properties config
         PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: 0,

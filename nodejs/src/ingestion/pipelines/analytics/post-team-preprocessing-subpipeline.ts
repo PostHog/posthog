@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
@@ -7,6 +8,7 @@ import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-mana
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { EventFiltersBatchAppMetrics } from '~/ingestion/common/event-filters/batch-app-metrics'
 import { FeatureFlagCalledDedupService } from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { createApplyEventFiltersStep } from '~/ingestion/common/steps/event-filters-steps'
@@ -23,6 +25,7 @@ import {
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
 import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
 import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
+import { prefetchGroupsStep } from '~/ingestion/pipelines/analytics/steps/prefetchGroupsStep'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
 import { processPersonlessDistinctIdsBatchStep } from '~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -35,6 +38,7 @@ export interface PostTeamPreprocessingSubpipelineInput {
     team: Team
     eventFiltersBatchAppMetrics: EventFiltersBatchAppMetrics
     personsStoreForBatch: PersonsStoreForBatch
+    groupStoreForBatch: GroupStoreForBatch
 }
 
 export interface PostTeamPreprocessingSubpipelineConfig {
@@ -48,6 +52,8 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     overflowLaneTTLRefreshService?: OverflowRedirectService
     featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     personsPrefetchEnabled: boolean
+    groupsPrefetchEnabled: boolean
+    groupTypeManager: GroupTypeManager
     flagCalledPersonlessDefaultTeams: string
     hogTransformer: HogTransformer
     cdpHogWatcherSampleRate: number
@@ -68,6 +74,8 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         overflowLaneTTLRefreshService,
         featureFlagCalledDedupService,
         personsPrefetchEnabled,
+        groupsPrefetchEnabled,
+        groupTypeManager,
         flagCalledPersonlessDefaultTeams,
         hogTransformer,
         cdpHogWatcherSampleRate,
@@ -109,6 +117,12 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             // no-op — transient persons-Postgres failures are swallowed inside prefetchPersons so
             // they can't surface as an unhandled rejection and crash the worker.
             .pipeBatch(prefetchPersonsStep(personsPrefetchEnabled))
+            // Warm the group cache for $groupidentify events with one multi-key query per batch,
+            // so cold group keys don't each pay a sequential per-event SELECT in the per-distinct_id
+            // lane. Fire-and-forget like the person prefetch: retriable failures are swallowed inside
+            // prefetchGroups so they can't crash the worker, and the per-key promises still surface
+            // errors to the consumer that awaits them.
+            .pipeBatch(prefetchGroupsStep(groupsPrefetchEnabled, groupTypeManager))
             // Batch insert personless distinct IDs after prefetch (uses prefetch cache).
             // This step awaits its DB write, so retry transient persons-Postgres failures
             // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
