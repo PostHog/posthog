@@ -22,8 +22,12 @@ resolve it to a concrete ID.
 
 Call `experiment-get` and pull these fields. They are inputs for almost every diagnostic:
 
-- `parameters.feature_flag_variants[].rollout_percentage` — the variant split
-- `parameters.rollout_percentage` — the overall rollout (% of users entering the experiment)
+- `feature_flag.filters.multivariate.variants[].rollout_percentage` — the variant split. The feature
+  flag filters are the source of truth; `parameters.feature_flag_variants[].rollout_percentage` is a
+  deprecated projection that just echoes the flag, so read the split from the flag directly.
+- the overall rollout (% of users entering the experiment) comes from the release conditions:
+  `feature_flag.filters.groups[].rollout_percentage` on the relevant release condition (read per
+  group in the bullet below)
 - `exposure_criteria.multiple_variant_handling` — defaults to `"exclude"` if absent
 - `exposure_criteria.exposure_event` — `null` means default `$feature_flag_called`
 - `exposure_criteria.filterTestAccounts` — defaults to `true`

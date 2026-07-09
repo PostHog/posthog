@@ -59,9 +59,11 @@ view.
 edit history with diffs. Scan `results[].detail.changes[]` for `field == "filters"` entries and
 read the last `multivariate.variants[]` `before`/`after` pair _before_ the entry where
 `field == "active"` flips `false → true` (the activation event). That value is the split the
-experiment actually launched with. If it doesn't match `parameters.feature_flag_variants` as the
-user described setting it, the launch state itself is the cause — no mid-run change is needed to
-explain the missing-variant data.
+experiment actually launched with. Compare it against the current
+`feature_flag.filters.multivariate.variants[]` from `experiment-get` (the flag filters are the source
+of truth; `parameters.feature_flag_variants` is a deprecated projection). If the launch split doesn't
+match what the user described setting it to, the launch state itself is the cause — no mid-run change
+is needed to explain the missing-variant data.
 
 Fix path: same as E3 generally — reset + relaunch on a young experiment with little data; end +
 relaunch on one with significant accumulated data. Set the flag's variants to the intended split
