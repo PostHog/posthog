@@ -57279,8 +57279,11 @@ export namespace Schemas {
     export interface _MetricQueryPoint {
       /** Bucket start as ISO 8601 timestamp. */
       time: string;
-      /** Aggregated value for the bucket. */
-      value: number;
+      /**
+         * Aggregated value for the bucket. Null when the aggregate isn't representable (e.g. float overflow) — render as a gap.
+         * @nullable
+         */
+      value: number | null;
     }
 
     /**
