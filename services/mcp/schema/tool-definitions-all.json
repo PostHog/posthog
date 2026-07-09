@@ -234,20 +234,6 @@
             "readOnlyHint": true
         }
     },
-    "activity-log-list": {
-        "description": "List recent activity log entries for the project. Shows who did what and when — feature flag changes, dashboard edits, experiment launches, etc. Supports filtering by scope, user, and date range.",
-        "category": "Platform Features",
-        "feature": "platform_features",
-        "summary": "List recent activity in the project.",
-        "title": "List recent activity in the project.",
-        "required_scopes": ["activity_log:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "advanced-activity-logs-filters": {
         "description": "Get the available filter options for activity logs — scopes, activity types, and users that have logged activity. Useful for building filter UIs or understanding what kinds of activity are tracked.",
         "category": "Platform Features",
@@ -263,11 +249,11 @@
         }
     },
     "advanced-activity-logs-list": {
-        "description": "List activity log entries with advanced filtering, sorting, and field-level diffs. Supports filtering by scope, activity type, user, date range, and search text.",
+        "description": "List activity log entries — who changed what and when (feature flag changes, dashboard edits, experiment launches, insight edits, etc.), with field-level diffs. Filter by scope, activity type, user, item, date range, and free-text search. Use this to audit a specific resource's history or to see what changed recently across the project.",
         "category": "Platform Features",
         "feature": "platform_features",
-        "summary": "List activity logs with advanced filtering.",
-        "title": "List activity logs with advanced filtering.",
+        "summary": "List activity in the project.",
+        "title": "List activity in the project.",
         "required_scopes": ["activity_log:read"],
         "annotations": {
             "destructiveHint": false,
@@ -7609,7 +7595,7 @@
         }
     },
     "signals-scout-project-profile-get": {
-        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
+        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get the project profile",

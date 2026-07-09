@@ -1,54 +1,47 @@
-import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
-
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 
-import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
+import {
+    createInsightStory,
+    insightSceneMswDecorator,
+    insightSceneStoryParameters,
+} from 'scenes/insights/__mocks__/createInsightScene'
+import { InsightVizStory } from 'scenes/insights/__mocks__/createInsightVizStory'
 
-import { mswDecorator } from '~/mocks/browser'
+import __userPaths from '~/mocks/fixtures/api/projects/team_id/insights/userPaths.json'
 
-import __userPaths from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
+import { Paths } from './Paths'
 
 type Story = StoryObj<{}>
+
 const meta: Meta = {
-    title: 'Scenes-App/Insights/User Paths',
+    title: 'Insights/Paths',
+    component: Paths,
     parameters: {
-        layout: 'fullscreen',
+        layout: 'centered',
+        mockDate: '2022-03-11',
         testOptions: {
             snapshotBrowsers: ['chromium'],
-            viewport: {
-                // needs a slightly larger width to push the rendered scene away from breakpoint boundary
-                width: 1300,
-                height: 720,
-            },
+            // The Paths component removes data-stable from its canvas while (re)building the SVG
+            // and re-adds it once settled, so this waits out the resize-observer churn.
+            waitForSelector: ['[data-attr=path-node-card-button]', '[data-attr=paths-viz][data-stable]'],
         },
-        viewMode: 'story',
-        mockDate: '2022-03-11',
     },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/environments/:team_id/persons/retention': sampleRetentionPeopleResponse,
-                '/api/environments/:team_id/persons/properties': samplePersonProperties,
-                '/api/projects/:team_id/groups_types': [],
-            },
-            post: {
-                '/api/projects/:team_id/cohorts/': { id: 1 },
-            },
-        }),
-    ],
 }
 export default meta
-/* eslint-disable @typescript-eslint/no-var-requires */
 
-// User Paths
-
-export const UserPaths: Story = createInsightStory(__userPaths as any)
-UserPaths.parameters = {
-    testOptions: {
-        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
-    },
+export const UserPaths: Story = {
+    render: () => (
+        <InsightVizStory insight={__userPaths as any} width={1000}>
+            {/* Paths sizes its canvas from the container, so it needs explicit dimensions */}
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <div style={{ height: 576 }}>
+                <Paths />
+            </div>
+        </InsightVizStory>
+    ),
 }
+
 // The Paths component uses useResizeObserver to measure canvasWidth/canvasHeight, then destroys
 // and recreates the SVG when they change (or when theme/data changes). Dimension updates are
 // debounced to reduce recreations. The canvas div gets data-stable removed during recreation
@@ -89,23 +82,15 @@ const waitForPathsCanvasToStabilize: NonNullable<Story['play']> = async ({ canva
         { timeout: 8000, interval: 200 }
     )
 }
-UserPaths.play = waitForPathsCanvasToStabilize
 
-export const UserPathsEdit: Story = createInsightStory(__userPaths as any, 'edit')
-UserPathsEdit.parameters = {
+// Full insight scene in edit mode — the paths editor
+export const EditScene: Story = createInsightStory(__userPaths as any, 'edit')
+EditScene.decorators = [insightSceneMswDecorator]
+EditScene.parameters = {
+    ...insightSceneStoryParameters,
     testOptions: {
+        ...insightSceneStoryParameters.testOptions,
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
     },
 }
-UserPathsEdit.play = waitForPathsCanvasToStabilize
-
-export const UserPathsEditViewports: Story = createInsightStory(__userPaths as any, 'edit')
-UserPathsEditViewports.parameters = {
-    testOptions: {
-        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
-        viewportWidths: ['medium', 'wide', 'superwide'],
-        snapshotBrowsers: [],
-    },
-}
-UserPathsEditViewports.play = waitForPathsCanvasToStabilize
-/* eslint-enable @typescript-eslint/no-var-requires */
+EditScene.play = waitForPathsCanvasToStabilize
