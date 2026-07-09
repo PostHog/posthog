@@ -61,10 +61,13 @@ import { OverflowLaneOverflowRedirect } from './common/overflow-redirect/overflo
 import { OverflowRedirectService } from './common/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from './common/overflow-redirect/overflow-redis-repository'
 import { AiEventSubpipelineFactory } from './common/subpipelines/ai-subpipeline.contract'
-import { IngestionConsumerConfig } from './config'
+import { IngestionConsumerConfig, IngestionOutputsConfig } from './config'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
-    Pick<CommonConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE'>
+    Pick<CommonConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE'> &
+    // The general server builds the consumer from a config that includes IngestionOutputsConfig; the
+    // merge-events gate reads the topic, so surface it here rather than relying on the runtime shape.
+    Pick<IngestionOutputsConfig, 'INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC'>
 
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter

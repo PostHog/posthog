@@ -69,12 +69,12 @@ let warnedUnconfiguredMergeEventsTopic = false
  * Effective enable for person_merge_events: the kill switch AND a configured output topic. The topic
  * defaults to '' (unwired), and producing to an empty topic would warn on every gated merge, so an
  * unset topic disables emission. Warns once when the gate is on but the topic is unconfigured. The
- * topic is optional because the ingestion consumer's config type does not surface output topics,
- * though its runtime config always carries one.
+ * topic field is required so every caller must plumb it through, turning a mis-wired config into a
+ * build error rather than a silent self-disable.
  */
 export function effectivePersonMergeEventsEnabled(config: {
     PERSON_MERGE_EVENTS_ENABLED: boolean
-    INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC?: string
+    INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC: string
 }): boolean {
     if (!config.PERSON_MERGE_EVENTS_ENABLED) {
         return false

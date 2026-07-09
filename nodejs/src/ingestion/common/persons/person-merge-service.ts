@@ -523,8 +523,9 @@ export class PersonMergeService {
 
             // Fire-and-forget after commit: the person_merge_events emission is detached from the ack
             // chain, so a produce failure can never block, replay, or crash ingestion.
-            // producePersonMergeEvent is best-effort and never throws; the call-site catch is
-            // belt-and-braces against the unhandledRejection handler if that contract is ever broken.
+            // producePersonMergeEvent is best-effort and never throws; the call-site catch is a safety
+            // net that swallows an escaped rejection so a broken never-throws contract can't reach the
+            // unhandledRejection handler and stop the service.
             const kafkaAck = this.context.produceMessages(kafkaMessages)
             void this.context.producePersonMergeEvent(currentSourcePerson, mergedPerson).catch(() => {})
             return mergeSuccess(mergedPerson, kafkaAck, true)
