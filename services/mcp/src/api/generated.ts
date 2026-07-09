@@ -11914,6 +11914,16 @@ export namespace Schemas {
      */
     export type BlastRadiusRequestFilters = { [key: string]: unknown };
 
+    /**
+     * * `email` - email
+     */
+    export type DedupeKeyEnum = typeof DedupeKeyEnum[keyof typeof DedupeKeyEnum];
+
+
+    export const DedupeKeyEnum = {
+      Email: 'email',
+    } as const;
+
     export interface BlastRadiusRequest {
       /** Property filters to apply */
       filters: BlastRadiusRequestFilters;
@@ -11922,6 +11932,10 @@ export namespace Schemas {
          * @nullable
          */
       group_type_index?: number | null;
+      /** When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.
+       *
+       * * `email` - email */
+      dedupe_key?: DedupeKeyEnum | null;
     }
 
     export interface BooleanScoreDefinitionConfig {

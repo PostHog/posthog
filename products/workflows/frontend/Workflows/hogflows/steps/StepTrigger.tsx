@@ -52,7 +52,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
 import { getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
-import { batchTriggerLogic } from './batchTriggerLogic'
+import { batchTriggerLogic, getAudienceDedupeKey } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
@@ -494,7 +494,9 @@ function StepTriggerConfigurationManual(): JSX.Element {
 }
 
 function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element | null {
-    const logic = batchTriggerLogic({ id: actionId, filters })
+    const { workflow } = useValues(workflowLogic)
+    const dedupeKey = getAudienceDedupeKey(workflow)
+    const logic = batchTriggerLogic({ id: actionId, filters, dedupeKey })
     const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
 
     if (blastRadiusLoading) {
@@ -530,7 +532,9 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
         return (
             <div className="text-muted">
                 <div className={exceeded ? 'text-danger font-semibold' : 'text-muted'}>
-                    approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)} persons.
+                    {dedupeKey === 'email'
+                        ? `approximately ${humanFriendlyNumber(affected)} unique email addresses (of ${humanFriendlyNumber(total)} persons).`
+                        : `approximately ${humanFriendlyNumber(affected)} of ${humanFriendlyNumber(total)} persons.`}
                 </div>
                 {exceeded && limit != null && (
                     <div className="text-danger text-xs">

@@ -819,9 +819,10 @@ export class CdpApi {
                 },
                 variables: req.body.variables ?? {},
                 groupTypeIndex: typeof req.body.group_type_index === 'number' ? req.body.group_type_index : undefined,
-                dedupeKey: hogFlow.actions.some((action) => action.type === 'function_email')
-                    ? ('email' as const)
-                    : undefined,
+                dedupeKey:
+                    Array.isArray(hogFlow.actions) && hogFlow.actions.some((action) => action.type === 'function_email')
+                        ? ('email' as const)
+                        : undefined,
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,

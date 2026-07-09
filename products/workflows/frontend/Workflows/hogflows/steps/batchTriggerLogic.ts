@@ -9,9 +9,18 @@ import { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schema
 import { HogFlowAction } from '../types'
 import type { batchTriggerLogicType } from './batchTriggerLogicType'
 
+export function getAudienceDedupeKey(
+    workflow?: { actions?: Pick<HogFlowAction, 'type'>[] } | null
+): 'email' | undefined {
+    // Mirrors the backend: batch sends dedupe recipients by email only when the workflow sends email
+    return workflow?.actions?.some((action) => action.type === 'function_email') ? 'email' : undefined
+}
+
 export interface BatchTriggerLogicProps {
     id?: string | 'new'
     filters?: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+    /** When 'email', the count reflects unique email addresses, matching batch send dedup. */
+    dedupeKey?: 'email'
 }
 
 export const batchTriggerLogic = kea<batchTriggerLogicType>([
@@ -42,7 +51,7 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
                     if (!props.filters) {
                         return null
                     }
-                    return await api.hogFlows.getBatchTriggerBlastRadius(props.filters)
+                    return await api.hogFlows.getBatchTriggerBlastRadius(props.filters, props.dedupeKey)
                 },
             },
         ],
@@ -58,7 +67,7 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
         },
     })),
     propsChanged(({ actions, props }, oldProps) => {
-        if (!oldProps || !objectsEqual(props.filters, oldProps.filters)) {
+        if (!oldProps || !objectsEqual(props.filters, oldProps.filters) || props.dedupeKey !== oldProps.dedupeKey) {
             actions.loadBlastRadius()
         }
     }),

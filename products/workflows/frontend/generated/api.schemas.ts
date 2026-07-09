@@ -863,6 +863,15 @@ export interface WorkflowStatsRowApi {
  */
 export type BlastRadiusRequestApiFilters = { [key: string]: unknown }
 
+/**
+ * * `email` - email
+ */
+export type DedupeKeyEnumApi = (typeof DedupeKeyEnumApi)[keyof typeof DedupeKeyEnumApi]
+
+export const DedupeKeyEnumApi = {
+    Email: 'email',
+} as const
+
 export interface BlastRadiusRequestApi {
     /** Property filters to apply */
     filters: BlastRadiusRequestApiFilters
@@ -871,6 +880,10 @@ export interface BlastRadiusRequestApi {
      * @nullable
      */
     group_type_index?: number | null
+    /** When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.
+     *
+     * * `email` - email */
+    dedupe_key?: DedupeKeyEnumApi | null
 }
 
 export interface BlastRadiusApi {

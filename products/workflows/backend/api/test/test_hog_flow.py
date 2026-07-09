@@ -2009,7 +2009,7 @@ class TestHogFlowAPI(APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {})
 
         assert response.status_code == 400, response.json()
-        assert "Missing filters" in response.json().get("detail", "")
+        assert response.json().get("attr") == "filters"
         mock_get_user_blast_radius.assert_not_called()
 
     def test_hog_flow_user_blast_radius_returns_counts(self):
@@ -2196,6 +2196,49 @@ class TestHogFlowAPI(APIBaseTest):
         else:
             mock_legacy_query.assert_called_once_with(self.team, {"properties": []}, None, None)
             mock_workflows_query.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("flag_on_uses_deduped_count", True, 3),
+            ("flag_off_keeps_person_count", False, 5),
+        ]
+    )
+    def test_user_blast_radius_dedupe_key_affects_count(self, _name, flag_enabled, expected_affected):
+        from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+        with (
+            patch(
+                "products.workflows.backend.api.hog_flow.use_workflows_batch_audience_query",
+                return_value=flag_enabled,
+            ),
+            patch(
+                "products.workflows.backend.api.hog_flow.get_user_blast_radius",
+                return_value=BlastRadiusResult(affected=5, total=10),
+            ),
+            patch(
+                "products.workflows.backend.api.hog_flow.get_batch_audience_count", return_value=3
+            ) as mock_deduped_count,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "dedupe_key": "email"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["affected"] == expected_affected
+        assert response.json()["total"] == 10
+        if flag_enabled:
+            mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email")
+        else:
+            mock_deduped_count.assert_not_called()
+
+    def test_user_blast_radius_rejects_unsupported_dedupe_key(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": {"properties": []}, "dedupe_key": "phone"},
+        )
+
+        assert response.status_code == 400, response.json()
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_persons_rejects_unsupported_dedupe_key(self):

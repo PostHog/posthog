@@ -64,6 +64,52 @@ def get_batch_audience_person_ids(
     return [str(row[0]) for row in response.results] if response.results else []
 
 
+def get_batch_audience_count(
+    team: Team,
+    filters: dict,
+    dedupe_key: str,
+) -> int:
+    """
+    Count how many sends a batch workflow would produce with dedup applied — i.e. the
+    number of dedupe groups (unique emails, plus one group per email-less person).
+    Mirrors get_batch_audience_person_ids so the preview matches the actual audience.
+    """
+    cleaned_filter = replace_proxy_properties(team, filters)
+
+    where_exprs: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["persons", "team_id"]),
+            right=ast.Constant(value=team.pk),
+        ),
+        property_to_expr(cleaned_filter.property_groups, team, scope="person"),
+    ]
+
+    select_query = ast.SelectQuery(
+        select=[ast.Call(name="count", distinct=True, args=[_email_dedupe_group_expr()])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+        where=ast.And(exprs=where_exprs),
+    )
+
+    tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
+    response = execute_hogql_query(query=select_query, team=team)
+
+    return response.results[0][0] if response.results else 0
+
+
+def _email_dedupe_group_expr() -> ast.Expr:
+    # Fields stay fully qualified so nothing resolves to an enclosing query's alias.
+    return parse_expr(
+        """
+        if(
+            isNull(persons.properties.email) OR trim(toString(persons.properties.email)) = '',
+            toString(persons.id),
+            lower(trim(toString(persons.properties.email)))
+        )
+        """
+    )
+
+
 def _build_audience_person_query(
     team: Team,
     filter: Filter,
@@ -109,22 +155,11 @@ def _wrap_with_email_dedupe(where_exprs: list[ast.Expr], cursor: Optional[str]) 
     GROUP BY would recompute min(id) over the remaining persons only, re-emitting an email
     whose persons straddle a page boundary.
     """
-    # Fields stay fully qualified so nothing resolves to the aggregate's alias.
-    dedupe_group_expr = parse_expr(
-        """
-        if(
-            isNull(persons.properties.email) OR trim(toString(persons.properties.email)) = '',
-            toString(persons.id),
-            lower(trim(toString(persons.properties.email)))
-        )
-        """
-    )
-
     inner_query = ast.SelectQuery(
         select=[ast.Alias(alias="person_id", expr=ast.Call(name="min", args=[ast.Field(chain=["persons", "id"])]))],
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
         where=ast.And(exprs=where_exprs),
-        group_by=[dedupe_group_expr],
+        group_by=[_email_dedupe_group_expr()],
     )
 
     outer_where: Optional[ast.Expr] = None

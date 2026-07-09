@@ -11,7 +11,7 @@ import { CyclotronJobInputSchemaType } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
-import { batchTriggerLogic } from './steps/batchTriggerLogic'
+import { batchTriggerLogic, getAudienceDedupeKey } from './steps/batchTriggerLogic'
 
 const TriggerPopover = ({
     setPopoverVisible,
@@ -28,6 +28,7 @@ const TriggerPopover = ({
         batchTriggerLogic({
             id: props.id,
             filters: workflow?.trigger?.type === 'batch' ? workflow?.trigger?.filters : undefined,
+            dedupeKey: getAudienceDedupeKey(workflow),
         })
     )
 
@@ -39,7 +40,11 @@ const TriggerPopover = ({
 
     const blastRadiusSuffix = (): string => {
         if (workflow?.trigger?.type === 'batch') {
-            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.affected)} users` : ' for ...'
+            if (!blastRadius) {
+                return ' for ...'
+            }
+            const noun = getAudienceDedupeKey(workflow) === 'email' ? 'email addresses' : 'users'
+            return ` for ${humanFriendlyNumber(blastRadius.affected)} ${noun}`
         }
         return ''
     }

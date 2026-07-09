@@ -4,7 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius_persons
-from products.workflows.backend.services.batch_audience import get_batch_audience_person_ids
+from products.workflows.backend.services.batch_audience import get_batch_audience_count, get_batch_audience_person_ids
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 
@@ -40,6 +40,13 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         result = get_batch_audience_person_ids(self.team, FILTERS, dedupe_key=dedupe_key)
 
         assert sorted(result) == [_uuid(i) for i in expected_indices]
+
+    def test_count_matches_deduped_audience_size(self):
+        self._create_audience(["Dup@X.com", " dup@x.com ", "b@x.com", None, ""])
+
+        count = get_batch_audience_count(self.team, FILTERS, dedupe_key="email")
+
+        assert count == len(get_batch_audience_person_ids(self.team, FILTERS, dedupe_key="email")) == 4
 
     def test_audience_without_dedupe_matches_legacy_query(self):
         self._create_audience(["a@x.com", "a@x.com", "b@x.com", None])

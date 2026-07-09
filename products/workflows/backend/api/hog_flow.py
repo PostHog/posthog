@@ -89,6 +89,7 @@ from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGE
 from products.workflows.backend.services.batch_audience import (
     PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
     SUPPORTED_DEDUPE_KEYS,
+    get_batch_audience_count,
     get_batch_audience_person_ids,
     use_workflows_batch_audience_query,
 )
@@ -186,6 +187,12 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
     filters = serializers.DictField(help_text="Property filters to apply")
     group_type_index = serializers.IntegerField(
         required=False, allow_null=True, help_text="Group type index for group-based targeting"
+    )
+    dedupe_key = serializers.ChoiceField(
+        choices=list(SUPPORTED_DEDUPE_KEYS),
+        required=False,
+        allow_null=True,
+        help_text="When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.",
     )
 
 
@@ -1556,20 +1563,28 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: Request, **kwargs):
-        if "filters" not in request.data:
-            raise exceptions.ValidationError("Missing filters for which to get blast radius")
+        param_serializer = BlastRadiusRequestSerializer(data=request.data)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
 
-        filters = request.data.get("filters", {})
-        group_type_index = request.data.get("group_type_index", None)
+        filters = params["filters"]
+        group_type_index = params.get("group_type_index")
+        dedupe_key = params.get("dedupe_key")
 
         reject_flag_conditions_in_audience(self.team, filters)
 
         result = get_user_blast_radius(self.team, filters, group_type_index)
+        affected = result.affected
+
+        # Preview matches the actual send: with dedup active, "affected" is the number of
+        # sends (unique emails + email-less persons), not the number of matching persons.
+        if dedupe_key is not None and group_type_index is None and use_workflows_batch_audience_query(self.team):
+            affected = get_batch_audience_count(self.team, filters, dedupe_key)
 
         return Response(
             BlastRadiusSerializer(
                 {
-                    "affected": result.affected,
+                    "affected": affected,
                     "total": result.total,
                     "limit": get_hogflow_batch_trigger_limit(self.team_id),
                 }
