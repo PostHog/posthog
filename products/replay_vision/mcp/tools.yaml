@@ -87,8 +87,8 @@ tools:
             idempotent: true
         title: Get replay vision quota
         description: >
-            Get the organization's monthly Replay vision credit budget (1 credit = $0.01; observations cost credits
-            by model). Returns `credit_limit` (null when uncapped), `credits_used` (in-flight + succeeded observations
+            Get the organization's monthly Replay vision credit budget (1 credit = $0.01; observations cost credits by
+            model). Returns `credit_limit` (null when uncapped), `credits_used` (in-flight + succeeded observations
             counted against it), `remaining`, `exhausted`, `projected_monthly_credits`, and the
             `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before
             creating a scanner or calling `vision-scanners-scan-session` — observations requested over budget are
