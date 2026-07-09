@@ -346,6 +346,7 @@ the row lists both.
 | wufoo                   | HTTP                        | requests                                                        | ✅                          |
 | zendesk                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk_sell            | HTTP                        | requests                                                        | ✅                          |
+| zenloop                 | HTTP                        | requests                                                        | ✅                          |
 | zonka_feedback          | HTTP                        | requests                                                        | ✅                          |
 | zoom                    | HTTP                        | requests                                                        | ✅                          |
 | zuora                   | HTTP                        | requests                                                        | ✅                          |

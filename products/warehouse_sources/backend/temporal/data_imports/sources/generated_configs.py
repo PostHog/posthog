@@ -3637,7 +3637,7 @@ class ZenefitsSourceConfig(config.Config):
 
 @config.config
 class ZenloopSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
