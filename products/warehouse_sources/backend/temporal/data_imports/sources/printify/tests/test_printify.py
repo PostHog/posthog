@@ -23,6 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.printify.s
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = printify._fetch_page.__wrapped__  # type: ignore[attr-defined]
 
+# (path, page) -> (items, has_more), the shape _fetch_page returns per request.
+_Pages = dict[tuple[str, int | None], tuple[list[dict], bool]]
+
 
 class _FakeResumableManager:
     def __init__(self, state: PrintifyResumeConfig | None = None) -> None:
@@ -117,7 +120,7 @@ class TestGetRows:
     def _collect(
         manager: _FakeResumableManager,
         monkeypatch: Any,
-        pages: dict[tuple[str, int | None], tuple[list[dict], bool]],
+        pages: _Pages,
         endpoint: str,
     ) -> list[dict]:
         def fake_fetch(
@@ -140,7 +143,7 @@ class TestGetRows:
 
     def test_shop_fanout_injects_shop_id_into_rows(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
-        pages = {
+        pages: _Pages = {
             ("/shops.json", None): ([{"id": 111}, {"id": 222}], False),
             ("/shops/111/products.json", 1): ([{"id": "p1"}], False),
             ("/shops/222/products.json", 1): ([{"id": "p2"}], False),
@@ -150,7 +153,7 @@ class TestGetRows:
 
     def test_rows_keep_api_provided_shop_id(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
-        pages = {
+        pages: _Pages = {
             ("/shops.json", None): ([{"id": 111}], False),
             ("/shops/111/webhooks.json", None): ([{"id": "w1", "shop_id": "111"}], False),
         }
@@ -159,7 +162,7 @@ class TestGetRows:
 
     def test_paginated_fanout_saves_state_after_each_page(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
-        pages = {
+        pages: _Pages = {
             ("/shops.json", None): ([{"id": 111}], False),
             ("/shops/111/products.json", 1): ([{"id": "p1"}], True),
             ("/shops/111/products.json", 2): ([{"id": "p2"}], False),
@@ -172,7 +175,7 @@ class TestGetRows:
         manager = _FakeResumableManager(PrintifyResumeConfig(shop_id=222, page=3))
         # Pages for shop 111 (and pages 1-2 of shop 222) are deliberately absent — fetching them
         # would KeyError, proving the resume path never re-fetches them.
-        pages = {
+        pages: _Pages = {
             ("/shops.json", None): ([{"id": 111}, {"id": 222}, {"id": 333}], False),
             ("/shops/222/products.json", 3): ([{"id": "p3"}], False),
             ("/shops/333/products.json", 1): ([{"id": "p4"}], False),
@@ -182,7 +185,7 @@ class TestGetRows:
 
     def test_resume_with_vanished_shop_restarts_from_first_shop(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(PrintifyResumeConfig(shop_id=999, page=5))
-        pages = {
+        pages: _Pages = {
             ("/shops.json", None): ([{"id": 111}], False),
             ("/shops/111/products.json", 1): ([{"id": "p1"}], False),
         }
@@ -191,7 +194,7 @@ class TestGetRows:
 
     def test_account_level_paginated_endpoint_resumes_from_saved_page(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(PrintifyResumeConfig(shop_id=None, page=2))
-        pages = {
+        pages: _Pages = {
             ("/uploads.json", 2): ([{"id": "u2"}], False),
         }
         rows = self._collect(manager, monkeypatch, pages, "uploads")
@@ -199,7 +202,7 @@ class TestGetRows:
 
     def test_non_paginated_account_endpoint_yields_once_without_state(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
-        pages = {
+        pages: _Pages = {
             ("/catalog/blueprints.json", None): ([{"id": 5}, {"id": 6}], False),
         }
         rows = self._collect(manager, monkeypatch, pages, "blueprints")
@@ -208,7 +211,7 @@ class TestGetRows:
 
     def test_non_paginated_fanout_saves_state_per_shop(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
-        pages = {
+        pages: _Pages = {
             ("/shops.json", None): ([{"id": 111}, {"id": 222}], False),
             ("/shops/111/webhooks.json", None): ([{"id": "w1"}], False),
             ("/shops/222/webhooks.json", None): ([], False),

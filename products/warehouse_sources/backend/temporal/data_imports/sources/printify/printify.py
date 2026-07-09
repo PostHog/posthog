@@ -165,14 +165,14 @@ def get_rows(
 
     shops = _list_shops(session, logger)
     resume_shop_id = resume.shop_id if resume else None
-    if resume_shop_id is not None and all(shop.get("id") != resume_shop_id for shop in shops):
+    resume_page = resume.page if resume else 1
+    if resume_shop_id is not None and all(shop["id"] != resume_shop_id for shop in shops):
         # The saved shop no longer exists (disconnected sales channel); start from the beginning.
         logger.debug(f"Printify: saved shop {resume_shop_id} not found, restarting {endpoint} from the first shop")
-        resume = None
         resume_shop_id = None
 
-    if resume and resume_shop_id is not None:
-        logger.debug(f"Printify: resuming {endpoint} from shop {resume_shop_id}, page {resume.page}")
+    if resume_shop_id is not None:
+        logger.debug(f"Printify: resuming {endpoint} from shop {resume_shop_id}, page {resume_page}")
 
     skipping = resume_shop_id is not None
     for shop in shops:
@@ -181,7 +181,7 @@ def get_rows(
             if shop_id != resume_shop_id:
                 continue
             skipping = False
-            start_page = resume.page if resume else 1
+            start_page = resume_page
         else:
             start_page = 1
 
