@@ -20,6 +20,9 @@ PAYFIT_INTROSPECT_URL = "https://oauth.payfit.com/introspect"
 # List endpoints accept a `maxResults` of up to 50 (default 10); the largest page minimises round trips.
 PAGE_SIZE = 50
 REQUEST_TIMEOUT_SECONDS = 60
+# Interactive credential validation runs on the API request thread, so it gets a tighter
+# per-attempt budget than sync-time calls.
+VALIDATION_TIMEOUT_SECONDS = 15
 
 INVALID_TOKEN_MESSAGE = "PayFit API key is inactive or invalid"
 
@@ -63,11 +66,11 @@ def _make_introspection_session(api_key: str) -> requests.Session:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _introspect(session: requests.Session, api_key: str) -> dict[str, Any]:
+def _introspect(session: requests.Session, api_key: str, timeout: float = REQUEST_TIMEOUT_SECONDS) -> dict[str, Any]:
     response = session.post(
         PAYFIT_INTROSPECT_URL,
         json={"token": api_key},
-        timeout=REQUEST_TIMEOUT_SECONDS,
+        timeout=timeout,
     )
 
     if response.status_code == 429 or response.status_code >= 500:
@@ -259,21 +262,15 @@ def payfit_source(
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Validate the API key via token introspection — one cheap probe that needs no endpoint scope
-    and also proves we can resolve the company_id every sync depends on."""
+    and also proves we can resolve the company_id every sync depends on. Shares `_introspect` with
+    the sync path so a transient 429/5xx blip is retried rather than failing source creation."""
     session = _make_introspection_session(api_key)
     try:
-        response = session.post(PAYFIT_INTROSPECT_URL, json={"token": api_key}, timeout=15)
+        claims = _introspect(session, api_key, timeout=VALIDATION_TIMEOUT_SECONDS)
     except Exception as e:
-        return False, f"Could not connect to PayFit: {e}"
+        return False, f"Could not validate PayFit API key: {e}"
 
-    if response.status_code in (401, 403):
-        return False, "Invalid PayFit API key"
-
-    if not response.ok:
-        return False, f"PayFit returned HTTP {response.status_code}"
-
-    claims = response.json()
-    if not isinstance(claims, dict) or not claims.get("active"):
+    if not claims.get("active"):
         return False, "Invalid PayFit API key"
 
     if not claims.get("company_id"):

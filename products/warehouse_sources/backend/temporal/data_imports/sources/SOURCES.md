@@ -644,8 +644,6 @@ doesn't conflict with concurrent PRs.
 - pabbly_subscriptions_billing
 - pagerduty
 - pardot
-- partnerize
-- payfit
 - paylocity
 - paypal
 - peec_ai

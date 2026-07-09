@@ -282,36 +282,42 @@ class TestGetCompanyId(_ResponseSessionMixin):
 
 
 class TestValidateCredentials(_ResponseSessionMixin):
+    # Status-code handling (401/403, 429/5xx retries, malformed payloads) lives in `_introspect`
+    # and is covered by TestGetCompanyId; validation shares that path, so here we only assert the
+    # claims-to-verdict mapping and that introspection failures surface as a message, not a raise.
     @parameterized.expand(
         [
-            ("active_with_company", 200, {"active": True, "company_id": "company-1"}, True, None),
-            ("inactive", 200, {"active": False}, False, "Invalid PayFit API key"),
-            ("no_company_id", 200, {"active": True}, False, "PayFit token introspection returned no company ID"),
-            ("unauthorized", 401, None, False, "Invalid PayFit API key"),
-            ("server_error", 500, None, False, "PayFit returned HTTP 500"),
+            ("active_with_company", {"active": True, "company_id": "company-1"}, True, None),
+            ("inactive", {"active": False}, False, "Invalid PayFit API key"),
+            ("no_company_id", {"active": True}, False, "PayFit token introspection returned no company ID"),
         ]
     )
-    @patch(f"{payfit.__name__}.make_tracked_session")
-    def test_status_mapping(
+    @patch(f"{payfit.__name__}._introspect")
+    def test_claims_mapping(
         self,
         _name: str,
-        status: int,
-        body: Any,
+        claims: dict,
         expected_valid: bool,
         expected_message: str | None,
-        mock_session: MagicMock,
+        mock_introspect: MagicMock,
     ) -> None:
-        mock_session.return_value = self._session_returning(status, body)
+        mock_introspect.return_value = claims
         assert validate_credentials("payfit-key") == (expected_valid, expected_message)
 
-    @patch(f"{payfit.__name__}.make_tracked_session")
-    def test_connection_error_maps_to_message(self, mock_session: MagicMock) -> None:
-        session = MagicMock()
-        session.post.side_effect = requests.ConnectionError("boom")
-        mock_session.return_value = session
+    @parameterized.expand(
+        [
+            ("exhausted_retries", PayFitRetryableError("PayFit introspection error (retryable): status=500"), "500"),
+            ("connection_error", requests.ConnectionError("boom"), "boom"),
+        ]
+    )
+    @patch(f"{payfit.__name__}._introspect")
+    def test_introspection_failure_maps_to_message(
+        self, _name: str, error: Exception, expected_fragment: str, mock_introspect: MagicMock
+    ) -> None:
+        mock_introspect.side_effect = error
         valid, message = validate_credentials("payfit-key")
         assert valid is False
-        assert message is not None and "boom" in message
+        assert message is not None and expected_fragment in message
 
 
 class TestCheckSchemaAccess(_ResponseSessionMixin):
