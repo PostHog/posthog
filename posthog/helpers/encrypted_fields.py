@@ -9,10 +9,25 @@ from django.core.checks import Error, register
 from django.db import models
 from django.utils.functional import cached_property
 
+import structlog
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+logger = structlog.get_logger(__name__)
+
+
+def _log_decrypt_failure(field: models.Field) -> None:
+    # A value stored in an encrypted field couldn't be decrypted with any known key while
+    # ignore_decrypt_errors is off. We keep returning the raw value for backwards compatibility,
+    # but surface it so a corrupted/rotated-out secret is diagnosable instead of silently
+    # degrading downstream (e.g. into an opaque S3 auth error for warehouse credentials).
+    logger.warning(
+        "encrypted_field_decrypt_failed",
+        field=getattr(field, "name", None),
+        model=getattr(getattr(field, "model", None), "__name__", None),
+    )
 
 
 class EncryptedFieldMixin:
@@ -96,7 +111,7 @@ class EncryptedFieldMixin:
         try:
             value = self.decrypt(value=value)
         except InvalidToken:
-            pass
+            _log_decrypt_failure(self)  # type: ignore[arg-type]
         except UnicodeEncodeError:
             pass
         return super().to_python(value)  # type: ignore
@@ -177,7 +192,7 @@ class EncryptedJSONField(EncryptedFieldMixin, models.JSONField):
         try:
             value = self._decrypt_values(value=json.loads(value))
         except InvalidToken:
-            pass
+            _log_decrypt_failure(self)
         except UnicodeEncodeError:
             pass
         return super(EncryptedFieldMixin, self).to_python(value)

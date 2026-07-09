@@ -2,7 +2,13 @@ import pytest
 
 from clickhouse_driver.errors import ServerException
 
-from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
+from posthog.errors import (
+    ExposedCHQueryError,
+    QueryErrorCategory,
+    classify_query_error,
+    clickhouse_error_type,
+    wrap_clickhouse_query_error,
+)
 
 
 @pytest.mark.parametrize(
@@ -76,7 +82,7 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
                 code=499,
             ),
             "CHQueryErrorS3Error",
-            "Code: 499.\nS3 error occurred. (Code: 499. DB::Exception: Failed to get object info: No response body.. HTTP response code: 404: while reading file.parquet)",
+            "Failed to get object info: No response body.. HTTP response code: 404: while reading file.parquet",
             499,
             "CHQueryErrorS3Error",
         ),
@@ -159,3 +165,13 @@ def test_wrap_clickhouse_query_error(error, expected_type, expected_message, exp
     assert str(new_error) == expected_message
     assert getattr(new_error, "code", None) == expected_code
     assert label == expected_ch_error
+
+
+@pytest.mark.parametrize("code", [499, 500])  # S3_ERROR, AZURE_BLOB_STORAGE_ERROR
+def test_object_storage_errors_are_user_exposed(code):
+    # Self-managed warehouse queries that fail at the object-storage layer (bad credentials,
+    # missing bucket/key, access denied) must surface the real cause to the user. If these
+    # are not ExposedCHQueryError, the query API swallows them as a generic ClickHouse error.
+    error = wrap_clickhouse_query_error(ServerException("DB::Exception: Access Denied.", code=code))
+    assert isinstance(error, ExposedCHQueryError)
+    assert classify_query_error(error) == QueryErrorCategory.USER_ERROR

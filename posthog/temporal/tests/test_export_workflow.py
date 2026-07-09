@@ -162,7 +162,7 @@ async def test_transient_error_retries_and_succeeds(
         (
             lambda: CHQueryErrorS3Error("S3 error", code=499),
             "CHQueryErrorS3Error",
-            "CHQueryErrorS3Error: Code: 499.\nS3 error",
+            "CHQueryErrorS3Error: S3 error",
             10,
             SloOutcome.FAILURE,
         ),

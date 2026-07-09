@@ -115,7 +115,10 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
             detail=f"{detail} Try reducing its scope by changing the time range."
         )
     elif name == "S3_ERROR":
-        return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
+        # Pass the raw ClickHouse message through so the real cause (bad credentials, missing
+        # bucket/key, access denied) reaches users querying self-managed warehouse sources.
+        # ExposedCHQueryError.__str__ strips the "Code: N. DB::Exception:" prefix and stack trace.
+        return CHQueryErrorS3Error(err.message, code=err.code, code_name="s3_error")
 
     # user query errors - pass through original message with proper code_name
     elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
@@ -197,7 +200,9 @@ class CHQueryErrorCannotScheduleTask(InternalCHQueryError):
     pass
 
 
-class CHQueryErrorS3Error(InternalCHQueryError):
+class CHQueryErrorS3Error(ExposedCHQueryError):
+    # S3 access failures on self-managed warehouse sources (bad credentials, missing bucket/key,
+    # access denied) are the user's to fix, so surface the real cause instead of a generic error.
     pass
 
 
@@ -713,8 +718,8 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     496: ErrorCodeMeta("QUOTA_REQUIRES_CLIENT_KEY"),
     497: ErrorCodeMeta("ACCESS_DENIED"),
     498: ErrorCodeMeta("LIMIT_BY_WITH_TIES_IS_NOT_SUPPORTED"),
-    499: ErrorCodeMeta("S3_ERROR"),
-    500: ErrorCodeMeta("AZURE_BLOB_STORAGE_ERROR"),
+    499: ErrorCodeMeta("S3_ERROR", user_safe=True),
+    500: ErrorCodeMeta("AZURE_BLOB_STORAGE_ERROR", user_safe=True),
     501: ErrorCodeMeta("CANNOT_CREATE_DATABASE"),
     502: ErrorCodeMeta("CANNOT_SIGQUEUE"),
     503: ErrorCodeMeta("AGGREGATE_FUNCTION_THROW"),
