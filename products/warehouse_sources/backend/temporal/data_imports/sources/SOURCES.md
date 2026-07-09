@@ -204,6 +204,7 @@ the row lists both.
 | jira                    | HTTP                        | requests                                                        | ✅                          |
 | jobnimbus               | HTTP                        | requests                                                        | ✅                          |
 | jotform                 | HTTP                        | requests                                                        | ✅                          |
+| judgeme_reviews         | HTTP                        | requests                                                        | ✅                          |
 | justcall                | HTTP                        | requests                                                        | ✅                          |
 | justsift                | HTTP                        | requests                                                        | ✅                          |
 | k6_cloud                | HTTP                        | requests                                                        | ✅                          |
@@ -561,6 +562,7 @@ doesn't conflict with concurrent PRs.
 - jamf_pro
 - jobber
 - judgeme_reviews
+- justsift
 - kafka
 - keka
 - kisi
