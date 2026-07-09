@@ -31,6 +31,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     DEFAULT_RETRIES,
     DEFAULT_TTL_SCHEDULE,
     DEFAULT_WAIT_TIMEOUT_SECONDS,
+    EXPIRY_BUFFER_SECONDS,
     NON_RETRYABLE_CLICKHOUSE_ERROR_CODES,
     PREAGGREGATION_INSERT_QUORUM,
     LazyComputationExecutor,
@@ -1643,6 +1644,80 @@ class TestComputationExecutorExecute(BaseTest):
         # A new job was created (stale one was filtered out)
         assert insert_count[0] == 1
         assert stale_job.id not in result.job_ids
+
+    def test_stale_ready_job_served_within_grace(self):
+        query_info, query_hash = self._make_query_info()
+
+        # READY job that expired 1h ago (created 2h ago, 1h TTL) — within the 6h grace.
+        stale_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+            expires_at=django_timezone.now() - timedelta(hours=1),
+        )
+        PreaggregationJob.objects.filter(id=stale_job.id).update(
+            created_at=django_timezone.now() - timedelta(hours=2),
+        )
+
+        executor = LazyComputationExecutor(
+            ttl_schedule=TtlSchedule.from_seconds(60 * 60), serve_stale_grace_seconds=6 * 60 * 60
+        )
+        insert_count = [0]
+
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=lambda t, j: insert_count.__setitem__(0, insert_count[0] + 1),
+        )
+
+        assert result.ready is True
+        assert result.stale is True
+        assert result.job_ids == [stale_job.id]
+        assert insert_count[0] == 0, "serve-stale must not compute inline"
+
+    def test_stale_job_beyond_grace_is_recomputed(self):
+        query_info, query_hash = self._make_query_info()
+
+        # Expired 9h ago — beyond the 6h grace, so the normal recompute path runs.
+        stale_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+            expires_at=django_timezone.now() - timedelta(hours=9),
+        )
+        PreaggregationJob.objects.filter(id=stale_job.id).update(
+            created_at=django_timezone.now() - timedelta(hours=10),
+        )
+
+        executor = LazyComputationExecutor(
+            ttl_schedule=TtlSchedule.from_seconds(60 * 60), serve_stale_grace_seconds=6 * 60 * 60
+        )
+        insert_count = [0]
+
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=lambda t, j: insert_count.__setitem__(0, insert_count[0] + 1),
+        )
+
+        assert result.ready is True
+        assert result.stale is False
+        assert stale_job.id not in result.job_ids
+        assert insert_count[0] == 1
+
+    def test_serve_stale_grace_must_stay_under_expiry_buffer(self):
+        # A grace at/above EXPIRY_BUFFER_SECONDS could return PG jobs whose ClickHouse
+        # rows were already TTL-deleted — silent empty reads. Constructor must refuse.
+        with self.assertRaises(ValueError):
+            LazyComputationExecutor(serve_stale_grace_seconds=EXPIRY_BUFFER_SECONDS)
 
     def test_fresh_ready_job_is_reused(self):
         query_info, query_hash = self._make_query_info()

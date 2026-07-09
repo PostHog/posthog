@@ -858,10 +858,15 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 )
 
         budget = ensure_mock.call_args.kwargs["wait_timeout_seconds"]
+        grace = ensure_mock.call_args.kwargs["serve_stale_grace_seconds"]
         if trigger is None:
             assert budget == mod.PATHS_USER_ENSURE_WAIT_SECONDS
+            assert grace == mod.PATHS_USER_STALE_GRACE_SECONDS
         else:
+            # Warmers keep the full budget AND must never serve stale to themselves —
+            # they are the refresh mechanism the stale path relies on.
             assert budget is None, f"warmer trigger {trigger} must keep the framework default budget"
+            assert grace is None, f"warmer trigger {trigger} must not serve stale"
 
     @parameterized.expand([("no_compare", False), ("compare", True)])
     @freeze_time("2024-01-15T12:00:00Z")
