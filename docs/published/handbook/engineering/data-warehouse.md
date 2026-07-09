@@ -36,6 +36,16 @@ AWS_ACCESS_KEY_ID=object_storage_root_user AWS_SECRET_ACCESS_KEY=object_storage_
 
 There's a separate folder under the `data-warehouse` bucket for each table you sync.
 
+## Rolling out the Duckgres writer-slot protocol
+
+The Duckgres batch sink uses `DUCKGRES_WRITER_SLOT_ENABLED` as a two-phase rollout gate for its per-schema writer protocol. This prevents an old consumer, which does not update writer slots, from overlapping a new consumer during a rolling deployment.
+
+1. Deploy the writer-slot code with `DUCKGRES_WRITER_SLOT_ENABLED` unset or `false`. New consumer pods remain healthy but claim no Duckgres batches while old pods drain.
+2. Wait for the deployment to complete so no old consumer pods or in-flight old applies remain.
+3. Set `DUCKGRES_WRITER_SLOT_ENABLED=true` and deploy the configuration. Enabled new pods can process safely alongside disabled new pods because the disabled pods claim nothing.
+
+Do not enable the setting in the same rollout that first introduces writer-slot support. Local development and tests enable it by default.
+
 ## Setting up a MySQL source
 
 If you want to set up a local MySQL database as a source for the data warehouse, there are a few extra set up steps you'll need to complete:

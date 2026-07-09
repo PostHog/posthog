@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import psycopg
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
@@ -220,6 +222,33 @@ class TestDuckgresProcessSingle:
 
 
 class TestDuckgresEnablementGating:
+    @pytest.mark.asyncio
+    @override_settings(DUCKGRES_WRITER_SLOT_ENABLED=False)
+    async def test_fetch_claims_nothing_until_writer_slot_protocol_is_enabled(self) -> None:
+        adapter = DuckgresBatchConsumerAdapter()
+        conn = _make_healthy_conn()
+
+        with (
+            patch.object(adapter, "_enabled_team_ids", new_callable=AsyncMock) as enabled_teams,
+            patch.object(adapter, "_run_maintenance", new_callable=AsyncMock) as maintenance,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_delta_succeeded_and_lock",
+                new_callable=AsyncMock,
+            ) as fetch,
+        ):
+            batches = await adapter.fetch_and_lock(
+                conn,
+                limit=50,
+                retry_backoff_base_seconds=0,
+                owner_token="test-owner",
+                lease_ttl_seconds=300,
+            )
+
+        assert batches == []
+        enabled_teams.assert_not_called()
+        maintenance.assert_not_called()
+        fetch.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_fetch_returns_empty_without_querying_when_no_teams_enabled(self):
         adapter = DuckgresBatchConsumerAdapter()

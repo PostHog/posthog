@@ -5,6 +5,8 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from django.conf import settings
+
 import psycopg
 import structlog
 from asgiref.sync import sync_to_async
@@ -102,6 +104,7 @@ class DuckgresBatchConsumerAdapter:
         # (fetch claims nothing) in prod; stays None in dev where team_ids is None
         # and the sink is intentionally ungated.
         self._eligible_schema_ids: list[str] | None = None
+        self._writer_slot_disabled_logged = False
 
     async def _enabled_team_ids(self) -> list[int] | None:
         """Cached duckgres-enabled team set; keeps the previous set on app-DB errors."""
@@ -201,6 +204,12 @@ class DuckgresBatchConsumerAdapter:
         max_groups: int | None = None,
         exclude_groups: list[tuple[int, str]] | None = None,
     ) -> list[PendingBatch]:
+        if not settings.DUCKGRES_WRITER_SLOT_ENABLED:
+            if not self._writer_slot_disabled_logged:
+                logger.warning("duckgres_writer_slot_protocol_not_enabled")
+                self._writer_slot_disabled_logged = True
+            return []
+
         team_ids = await self._enabled_team_ids()
         if team_ids is not None and not team_ids:
             return []

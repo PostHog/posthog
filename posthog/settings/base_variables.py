@@ -84,6 +84,10 @@ if AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE:
 DUCKGRES_API_URL: str | None = get_from_env("DUCKGRES_API_URL", optional=True)
 DUCKGRES_INTERNAL_SECRET: str | None = get_from_env("DUCKGRES_INTERNAL_SECRET", optional=True)
 DUCKGRES_PG_PORT: int = get_from_env("DUCKGRES_PG_PORT", 5432, type_cast=int)
+# Two-phase rollout gate for the Duckgres writer-slot protocol. Production
+# deployments first roll out the code with claiming paused, then enable this
+# after every old consumer (which does not update writer slots) has drained.
+DUCKGRES_WRITER_SLOT_ENABLED: bool = get_from_env("DUCKGRES_WRITER_SLOT_ENABLED", TEST or DEBUG, type_cast=str_to_bool)
 
 # Bulk deletion operations can be disabled during database migrations
 DISABLE_BULK_DELETES: bool = get_from_env("DISABLE_BULK_DELETES", False, type_cast=str_to_bool)
