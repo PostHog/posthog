@@ -15,6 +15,7 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
+    SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -213,45 +214,58 @@ def _resolve_autostart_assignee(
     return None
 
 
-def _resolve_autostart_fallback_user(
-    team_id: int,
-    report_priority: Priority,
-) -> User | None:
+def _resolve_autostart_fallback_user(team_id: int) -> User | None:
     """Assignee for an actionable report whose suggested reviewers don't resolve to a member.
 
     Suggested reviewers are advisory — a report can be immediately actionable with a clear fix
     even when none of its suggested reviewers have linked a GitHub account (or it has none at all).
-    Rather than drop the auto-start, run the implementation task under a team member who explicitly
-    opted into it by setting their own ``autostart_priority`` at a threshold that permits this
-    report's priority. That per-user setting is a direct opt-in to autonomous PRs on their behalf,
-    so running as them is within their consent even though they aren't the named reviewer.
+    Rather than drop the auto-start, run the implementation task under the human who turned signals
+    on for this team. Enabling a signal source is the team's opt-in to the signals product, of which
+    autonomous PRs are a part, so attributing the task to that member is within the team's consent.
 
-    Deterministic (lowest user id first) so concurrent evaluations pick the same user. Returns
-    ``None`` when nobody on the team has opted in at a permitting threshold, so a team that hasn't
-    enabled auto-start still never auto-opens a PR. The team default threshold is deliberately not
-    consulted here: it's a fallback *threshold*, not a standalone opt-in that names a runner.
+    Resolution, restricted at every tier to *active* org members (still in the org and not
+    deactivated) — the task mints a PostHog OAuth token as this user, so a departed or disabled
+    account can't run it:
+
+    1. The earliest active member who enabled a ``SignalSourceConfig`` for this team (ordered by
+       the source's creation time) — who first turned signals on.
+    2. If none (sources enabled by a system path leave ``created_by`` null), the organization's
+       owner, then an admin — the accountable human for an org that is clearly running signals.
+    3. Otherwise ``None`` — no eligible human, so nothing auto-starts.
+
+    Deterministic within each tier so concurrent evaluations pick the same user.
     """
     org_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
     if org_id is None:
         return None
 
-    report_rank = _priority_rank(report_priority)
-    member_ids = OrganizationMembership.objects.filter(organization_id=org_id).values_list("user_id", flat=True)
-    configs = (
-        SignalUserAutonomyConfig.objects.filter(
-            autostart_priority__isnull=False,
-            user_id__in=member_ids,
-        )
-        .select_related("user")
-        .order_by("user_id")
+    active_member_ids = OrganizationMembership.objects.filter(organization_id=org_id, user__is_active=True).values_list(
+        "user_id", flat=True
     )
-    for config in configs:
-        threshold = config.autostart_priority
-        # Guaranteed non-null by the queryset filter; the guard also narrows for the type checker.
-        if threshold is None:
-            continue
-        if report_rank <= _priority_rank(Priority(threshold)):
-            return config.user
+
+    # Tier 1: the earliest active member who enabled a signal source for this team.
+    enabler_id = (
+        SignalSourceConfig.objects.filter(team_id=team_id, created_by_id__in=active_member_ids)
+        .order_by("created_at")
+        .values_list("created_by_id", flat=True)
+        .first()
+    )
+    if enabler_id is not None:
+        return User.objects.filter(id=enabler_id).first()
+
+    # Tier 2: no active enabler — fall back to the org's owner, then an admin (highest level first).
+    fallback_id = (
+        OrganizationMembership.objects.filter(
+            organization_id=org_id,
+            user__is_active=True,
+            level__gte=OrganizationMembership.Level.ADMIN,
+        )
+        .order_by("-level", "user_id")
+        .values_list("user_id", flat=True)
+        .first()
+    )
+    if fallback_id is not None:
+        return User.objects.filter(id=fallback_id).first()
     return None
 
 
@@ -308,8 +322,8 @@ async def maybe_autostart_implementation_task(
 
     Suggested reviewers no longer gate the pipeline path: an immediately-actionable report
     whose reviewers don't resolve to a connected-GitHub member (or has none) still auto-starts
-    under a team member who opted into auto-start (see `_resolve_autostart_fallback_user`), so a
-    clear fix isn't dropped just because nobody linked GitHub. It's skipped only when no such
+    under the member who enabled signals for the team (see `_resolve_autostart_fallback_user`), so
+    a clear fix isn't dropped just because nobody linked GitHub. It's skipped only when no such
     member exists. The user-triggered path (a reviewer edit) still runs strictly as the editing
     user and never falls back, so it can't act under another member's identity.
 
@@ -354,18 +368,16 @@ async def maybe_autostart_implementation_task(
             team_id, priority.priority, reviewers_content, team_default_priority
         )
         if task_user is None:
-            # No suggested reviewer resolved to a connected-GitHub member at a permitting threshold.
-            # The report is still immediately actionable, so run it under a member who opted into
-            # auto-start rather than dropping the PR.
-            task_user = await database_sync_to_async(_resolve_autostart_fallback_user, thread_sensitive=False)(
-                team_id, priority.priority
-            )
+            # No suggested reviewer resolved to a connected-GitHub member. The report is still
+            # immediately actionable, so run it under the member who enabled signals for the team
+            # rather than dropping the PR.
+            task_user = await database_sync_to_async(_resolve_autostart_fallback_user, thread_sensitive=False)(team_id)
     if task_user is None:
         logger.info(
             "signals auto-start skipped",
             report_id=report_id,
             team_id=team_id,
-            reason="no reviewer or opted-in member meets the autonomy priority threshold",
+            reason="no reviewer resolved and no signals-enabling member to run the task as",
         )
         return
 

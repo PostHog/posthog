@@ -21,6 +21,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportTask,
+    SignalSourceConfig,
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.report_generation.research import Priority
@@ -86,56 +87,70 @@ def test_resolve_autostart_assignee(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    ("member_autostart_priority", "report_priority", "expect_match"),
-    [
-        (Priority.P2, Priority.P0, True),  # opted in at P2, report is higher priority → match
-        (Priority.P2, Priority.P2, True),  # report at the member's threshold → match
-        (Priority.P2, Priority.P3, False),  # report below the member's threshold → no match
-        (None, Priority.P4, False),  # a config row without an autostart opt-in is not eligible
-    ],
-)
-def test_resolve_autostart_fallback_user(organization, team, member_autostart_priority, report_priority, expect_match):
-    # The fallback runs an actionable report under a member who explicitly opted into autostart
-    # (an autostart_priority is set), even though they aren't a suggested reviewer and have no
-    # connected GitHub account. A bare config row is not an opt-in, and a report below the
-    # member's threshold must not run.
-    user = User.objects.create(email="opted-in@example.com")
-    OrganizationMembership.objects.create(user=user, organization=organization)
-    SignalUserAutonomyConfig.objects.create(
-        user=user,
-        autostart_priority=member_autostart_priority.value if member_autostart_priority else None,
+def test_resolve_autostart_fallback_user_prefers_earliest_active_enabler(organization, team):
+    # Tier 1: run under the earliest active member who turned a signal source on. A departed /
+    # deactivated enabler is skipped even though they enabled a source first (the task mints an
+    # OAuth token as this user, so a disabled account can't run it).
+    departed = User.objects.create(email="departed@example.com", is_active=False)
+    OrganizationMembership.objects.create(user=departed, organization=organization)
+    active_early = User.objects.create(email="early@example.com")
+    OrganizationMembership.objects.create(user=active_early, organization=organization)
+    active_late = User.objects.create(email="late@example.com")
+    OrganizationMembership.objects.create(user=active_late, organization=organization)
+
+    # Creation order fixes created_at ordering: departed first, then the two active members.
+    SignalSourceConfig.objects.create(
+        team=team, source_product="error_tracking", source_type="issue_created", created_by=departed
+    )
+    SignalSourceConfig.objects.create(
+        team=team, source_product="error_tracking", source_type="issue_reopened", created_by=active_early
+    )
+    SignalSourceConfig.objects.create(
+        team=team, source_product="error_tracking", source_type="issue_spiking", created_by=active_late
     )
 
-    resolved = _resolve_autostart_fallback_user(team_id=team.id, report_priority=report_priority)
+    resolved = _resolve_autostart_fallback_user(team_id=team.id)
 
-    if expect_match:
-        assert resolved is not None
-        assert resolved.id == user.id
-    else:
-        assert resolved is None
+    assert resolved is not None
+    assert resolved.id == active_early.id
 
 
 @pytest.mark.django_db
-def test_resolve_autostart_fallback_user_picks_lowest_id_and_ignores_other_orgs(organization, team):
-    # Concurrent evaluations must agree on one runner, so ties resolve to the lowest user id; and a
-    # member of a different organization must never be picked to run this team's report.
-    outsider_org = Organization.objects.create(name="outsider-org")
-    outsider = User.objects.create(email="outsider@example.com")
-    OrganizationMembership.objects.create(user=outsider, organization=outsider_org)
-    SignalUserAutonomyConfig.objects.create(user=outsider, autostart_priority=Priority.P4.value)
+def test_resolve_autostart_fallback_user_falls_back_to_org_owner(organization, team):
+    # Tier 2: sources enabled by a system path leave created_by null, so there's no enabler to run
+    # as. Attribute to the org owner, ahead of an admin, and never a plain member.
+    SignalSourceConfig.objects.create(
+        team=team, source_product="error_tracking", source_type="issue_created", created_by=None
+    )
+    member = User.objects.create(email="member@example.com")
+    OrganizationMembership.objects.create(
+        user=member, organization=organization, level=OrganizationMembership.Level.MEMBER
+    )
+    admin = User.objects.create(email="admin@example.com")
+    OrganizationMembership.objects.create(
+        user=admin, organization=organization, level=OrganizationMembership.Level.ADMIN
+    )
+    owner = User.objects.create(email="owner@example.com")
+    OrganizationMembership.objects.create(
+        user=owner, organization=organization, level=OrganizationMembership.Level.OWNER
+    )
 
-    first = User.objects.create(email="first@example.com")
-    second = User.objects.create(email="second@example.com")
-    for member in (first, second):
-        OrganizationMembership.objects.create(user=member, organization=organization)
-        SignalUserAutonomyConfig.objects.create(user=member, autostart_priority=Priority.P4.value)
-
-    resolved = _resolve_autostart_fallback_user(team_id=team.id, report_priority=Priority.P4)
+    resolved = _resolve_autostart_fallback_user(team_id=team.id)
 
     assert resolved is not None
-    assert resolved.id == min(first.id, second.id)
-    outsider_org.delete()
+    assert resolved.id == owner.id
+
+
+@pytest.mark.django_db
+def test_resolve_autostart_fallback_user_returns_none_without_enabler_or_admin(organization, team):
+    # Tier 3 (fail-closed): a plain member with no enabled source and no elevated role is not an
+    # eligible runner, so nothing auto-starts rather than picking an arbitrary member.
+    member = User.objects.create(email="member@example.com")
+    OrganizationMembership.objects.create(
+        user=member, organization=organization, level=OrganizationMembership.Level.MEMBER
+    )
+
+    assert _resolve_autostart_fallback_user(team_id=team.id) is None
 
 
 @pytest.mark.django_db
