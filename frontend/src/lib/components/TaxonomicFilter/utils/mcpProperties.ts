@@ -35,15 +35,16 @@ export function includesMCPAnalyticsEvents(eventNames: string[]): boolean {
  *  can't drift apart. The rest of the known schema follows in taxonomy order. */
 const PRIORITY_MCP_PROPERTIES: string[] = POSTHOG_EVENT_PROMOTED_PROPERTIES[MCP_TOOL_CALL_EVENT]
 
-let mcpPropertyFilterOptions: string[] | null = null
+// Derived once from the (already static, module-load-resolved) taxonomy — no need to cache
+// beyond the top-level const, since CORE_FILTER_DEFINITIONS_BY_GROUP never changes at runtime.
+const MCP_PROPERTY_FILTER_OPTIONS: string[] = (() => {
+    const known = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.MCPProperties])
+    const prioritized = PRIORITY_MCP_PROPERTIES.filter((key) => known.includes(key))
+    return [...prioritized, ...known.filter((key) => !PRIORITY_MCP_PROPERTIES.includes(key))]
+})()
 
 export function getMCPPropertyFilterOptions(): string[] {
-    if (!mcpPropertyFilterOptions) {
-        const known = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.MCPProperties])
-        const prioritized = PRIORITY_MCP_PROPERTIES.filter((key) => known.includes(key))
-        mcpPropertyFilterOptions = [...prioritized, ...known.filter((key) => !PRIORITY_MCP_PROPERTIES.includes(key))]
-    }
-    return mcpPropertyFilterOptions
+    return MCP_PROPERTY_FILTER_OPTIONS
 }
 
 /** Seeded into the Suggested tab when the picker is scoped to `$mcp_tool_call`, so
@@ -55,10 +56,12 @@ export const MCP_TOOL_CALL_SUGGESTED_PROPERTIES: string[] = ['$mcp_is_error']
 
 /** When the MCP properties group is available in a picker, the known schema is
  *  excluded from Event properties so each property lives in exactly one group —
- *  mirroring how autocapture's element properties exist only in the Elements group.
- *  `$mcp_*` keys a team ingests beyond the known schema still surface under
- *  Event properties. With `requestedGroupTypes` undefined the exclusion stays off —
- *  degrading toward duplication (benign) rather than hiding properties. */
+ *  the exclusivity autocapture gets structurally (element properties are their own
+ *  namespace), emulated via the same exclusion mechanism as
+ *  TRAFFIC_TYPE_VIRTUAL_PROPERTIES. `$mcp_*` keys a team ingests beyond the known
+ *  schema still surface under Event properties. With `requestedGroupTypes` undefined
+ *  the exclusion stays off — degrading toward duplication (benign) rather than
+ *  hiding properties. */
 export function getMCPExcludedEventProperties(
     eventNames: string[],
     requestedGroupTypes: TaxonomicFilterGroupType[] | undefined

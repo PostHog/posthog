@@ -136,7 +136,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
         featureFlags,
         input.eventNames,
         // eslint-disable-next-line react-hooks/exhaustive-deps -- content-keyed: consumers pass fresh array literals per render
-        input.taxonomicGroupTypes?.join('\0'),
+        JSON.stringify(input.taxonomicGroupTypes),
         input.schemaColumns,
         input.schemaColumnsLoading,
         input.metadataSource,
