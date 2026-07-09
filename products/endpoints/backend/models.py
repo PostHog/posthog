@@ -25,13 +25,45 @@ logger = logging.getLogger(__name__)
 
 
 class _ReplacePlaceholdersWithDummies(CloningVisitor):
-    """Replace all {variables.foo} placeholders with empty string constants."""
+    """Replace {variables.foo} placeholders with dummy constants for schema introspection.
+
+    Placeholders in numeric positions (LIMIT / OFFSET) become 0 so ClickHouse accepts the
+    probe query — an empty string there yields "OFFSET expression must be constant with
+    numeric type". Everywhere else they become an empty string. The real query binds the
+    actual variable values at run time, so this only affects the schema-probe path.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._numeric_depth = 0
 
     def visit_placeholder(self, node: ast.Placeholder) -> ast.Constant:
-        return ast.Constant(value="")
+        return ast.Constant(value=0 if self._numeric_depth > 0 else "")
 
+    def _visit_numeric(self, node: ast.Expr | None) -> Any:
+        if node is None:
+            return None
+        self._numeric_depth += 1
+        try:
+            return self.visit(node)
+        finally:
+            self._numeric_depth -= 1
 
-_PLACEHOLDER_REPLACER = _ReplacePlaceholdersWithDummies()
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        result = super().visit_select_query(node)
+        # Re-visit LIMIT/OFFSET subtrees in numeric context, overwriting the string dummies.
+        result.limit = self._visit_numeric(node.limit)
+        result.offset = self._visit_numeric(node.offset)
+        if result.limit_by is not None and node.limit_by is not None:
+            result.limit_by.n = self._visit_numeric(node.limit_by.n)
+            result.limit_by.offset_value = self._visit_numeric(node.limit_by.offset_value)
+        return result
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> ast.SelectSetQuery:
+        result = super().visit_select_set_query(node)
+        result.limit = self._visit_numeric(node.limit)
+        result.offset = self._visit_numeric(node.offset)
+        return result
 
 
 # Matches Nullable(...) and LowCardinality(...) — single-arg wrappers
@@ -327,7 +359,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         from posthog.clickhouse.client import sync_execute
 
         parsed = parse_select(hogql_string)
-        cleaned = _PLACEHOLDER_REPLACER.visit(parsed)
+        cleaned = _ReplacePlaceholdersWithDummies().visit(parsed)
 
         team = Team.objects.get(pk=team_id)
         executor = HogQLQueryExecutor(query=cleaned, team=team, limit_context=None)
