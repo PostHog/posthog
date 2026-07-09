@@ -64,16 +64,22 @@ export function getOrderedListStart(
 
 export function normalizeListItemDepths(items: NotebookListItem[]): NotebookListItem[] {
     const minimumDepth = Math.min(...items.map((item) => Math.max(0, item.depth)))
-    if (!Number.isFinite(minimumDepth) || minimumDepth <= 0) {
-        return items.map((item) => ({ ...item, depth: Math.max(0, item.depth) }))
-    }
+    const baseDepth = Number.isFinite(minimumDepth) ? Math.max(0, minimumDepth) : 0
 
-    return items.map((item) => ({ ...item, depth: Math.max(0, item.depth - minimumDepth) }))
+    // Clamp each item to at most one level deeper than its predecessor, mirroring the parser:
+    // deleting a mid-depth item must not leave a deeper survivor orphaned across a depth jump.
+    let previousDepth = -1
+    return items.map((item) => {
+        const depth = Math.min(Math.max(0, item.depth) - baseDepth, previousDepth + 1)
+        previousDepth = depth
+        return { ...item, depth }
+    })
 }
 
 /**
- * Builds the nodes that replace a list when one of its items is unwrapped into a paragraph:
- * the items before it stay a list, its children move one depth up, and trailing items become a new list.
+ * Builds the nodes that replace a list when one of its items is unwrapped into a paragraph
+ * (or quote text when the list is quoted): the items before it stay a list, its children move
+ * one depth up, and trailing items become a new list.
  */
 export function getListItemParagraphReplacement(
     node: NotebookListBlockNode,
@@ -108,7 +114,7 @@ export function getListItemParagraphReplacement(
     const beforeListNode = makeListNode(node.items.slice(0, targetItemIndex), `before-list-${node.id}`, node.id)
     const paragraph: NotebookTextBlockNode = {
         id: beforeListNode ? makeEmptyParagraph(`unlisted-${node.id}`).id : node.id,
-        type: 'paragraph',
+        type: node.blockquote ? 'blockquote' : 'paragraph',
         children: item.children,
     }
     const childItems = node.items

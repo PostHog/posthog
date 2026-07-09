@@ -372,7 +372,7 @@ export const MetricsSamplesCreateBody = /* @__PURE__ */ zod.object({
                 .max(metricsSamplesCreateBodyQueryOneTraceIdMax)
                 .optional()
                 .describe(
-                    'Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.'
+                    'Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.'
                 ),
             limit: zod
                 .number()

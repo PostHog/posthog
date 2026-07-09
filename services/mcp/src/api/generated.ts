@@ -2510,6 +2510,19 @@ export namespace Schemas {
       Short: 'short',
     } as const;
 
+    export type Curve = typeof Curve[keyof typeof Curve];
+
+
+    export const Curve = {
+      Linear: 'linear',
+      Smooth: 'smooth',
+    } as const;
+
+    export interface ChartStyle {
+      /** Line interpolation: straight segments or a smoothed curve through the points. */
+      curve?: Curve | null;
+    }
+
     export type DetailedResultsAggregationType = typeof DetailedResultsAggregationType[keyof typeof DetailedResultsAggregationType];
 
 
@@ -2654,6 +2667,8 @@ export namespace Schemas {
       /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
       aggregationAxisPrefix?: string | null;
       breakdown_histogram_bin_count?: number | null;
+      /** Chart rendering style overrides (line shape). */
+      chartStyle?: ChartStyle | null;
       confidenceLevel?: number | null;
       /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
       decimalPlaces?: number | null;
@@ -2872,6 +2887,8 @@ export namespace Schemas {
       breakdownAttributionValue?: number | null;
       /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
       breakdownSorting?: string | null;
+      /** Chart rendering style overrides (line shape). Only applies to historical-trends funnels. */
+      chartStyle?: ChartStyle | null;
       /** For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups. */
       customAggregationTarget?: boolean | null;
       exclusions?: (FunnelExclusionEventsNode | FunnelExclusionActionsNode)[] | null;
@@ -3137,6 +3154,8 @@ export namespace Schemas {
       aggregationPropertyType?: AggregationPropertyType | null;
       /** The aggregation type to use for retention */
       aggregationType?: AggregationType | null;
+      /** Chart rendering style overrides (line shape). */
+      chartStyle?: ChartStyle | null;
       /** Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations. */
       cohortLabelStartIndex?: number | null;
       cumulative?: boolean | null;
@@ -3349,6 +3368,8 @@ export namespace Schemas {
     export type StickinessFilterResultCustomizations = {[key: string]: ResultCustomizationByValue} | {[key: string]: ResultCustomizationByPosition} | null;
 
     export interface StickinessFilter {
+      /** Chart rendering style overrides (line shape). */
+      chartStyle?: ChartStyle | null;
       computedAs?: StickinessComputationMode | null;
       display?: ChartDisplayType | null;
       hiddenLegendIndexes?: number[] | null;
@@ -4332,6 +4353,24 @@ export namespace Schemas {
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
+
+    /**
+     * * `slack_message` - slack_message
+     * * `slack_canvas` - slack_canvas
+     * * `slack_file` - slack_file
+     * * `document_connector` - document_connector
+     * * `github_pr` - github_pr
+     */
+    export type AdapterEnum = typeof AdapterEnum[keyof typeof AdapterEnum];
+
+
+    export const AdapterEnum = {
+      SlackMessage: 'slack_message',
+      SlackCanvas: 'slack_canvas',
+      SlackFile: 'slack_file',
+      DocumentConnector: 'document_connector',
+      GithubPr: 'github_pr',
+    } as const;
 
     export type ErrorTrackingListWidgetAddRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType];
 
@@ -9558,6 +9597,28 @@ export namespace Schemas {
       /** @nullable */
       download_url: string | null;
     }
+
+    /**
+     * * `slack_message` - slack_message
+     * * `slack_canvas` - slack_canvas
+     * * `document` - document
+     * * `spreadsheet` - spreadsheet
+     * * `dashboard` - dashboard
+     * * `file` - file
+     * * `github_pr` - github_pr
+     */
+    export type ArtifactTypeEnum = typeof ArtifactTypeEnum[keyof typeof ArtifactTypeEnum];
+
+
+    export const ArtifactTypeEnum = {
+      SlackMessage: 'slack_message',
+      SlackCanvas: 'slack_canvas',
+      Document: 'document',
+      Spreadsheet: 'spreadsheet',
+      Dashboard: 'dashboard',
+      File: 'file',
+      GithubPr: 'github_pr',
+    } as const;
 
     /**
      * * `user` - user
@@ -22446,28 +22507,14 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
-    export interface ExperimentVariant {
-      /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
-      key: string;
-      /** Human-readable variant name. */
-      name?: string | null;
-      rollout_percentage?: number | null;
-      /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided. */
-      split_percent?: number | null;
-    }
-
     /**
      * Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.
      */
     export type ExperimentParametersVariantNotes = {[key: string]: string} | null;
 
     export interface ExperimentParameters {
-      /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
-      feature_flag_variants?: ExperimentVariant[] | null;
       /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
       minimum_detectable_effect?: number | null;
-      /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
-      rollout_percentage?: number | null;
       /** Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL. */
       variant_notes?: ExperimentParametersVariantNotes;
     }
@@ -22680,7 +22727,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
+      /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
       parameters?: ExperimentParameters | null;
       /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
@@ -22737,7 +22784,7 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
-      /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
+      /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
@@ -22789,7 +22836,7 @@ export namespace Schemas {
       readonly holdout: ExperimentHoldout;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
+      /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
       parameters?: ExperimentParameters | null;
       /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
@@ -23282,7 +23329,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
+      /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
       parameters?: ExperimentParameters | null;
       /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
@@ -23339,7 +23386,7 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
-      /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
+      /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
@@ -25107,6 +25154,11 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly last_viewed_at: string | null;
+      /**
+         * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface FileSystemShortcut {
@@ -25136,6 +25188,11 @@ export namespace Schemas {
          */
       order?: number;
       readonly created_at: string;
+      /**
+         * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface FileSystemShortcutReorder {
@@ -25646,17 +25703,6 @@ export namespace Schemas {
       samples: GoalEventSample[];
       /** Caveats about the breakdown (sampling, attribution, etc.) */
       notes: string[];
-    }
-
-    export interface GoogleSearchConsoleSite {
-      /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
-      siteUrl: string;
-      /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
-      permissionLevel: string;
-    }
-
-    export interface GoogleSearchConsoleSitesResponse {
-      sites: GoogleSearchConsoleSite[];
     }
 
     /**
@@ -26657,6 +26703,7 @@ export namespace Schemas {
      * * `posthog_business_hours` - posthog_business_hours
      * * `non_failure_status_codes` - non_failure_status_codes
      * * `customer_analytics_account_properties` - customer_analytics_account_properties
+     * * `customer_analytics_account_relationships` - customer_analytics_account_relationships
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -26677,6 +26724,7 @@ export namespace Schemas {
       PosthogBusinessHours: 'posthog_business_hours',
       NonFailureStatusCodes: 'non_failure_status_codes',
       CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
+      CustomerAnalyticsAccountRelationships: 'customer_analytics_account_relationships',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -29137,6 +29185,37 @@ export namespace Schemas {
     export interface IntegrationAccessRequestResponse {
       /** Whether the access request was accepted and the project admins were notified. */
       success: boolean;
+    }
+
+    /**
+     * A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
+     * platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer
+     * and one frontend selector work across all platforms.
+     */
+    export interface IntegrationAccount {
+      /** The identifier stored in the source config and used for API calls (numeric account id as a string, a site url, etc.). */
+      value: string;
+      /** Primary human-readable label for the account. */
+      display_name: string;
+      /** True when this account belongs to the connected user's own (primary) account context, rather than one they merely have access to. Sorted/marked first. */
+      is_primary: boolean;
+      /** Short status chips for the account, e.g. ['Active'] or ['Pause']. */
+      badges: string[];
+      /**
+         * Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name).
+         * @nullable
+         */
+      group: string | null;
+      /**
+         * Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number.
+         * @nullable
+         */
+      secondary_text: string | null;
+    }
+
+    export interface IntegrationAccountsResponse {
+      /** All accounts the connected integration can access. */
+      accounts: IntegrationAccount[];
     }
 
     /**
@@ -39466,7 +39545,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
+      /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
       parameters?: ExperimentParameters | null;
       /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
@@ -39523,7 +39602,7 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
-      /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
+      /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
       readonly status?: ExperimentStatusEnum;
@@ -39875,6 +39954,11 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly last_viewed_at?: string | null;
+      /**
+         * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedFileSystemShortcut {
@@ -39904,6 +39988,11 @@ export namespace Schemas {
          */
       order?: number;
       readonly created_at?: string;
+      /**
+         * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedFolderInstructionsPublish {
@@ -54651,6 +54740,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `active` - active
+     * * `failed` - failed
+     */
+    export type TaskArtifactStatusEnum = typeof TaskArtifactStatusEnum[keyof typeof TaskArtifactStatusEnum];
+
+
+    export const TaskArtifactStatusEnum = {
+      Active: 'active',
+      Failed: 'failed',
+    } as const;
+
+    /**
      * Request body for creating or updating a task automation.
      */
     export interface TaskAutomationWrite {
@@ -55148,6 +55249,208 @@ export namespace Schemas {
       reset_at?: string;
       /** Whether the team is on a Pro plan (drives the upgrade-prompt copy) */
       is_pro?: boolean;
+    }
+
+    /**
+     * Optional metadata to persist with the living artifact.
+     */
+    export type TaskRunLivingArtifactCreateRequestMetadata = { [key: string]: unknown };
+
+    export interface TaskRunLivingArtifactCreateRequest {
+      /**
+         * Human-readable artifact name, used as the title.
+         * @maxLength 255
+         */
+      name: string;
+      /** Artifact format or delivery surface to create, such as document, spreadsheet, slack_canvas, or file.
+       *
+       * * `slack_message` - slack_message
+       * * `slack_canvas` - slack_canvas
+       * * `document` - document
+       * * `spreadsheet` - spreadsheet
+       * * `dashboard` - dashboard
+       * * `file` - file
+       * * `github_pr` - github_pr */
+      artifact_type?: ArtifactTypeEnum;
+      /** Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.
+       *
+       * * `slack_message` - slack_message
+       * * `slack_canvas` - slack_canvas
+       * * `slack_file` - slack_file
+       * * `document_connector` - document_connector
+       * * `github_pr` - github_pr */
+      adapter?: AdapterEnum;
+      /**
+         * Markdown or text content for the initial artifact version.
+         * @maxLength 500000
+         */
+      content?: string;
+      /** Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts. */
+      content_base64?: string;
+      /**
+         * MIME type for content_base64 or source-backed artifacts, such as application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.
+         * @maxLength 255
+         */
+      content_type?: string;
+      /** Existing run artifact id to use as the initial content source. */
+      source_artifact_id?: string;
+      /** Existing run artifact storage_path to use as the initial content source. */
+      source_storage_path?: string;
+      /** Optional metadata to persist with the living artifact. */
+      metadata?: TaskRunLivingArtifactCreateRequestMetadata;
+    }
+
+    /**
+     * Optional metadata to merge into the artifact registry record.
+     */
+    export type TaskRunLivingArtifactEditRequestMetadata = { [key: string]: unknown };
+
+    export interface TaskRunLivingArtifactEditRequest {
+      /**
+         * Optional new human-readable artifact name.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * Markdown or text content for the next version.
+         * @maxLength 500000
+         */
+      content?: string;
+      /** Base64-encoded binary content for the next version, used by adapters such as slack_file. */
+      content_base64?: string;
+      /**
+         * MIME type for content_base64 or source-backed edits.
+         * @maxLength 255
+         */
+      content_type?: string;
+      /** Existing run artifact id to use as the next version content source. */
+      source_artifact_id?: string;
+      /** Existing run artifact storage_path to use as the next version content source. */
+      source_storage_path?: string;
+      /** Optional metadata to merge into the artifact registry record. */
+      metadata?: TaskRunLivingArtifactEditRequestMetadata;
+    }
+
+    export type TaskRunLivingArtifactOpenResponseVersionsItem = { [key: string]: unknown };
+
+    export interface TaskRunLivingArtifactOpenResponse {
+      /** Stable living artifact id. Use this id when editing the artifact. */
+      id: string;
+      /** Task id this living artifact belongs to. */
+      task_id: string;
+      /** Task run id that created or currently owns this artifact. */
+      run_id: string;
+      /** Project id that owns this artifact. */
+      team_id: number;
+      /** Human-readable artifact name. */
+      name: string;
+      /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
+       *
+       * * `slack_message` - slack_message
+       * * `slack_canvas` - slack_canvas
+       * * `document` - document
+       * * `spreadsheet` - spreadsheet
+       * * `dashboard` - dashboard
+       * * `file` - file
+       * * `github_pr` - github_pr */
+      artifact_type: ArtifactTypeEnum;
+      /** Adapter that currently stores or edits the artifact.
+       *
+       * * `slack_message` - slack_message
+       * * `slack_canvas` - slack_canvas
+       * * `slack_file` - slack_file
+       * * `document_connector` - document_connector
+       * * `github_pr` - github_pr */
+      adapter: AdapterEnum;
+      /** Current registry status for the artifact.
+       *
+       * * `active` - active
+       * * `failed` - failed */
+      status: TaskArtifactStatusEnum;
+      /** Adapter-specific location, such as S3 key or Slack canvas id. */
+      location: unknown;
+      /** Adapter-specific metadata for external storage and source tracking. */
+      metadata: unknown;
+      /** Current version number for the artifact. */
+      current_version: number;
+      /** Chronological version records for this artifact. */
+      versions: TaskRunLivingArtifactOpenResponseVersionsItem[];
+      /**
+         * ISO timestamp when created.
+         * @nullable
+         */
+      created_at?: string | null;
+      /**
+         * ISO timestamp when last updated.
+         * @nullable
+         */
+      updated_at?: string | null;
+      /**
+         * Current artifact content when the adapter can read it directly.
+         * @nullable
+         */
+      content?: string | null;
+    }
+
+    export type TaskRunLivingArtifactResponseVersionsItem = { [key: string]: unknown };
+
+    export interface TaskRunLivingArtifactResponse {
+      /** Stable living artifact id. Use this id when editing the artifact. */
+      id: string;
+      /** Task id this living artifact belongs to. */
+      task_id: string;
+      /** Task run id that created or currently owns this artifact. */
+      run_id: string;
+      /** Project id that owns this artifact. */
+      team_id: number;
+      /** Human-readable artifact name. */
+      name: string;
+      /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
+       *
+       * * `slack_message` - slack_message
+       * * `slack_canvas` - slack_canvas
+       * * `document` - document
+       * * `spreadsheet` - spreadsheet
+       * * `dashboard` - dashboard
+       * * `file` - file
+       * * `github_pr` - github_pr */
+      artifact_type: ArtifactTypeEnum;
+      /** Adapter that currently stores or edits the artifact.
+       *
+       * * `slack_message` - slack_message
+       * * `slack_canvas` - slack_canvas
+       * * `slack_file` - slack_file
+       * * `document_connector` - document_connector
+       * * `github_pr` - github_pr */
+      adapter: AdapterEnum;
+      /** Current registry status for the artifact.
+       *
+       * * `active` - active
+       * * `failed` - failed */
+      status: TaskArtifactStatusEnum;
+      /** Adapter-specific location, such as S3 key or Slack canvas id. */
+      location: unknown;
+      /** Adapter-specific metadata for external storage and source tracking. */
+      metadata: unknown;
+      /** Current version number for the artifact. */
+      current_version: number;
+      /** Chronological version records for this artifact. */
+      versions: TaskRunLivingArtifactResponseVersionsItem[];
+      /**
+         * ISO timestamp when created.
+         * @nullable
+         */
+      created_at?: string | null;
+      /**
+         * ISO timestamp when last updated.
+         * @nullable
+         */
+      updated_at?: string | null;
+    }
+
+    export interface TaskRunLivingArtifactsResponse {
+      /** Living artifacts for this task run. */
+      artifacts: TaskRunLivingArtifactResponse[];
     }
 
     export interface TaskRunRelayMessageRequest {
@@ -57890,9 +58193,9 @@ export namespace Schemas {
       is_monotonic: boolean;
       /** Service that emitted the metric. */
       service_name: string;
-      /** Trace this emission belongs to; empty if none. Use it to pivot to the trace. */
+      /** Trace this emission belongs to (hex, same form the tracing product uses); empty if none. Use it to pivot to the trace. */
       trace_id: string;
-      /** Span this emission belongs to; empty if none. */
+      /** Span this emission belongs to (hex); empty if none. */
       span_id: string;
       /** Per-emission attributes (high-cardinality labels on the data point). */
       attributes: _MetricEventSampleAttributes;
@@ -57985,7 +58288,7 @@ export namespace Schemas {
       /** Upper bound (exclusive) for the sample window. Defaults to now if omitted. */
       dateTo?: string;
       /**
-         * Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.
+         * Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.
          * @maxLength 255
          */
       traceId?: string;
@@ -59792,6 +60095,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type EnvironmentsExternalDataSourcesOauthAccountsRetrieveParams = {
+    /**
+     * The OAuth integration id whose accounts should be listed.
+     */
+    integration_id: number;
+    /**
+     * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
+     */
+    source_type: string;
     };
 
     export type EnvironmentsExternalDataSourcesStoredCredentialsListParams = {
@@ -66673,6 +66987,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ExternalDataSourcesOauthAccountsRetrieveParams = {
+    /**
+     * The OAuth integration id whose accounts should be listed.
+     */
+    integration_id: number;
+    /**
+     * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
+     */
+    source_type: string;
+    };
+
     export type ExternalDataSourcesStoredCredentialsListParams = {
     /**
      * A search term.
@@ -70159,6 +70484,47 @@ export namespace Schemas {
      */
     force_refresh?: boolean;
     };
+
+    export type SearchListParams = {
+    entities?: SearchListEntitiesItem[];
+    include_counts?: boolean;
+    /**
+     * @minLength 1
+     */
+    q?: string;
+    };
+
+    /**
+     * * `insight` - insight
+     * * `dashboard` - dashboard
+     * * `experiment` - experiment
+     * * `feature_flag` - feature_flag
+     * * `notebook` - notebook
+     * * `action` - action
+     * * `cohort` - cohort
+     * * `event_definition` - event_definition
+     * * `property_definition` - property_definition
+     * * `survey` - survey
+     * * `early_access_feature` - early_access_feature
+     * * `hog_flow` - hog_flow
+     */
+    export type SearchListEntitiesItem = typeof SearchListEntitiesItem[keyof typeof SearchListEntitiesItem];
+
+
+    export const SearchListEntitiesItem = {
+      Insight: 'insight',
+      Dashboard: 'dashboard',
+      Experiment: 'experiment',
+      FeatureFlag: 'feature_flag',
+      Notebook: 'notebook',
+      Action: 'action',
+      Cohort: 'cohort',
+      EventDefinition: 'event_definition',
+      PropertyDefinition: 'property_definition',
+      Survey: 'survey',
+      EarlyAccessFeature: 'early_access_feature',
+      HogFlow: 'hog_flow',
+    } as const;
 
     export type SessionGroupSummariesListParams = {
     /**

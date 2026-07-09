@@ -10,8 +10,13 @@ first, then enriched with their series' labels; the series side is grouped so a
 ReplacingMergeTree duplicate never multiplies a sample. metric_name comes from
 the sample row itself, so an emission whose series row hasn't landed yet still
 renders with its name (series-side fields fall back to empty).
+
+Trace/span ids are stored base64-encoded (as capture-logs writes exemplars) but
+cross the API boundary as hex, matching the tracing product's contract — so a
+sample's trace_id can be passed straight to the trace endpoint / trace URL.
 """
 
+import base64
 import datetime as dt
 from typing import Any
 
@@ -21,6 +26,19 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
+
+
+def _normalise_to_base64(value: str) -> str:
+    """Hex trace/span ids (the API form) become the base64 the storage holds.
+
+    No-op for values that aren't valid hex, mirroring the tracing product's
+    filter normalisation so both pivot directions accept the same id string.
+    """
+    try:
+        int(value, 16)
+        return base64.b64encode(bytes.fromhex(value)).decode()
+    except ValueError:
+        return value
 
 
 class MetricEventSamplesQueryRunner:
@@ -45,7 +63,7 @@ class MetricEventSamplesQueryRunner:
         self.metric_name = metric_name
         self.date_from = date_from
         self.date_to = date_to
-        self.trace_id = (trace_id or "").strip()
+        self.trace_id = _normalise_to_base64((trace_id or "").strip())
         self.limit = limit
 
     def run(self) -> list[dict[str, Any]]:
@@ -66,8 +84,8 @@ class MetricEventSamplesQueryRunner:
                     ser.aggregation_temporality,
                     ser.is_monotonic,
                     ser.service_name,
-                    s.trace_id,
-                    s.span_id,
+                    hex(tryBase64Decode(s.trace_id)) AS trace_id,
+                    hex(tryBase64Decode(s.span_id)) AS span_id,
                     ser.attributes,
                     ser.resource_attributes
                 FROM (

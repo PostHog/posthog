@@ -94,6 +94,7 @@ class TestUpdateTaskRunStatusActivity:
         assert props["run_environment"] == test_task_run.environment
         mock_record.assert_called_once()
         assert mock_record.call_args.kwargs["rtk_enabled"] is True
+        assert mock_record.call_args.kwargs["status"] == status
 
     @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.posthoganalytics.capture")
