@@ -105,6 +105,9 @@ export function SubscriptionListItem({
                             <div className="text-sm text-muted italic">{`"${aiPromptPreview}"`}</div>
                         </Tooltip>
                     ) : null}
+                    {subscription.resource_type === SubscriptionResourceTypes.Insight && subscription.resource_name ? (
+                        <div className="text-sm text-muted">{subscription.resource_name}</div>
+                    ) : null}
                     <div className="text-sm text-text-3000">
                         {capitalizeFirstLetter(subscription.summary)}
                         {selectedInsightsCount
