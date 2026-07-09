@@ -2353,7 +2353,8 @@ class OneSignalSourceConfig(config.Config):
 
 @config.config
 class OnepagecrmSourceConfig(config.Config):
-    pass
+    user_id: str
+    api_key: str
 
 
 @config.config
