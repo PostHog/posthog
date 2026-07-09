@@ -7233,43 +7233,6 @@ database "posthog" {
       sharding_key    = "sipHash64(job_id)"
     }
   }
-  table "web_stats_paths_preaggregated_pathkey" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "time_window_start" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "breakdown_value" {
-      type = "String"
-    }
-    column "uniq_users_state" {
-      type = "AggregateFunction(uniq, UUID)"
-    }
-    column "sum_pageviews_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "avg_bounce_state" {
-      type = "AggregateFunction(avg, Nullable(Float64))"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now() + toIntervalDay(7)"
-    }
-    engine "distributed" {
-      cluster_name    = "aux"
-      remote_database = "posthog"
-      remote_table    = "sharded_web_stats_paths_preaggregated_pathkey"
-      sharding_key    = "sipHash64(breakdown_value)"
-    }
-  }
   table "web_stats_preaggregated" {
     column "team_id" {
       type = "Int64"

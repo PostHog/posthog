@@ -1772,17 +1772,6 @@ CREATE TABLE posthog.web_stats_paths_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_web_stats_paths_preaggregated', sipHash64(job_id));
-CREATE TABLE posthog.web_stats_paths_preaggregated_pathkey (
-  team_id Int64,
-  job_id UUID,
-  time_window_start DateTime64(6, 'UTC'),
-  breakdown_value String,
-  uniq_users_state AggregateFunction(uniq, UUID),
-  sum_pageviews_state AggregateFunction(sum, Int64),
-  avg_bounce_state AggregateFunction(avg, Nullable(Float64)),
-  computed_at DateTime64(6, 'UTC') DEFAULT now(),
-  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
-) ENGINE = Distributed('aux', 'posthog', 'sharded_web_stats_paths_preaggregated_pathkey', sipHash64(breakdown_value));
 CREATE TABLE posthog.web_stats_preaggregated (
   team_id Int64,
   job_id UUID,

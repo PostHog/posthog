@@ -369,32 +369,32 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     column "category" {
-      type         = "LowCardinality(String)"
-      default      = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
+      type    = "LowCardinality(String)"
+      default = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
     }
     column "severity" {
-      type         = "LowCardinality(String)"
-      default      = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
+      type    = "LowCardinality(String)"
+      default = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
     }
     column "pipeline_step" {
-      type         = "LowCardinality(String)"
-      default      = "coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown')"
+      type    = "LowCardinality(String)"
+      default = "coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown')"
     }
     column "event_uuid" {
-      type         = "Nullable(UUID)"
-      default      = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
+      type    = "Nullable(UUID)"
+      default = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
     }
     column "distinct_id" {
-      type         = "Nullable(String)"
-      default      = "nullIf(JSONExtractString(details, 'distinctId'), '')"
+      type    = "Nullable(String)"
+      default = "nullIf(JSONExtractString(details, 'distinctId'), '')"
     }
     column "group_key" {
-      type         = "Nullable(String)"
-      default      = "nullIf(JSONExtractString(details, 'groupKey'), '')"
+      type    = "Nullable(String)"
+      default = "nullIf(JSONExtractString(details, 'groupKey'), '')"
     }
     column "person_id" {
-      type         = "Nullable(UUID)"
-      default      = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
+      type    = "Nullable(UUID)"
+      default = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -428,32 +428,32 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     column "category" {
-      type         = "LowCardinality(String)"
-      default      = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
+      type    = "LowCardinality(String)"
+      default = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
     }
     column "severity" {
-      type         = "LowCardinality(String)"
-      default      = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
+      type    = "LowCardinality(String)"
+      default = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
     }
     column "pipeline_step" {
-      type         = "LowCardinality(String)"
-      default      = "coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown')"
+      type    = "LowCardinality(String)"
+      default = "coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown')"
     }
     column "event_uuid" {
-      type         = "Nullable(UUID)"
-      default      = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
+      type    = "Nullable(UUID)"
+      default = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
     }
     column "distinct_id" {
-      type         = "Nullable(String)"
-      default      = "nullIf(JSONExtractString(details, 'distinctId'), '')"
+      type    = "Nullable(String)"
+      default = "nullIf(JSONExtractString(details, 'distinctId'), '')"
     }
     column "group_key" {
-      type         = "Nullable(String)"
-      default      = "nullIf(JSONExtractString(details, 'groupKey'), '')"
+      type    = "Nullable(String)"
+      default = "nullIf(JSONExtractString(details, 'groupKey'), '')"
     }
     column "person_id" {
-      type         = "Nullable(UUID)"
-      default      = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
+      type    = "Nullable(UUID)"
+      default = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -2739,50 +2739,6 @@ database "posthog" {
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.web_stats_paths_preaggregated"
-      replica_name   = "{replica}"
-      version_column = "computed_at"
-    }
-  }
-
-  table "sharded_web_stats_paths_preaggregated_pathkey" {
-    order_by     = ["team_id", "time_window_start", "breakdown_value", "job_id"]
-    partition_by = "toYYYYMMDD(expires_at)"
-    ttl          = "toDateTime(expires_at)"
-    settings = {
-      index_granularity   = "8192"
-      ttl_only_drop_parts = "1"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "time_window_start" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "breakdown_value" {
-      type = "String"
-    }
-    column "uniq_users_state" {
-      type = "AggregateFunction(uniq, UUID)"
-    }
-    column "sum_pageviews_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "avg_bounce_state" {
-      type = "AggregateFunction(avg, Nullable(Float64))"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now() + toIntervalDay(7)"
-    }
-    engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/{shard}/posthog.web_stats_paths_preaggregated_pathkey"
       replica_name   = "{replica}"
       version_column = "computed_at"
     }
