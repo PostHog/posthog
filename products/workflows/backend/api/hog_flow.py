@@ -1578,23 +1578,26 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         reject_flag_conditions_in_audience(self.team, filters)
 
-        result = get_user_blast_radius(self.team, filters, group_type_index)
-        affected = result.affected
-
         # Preview matches the actual send: with dedup active, "affected" is the number of
-        # sends (unique emails + email-less persons), not the number of matching persons.
-        # The applied key is echoed back so the frontend labels the count from the
-        # response instead of guessing whether the flag-gated dedup actually ran.
+        # sends (unique emails + email-less persons), not the number of matching persons —
+        # the legacy person-count query is skipped entirely, "total" comes straight from
+        # the cached team-wide count it would have returned anyway. The applied key is
+        # echoed back so the frontend labels the count from the response instead of
+        # guessing whether the flag-gated dedup actually ran.
         applied_dedupe_key = None
         if dedupe_key is not None and group_type_index is None and use_workflows_batch_audience_query(self.team):
-            affected = get_batch_audience_count(self.team, filters, dedupe_key)
+            total = self.team.persons_seen_so_far
+            affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
             applied_dedupe_key = dedupe_key
+        else:
+            result = get_user_blast_radius(self.team, filters, group_type_index)
+            affected, total = result.affected, result.total
 
         return Response(
             BlastRadiusSerializer(
                 {
                     "affected": affected,
-                    "total": result.total,
+                    "total": total,
                     "limit": get_hogflow_batch_trigger_limit(self.team_id),
                     "dedupe_key": applied_dedupe_key,
                 }

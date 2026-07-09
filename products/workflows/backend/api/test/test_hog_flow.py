@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.test import override_settings
 
@@ -2214,10 +2214,15 @@ class TestHogFlowAPI(APIBaseTest):
             patch(
                 "products.workflows.backend.api.hog_flow.get_user_blast_radius",
                 return_value=BlastRadiusResult(affected=5, total=10),
-            ),
+            ) as mock_legacy_count,
             patch(
                 "products.workflows.backend.api.hog_flow.get_batch_audience_count", return_value=3
             ) as mock_deduped_count,
+            patch(
+                "posthog.models.team.team.Team.persons_seen_so_far",
+                new_callable=PropertyMock,
+                return_value=10,
+            ),
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
@@ -2230,9 +2235,12 @@ class TestHogFlowAPI(APIBaseTest):
         # The applied key is echoed so the frontend can label the count correctly
         assert response.json()["dedupe_key"] == ("email" if flag_enabled else None)
         if flag_enabled:
+            # The legacy person-count query is skipped — only the deduped count runs
             mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email")
+            mock_legacy_count.assert_not_called()
         else:
             mock_deduped_count.assert_not_called()
+            mock_legacy_count.assert_called_once()
 
     def test_user_blast_radius_rejects_unsupported_dedupe_key(self):
         response = self.client.post(
