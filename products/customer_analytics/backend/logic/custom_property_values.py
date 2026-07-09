@@ -185,7 +185,7 @@ def list_custom_property_value_suggestions(*, team_id: int, definition_id: str |
 
     if definition.display_type == DisplayType.SELECT:
         labels = [str(option.get("label") or "") for option in definition.options or []]
-        return [label for label in labels if needle in label.lower()][:VALUE_SUGGESTIONS_LIMIT]
+        return [label for label in labels if label and needle in label.lower()][:VALUE_SUGGESTIONS_LIMIT]
     if definition.data_type == DataType.BOOLEAN:
         return [value for value in ("true", "false") if needle in value]
     if definition.data_type == DataType.DATETIME:
@@ -196,20 +196,27 @@ def list_custom_property_value_suggestions(*, team_id: int, definition_id: str |
     queryset = CustomPropertyValue.objects.for_team(team_id).filter(definition_id=definition.id, is_deleted=False)
     if needle and column == "value_str":
         queryset = queryset.filter(value_str__icontains=needle)
-    values = (
-        queryset.exclude(**{f"{column}__isnull": True})
-        .values_list(column, flat=True)
-        .distinct()
-        .order_by(column)[:VALUE_SUGGESTIONS_LIMIT]
-    )
-    if column == "value_num":
-        formatted = [_format_numeric_suggestion(value) for value in values]
-        return [value for value in formatted if needle in value] if needle else formatted
-    return list(values)
+    values = queryset.exclude(**{f"{column}__isnull": True}).values_list(column, flat=True).distinct().order_by(column)
+    if column == "value_str":
+        return list(values[:VALUE_SUGGESTIONS_LIMIT])
+    # The needle matches the *formatted* numeric string, which the database can't compute — filter
+    # in Python and stop once the limit fills, instead of slicing the queryset before filtering.
+    suggestions: list[str] = []
+    for value in values.iterator():
+        formatted = _format_numeric_suggestion(value)
+        if formatted is None or needle not in formatted:
+            continue
+        suggestions.append(formatted)
+        if len(suggestions) == VALUE_SUGGESTIONS_LIMIT:
+            break
+    return suggestions
 
 
-def _format_numeric_suggestion(value: float) -> str:
-    # Match ClickHouse toString(Float64), which renders integral floats without a trailing ".0".
+def _format_numeric_suggestion(value: float) -> str | None:
+    # Integral floats render without a trailing ".0", matching how the filter column displays
+    # them. Non-finite values can't pass write-path coercion; skip a stray row rather than crash.
+    if not math.isfinite(value):
+        return None
     return str(int(value)) if value == int(value) else str(value)
 
 
