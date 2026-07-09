@@ -40,12 +40,7 @@ const TriggerPopover = ({
 
     const blastRadiusSuffix = (): string => {
         if (workflow?.trigger?.type === 'batch') {
-            if (!blastRadius) {
-                return ' for ...'
-            }
-            // Label from the response, not the request — the backend only dedupes when its feature flag is on
-            const noun = blastRadius.dedupe_key === 'email' ? 'email addresses' : 'users'
-            return ` for ${humanFriendlyNumber(blastRadius.affected)} ${noun}`
+            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.affected)} users` : ' for ...'
         }
         return ''
     }

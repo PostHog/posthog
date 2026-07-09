@@ -532,10 +532,7 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
         return (
             <div className="text-muted">
                 <div className={exceeded ? 'text-danger font-semibold' : 'text-muted'}>
-                    {/* Label from the response, not the request — the backend only dedupes when its feature flag is on */}
-                    {blastRadius.dedupe_key === 'email'
-                        ? `approximately ${humanFriendlyNumber(affected)} unique email addresses (of ${humanFriendlyNumber(total)} persons).`
-                        : `approximately ${humanFriendlyNumber(affected)} of ${humanFriendlyNumber(total)} persons.`}
+                    approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)} persons.
                 </div>
                 {exceeded && limit != null && (
                     <div className="text-danger text-xs">
