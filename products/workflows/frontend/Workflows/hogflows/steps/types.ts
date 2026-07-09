@@ -19,10 +19,19 @@ const ActionFiltersSchema = z.object({
     actions: z.array(z.any()).optional(),
 })
 
-const DURATION_STRING = z
-    .string()
-    .regex(/^\d+[dhm]$/, 'Duration must be a whole number followed by d, h, or m')
-    .refine((v) => parseInt(v, 10) >= 1, 'Duration must be at least 1')
+const DURATION_STRING = z.string().superRefine((v, ctx) => {
+    if (!/\d/.test(v)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Please enter a duration' })
+        return
+    }
+    if (!/^\d+[dhm]$/.test(v)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be a whole number followed by d, h, or m' })
+        return
+    }
+    if (parseInt(v, 10) < 1) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be at least 1' })
+    }
+})
 
 const _commonActionFields = {
     id: z.string(),
