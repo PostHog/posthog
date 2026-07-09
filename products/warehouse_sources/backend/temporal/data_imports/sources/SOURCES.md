@@ -50,6 +50,7 @@ the row lists both.
 | aircall                 | HTTP                        | requests                                                        | ✅                          |
 | airtable                | HTTP                        | requests                                                        | ✅                          |
 | algolia                 | HTTP                        | requests                                                        | ✅                          |
+| alguna                  | HTTP                        | requests                                                        | ✅                          |
 | alpha_vantage           | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads              | HTTP                        | requests                                                        | ✅                          |
 | amplitude               | HTTP                        | requests                                                        | ✅                          |
@@ -411,7 +412,6 @@ doesn't conflict with concurrent PRs.
 - airbyte
 - airops
 - akeneo
-- alguna
 - alpaca_broker_api
 - amazon_ads
 - amazon_cloudwatch
