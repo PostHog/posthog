@@ -136,7 +136,14 @@ export const LogsDisplayBar = ({
  * mounted while Patterns is active — mounting it in Logs mode would kick off the heavier patterns query.
  */
 const PatternsCountIndicator = ({ id }: { id: string }): JSX.Element | null => {
-    const { patterns } = useValues(logsPatternsLogic({ id }))
+    const { patterns, compareEnabled, diffResponse } = useValues(logsPatternsLogic({ id }))
+
+    // In compare mode the table renders diff entries, not the plain mine — counting `patterns`
+    // there would show a number from a different dataset than the rows on screen.
+    if (compareEnabled) {
+        const count = diffResponse?.entries.length ?? 0
+        return count > 0 ? <span className="text-muted text-xs">{humanFriendlyNumber(count)} changes</span> : null
+    }
 
     if (patterns.length === 0) {
         return null

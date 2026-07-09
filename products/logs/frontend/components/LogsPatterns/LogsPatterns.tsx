@@ -153,6 +153,35 @@ function renderPatternTemplate(pattern: string): JSX.Element {
     )
 }
 
+// Shared cell renderers for the plain and compare tables — the two tables have different row
+// types (pattern vs. diff entry), so the columns can't be shared, but a divergence in how the
+// same pattern fields render would be silently wrong.
+function renderLevelCell(pattern: _LogPatternApi): JSX.Element {
+    const severity = dominantSeverity(pattern.severity_counts)
+    if (!severity) {
+        return <span className="text-muted">-</span>
+    }
+    const canonical = canonicalSeverity(severity)
+    return canonical ? <LogTag level={canonical} /> : <LemonTag>{severity}</LemonTag>
+}
+
+function renderServicesCell(pattern: _LogPatternApi): JSX.Element {
+    return pattern.services.length ? (
+        <span className="text-muted">{pattern.services.join(', ')}</span>
+    ) : (
+        <span className="text-muted">-</span>
+    )
+}
+
+function patternsEmptyState(error: string | null, compareEnabled: boolean): string {
+    if (error) {
+        return `Pattern ${compareEnabled ? 'comparison' : 'analysis'} failed — try a shorter time range or narrower filters`
+    }
+    return compareEnabled
+        ? 'No patterns found in either window for the current filters'
+        : 'No patterns found for the current filters'
+}
+
 // The compare table's change badge: what happened to this pattern vs. the baseline window.
 function ChangeBadge({ entry }: { entry: _LogPatternDiffEntryApi }): JSX.Element {
     if (entry.classification === 'new') {
@@ -211,14 +240,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
             title: 'Level',
             key: 'severity',
             width: 0,
-            render: (_, row) => {
-                const severity = dominantSeverity(row.severity_counts)
-                if (!severity) {
-                    return <span className="text-muted">-</span>
-                }
-                const canonical = canonicalSeverity(severity)
-                return canonical ? <LogTag level={canonical} /> : <LemonTag>{severity}</LemonTag>
-            },
+            render: (_, row) => renderLevelCell(row),
         },
         {
             title: 'Pattern',
@@ -271,12 +293,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
         {
             title: 'Services',
             key: 'services',
-            render: (_, row) =>
-                row.services.length ? (
-                    <span className="text-muted">{row.services.join(', ')}</span>
-                ) : (
-                    <span className="text-muted">-</span>
-                ),
+            render: (_, row) => renderServicesCell(row),
         },
         {
             title: 'Last seen',
@@ -285,6 +302,11 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
             sorter: (a, b) => (a.last_seen < b.last_seen ? -1 : a.last_seen > b.last_seen ? 1 : 0),
         },
     ]
+
+    // Like renderEstimate, the "~" marks extrapolated counts — each compare column follows its
+    // own window's sampled flag, so an exact count is never dressed up as an estimate.
+    const renderWindowCount = (count: number, windowSampled: boolean): string =>
+        windowSampled ? `~${humanFriendlyLargeNumber(count)}` : humanFriendlyNumber(count)
 
     // Compare mode renders diff entries: the pattern columns read from entry.pattern, plus a
     // change badge and both windows' counts. Row order comes from the backend (most
@@ -300,14 +322,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
             title: 'Level',
             key: 'severity',
             width: 0,
-            render: (_, entry) => {
-                const severity = dominantSeverity(entry.pattern.severity_counts)
-                if (!severity) {
-                    return <span className="text-muted">-</span>
-                }
-                const canonical = canonicalSeverity(severity)
-                return canonical ? <LogTag level={canonical} /> : <LemonTag>{severity}</LemonTag>
-            },
+            render: (_, entry) => renderLevelCell(entry.pattern),
         },
         {
             title: 'Pattern',
@@ -324,7 +339,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
                 entry.classification === 'gone' ? (
                     <span className="text-muted">0</span>
                 ) : (
-                    `~${humanFriendlyLargeNumber(entry.pattern.estimated_count)}`
+                    renderWindowCount(entry.pattern.estimated_count, diffResponse?.current.sampled ?? false)
                 ),
         },
         {
@@ -333,7 +348,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
             align: 'right',
             render: (_, entry) =>
                 entry.baseline_estimated_count !== null ? (
-                    `~${humanFriendlyLargeNumber(entry.baseline_estimated_count)}`
+                    renderWindowCount(entry.baseline_estimated_count, diffResponse?.baseline.sampled ?? false)
                 ) : (
                     <span className="text-muted">0</span>
                 ),
@@ -341,20 +356,11 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
         {
             title: 'Services',
             key: 'services',
-            render: (_, entry) =>
-                entry.pattern.services.length ? (
-                    <span className="text-muted">{entry.pattern.services.join(', ')}</span>
-                ) : (
-                    <span className="text-muted">-</span>
-                ),
+            render: (_, entry) => renderServicesCell(entry.pattern),
         },
     ]
 
-    const emptyState = patternsError
-        ? `Pattern ${compareEnabled ? 'comparison' : 'analysis'} failed — try a shorter time range or narrower filters`
-        : compareEnabled
-          ? 'No patterns found in either window for the current filters'
-          : 'No patterns found for the current filters'
+    const emptyState = patternsEmptyState(patternsError, compareEnabled)
 
     return (
         <div className="flex-1 min-h-0 overflow-auto" data-attr="logs-patterns">
@@ -370,6 +376,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
                 {compareEnabled && (
                     <LemonSelect
                         size="small"
+                        loading={diffResponseLoading}
                         value={baselineMode}
                         onChange={setBaselineMode}
                         options={[

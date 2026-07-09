@@ -44,6 +44,24 @@ const CANONICAL_SEVERITIES = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'
 // severity_counts has no cap, so it never needs this guard.
 const SERVICES_LIST_CAP = 4
 
+// Explicit baseline window for 'preceding' mode: the same-length window ending where the
+// current one starts. Computed at request time (not memoized) because a relative range like
+// "-1h" resolves against "now" — a cached computation would drift away from the current
+// window the backend resolves at query time. 'lastWeek' sends no baseline: the backend's
+// default is the current window shifted back one week, from its own resolved bounds.
+export function precedingDateRange(utcDateRange: { date_from?: string | null; date_to?: string | null }): {
+    date_from: string
+    date_to: string
+} {
+    const from = dateStringToDayJs(utcDateRange.date_from ?? null) ?? dayjs().subtract(1, 'hour')
+    const to = dateStringToDayJs(utcDateRange.date_to ?? null) ?? dayjs()
+    const windowMs = Math.max(to.diff(from), 0)
+    return {
+        date_from: from.subtract(windowMs, 'millisecond').toISOString(),
+        date_to: from.toISOString(),
+    }
+}
+
 const EMPTY_RESPONSE: _LogsPatternsResponseApi = {
     patterns: [],
     scanned_count: 0,
@@ -99,9 +117,12 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             {
                 loadPatterns: async (debounceMs: number = 0, breakpoint) => {
                     await breakpoint(debounceMs)
-                    return await logsPatternsCreate(String(values.currentTeamId), {
+                    const response = await logsPatternsCreate(String(values.currentTeamId), {
                         query: values.patternsQueryBody,
                     })
+                    // A superseded call must not land its (stale) response after the newer one.
+                    breakpoint()
+                    return response
                 },
             },
         ],
@@ -110,10 +131,13 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             {
                 loadDiff: async (debounceMs: number = 0, breakpoint) => {
                     await breakpoint(debounceMs)
-                    return await logsPatternsDiffCreate(String(values.currentTeamId), {
+                    const response = await logsPatternsDiffCreate(String(values.currentTeamId), {
                         query: values.patternsQueryBody,
-                        baselineDateRange: values.baselineDateRange,
+                        baselineDateRange:
+                            values.baselineMode === 'preceding' ? precedingDateRange(values.utcDateRange) : undefined,
                     })
+                    breakpoint()
+                    return response
                 },
             },
         ],
@@ -163,24 +187,6 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                 // (person/trace logs), so a scoped viewer can't mine project-wide patterns.
                 filterGroup: queryFilterGroup as unknown as _LogPropertyFilterApi[],
             }),
-        ],
-        // Explicit baseline window for 'preceding' mode: the same-length window ending where
-        // the current one starts. 'lastWeek' returns undefined — the backend's default is the
-        // current window shifted back one week, computed from its own resolved bounds.
-        baselineDateRange: [
-            (s) => [s.baselineMode, s.utcDateRange],
-            (mode, utcDateRange): { date_from: string; date_to: string } | undefined => {
-                if (mode !== 'preceding') {
-                    return undefined
-                }
-                const from = dateStringToDayJs(utcDateRange.date_from ?? null) ?? dayjs().subtract(1, 'hour')
-                const to = dateStringToDayJs(utcDateRange.date_to ?? null) ?? dayjs()
-                const windowMs = Math.max(to.diff(from), 0)
-                return {
-                    date_from: from.subtract(windowMs, 'millisecond').toISOString(),
-                    date_to: from.toISOString(),
-                }
-            },
         ],
         patterns: [
             (s) => [s.patternsResponse],
