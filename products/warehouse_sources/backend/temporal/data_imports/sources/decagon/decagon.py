@@ -57,7 +57,7 @@ def _get_headers(api_key: str) -> dict[str, str]:
 def validate_credentials(api_key: str) -> bool:
     """Probe the export endpoint (the only one this source calls) to confirm the key works."""
     try:
-        response = make_tracked_session().get(
+        response = make_tracked_session(redact_values=(api_key,)).get(
             f"{DECAGON_BASE_URL}/conversation/export",
             headers=_get_headers(api_key),
             timeout=REQUEST_TIMEOUT_SECONDS,
@@ -76,7 +76,7 @@ def get_rows(
     config = DECAGON_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     url = f"{DECAGON_BASE_URL}{config.path}"
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
     throttle = RequestThrottle()
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -120,11 +120,13 @@ def get_rows(
 
         fresh: list[dict[str, Any]] = []
         for item in items:
-            item_id = item.get("conversation_id")
-            if item_id is not None:
-                if item_id in seen_ids:
-                    continue
-                seen_ids.add(item_id)
+            # Direct access on purpose: conversation_id is the primary key, so a row
+            # without one should fail the sync loudly rather than land in the warehouse
+            # unkeyed and undeduplicatable.
+            item_id = item["conversation_id"]
+            if item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
             fresh.append(item)
 
         if fresh:
