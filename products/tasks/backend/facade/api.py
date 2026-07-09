@@ -98,6 +98,7 @@ CODE_WORKFLOW_INVALID = "invalid"
 # An agent run counts as "active" only if it updated within this window.
 CODE_HOME_ACTIVE_AGENT_WINDOW = timedelta(minutes=30)
 _CODE_HOME_RUNNING_STATUSES = (TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
+WIZARD_PR_READY_EMAIL_FEATURE_FLAG = "wizard-cloud-run-pr-ready-email-enabled"
 
 __all__ = [
     "CODE_INVITE_INVALID_CODE",
@@ -1608,11 +1609,35 @@ def _post_slack_update_for_pr(run: TaskRun) -> None:
         logger.exception("task_run_slack_update_for_pr_failed for run %s", run.id)
 
 
+def _is_wizard_pr_ready_email_enabled(run: TaskRun) -> bool:
+    user = run.task.created_by
+    if user is None or not user.distinct_id:
+        return False
+    try:
+        team = Team.objects.only("id", "uuid", "organization_id").get(id=run.team_id)
+        organization_id = str(team.organization_id)
+        return bool(
+            posthoganalytics.feature_enabled(
+                WIZARD_PR_READY_EMAIL_FEATURE_FLAG,
+                user.distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("wizard_pr_ready_email_feature_flag_check_failed", extra={"run_id": str(run.id)})
+        return False
+
+
 def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
     pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if not pr_url or run.task.origin_product != Task.OriginProduct.ONBOARDING:
         return
     if run.task.created_by_id is None:
+        return
+    if not _is_wizard_pr_ready_email_enabled(run):
         return
 
     if not run.task.mark_pr_ready_email_sent(pr_url):
