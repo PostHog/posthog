@@ -54,6 +54,8 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         openAddCustomServerModalWithDefaults: (defaults: Partial<CustomServerFormValues>) => ({ defaults }),
         closeAddCustomServerModal: true,
         toggleServerEnabled: ({ id, enabled }: { id: string; enabled: boolean }) => ({ id, enabled }),
+        shareInstallation: ({ id }: { id: string }) => ({ id }),
+        unshareInstallation: ({ id }: { id: string }) => ({ id }),
         setInstallations: (installations: MCPServerInstallationApi[]) => ({ installations }),
         installTemplate: ({ templateId }: { templateId: string }) => ({ templateId }),
         loadInstallationTools: ({ installationId }: { installationId: string }) => ({ installationId }),
@@ -375,6 +377,24 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                         i.id === id ? { ...i, is_enabled: !enabled } : i
                     )
                 )
+            }
+        },
+        shareInstallation: async ({ id }) => {
+            try {
+                await api.mcpServerInstallations.share(id)
+                lemonToast.success('Server shared with the project')
+                actions.loadInstallations()
+            } catch (e: any) {
+                lemonToast.error(e.detail || 'Failed to share server')
+            }
+        },
+        unshareInstallation: async ({ id }) => {
+            try {
+                await api.mcpServerInstallations.unshare(id)
+                lemonToast.success('Server is now personal')
+                actions.loadInstallations()
+            } catch (e: any) {
+                lemonToast.error(e.detail || 'Failed to unshare server')
             }
         },
         installTemplate: async ({ templateId }) => {

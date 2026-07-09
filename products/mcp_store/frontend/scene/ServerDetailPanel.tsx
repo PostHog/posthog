@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconCheck, IconChevronLeft, IconRefresh, IconShieldLock, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSnack, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconCheck, IconChevronLeft, IconRefresh, IconShare, IconShieldLock, IconTrash, IconX } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonDivider, LemonSnack, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -206,12 +206,37 @@ interface Props {
 
 export function ServerDetailPanel({ installation, template }: Props): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { selectServer, setSceneView, toggleServerEnabled, uninstallServer, installTemplate } =
-        useActions(mcpStoreLogic)
+    const {
+        selectServer,
+        setSceneView,
+        toggleServerEnabled,
+        uninstallServer,
+        installTemplate,
+        shareInstallation,
+        unshareInstallation,
+    } = useActions(mcpStoreLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Member,
     })
+    // Sharing carries the same admin gate as creating a shared install outright
+    // (see AddCustomServerForm); admins can also unshare or remove another
+    // member's shared server.
+    const adminRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+    const isAdmin = !adminRestrictionReason
+    const isOwner = installation?.is_owner === true
+    // The backend rejects owner-only mutations of shared rows (rename, toggle,
+    // tool policy) for non-owners — gate them client-side instead of surfacing 403s.
+    const ownerOnlyReason =
+        installation?.scope === 'shared' && !isOwner ? 'Only the owner can modify a shared server connection' : null
+    const mutationDisabledReason = restrictedReason ?? ownerOnlyReason
+    const removeDisabledReason =
+        installation?.scope === 'shared' && !isOwner && !isAdmin
+            ? 'Only the owner or a project admin can remove a shared server'
+            : restrictedReason
 
     if (!installation && !template) {
         return (
@@ -285,9 +310,50 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
                             <LemonSwitch
                                 checked={installation.is_enabled !== false}
                                 onChange={(checked) => toggleServerEnabled({ id: installation.id, enabled: checked })}
-                                disabledReason={restrictedReason ?? undefined}
+                                disabledReason={mutationDisabledReason ?? undefined}
                             />
                         </Tooltip>
+                    )}
+                    {installation?.scope === 'personal' && isOwner && isAdmin && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconShare />}
+                            onClick={() =>
+                                LemonDialog.open({
+                                    title: `Share "${installation.name}" with the project?`,
+                                    description: (
+                                        <div className="max-w-120">
+                                            Everyone in this project — <strong>including autonomous agents</strong> —
+                                            will use this server through your connection, and actions taken with it will
+                                            be attributed to your account on the connected service. Consider connecting
+                                            a service account instead of your personal one before sharing.
+                                        </div>
+                                    ),
+                                    secondaryButton: {
+                                        type: 'secondary',
+                                        children: 'Cancel',
+                                    },
+                                    primaryButton: {
+                                        type: 'primary',
+                                        children: 'Share with project',
+                                        onClick: () => shareInstallation({ id: installation.id }),
+                                    },
+                                })
+                            }
+                        >
+                            Share with project
+                        </LemonButton>
+                    )}
+                    {installation?.scope === 'shared' && (isOwner || isAdmin) && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => unshareInstallation({ id: installation.id })}
+                            tooltip="Convert back to a personal server, visible only to its owner."
+                        >
+                            Unshare
+                        </LemonButton>
                     )}
                     {installation && (
                         <LemonButton
@@ -296,7 +362,7 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
                             size="small"
                             icon={<IconTrash />}
                             onClick={() => uninstallServer(installation.id)}
-                            disabledReason={restrictedReason}
+                            disabledReason={removeDisabledReason}
                         >
                             Remove
                         </LemonButton>

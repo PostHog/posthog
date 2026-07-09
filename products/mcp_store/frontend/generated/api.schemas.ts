@@ -45,6 +45,8 @@ export interface MCPServerInstallationApi {
     auth_type?: MCPAuthTypeEnumApi
     is_enabled?: boolean
     readonly scope: MCPServerInstallationScopeEnumApi
+    /** True when the requesting user owns this installation. Lets clients gate owner-only controls instead of surfacing 403s. */
+    readonly is_owner: boolean
     readonly needs_reauth: boolean
     readonly pending_oauth: boolean
     readonly proxy_url: string
