@@ -324,10 +324,10 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
                                     title: `Share "${installation.name}" with the project?`,
                                     description: (
                                         <div className="max-w-120">
-                                            Everyone in this project — <strong>including autonomous agents</strong> —
-                                            will use this server through your connection, and actions taken with it will
-                                            be attributed to your account on the connected service. Consider connecting
-                                            a service account instead of your personal one before sharing.
+                                            Everyone in this project, including the PostHog agent, can use{' '}
+                                            <strong>{installation.name}</strong> via your connection. Their actions will
+                                            be attributed to your account. For better security, connect a service
+                                            account. You can unshare anytime.
                                         </div>
                                     ),
                                     secondaryButton: {
