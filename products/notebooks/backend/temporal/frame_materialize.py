@@ -42,7 +42,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.common.clickhouse import (
+    ClickHouseClient,
+    ClickHouseMemoryLimitExceededError,
+    ClickHouseTooManyBytesError,
+)
 
 from products.notebooks.backend import frame_store
 
@@ -243,14 +247,26 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                 # predecessor ClickHouse may still be draining.
                 ch_query_id = f"{inputs.query_id}_{attempt}"
                 with client.post_query(printed_sql, query_parameters=context_values, query_id=ch_query_id) as response:
+                    # A torn stream aborts the multipart upload (upload_fileobj), so no
+                    # partial object is ever left behind — nothing to clean up on failure.
+                    # The key is deterministic per (team, notebook, user, query), so we must
+                    # NOT delete it on error: that would destroy an object an earlier
+                    # successful run's still-live status/presigned URL points at.
                     object_bytes = frame_store.write_stream(key, response.raw)
         except ConcurrencyLimitExceeded:
             raise  # retryable — Temporal backs off and re-attempts
-        except Exception:
-            # A torn stream/upload was aborted by the transfer manager; also drop any
-            # object a previous attempt completed, so no stale bytes outlive a failure.
-            frame_store.delete_frame(key)
-            raise
+        except (ClickHouseMemoryLimitExceededError, ClickHouseTooManyBytesError) as exc:
+            # Deterministic resource-budget failures: re-executing the same heavy query just
+            # burns ClickHouse and ends on the same wall. Terminal, with a user-facing
+            # message. (Only failures ClickHouse rejects up front surface as typed errors
+            # here; a mid-stream overrun tears the Arrow stream and is instead bounded by
+            # the workflow's maximum_attempts.)
+            message = (
+                "This query exceeds the frame materialization limits (scan or memory budget). Narrow it and re-run."
+            )
+            _finalize_status(manager, inputs, error_message=message)
+            FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed").inc()
+            raise exceptions.ApplicationError(message, non_retryable=True) from exc
 
     _finalize_status(manager, inputs, results={"object_key": key})
     FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="succeeded").inc()
@@ -307,6 +323,11 @@ class NotebookFrameMaterializeWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=1),
                     backoff_coefficient=2.0,
                     maximum_interval=dt.timedelta(seconds=10),
+                    # Bound the storm: a deterministically-failing heavy query (e.g. a
+                    # mid-stream resource overrun that can't be caught up front) must not
+                    # re-execute for the full schedule_to_close window. Matches the Celery
+                    # async path's max_retries=10.
+                    maximum_attempts=10,
                 ),
             )
         except Exception:
@@ -329,11 +350,18 @@ def enqueue_frame_materialization(
 ) -> QueryStatus:
     """Register a materialize job for `query` and dispatch the workflow; returns its status.
 
-    Dedup happens here: identical concurrent materializations (same team + query hash) join
-    the in-flight job through the async manager's running-query mapping instead of stacking
-    ClickHouse load.
+    Dedup happens here: identical concurrent materializations (same team + user + query)
+    join the in-flight job through the async manager's running-query mapping instead of
+    stacking ClickHouse load.
+
+    The hash folds in `user_id`: the printed SQL applies the enqueuing user's access
+    controls, so two differently-permissioned users in one team must NOT share a job or an
+    object — otherwise a restricted user could join a privileged user's in-flight job and
+    read rows their own access controls would deny (and their objects would collide on the
+    same key). Scoping the hash by user keeps both the dedup mapping and the object key
+    per-user within the team.
     """
-    query_hash = hashlib.sha256(query.encode()).hexdigest()
+    query_hash = hashlib.sha256(f"{user_id}:{query}".encode()).hexdigest()
     cache_key = f"notebook-frame:{team.id}:{query_hash}"
     query_id = uuid.uuid4().hex
     manager = QueryStatusManager(query_id, team.id)
@@ -376,6 +404,14 @@ def enqueue_frame_materialization(
         # module-level import back at it would be circular.
         from products.notebooks.backend.temporal.client import start_frame_materialize_workflow  # noqa: PLC0415
 
-        start_frame_materialize_workflow(inputs)
+        try:
+            start_frame_materialize_workflow(inputs)
+        except Exception:
+            # Dispatch failed (e.g. Temporal briefly unreachable). Roll back the status and
+            # dedup mapping so identical re-runs don't dedup onto a job that will never run
+            # — otherwise every retry polls a dead query_id until the 20-minute TTL.
+            manager.delete_query_status()
+            manager.unregister_cache_key_mapping(cache_key)
+            raise
 
     return manager.get_query_status()

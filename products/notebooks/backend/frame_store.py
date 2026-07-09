@@ -78,11 +78,3 @@ def presign_get(key: str, team_id: int) -> str:
     if not url:
         raise FrameStoreError("Could not presign the frame object")
     return url
-
-
-def delete_frame(key: str) -> None:
-    """Best-effort delete, used to clean up after a failed materialization run."""
-    try:
-        object_storage.delete(key)
-    except object_storage.ObjectStorageError:
-        pass

@@ -101,23 +101,29 @@ def _request_table(url: str, token: str, query: str, limit: int, offset: int, de
     query_id = body.get("query_id")
     if not query_id:
         raise DataPlaneError("Data plane did not accept the query")
-    return _poll_for_table(f"{url.rstrip('/')}/{query_id}/", token)
+    return _poll_for_table(f"{url.rstrip('/')}/{query_id}/", token, expect_object=delivery == "object")
 
 
-def _poll_for_table(status_url: str, token: str) -> "pa.Table":
+def _poll_for_table(status_url: str, token: str, expect_object: bool = False) -> "pa.Table":
     request = urllib.request.Request(status_url, headers={"Authorization": f"Bearer {token}"}, method="GET")
+    # Only object-delivery polls intercept the completion 302 (a presigned frame handoff).
+    # Inline polls keep urllib's transparent redirect-following, so an infrastructure
+    # redirect (HTTPS upgrade, trailing-slash canonicalization) on a page fetch behaves as
+    # it did before object delivery existed — no auth-header leak concern, since the target
+    # is still our own data plane and inline responses carry no presigned URL.
+    opener = _no_redirect_opener.open if expect_object else urllib.request.urlopen
     deadline = time.monotonic() + _POLL_DEADLINE_SECONDS
     interval = _POLL_INITIAL_INTERVAL_SECONDS
     while time.monotonic() < deadline:
         try:
             # status_url is the backend's own data-plane endpoint from the signed run payload, not user input.
             # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-            with _no_redirect_opener.open(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
+            with opener(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
                 if _is_arrow(response):
                     return _read_table(response)
                 # 202 — still running.
         except urllib.error.HTTPError as exc:
-            if exc.code == 302:
+            if expect_object and exc.code == 302:
                 return _fetch_presigned_table(exc.headers.get("Location") or "")
             raise DataPlaneError(_error_detail(exc)) from exc
         except urllib.error.URLError as exc:
