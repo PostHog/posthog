@@ -958,6 +958,10 @@ class TestSnowflakeIntegration:
                 {"name": "n", "account": "a", "user": "u", "authentication_type": "keypair"},
                 "Private key is required",
             ),
+            (
+                {"name": "n", "account": "a", "user": "u", "authentication_type": "password", "password": 42},
+                "Password, private key, and private key passphrase must be strings",
+            ),
         ],
     )
     def test_create_with_invalid_config(self, invalid_config, expected_error_message, client: HttpClient):

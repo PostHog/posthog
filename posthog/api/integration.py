@@ -581,6 +581,10 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 raise ValidationError("Name, account, and user must be provided")
             if not all(isinstance(value, str) for value in (name, account, user, authentication_type)):
                 raise ValidationError("Name, account, user, and authentication type must be strings")
+            if not all(
+                value is None or isinstance(value, str) for value in (password, private_key, private_key_passphrase)
+            ):
+                raise ValidationError("Password, private key, and private key passphrase must be strings")
 
             try:
                 instance = SnowflakeIntegration.integration_from_config(
