@@ -58,7 +58,7 @@ class BatchImportAdminForm(forms.ModelForm):
 @admin.register(BatchImport)
 class BatchImportAdmin(admin.ModelAdmin):
     form = BatchImportAdminForm
-    actions = ("resume_with_inflight_part_reset",)
+    actions = ("resume", "resume_with_inflight_part_reset")
     list_display = (
         "id",
         "team",
@@ -99,9 +99,18 @@ class BatchImportAdmin(admin.ModelAdmin):
                     "backoff_until",
                 ),
                 "description": (
-                    "A paused job keeps its worker lease; the resume endpoint and the "
-                    "'Resume with in-flight part reset' action clear it. A running job with a "
-                    "future leased_until is actively claimed by a worker."
+                    "A paused job keeps its worker lease; both resume actions clear it "
+                    "(a bare status change leaves the row unclaimable until the lease expires, "
+                    "up to 30 minutes). A running job with a future leased_until is actively "
+                    "claimed by a worker. Choosing a resume action: 'Resume (keep progress)' "
+                    "continues from the saved byte offset - right for transient pauses and "
+                    "for source data that has not changed. 'Resume + re-import in-flight part' "
+                    "resets the current part to offset 0 first - right when the source bytes "
+                    "changed underneath the saved offset (a re-downloaded nondeterministic "
+                    "export, or a source file replaced after a data fix), which typically "
+                    "shows up as an 'Invalid JSON syntax' pause. The re-imported overlap "
+                    "dedupes for sources with deterministic event UUIDs (Mixpanel $insert_id, "
+                    "Amplitude uuid)."
                 ),
             },
         ),
@@ -147,7 +156,26 @@ class BatchImportAdmin(admin.ModelAdmin):
             inflight.get("total_size") if inflight.get("total_size") is not None else "unknown",
         )
 
-    @admin.action(description="Resume with in-flight part reset (re-imports the current date range from offset 0)")
+    @admin.action(description="Resume (keep progress) - continue paused import from its saved offset")
+    def resume(self, request, queryset):
+        """Resume paused jobs from their saved progress: for transient pauses and
+        unchanged source data. See the 'Worker state' section on the detail page
+        for how this differs from the reset variant."""
+        for batch_import in queryset:
+            try:
+                batch_import.resume_after_pause()
+            except ValueError as e:
+                self.message_user(request, f"{batch_import.id}: {e}", level=messages.WARNING)
+            else:
+                self.message_user(
+                    request,
+                    f"{batch_import.id}: resumed from saved progress",
+                    level=messages.SUCCESS,
+                )
+
+    @admin.action(
+        description="Resume + re-import in-flight part - reset paused import's current date range to offset 0"
+    )
     def resume_with_inflight_part_reset(self, request, queryset):
         """Recover a paused job whose committed byte offset no longer matches the
         source bytes (re-download of a nondeterministic export, or a source file

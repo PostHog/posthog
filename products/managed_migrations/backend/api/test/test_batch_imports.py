@@ -109,22 +109,37 @@ class TestBatchImportModel(BaseTest):
         self.assertIsNone(batch_import.backoff_until)
         self.assertIsNone(batch_import.display_status_message)
 
+    def test_resume_after_pause_keeps_progress_and_clears_lease(self):
+        batch_import = self._paused_import({"parts": self.MIXED_PROGRESS_PARTS})
+
+        batch_import.resume_after_pause()
+
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.state["parts"], self.MIXED_PROGRESS_PARTS)
+        self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
+        self.assertIsNone(batch_import.lease_id)
+        self.assertIsNone(batch_import.leased_until)
+        self.assertEqual(batch_import.backoff_attempt, 0)
+        self.assertIsNone(batch_import.backoff_until)
+        self.assertIsNone(batch_import.display_status_message)
+
     @parameterized.expand(
         [
-            (BatchImport.Status.RUNNING,),
-            (BatchImport.Status.COMPLETED,),
-            (BatchImport.Status.FAILED,),
+            (method, status)
+            for method in ("resume_after_pause", "resume_with_inflight_part_reset")
+            for status in (BatchImport.Status.RUNNING, BatchImport.Status.COMPLETED, BatchImport.Status.FAILED)
         ]
     )
-    def test_resume_with_inflight_part_reset_rejects_non_paused(self, status):
+    def test_resume_methods_reject_non_paused(self, method, status):
         batch_import = self._paused_import({"parts": self.MIXED_PROGRESS_PARTS})
         batch_import.status = status
         batch_import.save(update_fields=["status"])
 
         with self.assertRaises(ValueError):
-            batch_import.resume_with_inflight_part_reset()
+            getattr(batch_import, method)()
 
         batch_import.refresh_from_db()
+        self.assertEqual(batch_import.status, status)
         self.assertEqual(batch_import.state["parts"][1]["current_offset"], 8999445)
         self.assertEqual(batch_import.lease_id, "worker-lease")
 

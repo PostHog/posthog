@@ -74,6 +74,21 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         )
         return done, len(parts), inflight
 
+    def resume_after_pause(self) -> None:
+        """Resume a paused import from its saved progress.
+
+        Flips the job to running and clears the worker lease and backoff - pausing
+        keeps the worker's lease, so without clearing it no worker can re-claim the
+        row for up to 30 minutes. Part offsets are untouched: use this when the
+        source bytes behind the saved offset are unchanged (transient pauses, or a
+        data fix that preserved byte offsets). When the bytes changed underneath the
+        offset, use `resume_with_inflight_part_reset` instead. Raises ValueError if
+        the job is not paused.
+        """
+        if self.status != BatchImport.Status.PAUSED:
+            raise ValueError(f"Only paused imports can be resumed (status: {self.status})")
+        self._flip_to_running("Resumed by admin")
+
     def resume_with_inflight_part_reset(self) -> str:
         """Resume a paused import whose in-flight part has a poisoned byte offset.
 
@@ -85,11 +100,9 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         offset 0 - safe for sources with deterministic event UUIDs (Mixpanel
         $insert_id, Amplitude uuid), which dedupe the overlap.
 
-        Resets the first unfinished part to offset 0, clears the worker lease and
-        backoff (pausing keeps the worker's lease, so without clearing it no worker
-        can re-claim the row for up to 30 minutes), and flips the job to running.
-        Returns the key of the reset part. Raises ValueError if the job is not
-        paused or has no unfinished part.
+        Resets the first unfinished part to offset 0, then resumes as
+        `resume_after_pause` does. Returns the key of the reset part. Raises
+        ValueError if the job is not paused or has no unfinished part.
         """
         if self.status != BatchImport.Status.PAUSED:
             raise ValueError(f"Only paused imports can be reset and resumed (status: {self.status})")
@@ -103,8 +116,12 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         # a nondeterministic export can have a different decompressed size.
         inflight["total_size"] = None
 
+        self._flip_to_running(f"Resumed by admin with part {inflight['key']} reset to offset 0")
+        return inflight["key"]
+
+    def _flip_to_running(self, status_message: str) -> None:
         self.status = BatchImport.Status.RUNNING
-        self.status_message = f"Resumed by admin with part {inflight['key']} reset to offset 0"
+        self.status_message = status_message
         self.display_status_message = None
         self.lease_id = None
         self.leased_until = None
@@ -123,7 +140,6 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
                 "updated_at",
             ]
         )
-        return inflight["key"]
 
 
 # Mostly used for manual job creation
