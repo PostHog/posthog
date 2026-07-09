@@ -51,25 +51,6 @@ export const McpServerInstallationsProxyCreateBody = /* @__PURE__ */ zod.object(
     is_enabled: zod.boolean().optional(),
 })
 
-/**
- * Escalate a personal installation to a team-wide shared one.
- *
- * Owner-only AND admin-only: sharing exposes the owner's credential to
- * every project member and all autonomous agents, so it carries the same
- * gate as creating a shared install outright.
- */
-export const mcpServerInstallationsShareCreateBodyDisplayNameMax = 200
-
-export const mcpServerInstallationsShareCreateBodyUrlMax = 2048
-
-export const McpServerInstallationsShareCreateBody = /* @__PURE__ */ zod.object({
-    display_name: zod.string().max(mcpServerInstallationsShareCreateBodyDisplayNameMax).optional(),
-    url: zod.url().max(mcpServerInstallationsShareCreateBodyUrlMax).optional(),
-    description: zod.string().optional(),
-    auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
-    is_enabled: zod.boolean().optional(),
-})
-
 export const McpServerInstallationsToolsPartialUpdateBody = /* @__PURE__ */ zod.object({
     approval_state: zod
         .enum(['approved', 'needs_approval', 'do_not_use'])
@@ -84,26 +65,6 @@ export const mcpServerInstallationsToolsRefreshCreateBodyUrlMax = 2048
 export const McpServerInstallationsToolsRefreshCreateBody = /* @__PURE__ */ zod.object({
     display_name: zod.string().max(mcpServerInstallationsToolsRefreshCreateBodyDisplayNameMax).optional(),
     url: zod.url().max(mcpServerInstallationsToolsRefreshCreateBodyUrlMax).optional(),
-    description: zod.string().optional(),
-    auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
-    is_enabled: zod.boolean().optional(),
-})
-
-/**
- * De-escalate a shared installation back to personal.
- *
- * Allowed for the credential owner OR a project admin (the reclaim path
- * for shared credentials). The row always stays owned by the ORIGINAL
- * owner — an admin unsharing someone else's install must not capture
- * their credential.
- */
-export const mcpServerInstallationsUnshareCreateBodyDisplayNameMax = 200
-
-export const mcpServerInstallationsUnshareCreateBodyUrlMax = 2048
-
-export const McpServerInstallationsUnshareCreateBody = /* @__PURE__ */ zod.object({
-    display_name: zod.string().max(mcpServerInstallationsUnshareCreateBodyDisplayNameMax).optional(),
-    url: zod.url().max(mcpServerInstallationsUnshareCreateBodyUrlMax).optional(),
     description: zod.string().optional(),
     auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
     is_enabled: zod.boolean().optional(),

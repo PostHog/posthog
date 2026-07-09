@@ -591,7 +591,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         serializer = self.get_serializer(installation)
         return Response(serializer.data)
 
-    @extend_schema(responses={200: OpenApiResponse(response=MCPServerInstallationSerializer)})
+    @extend_schema(request=None, responses={200: OpenApiResponse(response=MCPServerInstallationSerializer)})
     @action(detail=True, methods=["post"], url_path="share")
     def share(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Escalate a personal installation to a team-wide shared one.
@@ -630,7 +630,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         )
         return Response(self.get_serializer(installation).data)
 
-    @extend_schema(responses={200: OpenApiResponse(response=MCPServerInstallationSerializer)})
+    @extend_schema(request=None, responses={200: OpenApiResponse(response=MCPServerInstallationSerializer)})
     @action(detail=True, methods=["post"], url_path="unshare")
     def unshare(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """De-escalate a shared installation back to personal.

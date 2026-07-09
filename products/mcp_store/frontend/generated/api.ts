@@ -183,14 +183,11 @@ export const getMcpServerInstallationsShareCreateUrl = (projectId: string, id: s
 export const mcpServerInstallationsShareCreate = async (
     projectId: string,
     id: string,
-    mCPServerInstallationApi?: NonReadonly<MCPServerInstallationApi>,
     options?: RequestInit
 ): Promise<MCPServerInstallationApi> => {
     return apiMutator<MCPServerInstallationApi>(getMcpServerInstallationsShareCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(mCPServerInstallationApi),
     })
 }
 
@@ -270,14 +267,11 @@ export const getMcpServerInstallationsUnshareCreateUrl = (projectId: string, id:
 export const mcpServerInstallationsUnshareCreate = async (
     projectId: string,
     id: string,
-    mCPServerInstallationApi?: NonReadonly<MCPServerInstallationApi>,
     options?: RequestInit
 ): Promise<MCPServerInstallationApi> => {
     return apiMutator<MCPServerInstallationApi>(getMcpServerInstallationsUnshareCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(mCPServerInstallationApi),
     })
 }
 
