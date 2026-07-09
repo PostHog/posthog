@@ -2051,7 +2051,7 @@ class MailosaurSourceConfig(config.Config):
 
 @config.config
 class MailtrapSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
