@@ -26,7 +26,8 @@ use batch_import_worker::parse::content::TransformContext;
 use batch_import_worker::parse::format::{json_nd, skip_geoip, ParserFn};
 use batch_import_worker::parse::Parsed;
 use batch_import_worker::source::date_range_export::{AuthConfig, DateRangeExportSource};
-use batch_import_worker::source::DataSource;
+use batch_import_worker::source::{DataSource, RemoteStaging};
+use batch_import_worker::staging::TempBucketBackend;
 use chrono::{DateTime, TimeZone, Utc};
 use common_types::InternallyCapturedEvent;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -39,6 +40,41 @@ use super::mock_export::{MockExport, Provider};
 pub const TEAM_ID: i32 = 42;
 pub const TOKEN: &str = "e2e-test-token";
 
+/// Remote-staging configuration for the harness. Everything needed to
+/// reconstruct an equivalent `RemoteStaging` after a [`Harness::restart`],
+/// mirroring how a replacement pod re-derives its staging backend from job
+/// config rather than inheriting live state.
+#[derive(Clone)]
+pub struct StagingSpec {
+    pub store: Arc<dyn object_store::ObjectStore>,
+    pub prefix: String,
+    pub job_tag: String,
+    pub max_plaintext_bytes: u64,
+}
+
+impl StagingSpec {
+    fn to_remote_staging(&self, provider: Provider) -> RemoteStaging {
+        RemoteStaging {
+            backend: Arc::new(self.backend()),
+            extractor_type: match provider {
+                Provider::Mixpanel => ExtractorType::PlainGzip,
+                Provider::Amplitude => ExtractorType::ZipGzipJson,
+            },
+            max_plaintext_bytes: self.max_plaintext_bytes,
+        }
+    }
+
+    /// A standalone backend over the same staged objects, for tests that
+    /// inspect or delete them out-of-band (e.g. simulating a TTL sweep).
+    pub fn backend(&self) -> TempBucketBackend {
+        TempBucketBackend::new(
+            Arc::clone(&self.store),
+            self.prefix.clone(),
+            self.job_tag.clone(),
+        )
+    }
+}
+
 pub struct Harness {
     pub mock: MockExport,
     provider: Provider,
@@ -47,6 +83,7 @@ pub struct Harness {
     staging: TempDir,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
+    staging_spec: Option<StagingSpec>,
     state: Mutex<JobState>,
     model: Mutex<JobModel>,
     parser: Arc<ParserFn>,
@@ -67,6 +104,18 @@ impl Harness {
     /// A harness over `days` consecutive UTC days starting at `start_day`
     /// (`%Y-%m-%d`). One part per day, matching production Mixpanel imports.
     pub async fn new(mock: MockExport, start_day: &str, days: u32, chunk_size: usize) -> Self {
+        Self::with_staging(mock, start_day, days, chunk_size, None).await
+    }
+
+    /// Like [`Harness::new`] with remote staging enabled: decompressed part
+    /// plaintext is staged to `spec.store` and reads are served from there.
+    pub async fn with_staging(
+        mock: MockExport,
+        start_day: &str,
+        days: u32,
+        chunk_size: usize,
+        staging_spec: Option<StagingSpec>,
+    ) -> Self {
         let provider = mock.provider();
         let date = chrono::NaiveDate::parse_from_str(start_day, "%Y-%m-%d").unwrap();
         let start = Utc
@@ -76,7 +125,14 @@ impl Harness {
 
         let staging = TempDir::new().unwrap();
         let job_id = Uuid::now_v7();
-        let source = build_source(&mock, provider, staging.path(), start, end);
+        let source = build_source(
+            &mock,
+            provider,
+            staging.path(),
+            start,
+            end,
+            staging_spec.as_ref(),
+        );
         source.prepare_for_job().await.unwrap();
 
         let parts: Vec<PartState> = source
@@ -92,23 +148,7 @@ impl Harness {
             .collect();
         let job_state = JobState { parts };
 
-        let model = JobModel {
-            id: job_id,
-            team_id: TEAM_ID,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-            lease_id: None,
-            leased_until: None,
-            status: JobStatus::Running,
-            status_message: None,
-            display_status_message: None,
-            state: Some(job_state.clone()),
-            import_config: minimal_job_config(provider),
-            secrets: JobSecrets::empty(),
-            backoff_attempt: 0,
-            backoff_until: None,
-            was_leased: false,
-        };
+        let model = minimal_model(provider, job_id, job_state.clone());
 
         Self {
             provider,
@@ -117,6 +157,7 @@ impl Harness {
             staging,
             start,
             end,
+            staging_spec,
             state: Mutex::new(job_state),
             model: Mutex::new(model),
             parser: Arc::new(build_parser(provider, job_id)),
@@ -128,7 +169,9 @@ impl Harness {
 
     /// Drop and rebuild the source: prepared keys, streaming readers, and staged
     /// `.raw` files are all lost, while the committed `JobState` survives. This
-    /// is a pod replacement mid-job.
+    /// is a pod replacement mid-job. Remote staging (when configured) is
+    /// reconstructed over the same store and job tag, so staged objects persist
+    /// across the restart exactly as they do across a real pod replacement.
     pub async fn restart(&mut self) {
         self.source = build_source(
             &self.mock,
@@ -136,8 +179,20 @@ impl Harness {
             self.staging.path(),
             self.start,
             self.end,
+            self.staging_spec.as_ref(),
         );
         self.source.prepare_for_job().await.unwrap();
+    }
+
+    /// Terminal job cleanup (`cleanup_after_job`): sweeps remote staging.
+    pub async fn finish_job(&self) -> Result<(), Error> {
+        self.source.cleanup_after_job().await
+    }
+
+    /// Transient interruption cleanup (`release_job_resources`): frees local
+    /// resources but must keep remote staging for the resume.
+    pub async fn release_job(&self) -> Result<(), Error> {
+        self.source.release_job_resources().await
     }
 
     /// Fetch and parse up to `max_chunks` chunks, appending emitted events.
@@ -181,6 +236,7 @@ fn build_source(
     staging: &std::path::Path,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
+    staging_spec: Option<&StagingSpec>,
 ) -> DateRangeExportSource {
     let extractor = match provider {
         Provider::Mixpanel => ExtractorType::PlainGzip,
@@ -209,14 +265,38 @@ fn build_source(
     .with_auth(auth)
     .with_retries(0)
     .with_headers(HashMap::new())
+    .with_remote_staging(staging_spec.map(|spec| spec.to_remote_staging(provider)))
     .build()
     .unwrap()
+}
+
+/// The minimal `JobModel` the fetch loop accepts: real state, inert config.
+/// Public so source-specific tests (e.g. the S3 gzip staged path) can drive
+/// `select_and_fetch_next_chunk` without a `Harness`.
+pub fn minimal_model(provider: Provider, job_id: Uuid, job_state: JobState) -> JobModel {
+    JobModel {
+        id: job_id,
+        team_id: TEAM_ID,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        lease_id: None,
+        leased_until: None,
+        status: JobStatus::Running,
+        status_message: None,
+        display_status_message: None,
+        state: Some(job_state),
+        import_config: minimal_job_config(provider),
+        secrets: JobSecrets::empty(),
+        backoff_attempt: 0,
+        backoff_until: None,
+        was_leased: false,
+    }
 }
 
 /// Assemble the production parser for `provider` around a hand-built
 /// `TransformContext`, mirroring `FormatConfig::get_parser` without its
 /// `AppContext` (team-token DB lookup) dependency.
-fn build_parser(provider: Provider, job_id: Uuid) -> ParserFn {
+pub fn build_parser(provider: Provider, job_id: Uuid) -> ParserFn {
     let context = TransformContext {
         team_id: TEAM_ID,
         token: TOKEN.to_string(),

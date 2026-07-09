@@ -155,10 +155,12 @@ impl MockExport {
     /// Ground truth for `day`: the events every successful import of that day
     /// must produce, with the UUIDs the production transforms will assign.
     pub fn expected_events(&self, day: &str) -> Vec<ExpectedEvent> {
-        generate_day(self.state.seed, day, self.state.events_per_day)
-            .iter()
-            .map(|ev| expected_for(self.state.provider, ev))
-            .collect()
+        day_expected(
+            self.state.provider,
+            self.state.seed,
+            day,
+            self.state.events_per_day,
+        )
     }
 
     /// The unique `(user_id, device_id)` pair count for `day`; with identify
@@ -320,12 +322,22 @@ fn amplitude_zip(lines: &[String]) -> Vec<u8> {
     zip.finish().unwrap().into_inner()
 }
 
-fn body_for(state: &ServerState, day: &str, permutation: u64, late_events: usize) -> Vec<u8> {
-    let mut events = generate_day(state.seed, day, state.events_per_day);
-    events.extend(generate_late(state.seed, day, late_events));
-    permute(&mut events, state.seed ^ day_hash(day), permutation);
+/// One day's export body exactly as the mock serves it, for tests that stage
+/// data somewhere other than this HTTP server (e.g. objects in a bucket for the
+/// S3 source). `permutation` 0 is the canonical order.
+pub fn day_body(
+    provider: Provider,
+    seed: u64,
+    day: &str,
+    events_per_day: usize,
+    permutation: u64,
+    late_events: usize,
+) -> Vec<u8> {
+    let mut events = generate_day(seed, day, events_per_day);
+    events.extend(generate_late(seed, day, late_events));
+    permute(&mut events, seed ^ day_hash(day), permutation);
 
-    match state.provider {
+    match provider {
         Provider::Mixpanel => {
             let lines: Vec<String> = events.iter().map(mixpanel_line).collect();
             gzip(lines.join("\n").as_bytes())
@@ -335,6 +347,30 @@ fn body_for(state: &ServerState, day: &str, permutation: u64, late_events: usize
             amplitude_zip(&lines)
         }
     }
+}
+
+/// Ground truth matching [`day_body`], usable without a running mock server.
+pub fn day_expected(
+    provider: Provider,
+    seed: u64,
+    day: &str,
+    events_per_day: usize,
+) -> Vec<ExpectedEvent> {
+    generate_day(seed, day, events_per_day)
+        .iter()
+        .map(|ev| expected_for(provider, ev))
+        .collect()
+}
+
+fn body_for(state: &ServerState, day: &str, permutation: u64, late_events: usize) -> Vec<u8> {
+    day_body(
+        state.provider,
+        state.seed,
+        day,
+        state.events_per_day,
+        permutation,
+        late_events,
+    )
 }
 
 async fn handle_export(
