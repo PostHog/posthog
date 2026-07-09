@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, TypeAlias
+from typing import Literal, Optional, TypeAlias
 from uuid import UUID
 
 from pydantic import BaseModel, RootModel, field_validator
@@ -134,7 +134,10 @@ class UsageTrendMetric(BaseModel):
     current: int
     previous: Optional[int] = None
     change_pct: int = 0  # absolute rounded percentage; 0 when no meaningful comparison
-    direction: str = "flat"  # "up" | "down" | "flat"
+    direction: Literal["up", "down", "flat"] = "flat"
+    # False when there was no previous-week activity to compare against, so the template
+    # can render "new" instead of conflating 0 -> N growth with "no change".
+    has_baseline: bool = True
 
 
 class UsageTrends(BaseModel):

@@ -346,14 +346,15 @@ async def generate_error_issue_lookup(input: GenerateDigestDataBatchInput) -> No
 
 
 # NOTE: This ClickHouse query is written to match the recording-lookup pattern but has
-# NOT been executed against a live cluster — review the table/column names and confirm
-# `uniq(distinct_id)` is the desired "active users" definition before enabling in prod.
+# NOT been executed against a live cluster — review the table/column names before enabling
+# in prod. "Active users" counts persons (`uniq(person_id)`), matching lifecycle/DAU/WAU
+# elsewhere in PostHog — counting distinct_ids would overcount (one person, many devices).
 USAGE_TRENDS_QUERY = """
 SELECT
     countIf(timestamp >= %(cur_start)s AND timestamp < %(cur_end)s) AS events_current,
     countIf(timestamp >= %(prev_start)s AND timestamp < %(prev_end)s) AS events_previous,
-    uniqIf(distinct_id, timestamp >= %(cur_start)s AND timestamp < %(cur_end)s) AS users_current,
-    uniqIf(distinct_id, timestamp >= %(prev_start)s AND timestamp < %(prev_end)s) AS users_previous
+    uniqIf(person_id, timestamp >= %(cur_start)s AND timestamp < %(cur_end)s) AS users_current,
+    uniqIf(person_id, timestamp >= %(prev_start)s AND timestamp < %(prev_end)s) AS users_previous
 FROM events
 WHERE team_id = %(team_id)s
     AND timestamp >= %(prev_start)s
@@ -363,15 +364,17 @@ FORMAT JSON
 
 
 def _usage_trend_metric(label: str, current: int, previous: int) -> UsageTrendMetric:
-    change = compute_week_over_week_change(current, previous or None, higher_is_better=True)
+    has_baseline = previous > 0
+    change = compute_week_over_week_change(current, previous if has_baseline else None, higher_is_better=True)
     if change is None:
-        return UsageTrendMetric(label=label, current=current, previous=previous, change_pct=0, direction="flat")
+        return UsageTrendMetric(label=label, current=current, previous=previous, has_baseline=has_baseline)
     return UsageTrendMetric(
         label=label,
         current=current,
         previous=previous,
         change_pct=change["percent"],
         direction="up" if change["direction"] == "Up" else "down",
+        has_baseline=True,
     )
 
 
@@ -411,6 +414,9 @@ async def generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> N
                         raw_response = await ch_response.content.read()
 
                     response = ClickHouseResponse.model_validate_json(raw_response)
+                    if not response.data:
+                        logger.warning(f"Usage trends query returned no rows for team {team.id}, skipping...")
+                        continue
                     row = response.data[0]
 
                     events_current = int(row.get("events_current", 0) or 0)

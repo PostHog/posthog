@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest_asyncio
 
 from posthog.temporal.weekly_digest.activities import (
+    _usage_trend_metric,
     count_organizations,
     count_teams,
     generate_dashboard_lookup,
@@ -888,3 +889,24 @@ async def test_send_weekly_digest_batch_with_product_suggestion(mock_redis, comm
     suggestion = team_report["new_product_suggestion"]
     assert suggestion["product_path"] == "Error tracking"
     assert suggestion["reason_text"] == "This product is recommended for you by our team."
+
+
+@pytest.mark.parametrize(
+    "current,previous,expected_direction,expected_change_pct,expected_has_baseline",
+    [
+        (150, 100, "up", 50, True),
+        (50, 100, "down", 50, True),
+        (100, 100, "flat", 0, True),
+        # No previous-week baseline: growth from 0 must not be reported as "no change"
+        (10_000, 0, "flat", 0, False),
+        (0, 0, "flat", 0, False),
+    ],
+)
+def test_usage_trend_metric(current, previous, expected_direction, expected_change_pct, expected_has_baseline):
+    metric = _usage_trend_metric("Events", current, previous)
+
+    assert metric.current == current
+    assert metric.previous == previous
+    assert metric.direction == expected_direction
+    assert metric.change_pct == expected_change_pct
+    assert metric.has_baseline is expected_has_baseline
