@@ -81,6 +81,25 @@ function sanitizeContentType(contentType: string | undefined, fallback: string):
     return fallback
 }
 
+// Matches the default email template's `to.email` value: `{{ person.properties.email }}`, whitespace-tolerant.
+// Anything else (custom property, computed Liquid, static address) makes the dedupe key diverge from the
+// actual send target — see `canDedupeByEmail`.
+const DEFAULT_EMAIL_TO_TEMPLATE_RE = /^\s*\{\{\s*person\.properties\.email\s*\}\}\s*$/
+
+function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
+    if (!Array.isArray(hogFlow.actions)) {
+        return false
+    }
+    const emailActions = hogFlow.actions.filter((action: any) => action?.type === 'function_email')
+    if (emailActions.length === 0) {
+        return false
+    }
+    return emailActions.every((action: any) => {
+        const toEmail = action?.config?.inputs?.email?.value?.to?.email
+        return typeof toEmail === 'string' && DEFAULT_EMAIL_TO_TEMPLATE_RE.test(toEmail)
+    })
+}
+
 export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps
 
@@ -819,10 +838,11 @@ export class CdpApi {
                 },
                 variables: req.body.variables ?? {},
                 groupTypeIndex: typeof req.body.group_type_index === 'number' ? req.body.group_type_index : undefined,
-                dedupeKey:
-                    Array.isArray(hogFlow.actions) && hogFlow.actions.some((action) => action.type === 'function_email')
-                        ? ('email' as const)
-                        : undefined,
+                // Only dedupe by email when every email action's `to` template is exactly the default
+                // `{{ person.properties.email }}`. Custom recipients (work_email, computed Liquid, static
+                // strings) would make the dedupe key diverge from the actual send target — better to skip
+                // dedupe than dedupe wrongly. Also skip when the flow has no email action at all.
+                dedupeKey: canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,

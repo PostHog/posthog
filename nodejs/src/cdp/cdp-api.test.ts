@@ -962,7 +962,7 @@ describe('CDP API', () => {
             }
         })
 
-        it('sets email dedupe on the resolver state when the flow sends email', async () => {
+        it('sets email dedupe on the resolver state when the flow sends email to the default {{person.properties.email}}', async () => {
             const emailHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
                 name: 'test batch email hog flow',
@@ -975,7 +975,20 @@ describe('CDP API', () => {
                         id: 'email_1',
                         type: 'function_email',
                         name: 'Send email',
-                        config: { template_id: 'template-email', inputs: {} },
+                        config: {
+                            template_id: 'template-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: '{{ person.properties.email }}', name: '' },
+                                        from: {},
+                                        subject: 'Hi',
+                                        text: 'Hello',
+                                        html: '<p>Hello</p>',
+                                    },
+                                },
+                            },
+                        },
                     },
                 ] as any,
                 trigger: {
@@ -1001,6 +1014,66 @@ describe('CDP API', () => {
                 const arg = createJobMock.mock.calls[0][0]
                 const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, unknown>
                 expect(state.dedupeKey).toEqual('email')
+            } finally {
+                api['batchResolverProducer'] = null
+            }
+        })
+
+        it('skips email dedupe when the flow sends to a customized recipient (e.g. work_email)', async () => {
+            // Regression guard for the wrong-property footgun: if the customer wired their
+            // email action to send to `person.properties.work_email`, deduping on
+            // `person.properties.email` would collapse the wrong groups. Better to skip dedupe.
+            const emailHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test batch email hog flow (custom recipient)',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [
+                    {
+                        id: 'email_1',
+                        type: 'function_email',
+                        name: 'Send email',
+                        config: {
+                            template_id: 'template-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: '{{ person.properties.work_email }}', name: '' },
+                                        from: {},
+                                        subject: 'Hi',
+                                        text: 'Hello',
+                                        html: '<p>Hello</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                ] as any,
+                trigger: {
+                    type: 'batch',
+                    filters: { properties: [] },
+                },
+            })
+
+            const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+            api['batchResolverProducer'] = {
+                createJob: createJobMock,
+                disconnect: jest.fn().mockResolvedValue(undefined),
+            }
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${emailHogFlow.team_id}/hog_flows/${emailHogFlow.id}/batch_invocations/job-791`
+                    )
+                    .send({})
+
+                expect(res.status).toEqual(200)
+                const arg = createJobMock.mock.calls[0][0]
+                const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, unknown>
+                expect(state.dedupeKey).toBeUndefined()
             } finally {
                 api['batchResolverProducer'] = null
             }
