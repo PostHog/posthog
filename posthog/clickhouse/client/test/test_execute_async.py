@@ -84,6 +84,32 @@ class TestTaskChainThreadLocals(SimpleTestCase):
         assert drained == [item]
         assert get_task_chain() == []
 
+    def test_task_chain_is_drained_even_when_worker_raises_after_queueing(self):
+        # Pins drain_task_chain() running in a finally around the raising work: if the drain
+        # were skipped on the error path, the queued task would leak onto this pool thread's
+        # chain and get picked up by whatever later request reuses the thread.
+        item = (MagicMock(), MagicMock(), MagicMock())
+
+        def worker():
+            set_in_context(True)
+            try:
+                add_task_to_on_commit(*item)
+                raise ValueError("serialization failed")
+            finally:
+                drain_task_chain()
+                set_in_context(False)
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(worker)
+            with self.assertRaises(ValueError):
+                future.result()
+
+            # Same pool thread serves this next task; its chain must be empty.
+            def chain_state():
+                return get_task_chain()
+
+            assert pool.submit(chain_state).result() == []
+
 
 class TestQueryStatusManager(SimpleTestCase):
     def setUp(self):

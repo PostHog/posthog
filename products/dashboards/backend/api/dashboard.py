@@ -346,23 +346,32 @@ def serialize_tile_in_worker(tile, order: int, context: dict, chained: bool) -> 
     by Django's normal per-request lifecycle.
     """
     # Pool threads outlive the request, so Django's request_finished cleanup never runs here;
-    # discard stale/errored connections on entry like DatabaseSyncToAsync does.
+    # discard stale/errored connections on entry and exit like DatabaseSyncToAsync does, since
+    # CONN_MAX_AGE=0 means nothing else closes the connection this thread just used.
     if not settings.TEST:
         close_old_connections()
-    if not chained:
-        order, tile_data = serialize_tile_with_context(tile, order, context)
-        return order, tile_data, []
-
-    set_in_context(True)
     try:
-        order, tile_data = serialize_tile_with_context(tile, order, context)
+        if not chained:
+            order, tile_data = serialize_tile_with_context(tile, order, context)
+            return order, tile_data, []
+
+        set_in_context(True)
+        try:
+            order, tile_data = serialize_tile_with_context(tile, order, context)
+        finally:
+            # Drain before clearing the flag: pool threads are reused across requests, so any
+            # task queued via add_task_to_on_commit before a later exception must not linger on
+            # this thread's chain and leak into the next chained request it happens to serve.
+            # If draining itself raised, the flag must still be cleared so the thread doesn't
+            # stay stuck in "chained" mode for whatever request reuses it next.
+            try:
+                chained_tasks = drain_task_chain()
+            finally:
+                set_in_context(False)
+        return order, tile_data, chained_tasks
     finally:
-        # Drain unconditionally: pool threads are reused across requests, so any task
-        # queued via add_task_to_on_commit before a later exception must not linger on
-        # this thread's chain and leak into the next chained request it happens to serve.
-        chained_tasks = drain_task_chain()
-        set_in_context(False)
-    return order, tile_data, chained_tasks
+        if not settings.TEST:
+            close_old_connections()
 
 
 class ReorderLayout(StrEnum):
@@ -2046,11 +2055,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         def _org_flag_enabled(flag_key: str) -> bool:
             org_id = str(team.organization_id)
-            return posthoganalytics.feature_enabled(
-                flag_key,
-                org_id,
-                groups={"organization": org_id},
-                group_properties={"organization": {"id": org_id}},
+            return bool(
+                posthoganalytics.feature_enabled(
+                    flag_key,
+                    org_id,
+                    groups={"organization": org_id},
+                    group_properties={"organization": {"id": org_id}},
+                )
             )
 
         chained_tile_refresh_enabled = _org_flag_enabled("chained_dashboard_tile_refresh")
