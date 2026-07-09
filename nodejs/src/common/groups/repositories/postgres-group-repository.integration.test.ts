@@ -381,6 +381,48 @@ describe('PostgresGroupRepository Integration', () => {
             ])
             expect(result).toHaveLength(1)
         })
+
+        it('matches on the full tuple and never crosses teams', async () => {
+            const otherTeamId = 77 as TeamId
+            await insertTestTeam(teamId)
+            await insertTestTeam(otherTeamId)
+            // Same key and type index on both teams, distinguishable by properties.
+            await insertTestGroup({
+                team_id: teamId,
+                group_type_index: 0,
+                group_key: 'shared-key',
+                group_properties: JSON.stringify({ owner: 'team-1' }),
+            })
+            await insertTestGroup({
+                team_id: otherTeamId,
+                group_type_index: 0,
+                group_key: 'shared-key',
+                group_properties: JSON.stringify({ owner: 'team-2' }),
+            })
+            // A key that exists only for the other team.
+            await insertTestGroup({ team_id: otherTeamId, group_type_index: 0, group_key: 'only-team-2' })
+
+            const result = await repository.fetchGroups([
+                { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'shared-key' },
+                { teamId: otherTeamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'shared-key' },
+                // Key + index exist for the other team only — must not cross-match.
+                { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'only-team-2' },
+            ])
+
+            expect(result).toHaveLength(2)
+            const byTeam = new Map(result.map((group) => [group.team_id, group]))
+            expect(byTeam.get(teamId)).toMatchObject({
+                team_id: teamId,
+                group_key: 'shared-key',
+                group_properties: { owner: 'team-1' },
+            })
+            expect(byTeam.get(otherTeamId)).toMatchObject({
+                team_id: otherTeamId,
+                group_key: 'shared-key',
+                group_properties: { owner: 'team-2' },
+            })
+            expect(result.some((group) => group.team_id === teamId && group.group_key === 'only-team-2')).toBe(false)
+        })
     })
 
     describe('insertGroup', () => {
