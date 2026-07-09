@@ -44,6 +44,19 @@ def _headers(api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
 
 
+def _make_introspection_session(api_key: str) -> requests.Session:
+    # capture=False: the introspection request body carries the raw API key under the generic
+    # `token` field, which the name-based sample scrubbers don't recognise — keep the exchange out
+    # of HTTP sample capture entirely (it stays metered and logged). allow_redirects=False pins the
+    # credential-bearing request to the introspection host.
+    return make_tracked_session(
+        headers=_headers(api_key),
+        redact_values=(api_key,),
+        capture=False,
+        allow_redirects=False,
+    )
+
+
 @retry(
     retry=retry_if_exception_type((PayFitRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
@@ -74,8 +87,8 @@ def _introspect(session: requests.Session, api_key: str) -> dict[str, Any]:
     return data
 
 
-def get_company_id(session: requests.Session, api_key: str) -> str:
-    claims = _introspect(session, api_key)
+def get_company_id(api_key: str) -> str:
+    claims = _introspect(_make_introspection_session(api_key), api_key)
     if not claims.get("active"):
         raise PayFitInvalidTokenError(INVALID_TOKEN_MESSAGE)
 
@@ -166,7 +179,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = PAYFIT_ENDPOINTS[endpoint]
     session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-    company_id = get_company_id(session, api_key)
+    company_id = get_company_id(api_key)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     next_page_token = resume.next_page_token if resume else None
@@ -247,7 +260,7 @@ def payfit_source(
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Validate the API key via token introspection — one cheap probe that needs no endpoint scope
     and also proves we can resolve the company_id every sync depends on."""
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
+    session = _make_introspection_session(api_key)
     try:
         response = session.post(PAYFIT_INTROSPECT_URL, json={"token": api_key}, timeout=15)
     except Exception as e:
@@ -275,17 +288,18 @@ def check_schema_access(api_key: str, schema_name: str) -> tuple[bool, str | Non
     session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
 
     try:
-        company_id = get_company_id(session, api_key)
+        company_id = get_company_id(api_key)
     except PayFitInvalidTokenError:
         return False, "Invalid PayFit API key"
     except Exception as e:
         return False, f"Could not validate PayFit API key: {e}"
 
     probe = _probe_endpoint(endpoint_config)
+    probe_params: dict[str, Any] = {"maxResults": 1, **probe.extra_params}
     try:
         response = session.get(
             f"{PAYFIT_BASE_URL}/companies/{company_id}{probe.path}",
-            params={"maxResults": 1, **probe.extra_params},
+            params=probe_params,
             timeout=15,
         )
     except Exception as e:

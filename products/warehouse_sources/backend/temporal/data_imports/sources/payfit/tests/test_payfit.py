@@ -63,7 +63,7 @@ class TestGetRows:
             return pages[next_page_token]
 
         monkeypatch.setattr(payfit, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(payfit, "get_company_id", lambda session, api_key: COMPANY_ID)
+        monkeypatch.setattr(payfit, "get_company_id", lambda api_key: COMPANY_ID)
         monkeypatch.setattr(payfit, "make_tracked_session", lambda **kwargs: MagicMock())
 
         rows: list[dict] = []
@@ -137,7 +137,7 @@ class TestGetPayslipRows:
 
         monkeypatch.setattr(payfit, "_fetch_page", fake_fetch)
         monkeypatch.setattr(payfit, "_fetch_payslips", fake_payslips)
-        monkeypatch.setattr(payfit, "get_company_id", lambda session, api_key: COMPANY_ID)
+        monkeypatch.setattr(payfit, "get_company_id", lambda api_key: COMPANY_ID)
         monkeypatch.setattr(payfit, "make_tracked_session", lambda **kwargs: MagicMock())
 
         batches = list(
@@ -180,7 +180,7 @@ class _ResponseSessionMixin:
 
 
 class TestFetchPage(_ResponseSessionMixin):
-    _EMPTY = {"collaborators": [], "meta": {}}
+    _EMPTY: dict[str, Any] = {"collaborators": [], "meta": {}}
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
@@ -244,12 +244,19 @@ class TestFetchPayslips(_ResponseSessionMixin):
 
 
 class TestGetCompanyId(_ResponseSessionMixin):
-    def test_returns_company_id_for_active_token(self) -> None:
+    @patch(f"{payfit.__name__}.make_tracked_session")
+    def test_returns_company_id_for_active_token(self, mock_session: MagicMock) -> None:
         session = self._session_returning(200, {"active": True, "company_id": "company-1"})
-        assert get_company_id(session, "payfit-key") == "company-1"
+        mock_session.return_value = session
+        assert get_company_id("payfit-key") == "company-1"
         args, kwargs = session.post.call_args
         assert args[0] == payfit.PAYFIT_INTROSPECT_URL
         assert kwargs["json"] == {"token": "payfit-key"}
+        # The introspection body carries the raw API key, so the exchange must stay out of HTTP
+        # sample capture and must not follow redirects with the credential.
+        session_kwargs = mock_session.call_args.kwargs
+        assert session_kwargs["capture"] is False
+        assert session_kwargs["allow_redirects"] is False
 
     @parameterized.expand(
         [
@@ -259,10 +266,13 @@ class TestGetCompanyId(_ResponseSessionMixin):
             ("forbidden", 403, None),
         ]
     )
-    def test_invalid_tokens_raise_non_retryable_error(self, _name: str, status: int, body: Any) -> None:
-        session = self._session_returning(status, body)
+    @patch(f"{payfit.__name__}.make_tracked_session")
+    def test_invalid_tokens_raise_non_retryable_error(
+        self, _name: str, status: int, body: Any, mock_session: MagicMock
+    ) -> None:
+        mock_session.return_value = self._session_returning(status, body)
         with pytest.raises(PayFitInvalidTokenError):
-            get_company_id(session, "payfit-key")
+            get_company_id("payfit-key")
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500)])
     def test_transient_statuses_are_retryable(self, _name: str, status: int) -> None:
