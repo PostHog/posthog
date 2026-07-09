@@ -526,6 +526,7 @@ SPECTACULAR_SETTINGS = {
         ),
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
+        "MCPInstallationScopeEnum": ["personal", "shared"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",

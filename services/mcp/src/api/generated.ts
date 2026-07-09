@@ -28777,6 +28777,18 @@ export namespace Schemas {
       PosthogCode: 'posthog-code',
     } as const;
 
+    /**
+     * * `personal` - personal
+     * * `shared` - shared
+     */
+    export type MCPInstallationScopeEnum = typeof MCPInstallationScopeEnum[keyof typeof MCPInstallationScopeEnum];
+
+
+    export const MCPInstallationScopeEnum = {
+      Personal: 'personal',
+      Shared: 'shared',
+    } as const;
+
     export interface InstallCustom {
       /** @maxLength 200 */
       name: string;
@@ -28789,6 +28801,11 @@ export namespace Schemas {
       client_secret?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
+      /** 'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).
+       *
+       * * `personal` - personal
+       * * `shared` - shared */
+      scope?: MCPInstallationScopeEnum;
     }
 
     export interface InstallTemplate {
@@ -28796,6 +28813,11 @@ export namespace Schemas {
       api_key?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
+      /** 'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).
+       *
+       * * `personal` - personal
+       * * `shared` - shared */
+      scope?: MCPInstallationScopeEnum;
     }
 
     /**
@@ -30826,6 +30848,18 @@ export namespace Schemas {
       blocked?: boolean;
     }
 
+    /**
+     * * `personal` - Personal
+     * * `shared` - Shared
+     */
+    export type MCPServerInstallationScopeEnum = typeof MCPServerInstallationScopeEnum[keyof typeof MCPServerInstallationScopeEnum];
+
+
+    export const MCPServerInstallationScopeEnum = {
+      Personal: 'personal',
+      Shared: 'shared',
+    } as const;
+
     export interface MCPServerInstallation {
       readonly id: string;
       /** @nullable */
@@ -30840,6 +30874,7 @@ export namespace Schemas {
       description?: string;
       auth_type?: MCPAuthTypeEnum;
       is_enabled?: boolean;
+      readonly scope: MCPServerInstallationScopeEnum;
       readonly needs_reauth: boolean;
       readonly pending_oauth: boolean;
       readonly proxy_url: string;

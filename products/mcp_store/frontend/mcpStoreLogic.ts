@@ -18,6 +18,8 @@ export type ToolApprovalState = 'approved' | 'needs_approval' | 'do_not_use'
 
 export type McpSceneView = 'marketplace' | 'detail'
 
+export type McpInstallationScope = 'personal' | 'shared'
+
 export interface CustomServerFormValues {
     name: string
     url: string
@@ -26,6 +28,7 @@ export interface CustomServerFormValues {
     api_key: string
     client_id: string
     client_secret: string
+    scope: McpInstallationScope
     // Set when the modal is opened from a template (api_key templates reuse
     // the same modal to collect the key). Empty for truly custom installs.
     template_id: string
@@ -39,6 +42,7 @@ const CUSTOM_SERVER_FORM_DEFAULTS: CustomServerFormValues = {
     api_key: '',
     client_id: '',
     client_secret: '',
+    scope: 'personal',
     template_id: '',
 }
 
@@ -180,12 +184,23 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 name: !name ? 'Name is required' : undefined,
                 url: !url ? 'URL is required' : undefined,
             }),
-            submit: async ({ name, url, description, auth_type, api_key, client_id, client_secret, template_id }) => {
+            submit: async ({
+                name,
+                url,
+                description,
+                auth_type,
+                api_key,
+                client_id,
+                client_secret,
+                scope,
+                template_id,
+            }) => {
                 try {
                     const result = template_id
                         ? await api.mcpServerInstallations.installTemplate({
                               template_id,
                               api_key: api_key || undefined,
+                              scope,
                           })
                         : await api.mcpServerInstallations.installCustom({
                               name,
@@ -197,6 +212,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                               // falls back to DCR when both are empty.
                               client_id: client_id || undefined,
                               client_secret: client_secret || undefined,
+                              scope,
                           })
                     if (result?.redirect_url) {
                         window.location.href = result.redirect_url

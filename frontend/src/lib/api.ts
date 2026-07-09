@@ -4115,10 +4115,15 @@ const api = {
             description?: string
             client_id?: string
             client_secret?: string
+            scope?: 'personal' | 'shared'
         }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_custom').create({ data })
         },
-        async installTemplate(data: { template_id: string; api_key?: string }): Promise<Record<string, any>> {
+        async installTemplate(data: {
+            template_id: string
+            api_key?: string
+            scope?: 'personal' | 'shared'
+        }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_template').create({ data })
         },
         async listTools(
