@@ -2657,6 +2657,8 @@ export interface FunnelsFilterApi {
     breakdownAttributionValue?: number | null
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
     breakdownSorting?: string | null
+    /** Chart rendering style overrides (line shape). Only applies to historical-trends funnels. */
+    chartStyle?: ChartStyleApi | null
     /** For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean | null
     exclusions?: (FunnelExclusionEventsNodeApi | FunnelExclusionActionsNodeApi)[] | null
@@ -3023,6 +3025,8 @@ export interface RetentionFilterApi {
     aggregationPropertyType?: AggregationPropertyTypeApi | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyleApi | null
     /** Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations. */
     cohortLabelStartIndex?: number | null
     cumulative?: boolean | null
@@ -3287,6 +3291,8 @@ export type StickinessFilterApiResultCustomizations =
     | null
 
 export interface StickinessFilterApi {
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyleApi | null
     computedAs?: StickinessComputationModeApi | null
     display?: ChartDisplayTypeApi | null
     hiddenLegendIndexes?: number[] | null

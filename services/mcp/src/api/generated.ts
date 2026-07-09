@@ -2887,6 +2887,8 @@ export namespace Schemas {
       breakdownAttributionValue?: number | null;
       /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
       breakdownSorting?: string | null;
+      /** Chart rendering style overrides (line shape). Only applies to historical-trends funnels. */
+      chartStyle?: ChartStyle | null;
       /** For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups. */
       customAggregationTarget?: boolean | null;
       exclusions?: (FunnelExclusionEventsNode | FunnelExclusionActionsNode)[] | null;
@@ -3152,6 +3154,8 @@ export namespace Schemas {
       aggregationPropertyType?: AggregationPropertyType | null;
       /** The aggregation type to use for retention */
       aggregationType?: AggregationType | null;
+      /** Chart rendering style overrides (line shape). */
+      chartStyle?: ChartStyle | null;
       /** Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations. */
       cohortLabelStartIndex?: number | null;
       cumulative?: boolean | null;
@@ -3364,6 +3368,8 @@ export namespace Schemas {
     export type StickinessFilterResultCustomizations = {[key: string]: ResultCustomizationByValue} | {[key: string]: ResultCustomizationByPosition} | null;
 
     export interface StickinessFilter {
+      /** Chart rendering style overrides (line shape). */
+      chartStyle?: ChartStyle | null;
       computedAs?: StickinessComputationMode | null;
       display?: ChartDisplayType | null;
       hiddenLegendIndexes?: number[] | null;

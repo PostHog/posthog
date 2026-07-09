@@ -6571,6 +6571,7 @@ class StickinessFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    chartStyle: ChartStyle | None = Field(default=None, description="Chart rendering style overrides (line shape).")
     computedAs: StickinessComputationMode | None = None
     display: ChartDisplayType | None = None
     hiddenLegendIndexes: list[int] | None = None
@@ -21095,6 +21096,7 @@ class RetentionFilter(BaseModel):
         default=AggregationType.COUNT,
         description="The aggregation type to use for retention",
     )
+    chartStyle: ChartStyle | None = Field(default=None, description="Chart rendering style overrides (line shape).")
     cohortLabelStartIndex: int | None = Field(
         default=0,
         description=(
@@ -23161,6 +23163,10 @@ class FunnelsFilter(BaseModel):
     breakdownSorting: str | None = Field(
         default=None,
         description=("Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)"),
+    )
+    chartStyle: ChartStyle | None = Field(
+        default=None,
+        description=("Chart rendering style overrides (line shape). Only applies to historical-trends funnels."),
     )
     customAggregationTarget: bool | None = Field(
         default=None,

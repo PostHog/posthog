@@ -1799,6 +1799,8 @@ export type FunnelsFilter = {
      * @default false
      */
     hideIncompleteConversionWindowPeriods?: boolean
+    /** Chart rendering style overrides (line shape). Only applies to historical-trends funnels. */
+    chartStyle?: ChartStyle
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -1876,6 +1878,8 @@ export type RetentionFilter = {
     /** @description Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations.
      * @default 0 */
     cohortLabelStartIndex?: integer
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyle
 }
 
 export interface RetentionValue {
@@ -2004,6 +2008,8 @@ export type StickinessFilter = {
     resultCustomizations?:
         | Record<string, ResultCustomizationByValue>
         | Record<numerical_key, ResultCustomizationByPosition>
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyle
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
@@ -2012,6 +2018,7 @@ export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
     'legendPosition',
     'showValuesOnSeries',
     'hiddenLegendIndexes',
+    'chartStyle',
 ])
 
 export interface StickinessQueryResponse extends AnalyticsQueryResponseBase {
