@@ -71,7 +71,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
     loaders(({ values }) => ({
         suggestions: {
             __default: [] as OutputMappingSuggestion[],
-            loadSuggestions: async (): Promise<OutputMappingSuggestion[]> => {
+            loadSuggestions: async (_, breakpoint): Promise<OutputMappingSuggestion[]> => {
                 const { selectedNode } = values
                 if (!selectedNode) {
                     return []
@@ -86,11 +86,14 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 if (!nodeDef?.getOutputMappingSuggestions) {
                     return []
                 }
+                let suggestions: OutputMappingSuggestion[]
                 try {
-                    return await nodeDef.getOutputMappingSuggestions()
+                    suggestions = await nodeDef.getOutputMappingSuggestions()
                 } catch {
-                    return []
+                    suggestions = []
                 }
+                breakpoint()
+                return suggestions
             },
         },
     })),
