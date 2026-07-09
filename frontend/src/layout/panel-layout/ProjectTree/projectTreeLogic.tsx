@@ -7,6 +7,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { LemonTreeSelectMode, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { getEntryAccessDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
@@ -449,9 +450,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     checkedItems,
                     root: 'project://',
                     users,
-                    disabledReason: onlyFolders
-                        ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
-                        : undefined,
+                    disabledReason: (item) =>
+                        getEntryAccessDisabledReason(item) ??
+                        (onlyFolders && item.type !== 'folder' ? 'Only folders can be selected' : undefined),
                 })
                 return children
             },
@@ -467,6 +468,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     disableFolderSelect: true,
                     recent: true,
                     users,
+                    disabledReason: (item) => getEntryAccessDisabledReason(item),
                 })
                 if (recentResultsLoading) {
                     results.push({
@@ -518,9 +520,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     disableFolderSelect: true,
                     recent: sortMethod === 'recent',
                     users,
-                    disabledReason: onlyFolders
-                        ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
-                        : undefined,
+                    disabledReason: (item) =>
+                        getEntryAccessDisabledReason(item) ??
+                        (onlyFolders && item.type !== 'folder' ? 'Only folders can be selected' : undefined),
                 })
                 if (searchResultsLoading) {
                     results.push({

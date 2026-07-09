@@ -1304,6 +1304,40 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
+    def effective_rtk(self) -> bool | None:
+        """rtk posture for analytics: the launch-persisted effective value, falling
+        back to the user's explicit override for runs that never launched."""
+        state = self.state if isinstance(self.state, dict) else {}
+        rtk = state.get("rtk_effective", state.get("rtk_enabled"))
+        return rtk if isinstance(rtk, bool) else None
+
+    def _analytics_usage_properties(self) -> dict:
+        """Token usage and rtk posture for analytics events.
+
+        The agent-server merges cumulative usage into ``state.token_usage`` as turns
+        settle.
+        """
+        props: dict = {}
+        state = self.state if isinstance(self.state, dict) else {}
+        usage = state.get("token_usage")
+        if isinstance(usage, dict):
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_write_tokens",
+                "thought_tokens",
+                "total_tokens",
+                "turns",
+            ):
+                value = usage.get(key)
+                if isinstance(value, int | float) and not isinstance(value, bool):
+                    props["usage_turns" if key == "turns" else key] = value
+        rtk = self.effective_rtk()
+        if rtk is not None:
+            props["rtk_enabled"] = rtk
+        return props
+
     def capture_event(self, event: str, properties: dict | None = None, event_uuid: str | None = None) -> None:
         try:
             distinct_id = (
@@ -1320,7 +1354,12 @@ class TaskRun(models.Model):
                 "title": self.task.title,
                 "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
                 "environment": self.environment,
+                # The bare `environment` property gets clobbered by the analytics
+                # client's deployment-region super-property, so ship the run's
+                # local/cloud value under an unclobbered name too.
+                "run_environment": self.environment,
                 "mode": self.mode,
+                **self._analytics_usage_properties(),
             }
             if properties:
                 all_properties.update(properties)
@@ -1497,6 +1536,62 @@ class TaskRun(models.Model):
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
+
+
+class TaskArtifact(TeamScopedRootMixin, UUIDModel):
+    class ArtifactType(models.TextChoices):
+        SLACK_MESSAGE = "slack_message", "Slack message"
+        SLACK_CANVAS = "slack_canvas", "Slack canvas"
+        DOCUMENT = "document", "Document"
+        SPREADSHEET = "spreadsheet", "Spreadsheet"
+        DASHBOARD = "dashboard", "Dashboard"
+        FILE = "file", "File"
+        GITHUB_PR = "github_pr", "GitHub PR"
+
+    class Adapter(models.TextChoices):
+        SLACK_MESSAGE = "slack_message", "Slack message"
+        SLACK_CANVAS = "slack_canvas", "Slack canvas"
+        SLACK_FILE = "slack_file", "Slack file"
+        DOCUMENT_CONNECTOR = "document_connector", "Document connector"
+        GITHUB_PR = "github_pr", "GitHub PR"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        FAILED = "failed", "Failed"
+
+    # App-level scoping is enforced by TeamScopedRootMixin; avoid locking the hot Team/User tables.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="living_artifacts")
+    task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="living_artifacts")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    name = models.CharField(max_length=255)
+    artifact_type = models.CharField(max_length=32, choices=ArtifactType)
+    adapter = models.CharField(max_length=32, choices=Adapter)
+    status = models.CharField(max_length=16, choices=Status, default=Status.ACTIVE, db_default=Status.ACTIVE)
+    location = models.JSONField(
+        default=dict, db_default=models.Value("{}"), help_text="Adapter-specific location data."
+    )
+    metadata = models.JSONField(
+        default=dict, db_default=models.Value("{}"), help_text="Adapter-specific artifact metadata."
+    )
+    versions = models.JSONField(
+        default=list, db_default=models.Value("[]"), help_text="Chronological artifact versions."
+    )
+    current_version = models.PositiveIntegerField(default=1, db_default=1)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_artifact"
+        indexes = [
+            models.Index(fields=["team", "task", "-updated_at"], name="task_artifact_team_task_idx"),
+            models.Index(fields=["team", "task_run", "-updated_at"], name="task_artifact_team_run_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.artifact_type})"
 
 
 class SandboxSnapshot(UUIDModel):
