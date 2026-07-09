@@ -448,12 +448,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         disabled={inputDisabled}
                                         minRows={1}
                                         maxRows={10}
-                                        textareaClassName={cn(
-                                            '!border-none !bg-transparent min-h-16 py-2 pl-2 resize-none',
-                                            handsFreeFlagEnabled ? 'pr-20' : 'pr-12',
+                                        className={cn(
+                                            '!border-none !bg-transparent min-h-16 py-2 pl-2 pr-0 resize-none',
                                             // Hide the native caret so only the enlarged fill-in caret shows.
                                             showFillInHint && 'caret-transparent'
                                         )}
+                                        textareaClassName={handsFreeFlagEnabled ? 'pr-20' : 'pr-12'}
                                         hideFocus
                                     />
                                 </div>

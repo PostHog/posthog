@@ -8,7 +8,8 @@ import { cn } from 'lib/utils/css-classes'
 // Native CSS autosizing where supported. The JS fallback (react-textarea-autosize) calls
 // getComputedStyle on every keystroke, which forces a synchronous whole-document style recalc —
 // hundreds of ms on threads with lots of mounted content.
-const SUPPORTS_FIELD_SIZING = typeof CSS !== 'undefined' && CSS.supports('field-sizing', 'content')
+const SUPPORTS_FIELD_SIZING =
+    typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('field-sizing', 'content')
 
 export interface AutosizeTextAreaProps extends Pick<
     React.TextareaHTMLAttributes<HTMLTextAreaElement>,

@@ -302,7 +302,8 @@ function ComposerTextarea({
             minRows={minRows}
             maxRows={maxRows}
             autoFocus={autoFocus}
-            textareaClassName={cn('!border-none !bg-transparent min-h-16 py-2 pl-2 pr-12 resize-none', className)}
+            className={cn('!border-none !bg-transparent min-h-16 py-2 pl-2 pr-0 resize-none', className)}
+            textareaClassName="pr-12"
             hideFocus
             onPressEnter={() => submit()}
             {...rest}
