@@ -194,11 +194,13 @@ export function SharingModalContent({
               userAccessLevel
           )
         : null
-    const sharingConfigDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.SharingConfiguration,
-        AccessControlLevel.Editor,
-        sharingConfiguration?.user_access_level
-    )
+    const sharingConfigDisabledReason = sharingConfiguration?.user_access_level
+        ? getAccessControlDisabledReason(
+              AccessControlResourceType.SharingConfiguration,
+              AccessControlLevel.Editor,
+              sharingConfiguration.user_access_level
+          )
+        : null
     const sharingManageDisabledReason = underlyingResourceDisabledReason ?? sharingConfigDisabledReason
     const hasEditAccess = !sharingManageDisabledReason
 
