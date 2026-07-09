@@ -87,7 +87,7 @@ WINDOW_PLACEHOLDERS = (
 )
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
-AI_QUERY_PLAN_VERSION = 1
+AI_QUERY_PLAN_VERSION = 2
 
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
