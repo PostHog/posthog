@@ -1,5 +1,6 @@
 import clsx from 'clsx'
-import { useState } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
@@ -37,12 +38,24 @@ export function WordArtModal({
     const [text, setText] = useState(initialText ?? '')
     const [style, setStyle] = useState(normalizeWordArtStyle(initialStyle))
     const [size, setSize] = useState<WordArtSize>(normalizeWordArtSize(initialSize))
+    const isEditing = !!initialText
+
+    // Mounted only while open, so this fires once per gallery open
+    useEffect(() => {
+        posthog.capture('dashboard text tile word art gallery opened', { is_editing: isEditing })
+    }, [isEditing])
 
     const trimmedText = text.trim()
     const previewText = trimmedText || 'Your text here'
 
     const save = (): void => {
         if (trimmedText) {
+            posthog.capture('dashboard text tile word art saved', {
+                is_new: !isEditing,
+                style,
+                size,
+                text_length: trimmedText.length,
+            })
             onSave({ text: trimmedText, style, size })
         }
     }
@@ -65,7 +78,7 @@ export function WordArtModal({
                         onClick={save}
                         disabledReason={!trimmedText ? 'Enter some text first' : undefined}
                     >
-                        {initialText ? 'Update' : 'Insert'}
+                        {isEditing ? 'Update' : 'Insert'}
                     </LemonButton>
                 </>
             }
