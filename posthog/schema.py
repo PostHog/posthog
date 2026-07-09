@@ -5348,6 +5348,17 @@ class MaxRecordingEventFilter(BaseModel):
     type: Literal["events"] = "events"
 
 
+class MetricPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: str | None = None
+    operator: PropertyOperator
+    type: Literal["metric_attribute"] = "metric_attribute"
+    value: list[str | float | bool] | str | float | bool | None = None
+
+
 class MultiQuestionFormField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13153,6 +13164,7 @@ class ConversionGoalFilter1(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -13204,6 +13216,7 @@ class ConversionGoalFilter1(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -13242,6 +13255,7 @@ class ConversionGoalFilter2(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -13292,6 +13306,7 @@ class ConversionGoalFilter2(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -13332,6 +13347,7 @@ class ConversionGoalFilter3(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -13383,6 +13399,7 @@ class ConversionGoalFilter3(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -13432,6 +13449,7 @@ class DashboardFilter(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -14463,6 +14481,7 @@ class DataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -14514,6 +14533,7 @@ class DataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -14818,6 +14838,7 @@ class EntityNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -14867,6 +14888,7 @@ class EntityNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -14974,6 +14996,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15167,6 +15190,7 @@ class EventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15218,6 +15242,7 @@ class EventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15255,6 +15280,7 @@ class EventsQueryActionStep(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15350,6 +15376,7 @@ class ExperimentApiExposureConfig(BaseModel):
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | MetricPropertyFilter
         | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
         | WorkflowVariablePropertyFilter
@@ -15426,6 +15453,7 @@ class ExperimentDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15475,6 +15503,7 @@ class ExperimentDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15512,6 +15541,7 @@ class ExperimentEventExposureConfig(BaseModel):
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | MetricPropertyFilter
         | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
         | WorkflowVariablePropertyFilter
@@ -15556,6 +15586,7 @@ class FeatureFlagGroupType(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15639,6 +15670,7 @@ class FunnelExclusionActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15691,6 +15723,7 @@ class FunnelExclusionActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15727,6 +15760,7 @@ class FunnelExclusionEventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15780,6 +15814,7 @@ class FunnelExclusionEventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15817,6 +15852,7 @@ class FunnelsDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15868,6 +15904,7 @@ class FunnelsDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -16041,6 +16078,7 @@ class HogQLFilters(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -16229,6 +16267,7 @@ class LifecycleDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -16279,6 +16318,7 @@ class LifecycleDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -17121,6 +17161,7 @@ class PersonsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -17154,6 +17195,7 @@ class PersonsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -17201,6 +17243,7 @@ class PropertyGroupFilterValue(BaseModel):
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | MetricPropertyFilter
         | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
         | WorkflowVariablePropertyFilter
@@ -21011,6 +21054,7 @@ class RetentionEntity(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -21463,6 +21507,7 @@ class TileFilters(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -21500,6 +21545,7 @@ class TraceNeighborsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -21544,6 +21590,7 @@ class TraceQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -21625,6 +21672,7 @@ class TracesQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -22148,6 +22196,7 @@ class ActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -22198,6 +22247,7 @@ class ActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -23278,6 +23328,7 @@ class MCPHarnessBreakdownQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -23726,6 +23777,7 @@ class RecordingsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -23778,6 +23830,7 @@ class RecordingsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -23832,6 +23885,7 @@ class RetentionQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -23887,6 +23941,7 @@ class StickinessQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24250,6 +24305,7 @@ class CalendarHeatmapQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24590,6 +24646,7 @@ class GroupNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24645,6 +24702,7 @@ class GroupNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24688,6 +24746,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24734,6 +24793,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24780,6 +24840,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24826,6 +24887,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24872,6 +24934,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24918,6 +24981,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24978,6 +25042,7 @@ class LifecycleQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -25129,6 +25194,7 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -25161,6 +25227,7 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -25196,6 +25263,7 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -25277,6 +25345,7 @@ class TrendsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -25567,6 +25636,7 @@ class FunnelsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -25949,6 +26019,7 @@ class PathsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -26693,6 +26764,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -26797,6 +26869,7 @@ class SessionBatchEventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -26836,6 +26909,7 @@ class SessionBatchEventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -26954,6 +27028,7 @@ class EventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -26989,6 +27064,7 @@ class EventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter

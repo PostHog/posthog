@@ -428,6 +428,14 @@ const LogPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const MetricPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('metric_attribute').default('metric_attribute'),
+    value: PropertyFilterValue.optional(),
+})
+
 const SpanPropertyFilterType = z.enum(['span', 'span_attribute', 'span_resource_attribute'])
 
 const SpanPropertyFilter = z.object({
@@ -473,6 +481,7 @@ const AnyPropertyFilter = z.union([
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
     SpanPropertyFilter,
     RevenueAnalyticsPropertyFilter,
     WorkflowVariablePropertyFilter,
