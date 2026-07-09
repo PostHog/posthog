@@ -28,8 +28,14 @@ from products.pulse.backend.temporal.activities import (
     prepare_mission_activity,
     run_agent_activity,
     synthesize_brief_activity,
+    validate_and_persist_activity,
 )
-from products.pulse.backend.temporal.inputs import GenerateBriefWorkflowInputs, RunAgentInputs, SynthesizeActivityInputs
+from products.pulse.backend.temporal.inputs import (
+    GenerateBriefWorkflowInputs,
+    RunAgentInputs,
+    SynthesizeActivityInputs,
+    ValidatePersistInputs,
+)
 from products.pulse.backend.temporal.registry import ACTIVITIES
 from products.pulse.backend.temporal.workflow import GenerateProductBriefWorkflow
 
@@ -301,6 +307,105 @@ async def test_run_agent_activity_refuses_without_creating_user(team, user) -> N
     env = ActivityEnvironment()
     with pytest.raises(ApplicationError) as exc_info:
         await env.run(run_agent_activity, RunAgentInputs(team_id=team.pk, brief_id=str(brief.id), bundle=bundle))
+    assert exc_info.value.non_retryable is True
+
+
+@sync_to_async
+def _pin_window(brief: ProductBrief, start: datetime.datetime, end: datetime.datetime) -> None:
+    ProductBrief.objects.unscoped().filter(id=brief.id).update(window_start=start, window_end=end)
+
+
+def _agent_report(window_start: datetime.datetime, window_end: datetime.datetime) -> dict:
+    return {
+        "sections": [
+            {
+                "kind": "what_happened",
+                "title": "Signups fell",
+                "markdown": "Down 18%.",
+                "citations": [],
+                "confidence": 0.9,
+            }
+        ],
+        "opportunities": [
+            {
+                "kind": "fix",
+                "title": "Recover the signup funnel",
+                "summary": "Conversion fell.",
+                "suggested_action": "Investigate checkout.",
+                "evidence_refs": ["insight:abc"],
+                "fingerprint_hint": "abc:0",
+                "confidence": 0.8,
+            }
+        ],
+        "window_start": window_start.isoformat(),
+        "window_end": window_end.isoformat(),
+        "artifacts": [],
+    }
+
+
+async def test_validate_and_persist_activity_persists_valid_report(team, user) -> None:
+    brief = await _create_brief(team, user)
+    window_end = datetime.datetime.now(datetime.UTC)
+    window_start = window_end - datetime.timedelta(days=7)
+    await _pin_window(brief, window_start, window_end)
+    env = ActivityEnvironment()
+    status = await env.run(
+        validate_and_persist_activity,
+        ValidatePersistInputs(
+            team_id=team.pk,
+            brief_id=str(brief.id),
+            report=_agent_report(window_start, window_end),
+            agent_session_ref="sb-1",
+            transcript_key="pulse/briefs/t.log",
+            seed_items=[],
+        ),
+    )
+    assert status == ProductBrief.Status.READY
+    reloaded = await _reload_brief(brief.id)
+    assert reloaded.status == ProductBrief.Status.READY
+    assert reloaded.agent_session_ref == "sb-1"
+    assert "pulse/briefs/t.log" in reloaded.artifacts
+    assert await _opportunity_count(team) == 1
+
+
+async def test_validate_and_persist_activity_rejects_invalid_report_without_persisting(team, user) -> None:
+    brief = await _create_brief(team, user)
+    window_end = datetime.datetime.now(datetime.UTC)
+    await _pin_window(brief, window_end - datetime.timedelta(days=7), window_end)
+    env = ActivityEnvironment()
+    with pytest.raises(ApplicationError) as exc_info:
+        await env.run(
+            validate_and_persist_activity,
+            ValidatePersistInputs(
+                team_id=team.pk,
+                brief_id=str(brief.id),
+                report={"sections": [{"bogus": True}], "opportunities": []},
+                agent_session_ref="sb-1",
+                transcript_key=None,
+                seed_items=[],
+            ),
+        )
+    assert exc_info.value.non_retryable is True
+    reloaded = await _reload_brief(brief.id)
+    assert reloaded.status == ProductBrief.Status.GENERATING  # the workflow's failure envelope marks it FAILED
+    assert await _opportunity_count(team) == 0
+
+
+async def test_validate_and_persist_activity_requires_pinned_window(team, user) -> None:
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    with pytest.raises(ApplicationError) as exc_info:
+        await env.run(
+            validate_and_persist_activity,
+            ValidatePersistInputs(
+                team_id=team.pk,
+                brief_id=str(brief.id),
+                report={"sections": [], "opportunities": []},
+                agent_session_ref="sb-1",
+                transcript_key=None,
+                seed_items=[],
+            ),
+        )
     assert exc_info.value.non_retryable is True
 
 

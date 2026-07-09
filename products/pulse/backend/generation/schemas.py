@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -72,3 +73,21 @@ class OpportunityOut(BaseModel):
 class BriefOut(BaseModel):
     sections: list[BriefSectionOut] = Field(description="Brief sections, most important first.")
     opportunities: list[OpportunityOut] = Field(description="Ranked opportunities, best first.")
+
+
+class AgentOpportunityOut(OpportunityOut):
+    # The agent mission has no goal wiring yet, so its report contract omits both fields;
+    # defaulting them keeps persist's goalless invariants (no proposal, no reorder) intact.
+    goal_relevant: bool = Field(default=False, description="Always false: the agent mission carries no goal.")
+    proposed_experiment: ProposedExperimentOut | None = Field(
+        default=None, description="Always null: proposals require a goal, which the agent mission has none of."
+    )
+
+
+class AgentBriefOut(BriefOut):
+    """The BriefOut-shaped contract a sandbox agent report must satisfy (see agent/prompt.py)."""
+
+    opportunities: list[AgentOpportunityOut] = Field(description="Ranked opportunities, best first.")
+    window_start: dt.datetime = Field(description="Start of the frozen window the agent reported on.")
+    window_end: dt.datetime = Field(description="End of the frozen window the agent reported on.")
+    artifacts: list[str] = Field(default_factory=list, description="Object-storage keys for agent artifacts.")

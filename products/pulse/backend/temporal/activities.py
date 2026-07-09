@@ -17,6 +17,7 @@ from products.pulse.backend.generation.goal import GoalStatus, collect_goal_stat
 from products.pulse.backend.generation.persist import opportunity_fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut
 from products.pulse.backend.generation.synthesize import synthesize_brief
+from products.pulse.backend.generation.validate import AgentReportInvalid, validate_agent_report
 from products.pulse.backend.models import BriefConfig, Opportunity, ProductBrief
 from products.pulse.backend.sources.anchored_insights import InsightResultsCache
 from products.pulse.backend.sources.base import SourceItem
@@ -26,6 +27,7 @@ from products.pulse.backend.temporal.inputs import (
     MarkBriefFailedInputs,
     RunAgentInputs,
     SynthesizeActivityInputs,
+    ValidatePersistInputs,
 )
 from products.signals.backend.facade.api import emit_signal
 
@@ -148,6 +150,34 @@ async def run_agent_activity(inputs: RunAgentInputs) -> dict:
         inputs.team_id, inputs.brief_id, result.agent_session_ref, result.transcript_key
     )
     return dataclasses.asdict(result)
+
+
+@temporalio.activity.defn
+async def validate_and_persist_activity(inputs: ValidatePersistInputs) -> str:
+    """The trusted gate for untrusted agent output: pydantic-validate the report against
+    the pinned window, apply the say-less gate and sanitization outside the sandbox, then
+    reuse the chassis persist path (fingerprint dedup, suppression, atomic write)."""
+    brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
+    if brief.window_start is None or brief.window_end is None:
+        raise ApplicationError("brief has no pinned window; prepare_mission must run first", non_retryable=True)
+    try:
+        out = validate_agent_report(inputs.report, window_start=brief.window_start, window_end=brief.window_end)
+    except AgentReportInvalid as err:
+        # Deterministic rejection: retrying re-validates the same bytes. Never persist.
+        raise ApplicationError(f"agent report rejected: {err}", non_retryable=True) from err
+    items = [SourceItem(**item) for item in inputs.seed_items]
+
+    def _persist() -> str:
+        brief.agent_session_ref = inputs.agent_session_ref
+        artifacts = list(out.artifacts)
+        if inputs.transcript_key and inputs.transcript_key not in artifacts:
+            artifacts.append(inputs.transcript_key)
+        brief.artifacts = artifacts
+        brief.save(update_fields=["agent_session_ref", "artifacts", "updated_at"])
+        persist_brief_output(brief=brief, out=out, items=items)
+        return brief.status
+
+    return await database_sync_to_async(_persist, thread_sensitive=False)()
 
 
 @temporalio.activity.defn
@@ -274,6 +304,19 @@ async def _emit_opportunity_signal(
             opportunity_id=str(opportunity.id),
         )
         return False
+
+
+@temporalio.activity.defn
+async def mark_brief_quiet_activity(inputs: MarkBriefFailedInputs) -> None:
+    """Quiet-week cheap path: no seeds means no sandbox and no LLM spend. Reuses
+    MarkBriefFailedInputs for its team/brief coordinates; `error` is ignored."""
+
+    def _mark_quiet() -> None:
+        ProductBrief.objects.for_team(inputs.team_id).filter(id=inputs.brief_id).update(
+            status=ProductBrief.Status.QUIET
+        )
+
+    await database_sync_to_async(_mark_quiet, thread_sensitive=False)()
 
 
 @temporalio.activity.defn

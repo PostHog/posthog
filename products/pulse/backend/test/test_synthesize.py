@@ -4,15 +4,13 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.pulse.backend.generation.accountability import METRIC_UNAVAILABLE, OpportunityStatusLine
+from products.pulse.backend.generation.gate import CONFIDENCE_THRESHOLD, MAX_OPPORTUNITIES, apply_say_less_gate
 from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.generation.synthesize import (
-    CONFIDENCE_THRESHOLD,
-    MAX_OPPORTUNITIES,
     _render_accountability_block,
     _render_goal_block,
     _render_items,
-    apply_say_less_gate,
     synthesize_brief,
 )
 from products.pulse.backend.models import BriefConfig

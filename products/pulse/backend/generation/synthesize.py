@@ -5,6 +5,7 @@ from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from products.pulse.backend.generation.accountability import OpportunityStatusLine
+from products.pulse.backend.generation.gate import MAX_OPPORTUNITIES, apply_say_less_gate
 from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.generation.prompts import (
     ACCOUNTABILITY_BLOCK,
@@ -20,23 +21,8 @@ from ee.hogai.llm import MaxChatOpenAI
 
 logger = structlog.get_logger(__name__)
 
-CONFIDENCE_THRESHOLD = 0.6
-MAX_OPPORTUNITIES = 3
 SYNTHESIS_MODEL = "gpt-4.1"
 _LLM_TIMEOUT_SECONDS = 120
-
-
-def apply_say_less_gate(out: BriefOut) -> BriefOut:
-    confident_opportunities = [o for o in out.opportunities if o.confidence >= CONFIDENCE_THRESHOLD]
-    return BriefOut(
-        sections=[s for s in out.sections if s.confidence >= CONFIDENCE_THRESHOLD],
-        # Deterministic cap and order: the prompt asks for at most MAX_OPPORTUNITIES with
-        # goal-relevant ones marked, but the model may not comply. Goal-relevant first, then
-        # by confidence — this sort is what makes the goal-first ranking real.
-        opportunities=sorted(confident_opportunities, key=lambda o: (o.goal_relevant, o.confidence), reverse=True)[
-            :MAX_OPPORTUNITIES
-        ],
-    )
 
 
 def _render_items(items: list[SourceItem]) -> str:

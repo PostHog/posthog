@@ -18,6 +18,9 @@ class GenerateBriefWorkflowInputs:
     brief_id: str
     brief_config_id: str | None = None
     period_days: int = 7
+    # "synthesize" (single LLM call) or "agent" (sandbox mission). User-facing generation
+    # is agent-only; synthesize remains for the eval command and internal callers.
+    engine: str = "synthesize"
 
 
 @dataclasses.dataclass
@@ -32,6 +35,17 @@ class RunAgentInputs:
     team_id: int
     brief_id: str
     bundle: dict
+
+
+@dataclasses.dataclass
+class ValidatePersistInputs:
+    team_id: int
+    brief_id: str
+    # Raw agent report — untrusted until validate_agent_report accepts it.
+    report: dict
+    agent_session_ref: str
+    transcript_key: str | None
+    seed_items: list[dict]
 
 
 @dataclasses.dataclass
