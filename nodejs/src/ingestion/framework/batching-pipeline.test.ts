@@ -358,6 +358,37 @@ describe('BatchingPipeline', () => {
         })
     })
 
+    describe('empty batches', () => {
+        // An empty batch — fed empty, or mapped to empty by beforeBatch — used to
+        // register an un-completable batch: next() then threw the "null with N
+        // in-flight batches" corruption guard, and the phantom batch permanently
+        // occupied a concurrentBatches slot so every later feed() was rejected.
+        it.each([
+            ['fed empty', () => {}, [] as number[]],
+            [
+                'mapped to empty by beforeBatch',
+                () =>
+                    beforeBatchStep.mockImplementationOnce(({ batchContext }: any) =>
+                        Promise.resolve(ok({ elements: [], batchContext }))
+                    ),
+                [1, 2],
+            ],
+        ])('%s does not wedge next() or leak a capacity slot', async (_name, setup, offsets) => {
+            setup()
+            const collector = createCollector({ concurrentBatches: 1 })
+
+            expect(await collector.feed(makeBatch(offsets))).toEqual({ ok: true })
+            expect(await collector.next()).toBeNull()
+            expect(afterBatchStep).not.toHaveBeenCalled()
+
+            // The slot was not leaked: a subsequent normal batch is accepted and processed.
+            expect(await collector.feed(makeBatch([9]))).toEqual({ ok: true })
+            const { allResults } = await drainAll(collector)
+            expect(allResults).toHaveLength(1)
+            expect(afterBatchStep).toHaveBeenCalledTimes(1)
+        })
+    })
+
     describe('concurrentBatches', () => {
         it('feed() rejects with reason when at limit (default concurrentBatches: 1)', async () => {
             const collector = createCollector({ concurrentBatches: 1 })

@@ -187,6 +187,22 @@ export class BatchingPipeline<
         const { elements: mappedElements, batchContext } = beforeResult.result.value
         const beforeSideEffects = beforeResult.context.sideEffects
 
+        // A batch with zero elements — fed empty, or mapped to empty by beforeBatch —
+        // has no messages that could ever complete it. Registering it would occupy a
+        // concurrentBatches slot forever, and once the sub-pipeline drains it would
+        // trip the "null with N in-flight batches" corruption guard in pump(). So never
+        // register it: no batches.set, no capacity consumption, no subPipeline.feed, and
+        // no feedEpoch bump (nothing is buffered for a racing pull to pick up).
+        // beforeBatch may still have produced side effects; surface them as an
+        // empty-elements result so next() drains them instead of dropping them silently.
+        // With no side effects there is nothing to emit and next() stays null.
+        if (mappedElements.length === 0) {
+            if (beforeSideEffects.length > 0) {
+                this.completedResults.push({ elements: [], sideEffects: beforeSideEffects })
+            }
+            return { ok: true }
+        }
+
         const messageIds: number[] = []
         const inflight = new Set<number>()
 
