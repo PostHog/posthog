@@ -80,7 +80,10 @@ def get_installations_for_sandbox(
 
     Always includes shared (team-wide) installations. Optionally includes
     the user's personal installations when ``include_personal`` is True
-    and a ``user_id`` is provided.
+    and a ``user_id`` is provided. When the user has a ready personal
+    installation for the same URL as a shared one, only the personal one is
+    returned — the user acts as themselves rather than through the shared
+    credential.
     """
     try:
         scope_filter = Q(scope="shared")
@@ -96,11 +99,16 @@ def get_installations_for_sandbox(
         logger.warning("Error fetching MCP installations for sandbox", error=str(e), team_id=team_id)
         return []
 
-    results: list[ActiveInstallationInfo] = []
-    for installation in installations:
-        if not _is_oauth_ready(installation):
-            continue
-        results.append(_to_info(installation, team_id))
+    ready = [installation for installation in installations if _is_oauth_ready(installation)]
+    if include_personal and user_id is not None:
+        personal_urls = {installation.url for installation in ready if installation.scope == "personal"}
+        ready = [
+            installation
+            for installation in ready
+            if installation.scope == "personal" or installation.url not in personal_urls
+        ]
+
+    results = [_to_info(installation, team_id) for installation in ready]
 
     logger.debug(
         "Found MCP installations for sandbox",

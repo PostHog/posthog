@@ -4071,6 +4071,12 @@ const api = {
         async delete(id: string): Promise<void> {
             await new ApiRequest().mcpServerInstallation(id).delete()
         },
+        async share(id: string): Promise<Record<string, any>> {
+            return await new ApiRequest().mcpServerInstallation(id).withAction('share').create({ data: {} })
+        },
+        async unshare(id: string): Promise<Record<string, any>> {
+            return await new ApiRequest().mcpServerInstallation(id).withAction('unshare').create({ data: {} })
+        },
         async installCustom(data: {
             name: string
             url: string

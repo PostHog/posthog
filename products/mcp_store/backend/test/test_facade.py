@@ -211,6 +211,38 @@ class TestGetInstallationsForSandbox(BaseTest):
 
         assert len(results) == 0
 
+    def test_personal_wins_over_shared_for_same_url(self) -> None:
+        # The user acts as themselves rather than through the shared credential.
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        url = "https://mcp.same.example.com/mcp"
+        self._create_installation(scope="shared", user=other_user, url=url, display_name="Shared")
+        personal = self._create_installation(scope="personal", url=url, display_name="Personal")
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=True)
+
+        assert [r.id for r in results] == [str(personal.id)]
+        assert results[0].scope == "personal"
+
+    def test_shared_returned_for_same_url_without_include_personal(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        url = "https://mcp.same.example.com/mcp"
+        shared = self._create_installation(scope="shared", user=other_user, url=url)
+        self._create_installation(scope="personal", url=url)
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=False)
+
+        assert [r.id for r in results] == [str(shared.id)]
+        assert results[0].scope == "shared"
+
+    def test_different_urls_not_deduped(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        self._create_installation(scope="shared", user=other_user, url="https://shared.example.com/mcp")
+        self._create_installation(scope="personal", url="https://personal.example.com/mcp")
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=True)
+
+        assert {r.scope for r in results} == {"shared", "personal"}
+
     @parameterized.expand(
         [
             ("shared_include_personal", "shared", True, True),
