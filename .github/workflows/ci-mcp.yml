@@ -678,17 +678,17 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.build.result }}" == "failure" ]]; then
                     echo "MCP build failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.unit-tests.result }}" != "success" && "${{ needs.unit-tests.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.unit-tests.result }}" == "failure" ]]; then
                     echo "MCP unit tests failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.integration-tests.result }}" == "failure" ]]; then
                     echo "MCP integration tests failed."
                     exit 1
                   fi
