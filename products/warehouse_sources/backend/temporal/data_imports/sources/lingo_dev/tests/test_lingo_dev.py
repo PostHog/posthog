@@ -3,9 +3,9 @@ import dataclasses
 from collections.abc import Iterable
 from typing import Any, cast
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from requests import Request, Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
@@ -19,13 +19,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lingo_dev.
 
 
 class TestLingoDevPaginator:
-    @pytest.mark.parametrize(
-        ("label", "response_body", "has_next"),
+    @parameterized.expand(
         [
             ("more_pages", {"items": [{"id": "ljb_1"}], "nextCursor": "cur_2"}, True),
             ("last_page_null_cursor", {"items": [{"id": "ljb_1"}], "nextCursor": None}, False),
             ("missing_cursor_key", {"items": []}, False),
-        ],
+        ]
     )
     def test_update_state(self, label: str, response_body: Any, has_next: bool) -> None:
         paginator = LingoDevPaginator()
@@ -47,12 +46,11 @@ class TestLingoDevPaginator:
 
         assert request.params["cursor"] == "cur_2"
 
-    @pytest.mark.parametrize(
-        ("label", "seeded_cursor", "expected_cursor_param"),
+    @parameterized.expand(
         [
             ("fresh_run_omits_cursor", None, None),
             ("resumed_sets_cursor", "cur_42", "cur_42"),
-        ],
+        ]
     )
     def test_init_request(self, label: str, seeded_cursor: str | None, expected_cursor_param: str | None) -> None:
         paginator = LingoDevPaginator()
@@ -100,8 +98,7 @@ def _page(ids: list[str], next_cursor: str | None) -> dict[str, Any]:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        ("label", "response", "expected_valid", "expected_message"),
+    @parameterized.expand(
         [
             ("valid_key", _make_http_response(_page(["ljb_1"], None)), True, None),
             (
@@ -110,16 +107,16 @@ class TestValidateCredentials:
                 False,
                 "Invalid API key",
             ),
-        ],
+        ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.lingo_dev.lingo_dev.make_tracked_session")
     def test_status_mapping(
         self,
-        mock_session: MagicMock,
         label: str,
         response: Response,
         expected_valid: bool,
         expected_message: str | None,
+        mock_session: MagicMock,
     ) -> None:
         mock_session.return_value.get.return_value = response
 

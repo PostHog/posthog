@@ -1,5 +1,6 @@
-import pytest
 from unittest import mock
+
+from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
@@ -40,14 +41,13 @@ class TestLingoDevSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
-    @pytest.mark.parametrize(
-        "other_vendor_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "401 Client Error: Unauthorized for url: https://api.clerk.com/v1/users",
-        ],
+            ("stripe", "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers"),
+            ("clerk", "401 Client Error: Unauthorized for url: https://api.clerk.com/v1/users"),
+        ]
     )
-    def test_non_retryable_errors_does_not_match_other_vendors(self, other_vendor_error):
+    def test_non_retryable_errors_does_not_match_other_vendors(self, _name, other_vendor_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
 
         assert not any(key in other_vendor_error for key in non_retryable_errors)
@@ -72,17 +72,16 @@ class TestLingoDevSource:
 
         assert schemas == []
 
-    @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+    @parameterized.expand(
         [
-            ((True, None), True, None),
-            ((False, "Invalid API key"), False, "Invalid API key"),
-        ],
+            ("valid", (True, None), True, None),
+            ("invalid", (False, "Invalid API key"), False, "Invalid API key"),
+        ]
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.lingo_dev.source.validate_lingo_dev_credentials"
     )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
+    def test_validate_credentials(self, _name, mock_return, expected_valid, expected_message, mock_validate):
         mock_validate.return_value = mock_return
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
