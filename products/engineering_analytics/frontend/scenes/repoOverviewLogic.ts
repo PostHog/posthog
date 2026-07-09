@@ -225,21 +225,29 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 ),
         ],
         // Cost-per-merged-PR trend for the Cost section — the "is CI spend per shipped change creeping
-        // up" chart. The backend delivers a trailing rolling ratio, so a null only means the whole
-        // trailing window shipped nothing; plotted as 0 to keep the axis anchored. Null when the series
-        // is empty (job source unsynced), so the section falls back to its existing empty state.
+        // up" chart. The backend delivers a trailing rolling ratio; a null bucket shipped nothing in its
+        // trailing window. Same trim + carry-forward as the sibling series: start at the first bucket
+        // with a cost, carry it forward across no-ship gaps (so the line doesn't dip to a false 0), so
+        // values[0] is real data the TrendCard can baseline on. Null when no bucket has a cost, so the
+        // section falls back to its existing empty state.
         costPerMergeSeries: [
             (s) => [s.overview],
             (overview): { values: number[]; labels: string[] } | null => {
                 const series = overview?.cost_series ?? []
-                if (!series.length) {
+                const firstData = series.findIndex((bucket) => bucket.cost_per_merge_usd != null)
+                if (firstData === -1) {
                     return null
                 }
                 const fmt = overview?.cost_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
-                return {
-                    values: series.map((bucket) => bucket.cost_per_merge_usd ?? 0),
-                    labels: series.map((bucket) => dayjs(bucket.bucket_start).format(fmt)),
-                }
+                const trimmed = series.slice(firstData)
+                let last = 0
+                const values = trimmed.map((bucket) => {
+                    if (bucket.cost_per_merge_usd != null) {
+                        last = bucket.cost_per_merge_usd
+                    }
+                    return last
+                })
+                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
             },
         ],
         // Time-to-green trend (median success-only PR CI duration) in minutes. Empty buckets carry the last

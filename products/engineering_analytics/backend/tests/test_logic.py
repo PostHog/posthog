@@ -296,9 +296,11 @@ class TestEndpointMapping(BaseTest):
             5,
             2,
         )
+        # The query returns newest-first (its per-PR LIMIT BY keeps the most recent pushes); the mapper
+        # reverses to the oldest-first contract, so the mock is ordered newest-first to match.
         push_rows = [
-            ("PostHog", "posthog", 10, "sha-old", _dt("2026-01-10T10:00:00"), 900, 1, 0),
             ("PostHog", "posthog", 10, "sha-new", _dt("2026-01-11T10:00:00"), None, 0, 1),
+            ("PostHog", "posthog", 10, "sha-old", _dt("2026-01-10T10:00:00"), 900, 1, 0),
         ]
         with mock.patch(_RUN_QUERY, side_effect=_pr_list_run([row], push_rows)):
             result = api.list_pull_requests(team=self.team, date_from="-30d")

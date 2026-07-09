@@ -37,9 +37,11 @@ export function TrendCard({
 }): JSX.Element {
     const values = series?.values ?? []
     const latest = values.length ? values[values.length - 1] : null
-    // Baseline for the delta is the first non-zero point, so leading zero-filled buckets (empty early
-    // window) don't null the comparison or read as an infinite jump off zero.
-    const first = values.find((value) => value !== 0) ?? (values.length ? values[0] : null)
+    // Baseline is the first point — the series builders already trim leading empty buckets and carry the
+    // last value forward, so values[0] is real data, not zero-fill. A genuine leading 0 (e.g. a 0% pass
+    // rate at the window's start) is a valid baseline: percentChange returns null off a zero baseline, so
+    // the card shows no delta rather than mis-baselining against a later bucket.
+    const first = values.length ? values[0] : null
     const deltaPct = percentChange(latest, first)
     // Line color follows the delta's sentiment so the card reads at a glance: green the good way, red the
     // bad way, muted when flat or without a baseline.

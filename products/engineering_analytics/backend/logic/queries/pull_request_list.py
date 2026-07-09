@@ -59,6 +59,12 @@ _SELECT = f"""
 # ``ci_rollup``: latest run per (push, workflow) via argMax, then any decisive failure turns the
 # round red and any not-yet-completed run marks it pending. Wall time is the round's earliest run
 # start to its latest completed run end (``updated_at`` is the end time the duration column uses).
+#
+# ``LIMIT __PUSH_HISTORY_LIMIT__ BY (repo_owner, repo_name, pr_number)`` bounds the scan to the most
+# recent N pushes per PR *in ClickHouse* (rows are ordered newest-first, so the cap keeps the newest),
+# rather than fetching every push and slicing in Python — a PR with hundreds of pushes never ships more
+# than the sparkline shows. The trailing ``LIMIT`` is the overall ceiling (≤ 1000 PRs × N); without it
+# HogQL applies its default 100-row limit and silently truncates the whole result.
 _PUSH_HISTORY_SELECT = """
     SELECT
         repo_owner, repo_name, pr_number, head_sha,
@@ -78,8 +84,8 @@ _PUSH_HISTORY_SELECT = """
         GROUP BY repo_owner, repo_name, pr_number, head_sha, workflow_name
     )
     GROUP BY repo_owner, repo_name, pr_number, head_sha
-    ORDER BY started_at
-    -- Explicit bound: HogQL otherwise applies its default 100-row limit and silently truncates.
+    ORDER BY started_at DESC
+    LIMIT __PUSH_HISTORY_LIMIT__ BY (repo_owner, repo_name, pr_number)
     LIMIT 100000
 """
 
@@ -87,13 +93,16 @@ _PUSH_HISTORY_SELECT = """
 def query_pr_push_history(
     *, curated: CuratedGitHubSource, pr_numbers: list[int]
 ) -> dict[tuple[str, str, int], list[PushCISample]]:
-    """Per-PR push rounds keyed by (repo_owner, repo_name, pr_number), oldest first, capped to the
-    most recent ``_PUSH_HISTORY_LIMIT``. Scoped to the visible PR numbers so the scan tracks the
-    page (same shape as ``query_pr_list_costs``)."""
+    """Per-PR push rounds keyed by (repo_owner, repo_name, pr_number), oldest first, capped in
+    ClickHouse to the most recent ``_PUSH_HISTORY_LIMIT`` per PR. Scoped to the visible PR numbers so
+    the scan tracks the page (same shape as ``query_pr_list_costs``)."""
     if not pr_numbers:
         return {}
+    sql = _PUSH_HISTORY_SELECT.replace("__RUNS_SOURCE__", curated.run_source()).replace(
+        "__PUSH_HISTORY_LIMIT__", str(_PUSH_HISTORY_LIMIT)
+    )
     response = curated.run(
-        _PUSH_HISTORY_SELECT.replace("__RUNS_SOURCE__", curated.run_source()),
+        sql,
         query_type="engineering_analytics.pr_push_history",
         placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
     )
@@ -108,7 +117,9 @@ def query_pr_push_history(
                 pending=bool(pending),
             )
         )
-    return {key: samples[-_PUSH_HISTORY_LIMIT:] for key, samples in by_pr.items()}
+    # The query returns newest-first (so the per-PR cap keeps the newest pushes); the contract is
+    # oldest-first, so reverse each PR's list back to chronological order.
+    return {key: samples[::-1] for key, samples in by_pr.items()}
 
 
 def query_pull_request_list(
