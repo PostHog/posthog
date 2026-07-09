@@ -200,6 +200,16 @@ _tile_serialize_executor = ThreadPoolExecutor(
     max_workers=DASHBOARD_TILE_SERIALIZE_CONCURRENCY, thread_name_prefix="dashboard-tile-serialize"
 )
 
+
+def _tile_serialize_pool_active() -> bool:
+    """
+    Pool threads use separate DB connections, invisible to the test transaction and to
+    assertNumQueries, so the pool defaults off under tests; a test that commits its data
+    can opt in via the override setting.
+    """
+    return not settings.TEST or getattr(settings, "DASHBOARD_TILE_PARALLEL_IN_TESTS", False)
+
+
 WIDGET_TYPE_API_HELP = (
     "Widget type identifier. Supported values: "
     + ", ".join(sorted(EXPECTED_WIDGET_TYPES))
@@ -413,7 +423,7 @@ def serialize_tile_in_worker(tile, order: int, context: dict, chained: bool) -> 
     # CONN_MAX_AGE=0 means nothing else closes the connection this thread just used. Tests that
     # opt into the pool via DASHBOARD_TILE_PARALLEL_IN_TESTS still need this cleanup, since the
     # override doesn't change that pool threads use separate, real DB connections.
-    if not settings.TEST or getattr(settings, "DASHBOARD_TILE_PARALLEL_IN_TESTS", False):
+    if _tile_serialize_pool_active():
         close_old_connections()
     try:
         if not chained:
@@ -441,7 +451,7 @@ def serialize_tile_in_worker(tile, order: int, context: dict, chained: bool) -> 
             set_in_context(False)
         return order, tile_data, chained_tasks
     finally:
-        if not settings.TEST or getattr(settings, "DASHBOARD_TILE_PARALLEL_IN_TESTS", False):
+        if _tile_serialize_pool_active():
             close_old_connections()
 
 
@@ -2153,11 +2163,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
         chained_tile_refresh_enabled = _org_flag_enabled("chained_dashboard_tile_refresh")
-        # Pool threads use separate DB connections, invisible to the test transaction and to
-        # assertNumQueries, so parallel serialization defaults off under tests; a test that
-        # commits its data can opt in via the override setting.
-        parallel_allowed = not settings.TEST or getattr(settings, "DASHBOARD_TILE_PARALLEL_IN_TESTS", False)
-        parallel_serialization_enabled = parallel_allowed and _org_flag_enabled("parallel_dashboard_tile_serialization")
+        parallel_serialization_enabled = _tile_serialize_pool_active() and _org_flag_enabled(
+            "parallel_dashboard_tile_serialization"
+        )
 
         span = trace.get_current_span()
         span.set_attribute("dashboard.tile_serialize.parallel", parallel_serialization_enabled)
@@ -2166,10 +2174,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
             tile_results: list[tuple[int, dict, list]]
             if not parallel_serialization_enabled:
-                tile_results = [
-                    (*serialize_tile_with_context(tile, order, self.context), [])
-                    for order, tile in enumerate(sorted_tiles)
-                ]
+                # No pool involved, so there are no worker-thread chained tasks to hand back —
+                # everything queued via add_task_to_on_commit lands directly on this thread's chain.
+                tile_results = []
+                for order, tile in enumerate(sorted_tiles):
+                    order, tile_data = serialize_tile_with_context(tile, order, self.context)
+                    tile_results.append((order, tile_data, []))
             else:
                 # UserPermissions caches are lazily populated check-then-set dicts shared through
                 # self.context; warm them on the request thread so pool workers only read them

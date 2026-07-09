@@ -84,7 +84,7 @@ def execute_task_chain() -> None:
     """
     Executes the task chain after the transaction is committed.
     """
-    task_chain = get_task_chain()
+    task_chain = drain_task_chain()
     if task_chain:
         chained_tasks = chain(*[args[0] for args in task_chain])
         result = chained_tasks.apply_async()
@@ -93,8 +93,6 @@ def execute_task_chain() -> None:
             args[2].task_id = result.id
             args[2].labels = ["chained", *(args[2].labels or [])]
             args[1].store_query_status(args[2])
-
-        _thread_locals.task_chain = []
 
 
 @contextmanager
