@@ -192,24 +192,29 @@ tools:
             - name
             - description
             - feature_flag_key
+            - feature_flag
             - parameters
             - stats_config
             - holdout_id
             - allow_unknown_events
             - exposure_criteria
         param_overrides:
-            parameters:
+            feature_flag:
                 description: >
-                    Variant split and rollout scope. If the user mentions a specific percentage, load the
-                    configuring-experiment-rollout skill and clarify before setting these values. Set rollout_percentage
-                    (0-100) to control the overall fraction of users entering the experiment. Set feature_flag_variants
-                    with split_percent on each variant to customize the variant split. Default: 50/50 control/test, 100%
-                    rollout.
+                    Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag,
+                    in the flag's own filters shape. This is the canonical input, do not send flag config via the
+                    deprecated parameters keys (feature_flag_variants, rollout_percentage). If the user mentions a
+                    specific percentage, load the configuring-experiment-rollout skill and clarify before setting these
+                    values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must
+                    sum to 100) to customize the variant split. Set filters.groups to a single group [{"properties": [],
+                    "rollout_percentage": N}] (0-100) to control the overall fraction of users entering the experiment.
+                    Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers
+                    to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected.
 
 
-                    HARD REQUIREMENT — when you provide feature_flag_variants, exactly one variant's `key` must be the
-                    literal string `control` (lowercase, no variations). It is the baseline used for analysis and the
-                    experiment runtime treats it specially. If the user describes variants as "A/B", "old/new",
+                    HARD REQUIREMENT — when you provide variants, exactly one variant's `key` must be the literal string
+                    `control` (lowercase, no variations). It is the baseline used for analysis and the experiment
+                    runtime treats it specially. If the user describes variants as "A/B", "old/new",
                     "original/redesign", or any other natural-language pair, map the baseline to `key: "control"` — not
                     "A", "Control", "old", "original", or "baseline". Other variants can use any key (`test`,
                     `variant_a`, etc.).
@@ -935,8 +940,9 @@ tools:
 
             4. For running experiments, set
                update_feature_flag_params=true when changing
-               parameters — without it, changes save but do NOT
-               sync to the feature flag.
+               feature_flag config — without it, the request is
+               rejected because the change would not sync to the
+               feature flag.
 
             5. Setting allow_unknown_events=true REQUIRES EXPLICIT
                USER CONFIRMATION. When the API returns
@@ -962,6 +968,7 @@ tools:
         include_params:
             - name
             - description
+            - feature_flag
             - parameters
             - running_time_calculation
             - excluded_variants
@@ -979,6 +986,16 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+            feature_flag:
+                description: >
+                    Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in
+                    the flag's own filters shape. This is the canonical input, do not send flag config via the
+                    deprecated parameters keys (feature_flag_variants, rollout_percentage). Set
+                    filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100,
+                    exactly one key must be the literal string 'control') to change the variant split. Set
+                    filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to change the
+                    overall rollout. Config this object omits is preserved from the flag's current state. On a running
+                    experiment this requires update_feature_flag_params=true (see rule 1: warn the user first).
             running_time_calculation:
                 description: >
                     Persist a running-time / sample-size plan onto the experiment (the planning target shown in the

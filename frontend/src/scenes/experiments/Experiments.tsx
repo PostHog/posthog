@@ -3,9 +3,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { HedgehogExperiment } from '@posthog/brand/hoggies'
+import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
@@ -62,6 +63,8 @@ import { ExperimentVelocityStats } from './ExperimentVelocityStats'
 import { StatusTag } from './ExperimentView/StatusTag'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
+
+const HedgehogExperiment = pngHoggie(experimentPng)
 
 export const scene: SceneExport = {
     component: Experiments,

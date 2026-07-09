@@ -661,6 +661,16 @@ class ExperimentService:
                         "supported via the experiment feature_flag input. Edit the feature flag directly."
                     }
                 )
+            # Same rationale inside the group object: a `variant` override or per-group
+            # aggregation would be silently ignored, not applied.
+            unsupported_group_keys = sorted(set(groups[0]) - {"properties", "rollout_percentage"}) if groups else []
+            if unsupported_group_keys:
+                raise ValidationError(
+                    {
+                        "feature_flag": f"Unsupported keys in filters.groups[0]: {', '.join(unsupported_group_keys)}. "
+                        "Only rollout_percentage is applied here; edit the feature flag directly for anything else."
+                    }
+                )
             if groups:
                 rollout_percentage = groups[0].get("rollout_percentage")
                 if rollout_percentage is not None:

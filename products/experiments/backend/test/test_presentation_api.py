@@ -2585,6 +2585,10 @@ class TestExperimentCRUD(APILicensedTest):
                 {"filters": {"groups": [{"rollout_percentage": 50}, {"rollout_percentage": 100}]}},
             ),
             (
+                "unknown_group_key",
+                {"filters": {"groups": [{"properties": [], "rollout_percentage": 50, "variant": "test"}]}},
+            ),
+            (
                 "unknown_top_level_key",
                 {"active": False, "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]}},
             ),

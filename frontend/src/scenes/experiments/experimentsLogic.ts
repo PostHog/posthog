@@ -70,42 +70,13 @@ const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
     evaluation_runtime: undefined,
 }
 
-type ExperimentStatusInput = Pick<Experiment, 'status' | 'start_date' | 'end_date'> | null | undefined
-
-export function getExperimentStatus(experiment: ExperimentStatusInput): ExperimentStatus {
-    if (!experiment) {
-        return ExperimentStatus.Draft
-    }
-
-    if (experiment.status) {
-        return experiment.status
-    }
-
-    // Fallback for stale fixtures and older mocked data without API-supplied status.
-    if (experiment.end_date) {
-        return ExperimentStatus.Stopped
-    }
-    if (experiment.start_date) {
-        return ExperimentStatus.Running
-    }
-    return ExperimentStatus.Draft
-}
-
-export function isExperimentPaused(experiment: ExperimentStatusInput): boolean {
-    return getExperimentStatus(experiment) === ExperimentStatus.Paused
-}
-
-export function isExperimentExposureFrozen(experiment: ExperimentStatusInput): boolean {
-    return getExperimentStatus(experiment) === ExperimentStatus.ExposureFrozen
-}
-
-export function isLaunched(experiment: ExperimentStatusInput): boolean {
-    return getExperimentStatus(experiment) !== ExperimentStatus.Draft
-}
-
-export function hasEnded(experiment: ExperimentStatusInput): boolean {
-    return getExperimentStatus(experiment) === ExperimentStatus.Stopped
-}
+export {
+    getExperimentStatus,
+    hasEnded,
+    isExperimentExposureFrozen,
+    isExperimentPaused,
+    isLaunched,
+} from './experimentStatus'
 
 export function isSingleVariantShipped(experiment: Experiment): boolean {
     const filters = experiment.feature_flag?.filters
