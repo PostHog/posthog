@@ -278,7 +278,8 @@ async def test_create_fails_gracefully_when_latest_run_is_none(env, team, alert,
 
 
 async def test_create_stores_state_updates_on_success(env, team, alert, alert_check, owner):
-    """On success, update_task_run_state must be called with alert_id, alert_check_id, etc."""
+    """On success, update_task_run_state must be called with alert_id, alert_check_id, etc.,
+    and the check must have investigation_task_run_id set and investigation_status=RUNNING."""
     fake = _fake_create_and_run_task_factory(team, owner)
     state_updates = {}
 
@@ -294,12 +295,18 @@ async def test_create_stores_state_updates_on_success(env, team, alert, alert_ch
 
         mock_facade.update_task_run_state.side_effect = _capture_state
 
-        await env.run(create_posthog_code_investigation_task, _inputs(team, alert, alert_check))
+        result = await env.run(create_posthog_code_investigation_task, _inputs(team, alert, alert_check))
 
     assert state_updates.get("alert_id") == str(alert.id)
     assert state_updates.get("alert_check_id") == str(alert_check.id)
     assert "insight_short_id" in state_updates
     assert "dashboard_ids" in state_updates
+
+    # The check row must be stamped with the run id and status=RUNNING.
+    await sync_to_async(alert_check.refresh_from_db)()
+    assert alert_check.investigation_task_run_id is not None
+    assert str(alert_check.investigation_task_run_id) == result.task_run_id
+    assert alert_check.investigation_status == InvestigationStatus.RUNNING
 
 
 async def test_create_sets_previous_task_run_id_from_same_episode(

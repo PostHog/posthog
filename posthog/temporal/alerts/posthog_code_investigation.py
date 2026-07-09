@@ -10,17 +10,18 @@ Produces:
 from __future__ import annotations
 
 import dataclasses
+from datetime import datetime
 from typing import Any, Literal
 
 import structlog
 import temporalio.activity
 from pydantic import BaseModel, Field
 
-from posthog.schema import AlertState
-
 from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.utils import build_alert_firing_context
+from posthog.temporal.alerts.investigation import get_episode_start
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
@@ -244,20 +245,9 @@ class InvestigationRunState:
 _TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 
 
-def _get_episode_start(alert: AlertConfiguration) -> Any:
-    """Return the created_at of the most recent AlertCheck with state != FIRING (episode boundary)."""
-    return (
-        AlertCheck.objects.filter(alert_configuration=alert)
-        .exclude(state=AlertState.FIRING)
-        .order_by("-created_at")
-        .values_list("created_at", flat=True)
-        .first()
-    )
-
-
 def _get_previous_task_run_id(alert: AlertConfiguration, alert_check: AlertCheck) -> str | None:
     """Return the latest earlier AlertCheck's investigation_task_run_id in the current firing episode."""
-    episode_start = _get_episode_start(alert)
+    episode_start: datetime | None = get_episode_start(alert)
     qs = AlertCheck.objects.filter(
         alert_configuration=alert,
         investigation_task_run_id__isnull=False,
@@ -367,14 +357,13 @@ async def create_posthog_code_investigation_task(
                 investigation_task_run_id=run_id,
                 investigation_status=InvestigationStatus.RUNNING,
             )
-            insight = alert.insight
             dashboard_ids: list[int] = firing_context.get("dashboard_ids") or []
             tasks_facade.update_task_run_state(
                 run_id,
                 updates={
                     "alert_id": str(alert.id),
                     "alert_check_id": str(alert_check.id),
-                    "insight_short_id": insight.short_id,
+                    "insight_short_id": alert.insight.short_id,
                     "dashboard_ids": dashboard_ids,
                 },
             )
@@ -388,13 +377,14 @@ async def create_posthog_code_investigation_task(
                 alert_check_id=inputs.alert_check_id,
                 exc_info=exc,
             )
-            AlertCheck.objects.filter(id=inputs.alert_check_id).update(
+            AlertCheck.objects.filter(id=alert_check.id).update(
                 investigation_status=InvestigationStatus.FAILED,
                 investigation_error={"reason": reason},
             )
             return CreateInvestigationTaskResult(status="failed", reason=reason)
 
-    return await _create()
+    async with Heartbeater():
+        return await _create()
 
 
 @temporalio.activity.defn
@@ -425,7 +415,8 @@ async def get_investigation_run_state(
             output=run.output if terminal else None,
         )
 
-    return await _poll()
+    async with Heartbeater():
+        return await _poll()
 
 
 @temporalio.activity.defn
@@ -485,7 +476,8 @@ async def finalize_posthog_code_investigation(
                 investigation_error={"reason": reason},
             )
 
-    await _finalize()
+    async with Heartbeater():
+        await _finalize()
 
 
 @temporalio.activity.defn
@@ -520,4 +512,5 @@ async def cancel_posthog_code_investigation(
             investigation_error={"reason": "investigation timed out after 60 minutes"},
         )
 
-    await _cancel()
+    async with Heartbeater():
+        await _cancel()

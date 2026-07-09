@@ -48,6 +48,20 @@ def should_trigger_investigation(
     return previous_state != AlertState.FIRING
 
 
+def get_episode_start(alert: AlertConfiguration) -> datetime | None:
+    """Return the created_at of the most recent AlertCheck with state != FIRING (episode boundary).
+
+    Returns None when there is no such check (the alert has been firing since its first check).
+    """
+    return (
+        AlertCheck.objects.filter(alert_configuration=alert)
+        .exclude(state=AlertState.FIRING)
+        .order_by("-created_at")
+        .values_list("created_at", flat=True)
+        .first()
+    )
+
+
 def _posthog_code_effective_cooldown(alert: AlertConfiguration) -> timedelta:
     """Compute the exponential backoff cooldown for the current firing episode.
 
@@ -55,13 +69,7 @@ def _posthog_code_effective_cooldown(alert: AlertConfiguration) -> timedelta:
     Completed = DONE+FAILED investigation checks after that boundary.
     Cooldown = 1h * 2**min(completed, 5), capped at 24h.
     """
-    episode_start = (
-        AlertCheck.objects.filter(alert_configuration=alert)
-        .exclude(state=AlertState.FIRING)
-        .order_by("-created_at")
-        .values_list("created_at", flat=True)
-        .first()
-    )
+    episode_start = get_episode_start(alert)
     completed = AlertCheck.objects.filter(
         alert_configuration=alert,
         investigation_status__in=[
