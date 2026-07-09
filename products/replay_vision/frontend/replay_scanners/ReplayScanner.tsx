@@ -22,6 +22,7 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { quotaBannerState } from '../utils/quotaProjection'
 import { ObservationSearchMaxChat } from './components/ObservationSearchMaxChat'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
+import { ScannerDigestCard } from './components/ScannerDigestCard'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { ScannerQualityTab } from './components/ScannerQualityTab'
@@ -112,6 +113,9 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Observations',
                         content: (
                             <div className="flex flex-col gap-6">
+                                {actionsTabEnabled && (
+                                    <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
+                                )}
                                 <ScannerOverview scannerId={scannerId} />
                                 <div className="flex flex-col gap-2">
                                     <SummarizerMaxChat scannerId={scannerId} />
