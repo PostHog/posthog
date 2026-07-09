@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import asyncio
 import functools
 import contextlib
 
@@ -15,6 +16,7 @@ import orjson
 import pyarrow as pa
 import aioboto3
 import pyarrow.parquet as pq
+from aiobotocore.config import AioConfig
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
@@ -47,7 +49,13 @@ def _make_webhook_parquet_bytes(payloads: list[dict], team_id: int = 1, schema_i
 
 BUCKET_NAME = "test-webhook-s3"
 SESSION = aioboto3.Session()
-create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
+# Fail fast against the local object store: it's either up (ops succeed first try) or absent
+# (retry storms only slow the suite down before erroring anyway).
+create_test_client = functools.partial(
+    SESSION.client,
+    endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+    config=AioConfig(connect_timeout=1, read_timeout=30, retries={"max_attempts": 1, "mode": "standard"}),
+)
 
 
 def _make_inputs(**overrides) -> MagicMock:
@@ -409,8 +417,35 @@ async def _minio_key_exists(minio_client, key: str) -> bool:
         return False
 
 
+@pytest.fixture(scope="session")
+def _object_store_unreachable() -> str | None:
+    """Probe the object store once per session; the error string when it's unreachable.
+
+    Each MinIO-backed test otherwise pays the full connection timeout independently just to
+    error with the same message when the store isn't running.
+    """
+
+    async def _probe() -> None:
+        async with create_test_client(
+            "s3",
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        ) as client:
+            await client.list_buckets()
+
+    try:
+        asyncio.run(_probe())
+        return None
+    except Exception as exc:
+        return f"{type(exc).__name__}: {exc}"
+
+
 @pytest.fixture
-async def minio_client():
+async def minio_client(_object_store_unreachable):
+    if _object_store_unreachable is not None:
+        raise ConnectionError(
+            f"object store at {settings.OBJECT_STORAGE_ENDPOINT} is unreachable: {_object_store_unreachable}"
+        )
     async with create_test_client(
         "s3",
         aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,

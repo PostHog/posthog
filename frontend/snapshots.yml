@@ -2605,13 +2605,13 @@ snapshots:
     insights-funneltimetoconverttable--default--light:
         hash: v1.k794b7964.10c97c60c0971df8a9b5b1ecff9f53e4c84a62400aba131a0ef7f608d4eaf049.tNuXqdOoLIFYxCTS_TU3kW81a8PjwHWvkVhhQL0JqT4
     insights-funneltrendstable--compare--dark:
-        hash: v1.k794b7964.6e8d9b63480a730d1247f953a25b7139ba356b4c75d81c22fccdc73f1b8fa62d.l1d-Vsg5noX_o4zz3xiXdvKuNQGh2tMLdNvGu4Wt0KM
+        hash: v1.k794b7964.86213ae14688c704ead9f3d1fda4212df5a4d86813ffbaa8f1802ff78afc6291.rwff_wJwarulXRnX-8Ssyt4veepROYWcxdx7_rajqbY
     insights-funneltrendstable--compare--light:
-        hash: v1.k794b7964.5b7d27baf97ea13cac377892865a0a862be41cca9148b4f782619ecba5946fd2.RW6jBIHu4dTCNNNlS6xAyY1D3HYTLwoPthQxQATk-Q8
+        hash: v1.k794b7964.4bd6161f222b263335c7b46818985cb9ef3271e03ce7b4a662498c045441f07a.HvCO04BttjknaHQ_cHWSG6xg2R5CysyBshDekMkEgkk
     insights-funneltrendstable--compare-with-breakdown--dark:
-        hash: v1.k794b7964.5cba5386fe37bbde40b018a81117366985a457f861b6e779f3b7735d6c66c015.IUXoK3XpsoRBtrhubkcrLNyjMX_uU2suuaJgKI_LWFQ
+        hash: v1.k794b7964.089313826af05832855ca4c482b3ecd691e22ffb8dc17195df5f4aec379b749f.ZmjIQBRLR_JRUzSenK3fuBwnKtlLwkjeemiaZ6iGJFU
     insights-funneltrendstable--compare-with-breakdown--light:
-        hash: v1.k794b7964.6cb88bad6dd2872e0be995178f9f2954f70eab8bba6073b464e18e8685fbf7f0.uzWulhYgjelut5K1kfYCryNDsjSg4H8ABhTB4hkJUe0
+        hash: v1.k794b7964.fa6d868619d70949d9febebe1c4c67398258872d4820edf67151ef62fba2397c.BesyXNuk6G7hcu0ruvFPjqNh1mLhvCI0xYu2QCPxKs0
     insights-funneltrendstable--default--dark:
         hash: v1.k794b7964.51c09169b5a57e217572bc35c0882b15252b4af936921569bf8d2a1d3a330f2f.red8aW6nElMIxDUdAHhilR3Ls2NgRChoEmFzfpGcgbU
     insights-funneltrendstable--default--light:

@@ -34,7 +34,7 @@ const fullCtx: InstructionsContext = {
     metadata: realisticMetadata,
     tools: realisticTools,
     queryTools: realisticQueryTools,
-    featureFlags: { 'mcp-feedback-tool': true, 'mcp-render-ui': true },
+    featureFlags: { 'mcp-feedback-tool': true },
     renderUiEnabled: true,
 }
 
