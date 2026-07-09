@@ -56,32 +56,36 @@ When they don't, create the draft and then guide them through metric setup as a 
 
 ## How to create
 
-Call `experiment-create` with:
+Call `experiment-create` with the flag config in the `feature_flag` object (the flag's own `filters` shape). Do NOT send flag config via the deprecated `parameters` keys (`feature_flag_variants`, `rollout_percentage`):
 
 ```json
 {
   "name": "Descriptive experiment name",
   "feature_flag_key": "kebab-case-key",
   "description": "Hypothesis: [what you expect to happen]",
-  "parameters": {
-    "feature_flag_variants": [
-      { "key": "control", "name": "Control", "split_percent": 50 },
-      { "key": "test", "name": "Test", "split_percent": 50 }
-    ],
-    "rollout_percentage": 100
+  "feature_flag": {
+    "filters": {
+      "multivariate": {
+        "variants": [
+          { "key": "control", "name": "Control", "rollout_percentage": 50 },
+          { "key": "test", "name": "Test", "rollout_percentage": 50 }
+        ]
+      },
+      "groups": [{ "properties": [], "rollout_percentage": 100 }]
+    }
   }
 }
 ```
 
 Two different percentages — do NOT mix them up:
 
-- `feature_flag_variants[].split_percent` — how users **inside** the experiment are split across variants (must sum to 100, recommended to have an even split).
-- `parameters.rollout_percentage` — what fraction of **all** users enter the experiment at all (0-100, defaults to 100).
+- `filters.multivariate.variants[].rollout_percentage` — how users **inside** the experiment are split across variants (must sum to 100, recommended to have an even split).
+- `filters.groups[0].rollout_percentage` — what fraction of **all** users enter the experiment at all (0-100, defaults to 100).
 
 Key details:
 
 - First variant must have key `"control"`. Minimum 2, maximum 20 variants.
-- `rollout_percentage` defaults to 100 if omitted.
+- Omit `feature_flag` entirely for defaults (50/50 control/test, 100% rollout). Also omit it when `feature_flag_key` refers to a pre-existing flag — the experiment links to that flag as-is and explicit config is rejected.
 - Stats default to Bayesian. Only set `stats_config` if the user requests Frequentist.
 
 ## After creation

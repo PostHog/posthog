@@ -40,22 +40,22 @@ The right mitigation depends on experiment state:
 
 ## The two rollout controls
 
-There are two separate controls that determine who sees what. Both are set via `parameters`.
+There are two separate controls that determine who sees what. Both are set via the `feature_flag` object (the flag's own `filters` shape). Do NOT send flag config via the deprecated `parameters` keys (`feature_flag_variants`, `rollout_percentage`).
 
-### 1. Variant split (`parameters.feature_flag_variants`)
+### 1. Variant split (`feature_flag.filters.multivariate.variants`)
 
 How users **inside** the experiment are distributed across variants.
 
-- Array of `{key, name, split_percent}` — percentages must sum to 100
+- Array of `{key, name, rollout_percentage}` — percentages must sum to 100
 - First variant must have key `"control"` — this is the baseline
 - Minimum 2 variants, maximum 20
 - Default: control 50% / test 50%
 
 If the user says "A/B/C test", map the baseline to `"control"` and create additional variants for the others.
 
-### 2. Overall rollout (`parameters.rollout_percentage`)
+### 2. Overall rollout (`feature_flag.filters.groups[0].rollout_percentage`)
 
-What percentage of **all** users enter the experiment at all. Default: 100%.
+What percentage of **all** users enter the experiment at all. Set `filters.groups` to a single group `[{ "properties": [], "rollout_percentage": N }]`. Default: 100%.
 
 Users not included are excluded entirely — they don't see any variant and are **not part of the analysis**.
 
