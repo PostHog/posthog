@@ -1,0 +1,148 @@
+{
+    "id": "3a9ce24c-fbde-47e3-b5c7-4d681ce553de",
+    "name": "SLA breach warning",
+    "description": "Notify your support team in Slack when a ticket is approaching its SLA deadline. Fires on the $conversation_sla_approaching event, which is emitted at the warning offsets configured on the ticket's SLA (sla_warning_minutes, e.g. 3 hours and 1 hour before breach). Add a filter on the threshold_minutes property to alert only at specific offsets.",
+    "version": 1,
+    "created_at": "2026-07-08T16:00:00.000000Z",
+    "created_by": null,
+    "updated_at": "2026-07-08T16:00:00.000000Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "source": "events",
+            "events": [
+                {
+                    "id": "$conversation_sla_approaching",
+                    "name": "Ticket approaching SLA breach",
+                    "type": "events"
+                }
+            ],
+            "bytecode": ["_H", 1, 32, "$conversation_sla_approaching", 32, "event", 1, 1, 11]
+        }
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "bytecode": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "to": "action_function_e15de393-106a-4599-b829-c65624ad3786",
+            "from": "trigger_node",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_e15de393-106a-4599-b829-c65624ad3786",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Ticket approaching SLA breach",
+            "description": "A ticket crossed one of its configured SLA warning thresholds.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "source": "events",
+                    "events": [
+                        {
+                            "id": "$conversation_sla_approaching",
+                            "name": "Ticket approaching SLA breach",
+                            "type": "events"
+                        }
+                    ],
+                    "bytecode": ["_H", 1, 32, "$conversation_sla_approaching", 32, "event", 1, 1, 11]
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_e15de393-106a-4599-b829-c65624ad3786",
+            "name": "Message in Slack channel",
+            "description": "Connect the right Slack channel and warn your support team before the SLA is breached.",
+            "on_error": null,
+            "created_at": 1783958400000,
+            "updated_at": 1783958400000,
+            "filters": null,
+            "type": "function",
+            "config": {
+                "inputs": {
+                    "slack_workspace": {
+                        "templating": "hog"
+                    },
+                    "channel": {
+                        "templating": "hog"
+                    },
+                    "icon_emoji": {
+                        "value": ":hedgehog:",
+                        "templating": "hog"
+                    },
+                    "username": {
+                        "value": "PostHog",
+                        "templating": "hog"
+                    },
+                    "blocks": {
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "⏰ *Ticket #{event.properties.ticket_number} is approaching its SLA deadline*\n\n*Time remaining:* {event.properties.minutes_remaining} minutes\n*Status:* {event.properties.status}\n*Customer:* {event.properties.customer_email}",
+                                    "type": "mrkdwn"
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "type": "actions",
+                                "elements": [
+                                    {
+                                        "url": "{source.url}",
+                                        "text": {
+                                            "text": "Open ticket",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button"
+                                    }
+                                ]
+                            }
+                        ],
+                        "templating": "hog"
+                    },
+                    "text": {
+                        "value": "Ticket #{event.properties.ticket_number} breaches its SLA in {event.properties.minutes_remaining} minutes",
+                        "templating": "hog"
+                    }
+                },
+                "template_id": "template-slack"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function"],
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_11_bd57631532.jpg",
+    "tags": ["support", "support ticket", "sla", "slack"],
+    "scope": "global"
+}
