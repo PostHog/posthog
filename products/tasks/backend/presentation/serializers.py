@@ -37,9 +37,11 @@ from products.tasks.backend.facade.run_config import (
     PrAuthorshipMode,
     RunSource,
     RuntimeAdapter,
+    TaskArtifactAdapter,
+    TaskArtifactStatus,
+    TaskArtifactType,
     get_reasoning_effort_error,
 )
-from products.tasks.backend.models import TaskArtifact
 
 logger = logging.getLogger(__name__)
 
@@ -109,8 +111,8 @@ TASK_RUN_ARTIFACT_TYPE_CHOICES = [
 TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES = ["utf-8", "base64"]
 TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES = ["zip"]
 TASK_RUN_SKILL_SOURCE_CHOICES = ["user", "repo", "marketplace", "codex"]
-TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES = [choice for choice, _label in TaskArtifact.ArtifactType.choices]
-TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES = [choice for choice, _label in TaskArtifact.Adapter.choices]
+TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES = [choice for choice, _label in TaskArtifactType.choices]
+TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES = [choice for choice, _label in TaskArtifactAdapter.choices]
 TASK_RUN_LIVING_ARTIFACT_WRITE_ADAPTER_CHOICES = TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES
 
 
@@ -742,7 +744,7 @@ class TaskRunLivingArtifactResponseSerializer(serializers.Serializer):
         help_text="Adapter that currently stores or edits the artifact.",
     )
     status = serializers.ChoiceField(
-        choices=[choice for choice, _label in TaskArtifact.Status.choices],
+        choices=[choice for choice, _label in TaskArtifactStatus.choices],
         help_text="Current registry status for the artifact.",
     )
     location = serializers.JSONField(help_text="Adapter-specific location, such as S3 key or Slack canvas id.")
@@ -772,7 +774,7 @@ class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255, help_text="Human-readable artifact name, used as the title.")
     artifact_type = serializers.ChoiceField(
         choices=TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES,
-        default=TaskArtifact.ArtifactType.DOCUMENT,
+        default=TaskArtifactType.DOCUMENT,
         help_text="Artifact format or delivery surface to create, such as document, spreadsheet, slack_canvas, or file.",
     )
     adapter = serializers.ChoiceField(
