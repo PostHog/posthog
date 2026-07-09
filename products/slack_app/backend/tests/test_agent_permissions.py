@@ -198,12 +198,12 @@ class TestResolveSlackPermissionPolicy(TestCase):
                 permission_modes={str(self.INTEGRATION_ID): mode},
             )
 
-    def _resolve(self, *, is_ext_shared_channel: bool = False):
+    def _resolve(self):
         return _resolve_slack_permission_policy(
             integration_id=self.INTEGRATION_ID,
             slack_workspace_id=self.WORKSPACE_ID,
             slack_user_id=self.SLACK_USER_ID,
-            is_ext_shared_channel=is_ext_shared_channel,
+            is_ext_shared_channel=False,
         )
 
     @parameterized.expand(
@@ -236,10 +236,3 @@ class TestResolveSlackPermissionPolicy(TestCase):
 
         assert policy.mode == expected_mode
         assert policy.initial_permission_mode == expected_initial_permission_mode
-        assert policy.customer_facing_approval_required is False
-
-    def test_ext_shared_channel_requires_customer_facing_approval(self) -> None:
-        policy = self._resolve(is_ext_shared_channel=True)
-
-        assert policy.mode == SlackPermissionMode.FULL_AUTO
-        assert policy.customer_facing_approval_required is True

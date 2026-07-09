@@ -63,14 +63,12 @@ class SlackPermissionPolicy:
     mode: str
     initial_permission_mode: _InitialPermissionMode
     is_ext_shared_channel: bool
-    customer_facing_approval_required: bool
 
 
 def _slack_permission_state_updates(policy: SlackPermissionPolicy) -> dict[str, Any]:
     return {
         "slack_permission_mode": policy.mode,
         "slack_is_ext_shared_channel": policy.is_ext_shared_channel,
-        "slack_customer_facing_approval_required": policy.customer_facing_approval_required,
     }
 
 
@@ -99,7 +97,7 @@ def _resolve_slack_permission_policy(
     # Modes are stored per integration (project): the workspace can route to multiple
     # projects, and a "full_auto" grant made in one must not apply to runs in another.
     # A user row wins over the workspace-wide (slack_user_id IS NULL) row. Runs default
-    # to full auto; externally shared channels still force human approval regardless.
+    # to full auto.
     mode: str = SlackPermissionMode.FULL_AUTO
     settings = list(
         SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id)
@@ -119,13 +117,10 @@ def _resolve_slack_permission_policy(
     else:
         initial_permission_mode = "default"
 
-    customer_facing_approval_required = is_ext_shared_channel
-
     return SlackPermissionPolicy(
         mode=mode,
         initial_permission_mode=initial_permission_mode,
         is_ext_shared_channel=is_ext_shared_channel,
-        customer_facing_approval_required=customer_facing_approval_required,
     )
 
 

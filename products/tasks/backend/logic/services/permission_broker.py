@@ -5,10 +5,10 @@ The sandbox agent session starts with an ``initial_permission_mode`` and raises 
 runs whose origin surface recorded a broker permission mode on the run state
 (``slack_permission_mode``, written at Slack task creation and updated from the Slack
 approval card), the relay activity answers safe requests here — read-only tool calls
-always, and everything except customer-facing runs in ``full_auto`` — so only
-decisions that genuinely need a human are surfaced to the origin (e.g. as a Slack
-approval card). Human responses are delivered on the durable workflow signal path
-instead (see ``send_permission_response_to_sandbox``).
+always, and everything in ``full_auto`` — so only decisions that genuinely need a
+human are surfaced to the origin (e.g. as a Slack approval card). Human responses
+are delivered on the durable workflow signal path instead (see
+``send_permission_response_to_sandbox``).
 
 Auto-responses deliberately skip the workflow: they fire on every allowed tool call,
 so routing them through Temporal would bloat history and add latency for no
@@ -38,7 +38,6 @@ logger = structlog.get_logger(__name__)
 
 POSTHOG_PERMISSION_REQUEST_METHOD = "_posthog/permission_request"
 PERMISSION_MODE_STATE_KEY = "slack_permission_mode"
-CUSTOMER_FACING_APPROVAL_STATE_KEY = "slack_customer_facing_approval_required"
 # Values written by the origin surface (products/slack_app SlackPermissionMode).
 FULL_AUTO_PERMISSION_MODE = "full_auto"
 # Must comfortably outlive the run so a replayed relay event can't double-answer.
@@ -362,12 +361,7 @@ def _broker_permission_mode(task_run: "TaskRun") -> str | None:
 
 
 def _run_uses_full_auto(task_run: "TaskRun") -> bool:
-    state = _run_state(task_run)
-    # Customer-facing (externally shared) channels always keep a human in the loop
-    # for non-read-only actions, no matter the user's permission mode.
-    if state.get(CUSTOMER_FACING_APPROVAL_STATE_KEY):
-        return False
-    return state.get(PERMISSION_MODE_STATE_KEY) == FULL_AUTO_PERMISSION_MODE
+    return _run_state(task_run).get(PERMISSION_MODE_STATE_KEY) == FULL_AUTO_PERMISSION_MODE
 
 
 def _should_auto_allow(task_run: "TaskRun", permission_request: dict[str, Any]) -> bool:
