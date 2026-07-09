@@ -8,7 +8,7 @@ compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the analytics tools in the
   MCP tools section (execute-sql over `$csp_violation` events, read-data-schema,
-  activity-log-list).
+  advanced-activity-logs-list).
 allowed_tools:
   - emit_report
   - edit_report
@@ -140,7 +140,7 @@ The `blocked_domain != ''` filter already drops the giant inline / `eval` / `uns
 
 #### Per-directive burst
 
-Group by `properties.$csp_effective_directive`. A directive whose recent 24h count is materially above its 7d-prior baseline (≥ 3×) with reach across multiple documents is a strong "policy regression after deploy" signal. Pair with `activity-log-list` filtered to the last 24–48h — a deploy or hog-flow change correlating to the burst timestamp is the clean cross-source convergence.
+Group by `properties.$csp_effective_directive`. A directive whose recent 24h count is materially above its 7d-prior baseline (≥ 3×) with reach across multiple documents is a strong "policy regression after deploy" signal. Pair with `advanced-activity-logs-list` filtered to the last 24–48h — a deploy or hog-flow change correlating to the burst timestamp is the clean cross-source convergence.
 
 Top directives to expect (rough share-of-violations on a typical SPA): `script-src`, `script-src-elem`, `img-src`, `style-src`, `connect-src`, `frame-src`. `script-src` violations are weighted highest for security relevance; `img-src` and `style-src` more often indicate vendor / CDN drift.
 
@@ -208,7 +208,7 @@ Direct calls (read-only):
 
 - `execute-sql` against `events` (filtered to `event = '$csp_violation'`) — primary drill-down. Group by `domain($csp_blocked_url)`, `$csp_effective_directive`, `$csp_document_url`, `$csp_source_file`. The full property list is in `posthog/api/csp.py`.
 - `read-data-schema` (`kind: event_properties`, `event_name: '$csp_violation'`) — discover the team's actual `$csp_*` property surface and sample values.
-- `activity-log-list` — pair burst timestamps with recent deploys or feature-flag changes for cross-source convergence. Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
+- `advanced-activity-logs-list` — pair burst timestamps with recent deploys or feature-flag changes for cross-source convergence. Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
 
 - `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox. Check your own prior reports (`source_product=signals_scout`) so you edit instead of duplicating, and the push path's raw signals (`source_product=csp_reporting`) so you don't re-state a fingerprint it already covers.
 - `inbox-report-artefacts-list` — a comparable report's artefact log; reviewer precedent.

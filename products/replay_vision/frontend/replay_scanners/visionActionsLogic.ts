@@ -11,7 +11,7 @@ import {
     visionActionsPartialUpdate,
 } from '../generated/api'
 import { DeliveryTargetTypeEnumApi } from '../generated/api.schemas'
-import type { VisionActionApi } from '../generated/api.schemas'
+import type { VerdictEnumApi, VisionActionApi } from '../generated/api.schemas'
 import { CadenceState, cadenceToRrule, DEFAULT_CADENCE } from './cadence'
 import type { visionActionsLogicType } from './visionActionsLogicType'
 
@@ -27,6 +27,11 @@ export interface VisionActionForm {
     prompt_guide: string
     integration_id: number | null
     channel: string
+    // Targeting ("run this on…") — empty means all of the scanner's observations.
+    verdict: VerdictEnumApi[]
+    tags: string[]
+    min_score: number | null
+    max_score: number | null
 }
 
 export const NEW_ACTION_FORM = (): VisionActionForm => ({
@@ -36,16 +41,36 @@ export const NEW_ACTION_FORM = (): VisionActionForm => ({
     prompt_guide: '',
     integration_id: null,
     channel: '',
+    verdict: [],
+    tags: [],
+    min_score: null,
+    max_score: null,
 })
 
 // Map the UI form shape to the API body shared by create + partial-update. Kept standalone so the
 // rrule + delivery-target mapping (the part most likely to grow beyond a single Slack target) is
 // unit-testable without the form machinery.
 export function buildActionBody(form: VisionActionForm, scannerId: string): Parameters<typeof visionActionsCreate>[1] {
+    // Always send selection (even empty) so clearing every targeting control on edit persists as
+    // "run on everything" rather than silently keeping the previous predicate.
+    const selection: NonNullable<Parameters<typeof visionActionsCreate>[1]['selection']> = {}
+    if (form.verdict.length) {
+        selection.verdict = form.verdict
+    }
+    if (form.tags.length) {
+        selection.tags = form.tags
+    }
+    if (form.min_score != null) {
+        selection.min_score = form.min_score
+    }
+    if (form.max_score != null) {
+        selection.max_score = form.max_score
+    }
     return {
         name: form.name.trim(),
         scanner: scannerId,
         trigger_config: { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
+        selection,
         synthesis_config: { prompt_guide: form.prompt_guide },
         delivery_config:
             form.integration_id && form.channel

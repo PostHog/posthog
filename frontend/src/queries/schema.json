@@ -1108,6 +1108,9 @@
                     "$ref": "#/definitions/LogPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/MetricPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/SpanPropertyFilter"
                 },
                 {
@@ -22259,7 +22262,32 @@
                 "Teachable",
                 "PeecAI",
                 "Healthchecks",
-                "Impact"
+                "Impact",
+                "AikidoSecurity",
+                "Alguna",
+                "Anthropic",
+                "Appwrite",
+                "BlandAI",
+                "BrowseAI",
+                "BrowserUse",
+                "ChartHop",
+                "Cody",
+                "Cursor",
+                "Decagon",
+                "Deepgram",
+                "ElevenLabs",
+                "Harvey",
+                "Hyperspell",
+                "Langfuse",
+                "LingoDev",
+                "M3ter",
+                "Maxio",
+                "Metorial",
+                "OpenRouter",
+                "TogetherAI",
+                "Vapi",
+                "Vespa",
+                "Writesonic"
             ],
             "type": "string"
         },
@@ -22319,6 +22347,14 @@
                 },
                 "description": {
                     "type": ["string", "null"]
+                },
+                "exposure_frozen": {
+                    "description": "Stamped by the experiment exposure freeze: the group carries a machine-added snapshot-cohort condition.",
+                    "type": "boolean"
+                },
+                "exposure_frozen_cohort": {
+                    "description": "Snapshot cohort the exposure freeze AND'd into this group's properties.",
+                    "type": "number"
                 },
                 "properties": {
                     "items": {
@@ -30495,6 +30531,29 @@
             "enum": ["campaigns"],
             "type": "string"
         },
+        "MetricPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "metric_attribute",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "MinimalHedgehogConfig": {
             "additionalProperties": false,
             "properties": {
@@ -32098,6 +32157,7 @@
                 "log",
                 "log_attribute",
                 "log_resource_attribute",
+                "metric_attribute",
                 "span",
                 "span_attribute",
                 "span_resource_attribute",
@@ -43970,6 +44030,7 @@
                 "logs",
                 "log_attributes",
                 "log_resource_attributes",
+                "metric_attributes",
                 "spans",
                 "span_attributes",
                 "span_resource_attributes",
@@ -44542,7 +44603,7 @@
             "type": "string"
         },
         "TraceSpanBreakdownType": {
-            "enum": ["span_attribute", "span_resource_attribute"],
+            "enum": ["span", "span_attribute", "span_resource_attribute"],
             "type": "string"
         },
         "TraceSpansAggregationQuery": {
@@ -44648,12 +44709,12 @@
             "additionalProperties": false,
             "properties": {
                 "breakdownKey": {
-                    "description": "Attribute key to group by (e.g. `http.response.status_code`, `server.address`).",
+                    "description": "Attribute key to group by (e.g. `http.response.status_code`, `server.address`). For the `span` breakdown type, must be an allowlisted top-level column (`service_name`, `status_code`).",
                     "type": "string"
                 },
                 "breakdownType": {
                     "$ref": "#/definitions/TraceSpanBreakdownType",
-                    "description": "Where the key lives: span-level attributes or resource-level attributes."
+                    "description": "Where the key lives: an allowlisted top-level span column, span-level attributes, or resource-level attributes."
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
@@ -44661,6 +44722,10 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "excludeBreakdownFilter": {
+                    "description": "Drop filters targeting the breakdown key itself (including `serviceNames` for a `service_name` breakdown) so a facet's value list stays complete while one of its values is selected.",
+                    "type": "boolean"
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"

@@ -28,10 +28,6 @@ from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.clickhouse_property_resolution import clickhouse_property_resolution
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
-from posthog.hogql.transforms.geoip_dict_fallback import (
-    apply_geoip_dict_fallback_delete_this_function_when_inc_2026_06_11_maxmind_missing_data_is_resolved,
-    geoip_dict_fallback_enabled_for_team,
-)
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.json_property_pushdown import (
     has_rewritable_json_extract,
@@ -271,24 +267,6 @@ def prepare_ast_for_printing(
         # mutation analyzer rejects table prefixes), so no extra marking is needed.
         with context.timings.measure("lower_property_access"):
             node = lower_property_access(node, context)
-
-        # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): recover blanked geoip city/postal reads from the IP via a ClickHouse
-        # dictionary. Runs on the lowered AST so the reads it adds are plain PropertyAccess nodes, which the resolution
-        # pass below routes to materialized columns. Operator-controlled via env only, per team. Decided exactly once
-        # per query, on the context, so the printer's `_lookupGeoip*` gate can never disagree with the transform.
-        # Never applies within_non_hogql_query: those fragments splice into DELETE mutations (data deletion requests)
-        # and legacy filters, where the matched row set must not depend on env/probe state and a missing dictionary
-        # would wedge the sticky mutation queue. Remove with the transform.
-        context.geoip_dict_fallback_enabled = (
-            not context.within_non_hogql_query and geoip_dict_fallback_enabled_for_team(context.team_id)
-        )
-        if context.geoip_dict_fallback_enabled:
-            with context.timings.measure("geoip_dict_fallback"):
-                node = (
-                    apply_geoip_dict_fallback_delete_this_function_when_inc_2026_06_11_maxmind_missing_data_is_resolved(
-                        node, context
-                    )
-                )
 
         # Cohort-gated events data retention: floor every events scan to now() - retention. Computed once here
         # (the per-scan printer hook can't afford the team lookup + flag eval); the printer reads it off the context.

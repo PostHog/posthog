@@ -3,7 +3,6 @@ import { useCallback, useMemo } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -40,7 +39,6 @@ export function useCustomParserMaxTool({
     isLoading,
     isGeneration,
 }: CustomParserMaxToolOptions): (() => void) | null {
-    const customParsersEnabled = useFeatureFlag('LLM_ANALYTICS_CUSTOM_PARSERS')
     const { currentTeamId } = useValues(teamLogic)
     const { storedForMerge, customItems } = useValues(parserRecipesLogic)
     const { loadRecipes } = useActions(parserRecipesLogic)
@@ -53,7 +51,7 @@ export function useCustomParserMaxTool({
               : !outputRecognized
                 ? 'output'
                 : null
-    const active = customParsersEnabled && unrecognized !== null && !isLoading
+    const active = unrecognized !== null && !isLoading
 
     const context = useMemo(() => {
         if (!active) {

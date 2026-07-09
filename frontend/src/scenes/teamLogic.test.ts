@@ -1,10 +1,12 @@
-import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
+import { projectLogic } from './projectLogic'
 import { teamLogic } from './teamLogic'
 
 describe('teamLogic', () => {
@@ -25,6 +27,44 @@ describe('teamLogic', () => {
         it('currentProjectId returns the project id', async () => {
             await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
             expect(logic.values.currentProjectId).toBe(MOCK_DEFAULT_TEAM.project_id)
+        })
+    })
+
+    describe('updateCurrentTeam with a name-only payload', () => {
+        beforeEach(() => {
+            initKeaTests(false)
+            // Simulate projectLogic not having loaded yet, as the rename must not depend on it
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                current_project: undefined,
+            } as unknown as AppContext
+            useMocks({
+                get: {
+                    '/api/projects/@current': () => [500, {}],
+                },
+                patch: {
+                    // Only /api/projects is mocked: a name-only update must not hit the
+                    // deprecated /api/environments endpoint
+                    '/api/projects/:id': async ({ request }) => [
+                        200,
+                        { ...MOCK_DEFAULT_PROJECT, ...((await request.json()) as Record<string, any>) },
+                    ],
+                },
+            })
+            logic = teamLogic()
+            logic.mount()
+        })
+
+        it('renames the parent project and syncs it into projectLogic', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            expect(projectLogic.values.currentProject).toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.updateCurrentTeam({ name: 'Renamed project' })
+            }).toDispatchActions([projectLogic.actionTypes.loadCurrentProjectSuccess, 'updateCurrentTeamSuccess'])
+
+            expect(logic.values.currentTeam?.name).toBe('Renamed project')
+            expect(projectLogic.values.currentProject?.name).toBe('Renamed project')
         })
     })
 

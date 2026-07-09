@@ -446,6 +446,11 @@ function MessageContainer({
         <div
             className={cn(
                 'relative flex',
+                // Off-screen messages (insight cards especially) otherwise participate in every
+                // style recalc / layout / paint the composer triggers while typing, which makes
+                // keystroke latency grow with thread length. `auto 100px` is only the pre-first-render
+                // estimate; after a message renders once, the browser remembers its real size.
+                '[content-visibility:auto] [contain-intrinsic-size:auto_100px]',
                 groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10',
                 className
             )}

@@ -1,5 +1,7 @@
 import uuid
+from datetime import datetime
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
@@ -130,6 +132,45 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["customer_name"] == "Test Customer"
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
         assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
+
+    @parameterized.expand(
+        [
+            (
+                "no_sla",
+                None,
+                {"sla_due_at": None, "sla_active": False, "sla_breached": False, "sla_delta_seconds": None},
+            ),
+            (
+                "on_track",
+                "2026-01-01T13:00:00+00:00",
+                {
+                    "sla_due_at": "2026-01-01T13:00:00+00:00",
+                    "sla_active": True,
+                    "sla_breached": False,
+                    "sla_delta_seconds": -3600,
+                },
+            ),
+            (
+                "breached",
+                "2026-01-01T11:00:00+00:00",
+                {
+                    "sla_due_at": "2026-01-01T11:00:00+00:00",
+                    "sla_active": True,
+                    "sla_breached": True,
+                    "sla_delta_seconds": 3600,
+                },
+            ),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_capture_message_sent_stamps_sla_state(self, _name, sla_due_at, expected, mock_capture):
+        self.ticket.sla_due_at = datetime.fromisoformat(sla_due_at) if sla_due_at else None
+
+        with freeze_time("2026-01-01T12:00:00Z"):
+            capture_message_sent(self.ticket, "msg-123", "Hello customer", author=self.user)
+
+        properties = mock_capture.call_args.kwargs["properties"]
+        assert {key: properties[key] for key in expected} == expected
 
     @parameterized.expand(
         [
