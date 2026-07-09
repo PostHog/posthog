@@ -2026,7 +2026,7 @@ describe('Hog Executor', () => {
                 } as any)
             }
 
-            const setMode = (mode: 'disabled' | 'warn' | 'enforce'): void => {
+            const setMode = (mode: 'disabled' | 'enforce'): void => {
                 ;(executor as any).config.selfLoopGuardMode = mode
             }
 
@@ -2065,56 +2065,8 @@ describe('Hog Executor', () => {
                 return metric.values.find((v) => v.labels.mode === mode && v.labels.action === action)?.value ?? 0
             }
 
-            // The detected count is the production signal that drives the enforce decision,
-            // so assert it actually moves - not just the human-facing log.
-            const readDetectedCount = (): Promise<number> => readActionCount('warn', 'detected')
-
-            it('detects a self-referential ingest fetch and logs + meters it without blocking (warn)', async () => {
-                setMode('warn')
-                mockOwnTeam()
-                const invocation = await createFetchInvocation({
-                    url: INGEST_URL,
-                    method: 'POST',
-                    body: ownTokenCaptureBody(),
-                })
-                ;(fetch as jest.Mock).mockImplementationOnce(() =>
-                    Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
-                )
-                const detectedBefore = await readDetectedCount()
-
-                const result = await executor.executeFetch(invocation)
-
-                // Observe-only: the fetch still happens and nothing errors.
-                expect(result.error).toBeUndefined()
-                expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
-                    expect.arrayContaining([expect.stringContaining('can form an event-forwarding loop')])
-                )
-                expect(await readDetectedCount()).toBe(detectedBefore + 1)
-            })
-
-            it('does not flag a normal external fetch even with the project token in the body', async () => {
-                setMode('warn')
-                mockOwnTeam()
-                const invocation = await createFetchInvocation({
-                    url: `${baseUrl}/test`,
-                    method: 'POST',
-                    body: ownTokenCaptureBody(),
-                })
-                mockRequest.mockClear()
-                const detectedBefore = await readDetectedCount()
-
-                const result = await executor.executeFetch(invocation)
-
-                expect(result.error).toBeUndefined()
-                expect(mockRequest).toHaveBeenCalled()
-                expect(cleanLogs(result.logs.map((l) => l.message))).not.toEqual(
-                    expect.arrayContaining([expect.stringContaining('event-forwarding loop')])
-                )
-                expect(await readDetectedCount()).toBe(detectedBefore)
-            })
-
             it('fails open: a team lookup error never breaks the fetch', async () => {
-                setMode('warn')
+                setMode('enforce')
                 jest.spyOn(hub.teamManager, 'getTeam').mockRejectedValue(new Error('db unavailable'))
                 const invocation = await createFetchInvocation({
                     url: INGEST_URL,

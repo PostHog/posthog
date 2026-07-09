@@ -216,10 +216,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
-        // Observe-only by default. Values: 'disabled' | 'warn' | 'enforce'. 'warn' detects
-        // and emits cdp_self_loop_guard_total without blocking; 'enforce' bounds true loops
-        // at SELF_LOOP_MAX_DEPTH hops. Roll out warn -> enforce per environment.
-        CDP_SELF_LOOP_GUARD_MODE: 'warn',
+        // Values: 'disabled' | 'enforce'. 'enforce' bounds true event-forwarding loops at
+        // SELF_LOOP_MAX_DEPTH hops; 'disabled' is an emergency kill switch.
+        CDP_SELF_LOOP_GUARD_MODE: 'enforce',
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,

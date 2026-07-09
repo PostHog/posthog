@@ -9,11 +9,11 @@ import { Team } from '../../types'
 // re-triggers the same destination, the chain forms an event-forwarding loop that
 // doubles traffic on every hop.
 //
-// - 'disabled': no-op.
-// - 'warn': detect the shape and emit a metric, but never block (observe-only).
-// - 'enforce': bound the loop by counting how many times *this specific destination* has
-//   re-fed the pipeline - allow the first SELF_LOOP_MAX_DEPTH hops, then break it.
-export type SelfLoopGuardMode = 'disabled' | 'warn' | 'enforce'
+// - 'enforce' (default): bound the loop by counting how many times *this specific
+//   destination* has re-fed the pipeline - allow the first SELF_LOOP_MAX_DEPTH hops,
+//   then break it.
+// - 'disabled': no-op emergency kill switch.
+export type SelfLoopGuardMode = 'disabled' | 'enforce'
 
 // Event property carrying the self-loop depth *per hog function*, keyed by function id:
 //   { "<functionId>": <hops this destination has re-fed itself> }
