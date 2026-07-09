@@ -104,7 +104,6 @@ def get_resource(name: str) -> EndpointResource:
     return {
         "name": config.name,
         "table_name": config.name,
-        "write_disposition": "replace",
         "endpoint": endpoint_config,
         "table_format": "delta",
     }
