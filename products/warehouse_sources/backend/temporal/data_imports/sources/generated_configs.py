@@ -1215,7 +1215,8 @@ class FleetioSourceConfig(config.Config):
 
 @config.config
 class FlexmailSourceConfig(config.Config):
-    pass
+    account_id: str
+    personal_access_token: str
 
 
 @config.config
