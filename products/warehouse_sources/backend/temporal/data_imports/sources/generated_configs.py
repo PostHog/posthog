@@ -3208,7 +3208,8 @@ class SnowflakeSourceConfig(config.Config):
 
 @config.config
 class SolarwindsServiceDeskSourceConfig(config.Config):
-    pass
+    api_token: str
+    region: Literal["us", "eu", "au"] = config.value(default="us")
 
 
 @config.config
