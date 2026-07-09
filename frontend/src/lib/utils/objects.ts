@@ -1,14 +1,80 @@
-import equal from 'fast-deep-equal'
-
 export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
     return (
         !!obj && typeof obj === 'object' && !Object.values(obj).some((x) => x !== null && x !== '' && x !== undefined)
     )
 }
 
-/** Compare objects deeply. */
+/**
+ * Compare objects deeply.
+ *
+ * This is a hardened variant of `fast-deep-equal`: that library shortcuts on a shadowed `valueOf`
+ * or `toString` and calls it unconditionally (`if (a.toString !== Object.prototype.toString) return
+ * a.toString() === b.toString()`), assuming the shadow is callable. Arbitrary user-captured event or
+ * person properties can contain a key literally named `toString` (or `valueOf`) whose value is a
+ * string, number, etc., so calling it throws `TypeError: t.toString is not a function`. Because
+ * `objectsEqual` backs `resultEqualityCheck` in many kea selectors, that throw is a latent crash for
+ * any user whose data includes such a key. We guard both shortcuts with a `typeof` check so
+ * non-callable shadows fall through to normal key-by-key comparison instead of throwing.
+ */
 export function objectsEqual(obj1: any, obj2: any): boolean {
-    return equal(obj1, obj2)
+    if (obj1 === obj2) {
+        return true
+    }
+
+    if (obj1 && obj2 && typeof obj1 === 'object' && typeof obj2 === 'object') {
+        if (obj1.constructor !== obj2.constructor) {
+            return false
+        }
+
+        if (Array.isArray(obj1)) {
+            const length = obj1.length
+            if (length !== obj2.length) {
+                return false
+            }
+            for (let i = length; i-- !== 0;) {
+                if (!objectsEqual(obj1[i], obj2[i])) {
+                    return false
+                }
+            }
+            return true
+        }
+
+        if (obj1.constructor === RegExp) {
+            return obj1.source === obj2.source && obj1.flags === obj2.flags
+        }
+        // Guarded: only take the valueOf/toString shortcut when the shadow is actually callable, so a
+        // user-captured property named `valueOf`/`toString` doesn't crash the comparison.
+        if (obj1.valueOf !== Object.prototype.valueOf && typeof obj1.valueOf === 'function') {
+            return obj1.valueOf() === obj2.valueOf()
+        }
+        if (obj1.toString !== Object.prototype.toString && typeof obj1.toString === 'function') {
+            return obj1.toString() === obj2.toString()
+        }
+
+        const keys = Object.keys(obj1)
+        const length = keys.length
+        if (length !== Object.keys(obj2).length) {
+            return false
+        }
+
+        for (let i = length; i-- !== 0;) {
+            if (!Object.prototype.hasOwnProperty.call(obj2, keys[i])) {
+                return false
+            }
+        }
+
+        for (let i = length; i-- !== 0;) {
+            const key = keys[i]
+            if (!objectsEqual(obj1[key], obj2[key])) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    // true if both NaN, false otherwise
+    return obj1 !== obj1 && obj2 !== obj2
 }
 
 /**
