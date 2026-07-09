@@ -1,21 +1,51 @@
 from __future__ import annotations
 
+from django.db.models import Q
+
 from posthog.models import Team, User
 
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.mcp_store.backend.oauth import refresh_installation_token
 
 
+def _is_shared_row_ready(row: dict) -> bool:
+    """A shared row is only usable when the owner's credential is live.
+
+    Personal rows always surface (the user can be prompted to reauth their
+    own connection), but a teammate can't fix someone else's shared
+    credential, so unready shared rows are hidden from the agent instead of
+    failing at call time."""
+    if row["auth_type"] != "oauth":
+        return True
+    sensitive = row.get("sensitive_configuration") or {}
+    return bool(sensitive.get("access_token")) and not sensitive.get("needs_reauth")
+
+
 def _get_installations(team: Team, user: User) -> list[dict]:
-    return list(
-        MCPServerInstallation.objects.filter(team=team, user=user, is_enabled=True).values(  # type: ignore[arg-type]
+    """Return the MCP installations available to this user's agent: their
+    personal installations plus team-shared ones. When the user has a
+    personal installation for the same URL as a shared one, the personal
+    row wins — the agent acts as the user rather than through a teammate's
+    shared credential."""
+    rows = [
+        dict(row)
+        for row in MCPServerInstallation.objects.filter(team=team, is_enabled=True)
+        .filter(Q(scope="shared") | Q(user=user))
+        .values(
             "id",
             "display_name",
             "url",
             "auth_type",
             "sensitive_configuration",
+            "scope",
         )
-    )
+    ]
+    personal_urls = {row["url"] for row in rows if row["scope"] != "shared"}
+    return [
+        row
+        for row in rows
+        if row["scope"] != "shared" or (row["url"] not in personal_urls and _is_shared_row_ready(row))
+    ]
 
 
 def _get_cached_tools(installation_id: str) -> list[dict]:

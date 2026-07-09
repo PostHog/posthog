@@ -121,6 +121,33 @@ class TestCreateToolClass(TestCallMCPServerTool):
         )
         self.assertEqual(tool._installations, [])
 
+    async def test_sees_teammates_shared_installation(self):
+        from posthog.models import User
+
+        owner = await sync_to_async(User.objects.create_and_join)(self.organization, "owner@example.com", "password")
+        await sync_to_async(MCPServerInstallation.objects.create)(
+            team=self.team,
+            user=owner,
+            display_name="Shared Linear",
+            url="https://mcp.linear.app/mcp",
+            scope="shared",
+            auth_type="oauth",
+            sensitive_configuration={"access_token": "owner-token"},
+        )
+
+        tool = await CallMCPServerTool.create_tool_class(
+            team=self.team, user=self.user, state=self.state, context_manager=self.context_manager
+        )
+
+        self.assertEqual(len(tool._installations), 1)
+        self.assertIn("https://mcp.linear.app/mcp", tool._allowed_server_urls)
+        self.assertIn("Shared Linear", tool.description)
+        # Calls ride the owner's shared credential.
+        self.assertEqual(
+            tool._server_headers["https://mcp.linear.app/mcp"]["Authorization"],
+            "Bearer owner-token",
+        )
+
 
 class TestAuthHeaders(TestCallMCPServerTool):
     async def test_oauth_token_sent_as_bearer_header(self):
@@ -289,6 +316,24 @@ class TestCallTool(TestCallMCPServerTool):
 
 
 class TestGetInstallations(TestCallMCPServerTool):
+    def _create_teammate(self, email="teammate@example.com"):
+        from posthog.models import User
+
+        return User.objects.create_and_join(self.organization, email, "password")
+
+    def _install_shared_server(self, owner, url="https://mcp.linear.app/mcp", sensitive_configuration=None):
+        return MCPServerInstallation.objects.create(
+            team=self.team,
+            user=owner,
+            display_name="Shared Linear",
+            url=url,
+            scope="shared",
+            auth_type="oauth",
+            sensitive_configuration=(
+                sensitive_configuration if sensitive_configuration is not None else {"access_token": "owner-token"}
+            ),
+        )
+
     def test_returns_installed_servers(self):
         self._install_server(name="Linear", url="https://mcp.linear.app")
         result = _get_installations(self.team, self.user)
@@ -298,6 +343,53 @@ class TestGetInstallations(TestCallMCPServerTool):
 
     def test_returns_empty_when_none_installed(self):
         result = _get_installations(self.team, self.user)
+        self.assertEqual(result, [])
+
+    def test_includes_teammates_shared_installation(self):
+        owner = self._create_teammate()
+        self._install_shared_server(owner)
+
+        result = _get_installations(self.team, self.user)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["scope"], "shared")
+        self.assertEqual(result[0]["url"], "https://mcp.linear.app/mcp")
+
+    def test_personal_wins_over_shared_for_same_url(self):
+        owner = self._create_teammate()
+        self._install_shared_server(owner, url="https://mcp.linear.app/mcp")
+        self._install_server(name="My Linear", url="https://mcp.linear.app/mcp")
+
+        result = _get_installations(self.team, self.user)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["scope"], "personal")
+        self.assertEqual(result[0]["display_name"], "My Linear")
+
+    def test_hides_shared_installation_without_live_credential(self):
+        owner = self._create_teammate()
+        self._install_shared_server(owner, url="https://mcp.pending.com/mcp", sensitive_configuration={})
+        self._install_shared_server(
+            owner,
+            url="https://mcp.reauth.com/mcp",
+            sensitive_configuration={"access_token": "tok", "needs_reauth": True},
+        )
+
+        result = _get_installations(self.team, self.user)
+
+        self.assertEqual(result, [])
+
+    def test_excludes_teammates_personal_installations(self):
+        owner = self._create_teammate()
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=owner,
+            display_name="Their Server",
+            url="https://mcp.other.com",
+        )
+
+        result = _get_installations(self.team, self.user)
+
         self.assertEqual(result, [])
 
 
