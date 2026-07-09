@@ -234,12 +234,21 @@ export const MermaidDiagram: Story = {
         value: mermaidNotebook,
         mode: 'view',
     },
+    // Mermaid renders asynchronously (lazy chunk + async render); wait for the finished SVG
+    // so the snapshot isn't captured mid-render.
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="mermaid-rendered"]' },
+    },
 }
 
 export const MermaidDiagramFallback: Story = {
     args: {
         value: invalidMermaidNotebook,
         mode: 'view',
+    },
+    // Invalid mermaid resolves asynchronously to the error fallback; wait for it before snapshotting.
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="mermaid-error"]' },
     },
 }
 
