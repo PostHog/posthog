@@ -34,6 +34,8 @@ class GroupCache {
     private batchGroupKeys: Map<number, Set<string>>
     private groupKeyRefCount: Map<string, number>
     private deferredEvictions: Set<string>
+    private pendingPrefetchesByBatchId: Map<number, number>
+    private releasedBatchIdsWithPendingPrefetch: Set<number>
 
     constructor() {
         this.cache = new Map()
@@ -41,6 +43,8 @@ class GroupCache {
         this.batchGroupKeys = new Map()
         this.groupKeyRefCount = new Map()
         this.deferredEvictions = new Set()
+        this.pendingPrefetchesByBatchId = new Map()
+        this.releasedBatchIdsWithPendingPrefetch = new Set()
         this.metrics = {
             cacheHits: 0,
             cacheMisses: 0,
@@ -149,6 +153,11 @@ class GroupCache {
 
     releaseBatchId(batchId: number): void {
         const keys = this.batchGroupKeys.get(batchId)
+        // If a prefetch for this batch is still in flight, remember the release so the
+        // prefetch's late cache writes are dropped rather than resurrecting an evicted key.
+        if (this.pendingPrefetchesByBatchId.has(batchId)) {
+            this.releasedBatchIdsWithPendingPrefetch.add(batchId)
+        }
         if (!keys) {
             return
         }
@@ -164,6 +173,28 @@ class GroupCache {
         }
 
         this.batchGroupKeys.delete(batchId)
+    }
+
+    trackPendingPrefetch(batchIds: Set<number>): void {
+        for (const batchId of batchIds) {
+            this.pendingPrefetchesByBatchId.set(batchId, (this.pendingPrefetchesByBatchId.get(batchId) ?? 0) + 1)
+        }
+    }
+
+    finishPendingPrefetch(batchIds: Set<number>): void {
+        for (const batchId of batchIds) {
+            const pendingCount = (this.pendingPrefetchesByBatchId.get(batchId) ?? 1) - 1
+            if (pendingCount <= 0) {
+                this.pendingPrefetchesByBatchId.delete(batchId)
+                this.releasedBatchIdsWithPendingPrefetch.delete(batchId)
+            } else {
+                this.pendingPrefetchesByBatchId.set(batchId, pendingCount)
+            }
+        }
+    }
+
+    isBatchReleasedWithPendingPrefetch(batchId: number): boolean {
+        return this.releasedBatchIdsWithPendingPrefetch.has(batchId)
     }
 
     processDeferredEvictions(): void {
@@ -447,6 +478,106 @@ export class BatchWritingGroupStore implements GroupStore {
                 effectiveBatchId
             )
         }
+    }
+
+    /**
+     * Best-effort cache warmer for the given group keys. Callers fire this without awaiting it,
+     * so its own rejection would become an unhandled rejection that exits the worker — so it swallows
+     * transient persons-Postgres unavailability (isRetriable errors) here. The failure is not masked:
+     * each per-key promise (awaited by the get-or-fetch path in `getGroup`) still rejects, so a
+     * consumer propagates the error and the per-distinct-id pipeline retries it. Any other error
+     * (e.g. a broken query) is rethrown so it crashes loudly rather than being silently masked.
+     */
+    async prefetchGroups(
+        entries: { teamId: TeamId; groupTypeIndex: GroupTypeIndex; groupKey: string; batchId: number }[]
+    ): Promise<void> {
+        if (entries.length === 0) {
+            return
+        }
+
+        // Skip keys already cached (hit or negative) or with an in-flight fetch.
+        const uncachedEntries: {
+            teamId: TeamId
+            groupTypeIndex: GroupTypeIndex
+            groupKey: string
+            batchId: number
+            cacheKey: string
+        }[] = []
+        for (const { teamId, groupTypeIndex, groupKey, batchId } of entries) {
+            const cache = this.groupCache.obtainForBatchId(batchId)
+            if (cache.has(teamId, groupKey)) {
+                continue
+            }
+            if (cache.getFetchPromise(teamId, groupKey)) {
+                continue
+            }
+            uncachedEntries.push({ teamId, groupTypeIndex, groupKey, batchId, cacheKey: `${teamId}:${groupKey}` })
+        }
+
+        if (uncachedEntries.length === 0) {
+            return
+        }
+
+        const prefetchBatchIds = new Set(uncachedEntries.map(({ batchId }) => batchId))
+        this.groupCache.trackPendingPrefetch(prefetchBatchIds)
+        this.incrementDatabaseOperation('prefetchGroups')
+
+        const batchFetchPromise = this.groupRepository
+            .fetchGroups(
+                uncachedEntries.map(({ teamId, groupTypeIndex, groupKey }) => ({ teamId, groupTypeIndex, groupKey })),
+                'ingestion/group-prefetch'
+            )
+            .then((groups) => {
+                const groupsByKey = new Map<string, GroupUpdate>()
+                for (const group of groups) {
+                    groupsByKey.set(`${group.team_id}:${group.group_key}`, fromGroup(group))
+                }
+
+                // Cache all results: found groups and negative (null) entries for misses.
+                for (const { teamId, groupKey, batchId, cacheKey } of uncachedEntries) {
+                    if (this.groupCache.isBatchReleasedWithPendingPrefetch(batchId)) {
+                        continue
+                    }
+                    const cache = this.groupCache.obtainForBatchId(batchId)
+                    const groupUpdate = groupsByKey.get(cacheKey)
+                    cache.set(teamId, groupKey, groupUpdate ? { ...groupUpdate } : null)
+                }
+
+                return groupsByKey
+            })
+            .finally(() => {
+                for (const { teamId, groupKey } of uncachedEntries) {
+                    this.groupCache.deleteFetchPromise(teamId, groupKey)
+                }
+                this.groupCache.finishPendingPrefetch(prefetchBatchIds)
+            })
+
+        // Register per-key promises so the get-or-fetch path in getGroup waits on the in-flight
+        // batch. On failure these reject, so a consumer propagates the error (and a transient
+        // isRetriable error is retried in the per-distinct-id pipeline) rather than seeing a
+        // misleading "group absent" null. The throwaway catch only marks the promise handled so an
+        // unconsumed key (its event may be dropped before the fetch) can't become an unhandled
+        // rejection — it does not change what awaiting consumers observe.
+        for (const { teamId, groupKey, cacheKey } of uncachedEntries) {
+            const keyPromise = batchFetchPromise.then((groupsByKey) => groupsByKey.get(cacheKey) ?? null)
+            keyPromise.catch(() => {})
+            this.groupCache.setFetchPromise(teamId, groupKey, keyPromise)
+        }
+
+        // Recover from a retriable failure (e.g. transient persons-Postgres unavailability) so this
+        // best-effort, fire-and-forget warmer can't crash the worker. The failure is not masked:
+        // consumers still observe the rejection on their per-key promise and retry it. We recover
+        // only on an explicit `isRetriable === true`: an unflagged error (e.g. a broken query)
+        // rethrows and crashes loudly rather than being silently masked.
+        await batchFetchPromise.catch((error) => {
+            if (error?.isRetriable === true) {
+                logger.warn('⚠️', 'prefetchGroups failed on a retriable persons-Postgres error', {
+                    error: String(error),
+                })
+                return
+            }
+            throw error
+        })
     }
 
     private async addToBatch(

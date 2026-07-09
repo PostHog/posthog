@@ -53,6 +53,7 @@ describe('BatchWritingGroupStore', () => {
             fetchGroup: jest.fn().mockImplementation(() => {
                 return Promise.resolve(group)
             }),
+            fetchGroups: jest.fn().mockResolvedValue([]),
             insertGroup: jest.fn().mockImplementation(() => {
                 return Promise.resolve(1)
             }),
@@ -539,6 +540,71 @@ describe('BatchWritingGroupStore', () => {
 
             await groupStore.flush()
             await expect(groupStore.shutdown()).resolves.not.toThrow()
+        })
+    })
+
+    describe('prefetchGroups', () => {
+        it('warms the cache from fetched groups so a later upsertGroup merges without a per-key fetchGroup', async () => {
+            jest.spyOn(groupRepository, 'fetchGroups').mockResolvedValue([group])
+
+            await groupStore.prefetchGroups([{ teamId, groupTypeIndex: 1, groupKey: 'test', batchId: 0 }])
+            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { extra: 'v' }, DateTime.now(), 0)
+
+            expect(groupRepository.fetchGroups).toHaveBeenCalledTimes(1)
+            expect(groupRepository.fetchGroup).not.toHaveBeenCalled()
+
+            await groupStore.flush()
+            expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledWith(
+                teamId,
+                1,
+                'test',
+                1,
+                { test: 'test', extra: 'v' },
+                group.created_at,
+                {},
+                {}
+            )
+        })
+
+        it('caches a negative entry for a miss so a later upsertGroup creates without a per-key fetchGroup', async () => {
+            jest.spyOn(groupRepository, 'fetchGroups').mockResolvedValue([])
+
+            await groupStore.prefetchGroups([{ teamId, groupTypeIndex: 2, groupKey: 'new-key', batchId: 0 }])
+            await groupStore.upsertGroup(teamId, projectId, 2, 'new-key', { a: '1' }, DateTime.now(), 0)
+
+            expect(groupRepository.fetchGroups).toHaveBeenCalledTimes(1)
+            expect(groupRepository.fetchGroup).not.toHaveBeenCalled()
+            // Confirmed miss routes to the create transaction rather than a per-key fetch.
+            expect(groupRepository.inTransaction).toHaveBeenCalledTimes(1)
+        })
+
+        it('dedupes an in-flight prefetch so concurrent calls issue one query', async () => {
+            let resolveFetch: (groups: Group[]) => void = () => {}
+            jest.spyOn(groupRepository, 'fetchGroups').mockImplementation(
+                () => new Promise<Group[]>((resolve) => (resolveFetch = resolve))
+            )
+
+            const first = groupStore.prefetchGroups([{ teamId, groupTypeIndex: 1, groupKey: 'test', batchId: 0 }])
+            const second = groupStore.prefetchGroups([{ teamId, groupTypeIndex: 1, groupKey: 'test', batchId: 0 }])
+            resolveFetch([group])
+            await Promise.all([first, second])
+
+            expect(groupRepository.fetchGroups).toHaveBeenCalledTimes(1)
+        })
+
+        it('rejects a consumer waiting on an in-flight prefetch when the batch fetch fails', async () => {
+            let rejectFetch: (error: Error) => void = () => {}
+            jest.spyOn(groupRepository, 'fetchGroups').mockImplementation(
+                () => new Promise<Group[]>((_, reject) => (rejectFetch = reject))
+            )
+
+            const prefetch = groupStore.prefetchGroups([{ teamId, groupTypeIndex: 1, groupKey: 'test', batchId: 0 }])
+            const consumer = groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now(), 0)
+            rejectFetch(new Error('groups db unavailable'))
+
+            await expect(consumer).rejects.toThrow('groups db unavailable')
+            // A non-retriable failure also rethrows out of the fire-and-forget warmer.
+            await expect(prefetch).rejects.toThrow('groups db unavailable')
         })
     })
 })

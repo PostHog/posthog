@@ -16,6 +16,9 @@ export type GroupStoreForBatch = Omit<GroupStore, 'upsertGroup' | 'releaseBatch'
         properties: Properties,
         timestamp: DateTime
     ): Promise<void>
+    prefetchGroups(
+        entries: { teamId: TeamId; groupTypeIndex: GroupTypeIndex; groupKey: string; batchId: number }[]
+    ): Promise<void>
     readonly batchId: number
 }
 
@@ -34,6 +37,12 @@ export class BatchBoundGroupStore implements GroupStoreForBatch {
         timestamp: DateTime
     ): Promise<void> {
         return this.store.upsertGroup(teamId, projectId, groupTypeIndex, groupKey, properties, timestamp, this.batchId)
+    }
+
+    prefetchGroups(
+        entries: { teamId: TeamId; groupTypeIndex: GroupTypeIndex; groupKey: string; batchId: number }[]
+    ): Promise<void> {
+        return this.store.prefetchGroups(entries)
     }
 
     getCacheMetrics(): CacheMetrics {
