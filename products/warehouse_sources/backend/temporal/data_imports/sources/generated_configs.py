@@ -576,7 +576,7 @@ class BuzzsproutSourceConfig(config.Config):
 
 @config.config
 class CalComSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
