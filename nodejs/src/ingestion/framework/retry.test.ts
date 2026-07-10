@@ -6,7 +6,7 @@ import { createOkContext } from './helpers'
 import { pipelineRetryAttemptsHistogram } from './metrics'
 import { getRetryAttempts } from './metrics.test-utils'
 import { PipelineResult, isDlqResult, isOkResult, ok } from './results'
-import { withBatchRetry, withStepRetry } from './retry'
+import { withChunkRetry, withStepRetry } from './retry'
 import { ProcessingStep } from './steps'
 
 jest.setTimeout(1000)
@@ -32,7 +32,7 @@ class NonRetriableError extends Error {
 /**
  * A `run` executes a step wrapped with retry through the public builder interface
  * and returns the flat list of results, so `withStepRetry` (single item) and
- * `withBatchRetry` (batch) can share the same behavioral assertions.
+ * `withChunkRetry` (batch) can share the same behavioral assertions.
  *
  * `script` runs once per attempt and may throw to simulate failures.
  */
@@ -68,7 +68,7 @@ const stepVariant: Variant = {
 }
 
 const batchVariant: Variant = {
-    label: 'withBatchRetry (via pipeBatch)',
+    label: 'withChunkRetry (via pipeBatch)',
     async run(script, retry, opts) {
         const inputs = opts?.inputs ?? [1]
         // Inline function literal so the computed-property key names the step (for the metric-name test).
@@ -183,8 +183,8 @@ describe('retry', () => {
             expect(withStepRetry(namedStep).name).toBe('namedStep')
         })
 
-        it('for withBatchRetry', () => {
-            expect(withBatchRetry(namedBatchStep).name).toBe('namedBatchStep')
+        it('for withChunkRetry', () => {
+            expect(withChunkRetry(namedBatchStep).name).toBe('namedBatchStep')
         })
     })
 })

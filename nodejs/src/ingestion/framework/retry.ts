@@ -70,19 +70,19 @@ export function withStepRetry<T, U, R extends string = never>(
 }
 
 /**
- * Wraps a batch processing step with retry logic.
+ * Wraps a chunk processing step with retry logic.
  *
  * When the step throws a retriable error (error.isRetriable === true),
  * it will be retried with exponential backoff up to the configured
  * number of attempts.
  *
  * Non-retriable errors (error.isRetriable === false) are converted to
- * DLQ results for all inputs in the batch.
+ * DLQ results for all inputs in the chunk.
  *
  * Errors without an isRetriable property are rethrown after exhausting
  * retries, causing the process to crash (appropriate for unexpected errors).
  */
-export function withBatchRetry<T, U, R extends string = never>(
+export function withChunkRetry<T, U, R extends string = never>(
     step: ChunkProcessingStep<T, U, R>,
     options: RetryOptions = {}
 ): ChunkProcessingStep<T, U, R> {
@@ -103,10 +103,10 @@ export function withBatchRetry<T, U, R extends string = never>(
         } catch (error) {
             const isRetriable = (error as any)?.isRetriable
 
-            logger.error('🔥', `Batch step ${name} failed`, {
+            logger.error('🔥', `Chunk step ${name} failed`, {
                 error: error instanceof Error ? error.message : String(error),
                 stack: (error as Error).stack,
-                batchSize: values.length,
+                chunkSize: values.length,
                 isRetriable,
             })
 

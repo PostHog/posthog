@@ -16,7 +16,7 @@ import { GatheringBatchPipeline } from '~/ingestion/framework/gathering-batch-pi
 import { IngestionWarningHandlingBatchPipeline } from '~/ingestion/framework/ingestion-warning-handling-batch-pipeline'
 import { Pipeline } from '~/ingestion/framework/pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
-import { RetryOptions, withBatchRetry } from '~/ingestion/framework/retry'
+import { RetryOptions, withChunkRetry } from '~/ingestion/framework/retry'
 import { SequentialBatchPipeline } from '~/ingestion/framework/sequential-batch-pipeline'
 import { SideEffectHandlingPipeline } from '~/ingestion/framework/side-effect-handling-pipeline'
 
@@ -73,7 +73,7 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
         step: ChunkProcessingStep<TOutput, U, R2>,
         options?: { retry?: RetryOptions }
     ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
-        const wrappedStep = options?.retry ? withBatchRetry(step, options.retry) : step
+        const wrappedStep = options?.retry ? withChunkRetry(step, options.retry) : step
         return new BatchPipelineBuilder(new BaseChunkPipeline(wrappedStep, this.pipeline))
     }
 
