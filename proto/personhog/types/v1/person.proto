@@ -11,10 +11,12 @@ message Person {
   bytes properties = 4;
   bytes properties_last_updated_at = 5;
   bytes properties_last_operation = 6;
+  // Milliseconds since epoch.
   int64 created_at = 7;
   int64 version = 8;
   bool is_identified = 9;
   optional bool is_user_id = 10;
+  // Milliseconds since epoch.
   optional int64 last_seen_at = 11;
   // Distinct IDs to create alongside the person. Only populated on
   // changelog records produced by CreatePerson (the writer inserts a
@@ -211,8 +213,8 @@ message CreatePersonRequest {
   string uuid = 3;
   // JSON-encoded initial properties map. Empty means no properties.
   bytes properties = 4;
-  // Creation timestamp in millis since epoch. Zero means "now" (leader
-  // clock).
+  // Creation timestamp in milliseconds since epoch. Zero means "now"
+  // (leader clock).
   int64 created_at = 5;
   bool is_identified = 6;
   // Distinct IDs to attach at creation, inserted by the writer with

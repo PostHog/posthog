@@ -1,7 +1,7 @@
 use std::slice;
 
 use async_trait::async_trait;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use metrics::counter;
 use personhog_proto::personhog::types::v1::Person;
 use sqlx::postgres::{PgArguments, PgPool};
@@ -183,10 +183,10 @@ fn prepare_chunk(persons: &[Person]) -> PreparedArrays<'_> {
             bytes_to_json_str(&p.properties, "{}"),
             bytes_to_optional_json_str(&p.properties_last_updated_at),
             bytes_to_optional_json_str(&p.properties_last_operation),
-            epoch_secs_to_datetime(p.created_at),
+            epoch_millis_to_datetime(p.created_at),
             Some(p.version),
             p.is_identified,
-            p.last_seen_at.map(epoch_secs_to_datetime),
+            p.last_seen_at.map(epoch_millis_to_datetime),
         );
     }
 
@@ -240,10 +240,10 @@ fn prepare_single<'a>(
         properties,
         bytes_to_optional_json_str(&person.properties_last_updated_at),
         bytes_to_optional_json_str(&person.properties_last_operation),
-        epoch_secs_to_datetime(person.created_at),
+        epoch_millis_to_datetime(person.created_at),
         Some(person.version),
         person.is_identified,
-        person.last_seen_at.map(epoch_secs_to_datetime),
+        person.last_seen_at.map(epoch_millis_to_datetime),
     );
     Some(arrays)
 }
@@ -531,10 +531,11 @@ fn bytes_to_optional_json_str(bytes: &[u8]) -> Option<&str> {
     }
 }
 
-fn epoch_secs_to_datetime(epoch_secs: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(epoch_secs, 0)
-        .single()
-        .unwrap_or_default()
+/// Epoch milliseconds — the unit every Person timestamp field carries on
+/// the wire (see the proto comments); PG stores real timestamptz values,
+/// so the unit exists only in this in-flight representation.
+fn epoch_millis_to_datetime(epoch_millis: i64) -> DateTime<Utc> {
+    DateTime::from_timestamp_millis(epoch_millis).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -582,9 +583,10 @@ mod tests {
     }
 
     #[test]
-    fn epoch_secs_conversion() {
-        let dt = epoch_secs_to_datetime(1700000000);
-        assert_eq!(dt.timestamp(), 1700000000);
+    fn epoch_millis_conversion() {
+        let dt = epoch_millis_to_datetime(1_700_000_000_000);
+        assert_eq!(dt.timestamp_millis(), 1_700_000_000_000);
+        assert_eq!(dt.timestamp(), 1_700_000_000);
     }
 
     #[tokio::test]

@@ -75,7 +75,7 @@ mod tests {
             uuid: "abc-123".to_string(),
             team_id: 42,
             properties: serde_json::json!({"email": "test@example.com"}),
-            created_at: 1700000000,
+            created_at: 1_700_000_000_000,
             version: 1,
             is_identified: false,
         }

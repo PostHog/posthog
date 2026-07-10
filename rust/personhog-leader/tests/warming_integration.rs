@@ -32,7 +32,7 @@ fn make_person(team_id: i64, person_id: i64) -> Person {
         .unwrap(),
         properties_last_updated_at: Vec::new(),
         properties_last_operation: Vec::new(),
-        created_at: 1700000000,
+        created_at: 1_700_000_000_000,
         version: 1,
         is_identified: false,
         is_user_id: None,
@@ -357,7 +357,7 @@ async fn warming_fails_loudly_on_properties_json_error() {
         properties: vec![0xFFu8; 16], // not valid JSON
         properties_last_updated_at: Vec::new(),
         properties_last_operation: Vec::new(),
-        created_at: 1700000000,
+        created_at: 1_700_000_000_000,
         version: 1,
         is_identified: false,
         is_user_id: None,
