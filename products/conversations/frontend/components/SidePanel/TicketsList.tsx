@@ -8,7 +8,7 @@ import { Link } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { stripMarkdown } from 'lib/utils/markdown'
 
-import type { ConversationTicket } from '../../types'
+import { type ConversationTicket, getTicketStatusLabel } from '../../types'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 
 export function TicketsList(): JSX.Element {
@@ -90,7 +90,7 @@ export function TicketsList(): JSX.Element {
                                         }
                                         size="small"
                                     >
-                                        {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
+                                        {getTicketStatusLabel(ticket.status)}
                                     </LemonTag>
                                     {(ticket.unread_count ?? 0) > 0 && (
                                         <LemonBadge.Number

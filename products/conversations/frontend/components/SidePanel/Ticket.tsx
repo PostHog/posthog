@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
+import { getTicketStatusLabel } from '../../types'
 import { MessageInput } from '../Chat/MessageInput'
 import { MessageList } from '../Chat/MessageList'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
@@ -28,7 +29,7 @@ export function Ticket(): JSX.Element {
                     }
                     size="small"
                 >
-                    {currentTicket?.status === 'on_hold' ? 'On hold' : currentTicket?.status}
+                    {getTicketStatusLabel(currentTicket?.status)}
                 </LemonTag>
             </div>
             <LemonDivider />

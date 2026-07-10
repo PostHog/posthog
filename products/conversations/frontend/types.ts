@@ -223,6 +223,18 @@ export const statusOptionsWithoutAll: { value: TicketStatus; label: string }[] =
     { value: 'resolved', label: 'Resolved' },
 ]
 
+const ticketStatusLabels: Record<TicketStatus, string> = {
+    new: 'New',
+    open: 'Open',
+    pending: 'Pending',
+    on_hold: 'On hold',
+    resolved: 'Resolved',
+}
+
+export function getTicketStatusLabel(status: TicketStatus | undefined): string {
+    return (status && ticketStatusLabels[status]) || ''
+}
+
 // Multiselect-compatible options for LemonInputSelect
 export const statusMultiselectOptions: { key: TicketStatus; label: string }[] = [
     { key: 'new', label: 'New' },

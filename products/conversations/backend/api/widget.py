@@ -47,8 +47,9 @@ from products.conversations.backend.cache import (
     set_cached_messages,
     set_cached_tickets,
 )
+from products.conversations.backend.events import capture_ticket_status_changed
 from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import ChannelDetail
+from products.conversations.backend.models.constants import ChannelDetail, Status
 from products.conversations.backend.services.identity import verify_identity_hash
 
 logger = logging.getLogger(__name__)
@@ -177,20 +178,36 @@ class WidgetMessageView(APIView):
                 if verified_distinct_id is not None:
                     ticket.identity_verified = True
 
+                # A customer reply reopens a resolved ticket, matching the email and
+                # snooze-expiry paths — otherwise the follow-up is invisible in a
+                # status-filtered queue.
+                old_status = ticket.status
+                reopened = old_status == Status.RESOLVED
+                update_fields = [
+                    "distinct_id",
+                    "anonymous_traits",
+                    "session_id",
+                    "session_context",
+                    "unread_team_count",
+                    "identity_verified",
+                    "updated_at",
+                ]
+                if reopened:
+                    ticket.status = Status.OPEN
+                    update_fields.append("status")
+
                 # Increment unread count for team (customer sent a message)
                 ticket.unread_team_count = F("unread_team_count") + 1
-                ticket.save(
-                    update_fields=[
-                        "distinct_id",
-                        "anonymous_traits",
-                        "session_id",
-                        "session_context",
-                        "unread_team_count",
-                        "identity_verified",
-                        "updated_at",
-                    ]
-                )
+                ticket.save(update_fields=update_fields)
                 ticket.refresh_from_db()
+
+                # unread_count cache is invalidated unconditionally below; only the
+                # status-change analytics event is specific to a reopen.
+                if reopened:
+                    try:
+                        capture_ticket_status_changed(ticket, old_status, Status.OPEN, actor_type="customer")
+                    except Exception as e:
+                        capture_exception(e, {"ticket_id": str(ticket.id)})
 
             except Ticket.DoesNotExist:
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
