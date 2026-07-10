@@ -83,8 +83,8 @@ const LatexComponent = ({
             .catch((err: unknown) => {
                 if (!cancelled) {
                     mathJaxDisplayDiv.innerHTML = '<span style="color:red">LaTeX error</span>'
+                    console.error('MathJax error:', err)
                 }
-                console.error('MathJax error:', err)
             })
 
         return () => {
