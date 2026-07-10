@@ -507,7 +507,9 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         # Recovery for schemas whose per-schema Temporal schedule is missing (e.g. the source
         # creation request was killed between committing the rows and creating the schedules,
         # or the schema was resurrected after a soft-delete). Safe on an existing schedule too:
-        # sync_external_data_job_workflow falls back to update + trigger when it already exists.
+        # sync_external_data_job_workflow falls back to updating it in place. Deliberately does
+        # NOT trigger a run: the schedule's stored action is always billable, so operators kick
+        # off an immediate run with the (non-billable by default) "Trigger sync" action instead.
         if request.method != "POST":
             return redirect(_change_url(schema_id))
 
@@ -528,7 +530,9 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             return redirect(_change_url(schema_id))
 
         try:
-            sync_external_data_job_workflow(schema, create=True, should_sync=schema.should_sync)
+            sync_external_data_job_workflow(
+                schema, create=True, should_sync=schema.should_sync, trigger_immediately=False
+            )
         except Exception as e:
             messages.error(request, f"Failed to recreate schedule: {e}")
             return redirect(_change_url(schema_id))
@@ -540,7 +544,8 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         )
         messages.success(
             request,
-            f"Recreated Temporal schedule for {schema.name} and triggered an immediate billable run.{paused_note}",
+            f"Recreated Temporal schedule for {schema.name}. No run was triggered; "
+            f'use "Trigger sync" for an immediate non-billable run.{paused_note}',
         )
         return redirect(_change_url(schema_id))
 

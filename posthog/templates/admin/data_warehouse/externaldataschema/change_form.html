@@ -331,11 +331,12 @@
             <p class="help">
                 If the schedule is missing entirely (pause/unpause/sync fail with "workflow not found",
                 typically after an interrupted source creation), recreate it below. This also works as a
-                repair when the schedule exists: it is updated in place and triggered.
+                repair when the schedule exists: it is updated in place. No run is triggered; kick one
+                off with "Trigger sync" below, which is non-billable by default.
             </p>
             <div class="partitioning-controls">
-                <button type="submit" form="recreate-schedule-action-form" class="deletelink"
-                        onclick="return confirm('Recreate the Temporal schedule for this schema? This always triggers an immediate BILLABLE sync run, even if sync is disabled or the schedule is paused.');">
+                <button type="submit" form="recreate-schedule-action-form" class="default"
+                        onclick="return confirm('Recreate the Temporal schedule for this schema? No sync run is triggered.');">
                     Recreate schedule
                 </button>
             </div>

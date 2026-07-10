@@ -286,7 +286,9 @@ class TestExternalDataSchemaAdmin(BaseTest):
     def test_recreate_schedule_passes_should_sync_through(self, should_sync: bool) -> None:
         # Guards the recovery action for schemas left without a Temporal schedule: it must
         # recreate with the schema's own should_sync so a disabled schema comes back paused
-        # instead of silently starting recurring billable syncs.
+        # instead of silently starting recurring syncs, and it must not trigger a run (runs
+        # fired through the schedule are always billable; operators use "Trigger sync" for a
+        # non-billable one).
         schema = self._schema(should_sync=should_sync)
 
         with patch(f"{_ADMIN_MODULE}.sync_external_data_job_workflow") as mock_sync:
@@ -294,7 +296,7 @@ class TestExternalDataSchemaAdmin(BaseTest):
 
         assert response.status_code == 302
         assert str(schema.id) in response.url
-        mock_sync.assert_called_once_with(schema, create=True, should_sync=should_sync)
+        mock_sync.assert_called_once_with(schema, create=True, should_sync=should_sync, trigger_immediately=False)
 
     def test_recreate_schedule_get_does_not_recreate(self) -> None:
         schema = self._schema()
