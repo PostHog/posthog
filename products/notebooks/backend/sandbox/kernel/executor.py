@@ -20,6 +20,7 @@ import json
 import time
 import queue
 import shutil
+import hashlib
 import threading
 from typing import Any
 
@@ -106,11 +107,14 @@ class KernelExecutor:
                 kernel_inputs.append({"name": name, "kind": "local"})
                 continue
             # Keyed by the upstream run_id, so the same run reuses its frame while a re-run (new
-            # run_id) fetches fresh data instead of the stale cached rows.
-            node_id, run_id = spec["node_id"], spec["run_id"]
-            frame_path = os.path.join(self._frames_dir, f"{node_id}.{run_id}.arrow")
+            # run_id) fetches fresh data instead of the stale cached rows. node_id comes from
+            # user-controlled notebook content, so hash it to a filesystem-safe token — a raw
+            # "../x" id would otherwise escape the frames dir on write and in the eviction glob.
+            # run_id is a server-generated UUID.
+            node_token = hashlib.sha256(spec["node_id"].encode()).hexdigest()
+            frame_path = os.path.join(self._frames_dir, f"{node_token}.{spec['run_id']}.arrow")
             if not os.path.exists(frame_path):
-                self._evict_superseded_frames(node_id, keep=frame_path)
+                self._evict_superseded_frames(node_token, keep=frame_path)
                 data_plane.materialize_query_to_file(
                     payload["data_plane_url"],
                     payload["data_plane_token"],
@@ -121,9 +125,9 @@ class KernelExecutor:
             kernel_inputs.append({"name": name, "kind": "hogql", "path": frame_path})
         return kernel_inputs
 
-    def _evict_superseded_frames(self, node_id: str, keep: str) -> None:
+    def _evict_superseded_frames(self, node_token: str, keep: str) -> None:
         """Drop this upstream node's older frames so iterating a query doesn't pile up unread frames."""
-        for stale in glob.glob(os.path.join(self._frames_dir, f"{glob.escape(node_id)}.*.arrow")):
+        for stale in glob.glob(os.path.join(self._frames_dir, f"{node_token}.*.arrow")):
             if stale != keep:
                 try:
                     os.remove(stale)
