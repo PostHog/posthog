@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.source import TriggerDevSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.trigger_dev import (
@@ -16,10 +18,13 @@ class TestTriggerDevSourceConfig:
 
     def test_fields_require_secret_api_key_and_optional_base_url(self) -> None:
         fields = {f.name: f for f in TriggerDevSource().get_source_config.fields}
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
-        assert fields["base_url"].required is False
-        assert fields["base_url"].secret is False
+        api_key, base_url = fields["api_key"], fields["base_url"]
+        assert isinstance(api_key, SourceFieldInputConfig)
+        assert isinstance(base_url, SourceFieldInputConfig)
+        assert api_key.required is True
+        assert api_key.secret is True
+        assert base_url.required is False
+        assert base_url.secret is False
 
     def test_base_url_is_a_connection_host_field(self) -> None:
         # Retargeting base_url must re-require the secret, else the preserved key leaks to a new host.
@@ -70,7 +75,7 @@ class TestNonRetryableErrors:
 class TestValidateCredentials:
     def test_blocks_unsafe_host_before_probing(self) -> None:
         # An internal/private base_url must be rejected without an outbound request being made.
-        config = MagicMock(api_key="tr_prod_x", base_url="http://169.254.169.254")
+        config = MagicMock(api_key="tr_prod_x", base_url="https://169.254.169.254")
         with (
             patch.object(source_module, "_is_host_safe", return_value=(False, "internal IP blocked")) as host_check,
             patch.object(source_module, "validate_trigger_dev_credentials") as probe,
@@ -79,6 +84,15 @@ class TestValidateCredentials:
         assert valid is False
         assert error == "internal IP blocked"
         host_check.assert_called_once()
+        probe.assert_not_called()
+
+    def test_rejects_plaintext_base_url_before_probing(self) -> None:
+        # A non-HTTPS URL would leak the bearer token; reject it without any outbound request.
+        config = MagicMock(api_key="tr_prod_x", base_url="http://trigger.acme.dev")
+        with patch.object(source_module, "validate_trigger_dev_credentials") as probe:
+            valid, error = TriggerDevSource().validate_credentials(config, team_id=1)
+        assert valid is False
+        assert error is not None
         probe.assert_not_called()
 
     def test_delegates_to_transport_when_host_is_safe(self) -> None:
@@ -109,7 +123,7 @@ class TestSourceForPipeline:
             patch.object(source_module, "trigger_dev_source", return_value="SENTINEL") as build,
         ):
             result = TriggerDevSource().source_for_pipeline(config, MagicMock(), inputs)
-        assert result == "SENTINEL"
+        assert result is build.return_value
         kwargs = build.call_args.kwargs
         assert kwargs["base_url"] == "https://trigger.acme.dev"
         assert kwargs["endpoint"] == "runs"

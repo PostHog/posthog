@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_de
     TriggerDevResumeConfig,
     resolve_base_url,
     trigger_dev_source,
+    validate_base_url,
     validate_credentials as validate_trigger_dev_credentials,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -134,6 +135,9 @@ API keys are per environment (dev / staging / prod), so one connection syncs one
         self, config: TriggerDevSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         base_url = resolve_base_url(config.base_url)
+        url_error = validate_base_url(base_url)
+        if url_error:
+            return False, url_error
         host = urlsplit(base_url).hostname or ""
         host_ok, host_error = _is_host_safe(host, team_id)
         if not host_ok:
@@ -150,6 +154,9 @@ API keys are per environment (dev / staging / prod), so one connection syncs one
         inputs: SourceInputs,
     ) -> SourceResponse:
         base_url = resolve_base_url(config.base_url)
+        url_error = validate_base_url(base_url)
+        if url_error:
+            raise ValueError(url_error)
         host = urlsplit(base_url).hostname or ""
         host_ok, host_error = _is_host_safe(host, inputs.team_id)
         if not host_ok:

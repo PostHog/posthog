@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from dateutil import parser as dateutil_parser
@@ -18,6 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_de
 )
 
 TRIGGER_DEV_DEFAULT_BASE_URL = "https://api.trigger.dev"
+
+# Runaway guard for classic page/perPage pagination: an API that returns non-empty pages without a
+# `totalPages` (or that ignores the `page` param entirely) would otherwise loop until the activity
+# times out. Schedules and queues are small config tables, so this ceiling is far above any real size.
+MAX_CLASSIC_PAGES = 10_000
 
 
 class TriggerDevRetryableError(Exception):
@@ -36,6 +41,23 @@ def resolve_base_url(base_url: str | None) -> str:
     """Cloud users leave this blank (api.trigger.dev); self-hosters point it at their instance."""
     resolved = (base_url or "").strip().rstrip("/")
     return resolved or TRIGGER_DEV_DEFAULT_BASE_URL
+
+
+def validate_base_url(base_url: str) -> str | None:
+    """Return an error message if `base_url` is not a safe HTTPS URL, else None.
+
+    Defense-in-depth on top of the Smokescreen egress proxy. The secret API key is sent as a bearer
+    token to whatever this points at, so we:
+      - require HTTPS, so the key is never sent over plaintext HTTP;
+      - reject backslashes, which `urlsplit` folds into the userinfo (host `example.com` for
+        `https://169.254.169.254\\@example.com`) while `requests`/`urllib3` treat them as `/` and
+        connect to `169.254.169.254`, letting a crafted URL slip past the hostname safety check.
+    """
+    if "\\" in base_url:
+        return "The Trigger.dev API URL must not contain backslashes."
+    if urlsplit(base_url).scheme.lower() != "https":
+        return "The Trigger.dev API URL must use HTTPS."
+    return None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -127,7 +149,9 @@ def validate_credentials(api_key: str, base_url: str) -> tuple[bool, str | None]
     # page[size] minimum is 10; the smallest cheap probe the runs endpoint allows.
     url = _build_url(base_url, TRIGGER_DEV_ENDPOINTS["runs"].path, {"page[size]": 10})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        # allow_redirects=False keeps the bearer token pinned to the validated host: a 30x from a
+        # self-hosted instance must not replay `Authorization` to an internal or attacker origin.
+        response = make_tracked_session(allow_redirects=False).get(url, headers=_get_headers(api_key), timeout=10)
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -179,6 +203,11 @@ def _iter_cursor_pages(
             break
         after = next_after
 
+    # The walk finished cleanly, so drop the checkpoint. Otherwise a later attempt (e.g. a retry that
+    # re-runs extract after the previous one completed) would resume from the final page's cursor and
+    # skip every run created since — runs arrive newest-first, so the new ones live on page one.
+    resumable_source_manager.clear_state()
+
 
 def _iter_classic_pages(
     session: requests.Session,
@@ -193,7 +222,7 @@ def _iter_classic_pages(
     simply re-reads from page one.
     """
     page = 1
-    while True:
+    while page <= MAX_CLASSIC_PAGES:
         url = _build_url(base_url, config.path, {"page": page, "perPage": config.page_size})
         data = _fetch_page(session, url, headers, logger)
 
@@ -207,6 +236,12 @@ def _iter_classic_pages(
         if total_pages is not None and page >= total_pages:
             break
         page += 1
+    else:
+        # Ran out of the safety budget without a natural stop: the API is paging forever (no
+        # totalPages and never an empty page). Bail loudly rather than spin until the activity dies.
+        logger.error(
+            f"Trigger.dev classic pagination exceeded {MAX_CLASSIC_PAGES} pages for {config.name}; stopping to avoid an unbounded loop."
+        )
 
 
 def get_rows(
@@ -221,7 +256,8 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = TRIGGER_DEV_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    session = make_tracked_session()
+    # allow_redirects=False keeps the bearer token pinned to the validated host across every page.
+    session = make_tracked_session(allow_redirects=False)
 
     if config.pagination == "cursor":
         cutoff: datetime | None = None

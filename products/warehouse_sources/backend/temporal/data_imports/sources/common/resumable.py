@@ -84,6 +84,16 @@ class ResumableSourceManager(Generic[ResumableData]):
 
             redis.set(self._key, json_data, ex=60 * 60 * 24)  # 24 hours expiration
 
+    def clear_state(self) -> None:
+        """Drop any saved resume state so a subsequent attempt starts from scratch.
+
+        Called once a source has walked its data to completion: leaving the final checkpoint in
+        place would let a later attempt resume mid-stream instead of restarting cleanly.
+        """
+        with self._get_redis() as redis:
+            self._logger.debug(f"Clearing resumable source state. key={self._key}")
+            redis.delete(self._key)
+
     def can_resume(self) -> bool:
         with self._get_redis() as redis:
             exists = redis.exists(self._key) == 1

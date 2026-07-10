@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_de
     get_rows,
     resolve_base_url,
     trigger_dev_source,
+    validate_base_url,
     validate_credentials,
 )
 
@@ -25,6 +26,7 @@ class _FakeManager:
     def __init__(self, state: TriggerDevResumeConfig | None = None) -> None:
         self._state = state
         self.saved: list[TriggerDevResumeConfig] = []
+        self.cleared = False
 
     def can_resume(self) -> bool:
         return self._state is not None
@@ -34,6 +36,9 @@ class _FakeManager:
 
     def save_state(self, data: TriggerDevResumeConfig) -> None:
         self.saved.append(data)
+
+    def clear_state(self) -> None:
+        self.cleared = True
 
 
 def _run_get_rows(
@@ -94,6 +99,28 @@ class TestResolveBaseUrl:
     )
     def test_resolve(self, _name: str, given: str | None, expected: str) -> None:
         assert resolve_base_url(given) == expected
+
+
+class TestValidateBaseUrl:
+    @parameterized.expand(
+        [
+            ("default", "https://api.trigger.dev"),
+            ("self_hosted_https", "https://trigger.acme.dev"),
+        ]
+    )
+    def test_https_urls_pass(self, _name: str, base_url: str) -> None:
+        assert validate_base_url(base_url) is None
+
+    @parameterized.expand(
+        [
+            # Plaintext would send the secret bearer token in the clear.
+            ("http", "http://trigger.acme.dev"),
+            # `urlsplit` reads the host as example.com, but requests connects to 169.254.169.254.
+            ("backslash_authority_confusion", "https://169.254.169.254\\@example.com"),
+        ]
+    )
+    def test_unsafe_urls_are_rejected(self, _name: str, base_url: str) -> None:
+        assert validate_base_url(base_url) is not None
 
 
 class TestShouldStopDesc:
@@ -175,6 +202,13 @@ class TestRunsCursorPagination:
         _, _, manager = _run_get_rows(monkeypatch, "runs", responses)
         assert [s.after for s in manager.saved] == [None, "r2"]
 
+    def test_clears_checkpoint_when_walk_completes(self, monkeypatch: Any) -> None:
+        # A finished walk must drop its checkpoint, or a later attempt resumes from the final page's
+        # cursor and skips every run created since (runs arrive newest-first, on page one).
+        responses = [{"data": [{"id": "r1"}], "pagination": {"next": None}}]
+        _, _, manager = _run_get_rows(monkeypatch, "runs", responses)
+        assert manager.cleared is True
+
 
 class TestClassicPagination:
     def test_walks_pages_until_total_and_never_checkpoints(self, monkeypatch: Any) -> None:
@@ -194,6 +228,12 @@ class TestClassicPagination:
         rows, fetched, _ = _run_get_rows(monkeypatch, "queues", responses)
         assert rows == []
         assert len(fetched) == 1
+
+    def test_bails_out_of_a_never_ending_pager(self, monkeypatch: Any) -> None:
+        # A page endpoint that keeps returning non-empty data with no totalPages must not loop forever.
+        responses = [{"data": [{"id": "q"}], "pagination": {}}] * (trigger_dev.MAX_CLASSIC_PAGES + 5)
+        _, fetched, _ = _run_get_rows(monkeypatch, "queues", responses)
+        assert len(fetched) == trigger_dev.MAX_CLASSIC_PAGES
 
 
 class TestValidateCredentials:
@@ -251,7 +291,7 @@ class TestFetchPageRetries:
         response = MagicMock()
         response.status_code = 401
         response.ok = False
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error: Unauthorized")
+        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error: Unauthorized", response=response)
         session = MagicMock()
         session.get.return_value = response
 
