@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 
 import pytest
 from unittest.mock import patch
@@ -16,7 +17,11 @@ from posthog.models.scoping import team_scope
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief
 from products.pulse.backend.sources.base import SourceItem
-from products.pulse.backend.temporal.activities import gather_brief_inputs_activity, synthesize_brief_activity
+from products.pulse.backend.temporal.activities import (
+    gather_brief_inputs_activity,
+    resolve_period,
+    synthesize_brief_activity,
+)
 from products.pulse.backend.temporal.inputs import GenerateBriefWorkflowInputs, SynthesizeActivityInputs
 from products.pulse.backend.temporal.registry import ACTIVITIES
 from products.pulse.backend.temporal.workflow import GenerateProductBriefWorkflow
@@ -27,15 +32,15 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 class _StubSource:
     name = "stub"
 
-    def gather(self, team, config, period_days) -> list[SourceItem]:
+    def gather(self, team, config, lookback_days) -> list[SourceItem]:
         return [
             SourceItem(
                 source="stub",
                 kind="movement",
                 title="Pageviews dropped 30%",
                 description="d",
-                numbers={"pct_change": -30.0},
-                evidence=[{"type": "insight", "ref": "abc", "label": "Pageviews"}],
+                metrics={"pct_change": -30.0},
+                evidence=[{"type": "insight", "ref": "abc", "label": "Pageviews", "url": "/project/1/insights/abc"}],
                 fingerprint_hint="abc:0",
             )
         ]
@@ -50,9 +55,13 @@ def _set_ai_consent(team, approved: bool) -> None:
 @sync_to_async
 def _create_brief(team, user) -> ProductBrief:
     with team_scope(team.pk, canonical=True):
-        return ProductBrief.objects.create(
-            team=team, created_by=user, trigger=ProductBrief.Trigger.ON_DEMAND, period_days=7
-        )
+        return ProductBrief.objects.create(team=team, created_by=user, trigger=ProductBrief.Trigger.ON_DEMAND)
+
+
+@sync_to_async
+def _create_userless_brief(team) -> ProductBrief:
+    with team_scope(team.pk, canonical=True):
+        return ProductBrief.objects.create(team=team, created_by=None, trigger=ProductBrief.Trigger.SCHEDULED)
 
 
 @sync_to_async
@@ -67,16 +76,14 @@ def _opportunity_count(team) -> int:
 
 def _confident_out() -> BriefOut:
     return BriefOut(
-        sections=[
-            BriefSectionOut(kind="what_happened", title="t", markdown="m", citations=["insight:abc"], confidence=0.9)
-        ],
+        sections=[BriefSectionOut(kind="what_happened", title="t", markdown="m", citations=["c1"], confidence=0.9)],
         opportunities=[
             OpportunityOut(
                 kind="build",
                 title="t",
                 summary="s",
                 suggested_action="a",
-                evidence_refs=["insight:abc"],
+                evidence_refs=["c1"],
                 fingerprint_hint="abc:0",
                 confidence=0.9,
             )
@@ -90,7 +97,7 @@ async def test_gather_activity_returns_serialized_items(team) -> None:
     with patch("products.pulse.backend.temporal.activities.get_sources", return_value=[_StubSource()]):
         items = await env.run(
             gather_brief_inputs_activity,
-            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None),
         )
     assert len(items) == 1
     assert items[0]["fingerprint_hint"] == "abc:0"
@@ -102,7 +109,7 @@ async def test_gather_activity_refuses_without_ai_consent(team) -> None:
     with pytest.raises(ApplicationError) as exc_info:
         await env.run(
             gather_brief_inputs_activity,
-            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None),
         )
     assert exc_info.value.non_retryable is True
 
@@ -119,6 +126,33 @@ async def test_synthesize_activity_marks_ready(team, user) -> None:
     reloaded = await _reload_brief(brief.id)
     assert reloaded.status == ProductBrief.Status.READY
     assert await _opportunity_count(team) == 1
+
+
+async def test_synthesize_activity_without_creating_user_raises(team) -> None:
+    # No creating user means no billing/quota attribution for the LLM call — fail non-retryably.
+    brief = await _create_userless_brief(team)
+    env = ActivityEnvironment()
+    with pytest.raises(ApplicationError) as exc_info:
+        await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
+        )
+    assert exc_info.value.non_retryable is True
+
+
+def test_resolve_period_since_last_run_vs_last_n_days() -> None:
+    now = dt.datetime(2026, 1, 20, tzinfo=dt.UTC)
+    # last_n_days uses the requested day count regardless of prior runs.
+    fixed = resolve_period({"type": "last_n_days", "days": 14}, now, last_run=dt.datetime(2026, 1, 18, tzinfo=dt.UTC))
+    assert fixed.lookback_days == 14
+    assert fixed.start_date == dt.date(2026, 1, 6)
+    assert fixed.end_date == dt.date(2026, 1, 20)
+    # since_last_run measures the gap to the last ready brief.
+    since = resolve_period({"type": "since_last_run"}, now, last_run=dt.datetime(2026, 1, 15, tzinfo=dt.UTC))
+    assert since.lookback_days == 5
+    # since_last_run with no prior run falls back to the default window.
+    first = resolve_period({"type": "since_last_run"}, now, last_run=None)
+    assert first.lookback_days == 7
 
 
 async def test_workflow_marks_brief_failed_when_gather_fails(team, user) -> None:
