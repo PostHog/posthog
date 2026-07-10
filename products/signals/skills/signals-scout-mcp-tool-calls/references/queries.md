@@ -372,14 +372,19 @@ FROM (
     GROUP BY tool
 )
 GROUP BY category_bucket
+HAVING problem_tools > 0
 ORDER BY category_errors DESC
 ```
 
 Read it:
 
+- `HAVING problem_tools > 0` keeps healthy categories out of the result — they get no report,
+  so they don't belong in the report-grain rollup.
 - This is aggregation, not detection — it catches the failure shape only. Struggle (query 2)
   and latency (query 4) candidates join their category via the `category` column those queries
-  now carry, even when they don't appear in `problem_tool_details`.
+  now carry; a category whose only problem tools are struggle/latency won't appear here (the
+  `HAVING` sees only the failure floor) — pull its `category_calls` denominators by re-running
+  without the `HAVING`, filtered to that category.
 - The `Uncategorized` bucket is dominated by bare `exec` rows (discovery verbs, wrapper
   validation errors) plus uncatalogued tools like `render-ui` — attribution residue to
   sanity-check, not an owning team (verified: on PostHog's own project it is exactly those two
