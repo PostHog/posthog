@@ -6,6 +6,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.tag import tagify
 
 from products.ai_observability.backend.models.llm_prompt import (
     LLMPrompt,
@@ -47,9 +48,12 @@ def validate_prompt_name_value(value: str) -> str:
     return value
 
 
+def _json_byte_size(value: Any) -> int:
+    return len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+
+
 def validate_prompt_payload_size(prompt_payload: Any) -> Any:
-    prompt_payload_bytes = len(json.dumps(prompt_payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
-    if prompt_payload_bytes > MAX_PROMPT_PAYLOAD_BYTES:
+    if _json_byte_size(prompt_payload) > MAX_PROMPT_PAYLOAD_BYTES:
         raise serializers.ValidationError(
             f"Prompt payload must be {MAX_PROMPT_PAYLOAD_BYTES} bytes or fewer.",
             code="max_size",
@@ -65,8 +69,7 @@ def validate_prompt_config_value(value: Any) -> Any:
             "Config must be a JSON object or null.",
             code="invalid_config",
         )
-    config_bytes = len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
-    if config_bytes > MAX_PROMPT_CONFIG_BYTES:
+    if _json_byte_size(value) > MAX_PROMPT_CONFIG_BYTES:
         raise serializers.ValidationError(
             f"Config must be {MAX_PROMPT_CONFIG_BYTES} bytes or fewer.",
             code="max_size",
@@ -78,7 +81,7 @@ def normalize_prompt_tags_value(tags: list[str]) -> list[str]:
     """Trim, lowercase, and dedupe tags while preserving their order."""
     normalized: list[str] = []
     for tag in tags:
-        cleaned = tag.strip().lower()
+        cleaned = tagify(tag)
         if cleaned and cleaned not in normalized:
             normalized.append(cleaned)
     if len(normalized) > MAX_PROMPT_TAGS:
@@ -89,11 +92,11 @@ def normalize_prompt_tags_value(tags: list[str]) -> list[str]:
     return normalized
 
 
-def build_prompt_tags_field() -> serializers.ListField:
+def build_prompt_tags_field(*, required: bool = False, help_text: str = PROMPT_TAGS_HELP) -> serializers.ListField:
     return serializers.ListField(
         child=serializers.CharField(max_length=MAX_PROMPT_TAG_LENGTH, allow_blank=True),
-        required=False,
-        help_text=PROMPT_TAGS_HELP,
+        required=required,
+        help_text=help_text,
     )
 
 
@@ -451,8 +454,8 @@ class LLMPromptPublicSerializer(serializers.Serializer):
 
 
 class LLMPromptUpdateTagsSerializer(serializers.Serializer):
-    tags = serializers.ListField(
-        child=serializers.CharField(max_length=MAX_PROMPT_TAG_LENGTH, allow_blank=True),
+    tags = build_prompt_tags_field(
+        required=True,
         help_text="Full list of tags to set on the prompt, replacing any existing tags. Applies to all versions.",
     )
 

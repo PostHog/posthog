@@ -1068,11 +1068,14 @@ class TestLLMPromptAPI(APIBaseTest):
         assert first_fetch.json()["config"] == {"model": "gpt-5"}
         assert first_fetch.json()["tags"] == ["old"]
 
-        update_response = self.client.patch(
-            f"/api/environments/{self.team.id}/llm_prompts/name/tagged-prompt/tags/",
-            data={"tags": ["fresh"]},
-            format="json",
-        )
+        # update_prompt_tags invalidates the cache via transaction.on_commit, which never fires
+        # inside a TestCase transaction, so execute the callback eagerly like the archive tests do
+        with patch("posthog.api.services.llm_prompt.transaction.on_commit", side_effect=lambda callback: callback()):
+            update_response = self.client.patch(
+                f"/api/environments/{self.team.id}/llm_prompts/name/tagged-prompt/tags/",
+                data={"tags": ["fresh"]},
+                format="json",
+            )
         assert update_response.status_code == status.HTTP_200_OK
 
         second_fetch = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/tagged-prompt/")

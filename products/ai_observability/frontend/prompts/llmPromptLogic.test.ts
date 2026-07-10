@@ -9,7 +9,7 @@ import { EventsQuery, NodeKind, TracesQuery } from '~/queries/schema/schema-gene
 import { initKeaTests } from '~/test/init'
 import { LLMPrompt, LLMPromptResolveResponse, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { PromptAnalyticsScope, PromptMode, llmPromptLogic } from './llmPromptLogic'
+import { PromptAnalyticsScope, PromptMode, ResolvedLLMPrompt, llmPromptLogic } from './llmPromptLogic'
 
 const mockPrompt = {
     id: 'prompt-version-2',
@@ -321,6 +321,53 @@ describe('llmPromptLogic', () => {
         dialogSpy.mock.calls[0][0].primaryButton?.onClick?.(undefined as any)
         expect(logic.values.mode).toBe(PromptMode.View)
         expect(logic.values.promptForm.prompt).toBe(mockPrompt.prompt)
+
+        // A config-only edit is also dirty and must get the same confirmation
+        logic.actions.setMode(PromptMode.Edit)
+        logic.actions.setPromptFormValues({ config: '{"model": "gpt-5"}' })
+        logic.actions.cancelEditing()
+        expect(logic.values.mode).toBe(PromptMode.Edit)
+        expect(dialogSpy).toHaveBeenCalledTimes(2)
+
+        logic.unmount()
+    })
+
+    it('applies tag saves optimistically and reverts on failure', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        jest.spyOn(api.llmPrompts, 'resolveByName').mockResolvedValue({
+            prompt: { ...promptFields, tags: ['old'] },
+            versions,
+            has_more,
+        } as unknown as LLMPromptResolveResponse)
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+
+        // Success: tags apply before the request resolves (so consecutive edits compose),
+        // then reconcile to the server-normalized list
+        let resolveUpdate: (prompt: LLMPrompt) => void = () => {}
+        jest.spyOn(api.llmPrompts, 'updateTagsByName').mockImplementationOnce(
+            () => new Promise<LLMPrompt>((resolve) => (resolveUpdate = resolve))
+        )
+        logic.actions.saveTags(['old', ' Fresh '])
+        expect((logic.values.prompt as ResolvedLLMPrompt).tags).toEqual(['old', ' Fresh '])
+        expect(logic.values.tagsSaving).toBe(true)
+
+        resolveUpdate({ ...promptFields, tags: ['old', 'fresh'] } as unknown as LLMPrompt)
+        await expectLogic(logic).toFinishAllListeners()
+        expect((logic.values.prompt as ResolvedLLMPrompt).tags).toEqual(['old', 'fresh'])
+        expect(logic.values.tagsSaving).toBe(false)
+
+        // Failure: reverts to the pre-save tags and clears the saving state
+        jest.spyOn(api.llmPrompts, 'updateTagsByName').mockRejectedValueOnce(
+            new ApiError('boom', 500, undefined, { detail: 'Server error' })
+        )
+        logic.actions.saveTags(['old', 'fresh', 'broken'])
+        expect((logic.values.prompt as ResolvedLLMPrompt).tags).toEqual(['old', 'fresh', 'broken'])
+        await expectLogic(logic).toFinishAllListeners()
+        expect((logic.values.prompt as ResolvedLLMPrompt).tags).toEqual(['old', 'fresh'])
+        expect(logic.values.tagsSaving).toBe(false)
 
         logic.unmount()
     })

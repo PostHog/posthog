@@ -436,7 +436,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             (s) => [s.promptForm, s.prompt, s.isNewPrompt],
             (promptForm, prompt, isNewPrompt): boolean => {
                 if (isNewPrompt) {
-                    return !!promptForm.name.trim() || !!promptForm.prompt.trim() || !!promptForm.config.trim()
+                    return (
+                        !!promptForm.name.trim() ||
+                        !!promptForm.prompt.trim() ||
+                        !!promptForm.config.trim() ||
+                        promptForm.tags.length > 0
+                    )
                 }
                 return isPrompt(prompt)
                     ? promptForm.prompt !== prompt.prompt || promptForm.config !== formatPromptConfig(prompt.config)
@@ -772,6 +777,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 return
             }
 
+            // Apply optimistically: the tag editor composes each edit from the current tags, so
+            // waiting for the response would make a second edit during an in-flight save start
+            // from a stale array and silently drop the first edit.
+            const previousTags = values.prompt.tags ?? []
+            actions.setPrompt({ ...values.prompt, tags })
+
             try {
                 const updatedPrompt = await api.llmPrompts.updateTagsByName(props.promptName, tags)
                 if (isPrompt(values.prompt)) {
@@ -779,6 +790,9 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 }
                 llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
             } catch (error) {
+                if (isPrompt(values.prompt)) {
+                    actions.setPrompt({ ...values.prompt, tags: previousTags })
+                }
                 lemonToast.error(getApiErrorDetail(error) || 'Failed to update tags')
             } finally {
                 actions.setTagsSaving(false)
