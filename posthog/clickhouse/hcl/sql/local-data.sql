@@ -597,6 +597,13 @@ CREATE TABLE posthog.property_definitions (
   last_seen_at DateTime,
   version UInt64 MATERIALIZED bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at))
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.property_definitions', '{replica}-{shard}', version) ORDER BY (team_id, type, coalesce(event, ''), name, coalesce(group_type_index, 255)) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.property_values_daily_distributed (
+  team_id Int64 CODEC(DoubleDelta, ZSTD(1)),
+  property_type LowCardinality(String),
+  property_key LowCardinality(String),
+  property_value String,
+  day Date DEFAULT toDate(now())
+) ENGINE = Distributed('aux', 'posthog', 'property_values_daily');
 CREATE TABLE posthog.property_values_distributed (
   team_id Int64 CODEC(DoubleDelta, ZSTD(1)),
   property_type LowCardinality(String),

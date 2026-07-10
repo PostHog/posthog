@@ -3146,6 +3146,31 @@ database "posthog" {
     }
   }
 
+  table "property_values_daily_distributed" {
+    column "team_id" {
+      type  = "Int64"
+      codec = "DoubleDelta, ZSTD(1)"
+    }
+    column "property_type" {
+      type = "LowCardinality(String)"
+    }
+    column "property_key" {
+      type = "LowCardinality(String)"
+    }
+    column "property_value" {
+      type = "String"
+    }
+    column "day" {
+      type    = "Date"
+      default = "toDate(now())"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "property_values_daily"
+    }
+  }
+
   table "query_log_archive" {
     column "hostname" {
       type = "LowCardinality(String)"
