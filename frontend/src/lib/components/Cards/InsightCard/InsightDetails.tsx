@@ -154,6 +154,7 @@ function splitOutOverrideProperties(
     if (!properties || overrideProperties.length === 0) {
         return { base: properties, overrideFound: false }
     }
+    // Flat list: the backend concatenated the override onto the end.
     if (Array.isArray(properties)) {
         const tailStart = properties.length - overrideProperties.length
         if (tailStart >= 0 && samePropertyFilters(properties.slice(tailStart), overrideProperties)) {
@@ -161,19 +162,11 @@ function splitOutOverrideProperties(
         }
         return { base: properties, overrideFound: false }
     }
-    const values = properties.values ?? []
-    const last = values[values.length - 1]
-    if (
-        last &&
-        'values' in last &&
-        Array.isArray(last.values) &&
-        samePropertyFilters(last.values as AnyPropertyFilter[], overrideProperties)
-    ) {
-        const remaining = values.slice(0, -1)
-        return {
-            base: remaining.length === 1 ? (remaining[0] as PropertyGroupFilter) : { ...properties, values: remaining },
-            overrideFound: true,
-        }
+    // Group: the backend AND-wrapped the insight's group with the override as the final subgroup.
+    const subgroups = properties.values ?? []
+    const last = subgroups[subgroups.length - 1]
+    if (last && samePropertyFilters(last.values as AnyPropertyFilter[], overrideProperties)) {
+        return { base: { ...properties, values: subgroups.slice(0, -1) }, overrideFound: true }
     }
     return { base: properties, overrideFound: false }
 }
