@@ -221,8 +221,23 @@ def group_has_notebook(group_id: int) -> bool:
     return logic.group_has_notebook(group_id)
 
 
-def create_group_notebook(team_id: int, group_id: int, *, title: str | None, content: Any) -> contracts.NotebookData:
-    notebook = logic.create_group_notebook(team_id, group_id, title=title, content=content)
+def create_group_notebook(
+    team_id: int,
+    group_id: int,
+    *,
+    title: str | None,
+    content: Any,
+    created_by_id: int | None = None,
+    last_modified_by_id: int | None = None,
+) -> contracts.NotebookData:
+    notebook = logic.create_group_notebook(
+        team_id,
+        group_id,
+        title=title,
+        content=content,
+        created_by_id=created_by_id,
+        last_modified_by_id=last_modified_by_id,
+    )
     capture_notebook_created(
         short_id=notebook.short_id,
         creation_source=NotebookCreationSource.GROUP,
