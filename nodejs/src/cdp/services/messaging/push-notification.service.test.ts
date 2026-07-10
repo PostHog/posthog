@@ -462,6 +462,28 @@ describe('PushNotificationService', () => {
             expect(result.error).toBeTruthy()
             expect(result.error).toContain('InvalidProviderToken')
         })
+
+        it('does not let custom data overwrite the reserved aps payload', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+            })
+            // A custom data key named `aps` must not clobber the real notification payload.
+            invocation.queueParameters = {
+                ...invocation.queueParameters,
+                payload: { title: 'Real title', data: { aps: 'hijacked', custom: 'kept' } },
+            } as any
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 15,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            const body = JSON.parse(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            expect(body.aps.alert.title).toBe('Real title')
+            expect(body.custom).toBe('kept')
+        })
     })
 
     describe('multiple channels', () => {
@@ -515,6 +537,32 @@ describe('PushNotificationService', () => {
             expect(mockTrackedFetch).toHaveBeenCalledTimes(1)
             expect(mockTrackedFetch.mock.calls[0][0].url).toContain('fcm.googleapis.com')
             expect(result.error).toBeUndefined()
+        })
+
+        it('retries when one channel is skipped and another genuinely fails', async () => {
+            ;(integrationManager.get as jest.Mock).mockImplementation((id: number) =>
+                Promise.resolve(id === 1 ? firebaseIntegration : apnsIntegration)
+            )
+            // Only the APNS token is registered: FCM is skipped (not a delivery), APNS is attempted.
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-token'),
+            })
+            invocation.queueParameters = { ...invocation.queueParameters, integrationIds: [1, 2] } as any
+            // APNS fails - nothing was delivered, so this must retry rather than silently drop the push.
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 500, text: () => Promise.resolve('{}'), dump: () => Promise.resolve() },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.error).toBeTruthy()
+            // The error is also surfaced to the hog template, so its failure message is not blank.
+            expect(result.invocation.state.vmState!.stack.at(-1)).toEqual({
+                success: false,
+                error: expect.any(String),
+            })
         })
     })
 })

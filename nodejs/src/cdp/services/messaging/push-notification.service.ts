@@ -74,6 +74,7 @@ export class PushNotificationService {
         // hog would only ever deliver to the first channel. Each channel is isolated: one failing must
         // not abort the others.
         let errorCount = 0
+        let successCount = 0
         let firstError: string | undefined
         for (const integrationId of params.integrationIds) {
             try {
@@ -91,8 +92,13 @@ export class PushNotificationService {
                     throw new Error(`Unsupported push integration kind: ${integration.kind}`)
                 }
 
-                // A channel with no registered device token for this recipient is skipped, not failed.
-                pushMetric(sent ? 'push_sent' : 'push_skipped')
+                if (sent) {
+                    successCount++
+                    pushMetric('push_sent')
+                } else {
+                    // A channel with no registered device token for this recipient is skipped, not failed.
+                    pushMetric('push_skipped')
+                }
             } catch (error) {
                 errorCount++
                 firstError = firstError ?? error.message
@@ -101,13 +107,15 @@ export class PushNotificationService {
             }
         }
 
-        // Only surface an error (which lets the action retry) when every channel failed — a partial
-        // success must not retry, or it would re-deliver to the channels that already succeeded.
-        const success = errorCount < params.integrationIds.length
+        // Retry (by surfacing an error) only when a channel was attempted and failed and nothing was
+        // delivered. A skip (no device token) is not a delivery, so retrying is safe; but once any
+        // channel has delivered we must not retry, or it would re-deliver to that channel.
+        const success = successCount > 0 || errorCount === 0
         if (!success) {
             result.error = firstError
         }
-        result.invocation.state.vmState!.stack.push({ success })
+        // Surface the error to the hog template too, otherwise its failure message renders blank.
+        result.invocation.state.vmState!.stack.push({ success, error: success ? null : (firstError ?? null) })
 
         return result
     }
@@ -123,7 +131,7 @@ export class PushNotificationService {
         const payload = params.payload
 
         const projectId = integration.config.project_id
-        const accessToken = integration.sensitive_config.access_token ?? integration.config.access_token
+        const accessToken = integration.sensitive_config.access_token
         if (!projectId || !accessToken) {
             throw new Error('Firebase integration is missing project_id or access_token')
         }
@@ -303,7 +311,10 @@ export class PushNotificationService {
     }
 
     private async generateApnsJwt(teamId: string, keyId: string, signingKey: string): Promise<string> {
-        const cacheKey = `${APNS_JWT_CACHE_PREFIX}${keyId}`
+        // Key on the Apple team id + key id, not the key id alone: key ids are unique only within an
+        // Apple account, so two PostHog teams could share one. Keying on both preserves fleet-wide reuse
+        // per signing key while preventing a cross-account collision that would serve the wrong token.
+        const cacheKey = `${APNS_JWT_CACHE_PREFIX}${teamId}/${keyId}`
 
         const cached = await this.redis?.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) =>
             client.get(cacheKey)
@@ -370,11 +381,10 @@ export class PushNotificationService {
             aps['mutable-content'] = 1
         }
 
-        const result: Record<string, unknown> = { aps }
+        // Spread user data first so the reserved `aps` and `image_url` keys always win — a custom data
+        // key named `aps` must not overwrite the notification payload.
+        const result: Record<string, unknown> = { ...(payload.data ?? {}), aps }
 
-        if (payload.data) {
-            Object.assign(result, payload.data)
-        }
         if (payload.image) {
             result['image_url'] = payload.image
         }
