@@ -29,7 +29,6 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -90,8 +89,6 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 from products.tasks.backend.facade.access import has_tasks_access
-
-from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 
 tracer = trace.get_tracer(__name__)
 
@@ -403,21 +400,6 @@ class EnterpriseExperimentsViewSet(
         else:
             return True
         return "*" in scopes or "feature_flag:write" in scopes
-
-    # ******************************************
-    # /projects/:id/experiments/requires_flag_implementation
-    #
-    # Returns current results of an experiment, and graphs
-    # 1. Probability of success
-    # 2. Funnel breakdown graph to display
-    # ******************************************
-    @action(methods=["GET"], detail=False, required_scopes=["experiment:read"])
-    def requires_flag_implementation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        filter = Filter(request=request, team=self.team).shallow_clone({"date_from": "-7d", "date_to": ""})
-
-        warning = requires_flag_warning(filter, self.team)
-
-        return Response({"result": warning})
 
     @extend_schema(
         request=None,
@@ -769,13 +751,17 @@ class EnterpriseExperimentsViewSet(
             feature_flag_key=feature_flag_key,
             description=data.get("description", ""),
             parameters={
-                "feature_flag_variants": variants,
-                "feature_flag_payloads": feature_flag_payloads,
-                "rollout_percentage": 100,
                 "prompt_metadata": {
                     "name": prompt_name,
                     "templates": templates,
                     "versions": versions,
+                },
+            },
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {"variants": variants},
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "payloads": feature_flag_payloads,
                 },
             },
             metrics=metrics,
