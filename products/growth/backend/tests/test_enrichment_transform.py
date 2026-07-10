@@ -27,7 +27,7 @@ def test_transform_maps_all_registry_fields():
         "headcount": 130,  # tractionMetrics wins over the top-level headcount
         "headcount_engineering": 45,
         "industry": "Developer Tools",
-        "country": "United States",
+        "country": "US",  # ISO alpha-2, matching the icp_country format
         "founded_year": 2019,
         "funding_stage": "SERIES_A",
         "is_yc_company": True,
@@ -50,6 +50,12 @@ def test_non_yc_investors():
     fields = transform_harmonic_company(_company(funding={"fundingStage": "SEED", "investors": [{"name": "Acme VC"}]}))
     assert fields is not None
     assert fields.is_yc_company is False
+
+
+def test_unmapped_country_name_is_dropped_not_written_raw():
+    fields = transform_harmonic_company(_company(location={"country": "Kingdom of Freedonia"}))
+    assert fields is not None
+    assert fields.country is None
 
 
 def test_none_and_empty_payloads_return_none():

@@ -6,6 +6,7 @@ enrichment transforms in ee/billing/salesforce_enrichment/enrichment.py.
 
 from typing import Any, Optional
 
+from products.growth.backend.enrichment.countries import country_name_to_iso_code
 from products.growth.backend.enrichment.fields import EnrichmentFields
 
 from ee.billing.salesforce_enrichment.constants import YC_INVESTOR_NAME
@@ -82,7 +83,8 @@ def transform_harmonic_company(company: Optional[dict[str, Any]]) -> Optional[En
         headcount=headcount,
         headcount_engineering=_latest_metric(traction, "headcountEngineering"),
         industry=_primary_industry(_safe_list(company.get("tags")), _safe_list(company.get("tagsV2"))),
-        country=location.get("country"),
+        # ISO alpha-2 to match the format the icp_country group property already holds.
+        country=country_name_to_iso_code(location.get("country")),
         founded_year=_founded_year(founding),
         funding_stage=funding.get("fundingStage"),
         is_yc_company=_is_yc_company(funding.get("investors")),
