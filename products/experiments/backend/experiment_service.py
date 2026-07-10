@@ -3086,7 +3086,12 @@ class ExperimentService:
             changed_fields = self._compute_changed_fields(
                 experiment, before_update=before_update, before_saved_metrics=before_saved_metrics
             )
-            if changed_fields and changed_fields != RUNNING_TIME_ONLY_CHANGED_FIELDS:
+            # A deprecated flag-only PATCH strips its keys from `parameters` before the row is saved, so
+            # it can leave `changed_fields` empty while still moving flag config. Report anyway when a
+            # deprecated flag write landed, else the deprecation-bake signal under-counts legacy traffic.
+            if (
+                changed_fields and changed_fields != RUNNING_TIME_ONLY_CHANGED_FIELDS
+            ) or deprecated_flag_config_changed:
                 self._report_experiment_updated(
                     experiment,
                     changed_fields=changed_fields,

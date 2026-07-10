@@ -6158,13 +6158,20 @@ class TestExperimentParametersFlagConfigCompatibility(APILicensedTest):
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_update_event_records_deprecated_config_change_on_draft(self, mock_report_user_action: MagicMock) -> None:
         experiment_id = self._create_via_flag_object(key="upd-changed")
+        # Normalize `parameters` to {} first, so the second PATCH's stripped flag config produces no row
+        # diff at all: the deprecated flag write is then the ONLY reason to report.
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"parameters": {"rollout_percentage": 40}},
+        )
         mock_report_user_action.reset_mock()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}",
-            {"description": "rollout change", "parameters": {"rollout_percentage": 25}},
+            {"parameters": {"rollout_percentage": 25}},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         props = self._updated_event_props(mock_report_user_action)
+        self.assertEqual(props["changed_fields"], [])
         self.assertEqual(props["experiment_update_deprecated_parameters_keys"], ["rollout_percentage"])
         self.assertTrue(props["experiment_update_deprecated_config_changed"])
 
