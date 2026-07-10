@@ -161,6 +161,7 @@ the row lists both.
 | financial_modelling     | HTTP                        | requests                                                        | ✅                          |
 | finnhub                 | HTTP                        | requests                                                        | ✅                          |
 | finnworlds              | HTTP                        | requests                                                        | ✅                          |
+| fireworks_ai            | HTTP                        | requests                                                        | ✅                          |
 | fleetio                 | HTTP                        | requests                                                        | ✅                          |
 | firehydrant             | HTTP                        | requests                                                        | ✅                          |
 | flexmail                | HTTP                        | requests                                                        | ✅                          |
@@ -531,7 +532,6 @@ doesn't conflict with concurrent PRs.
 - firebase
 - firebolt
 - firecrawl
-- fireworks_ai
 - flexmail
 - flexport
 - flowlu

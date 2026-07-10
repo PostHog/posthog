@@ -1333,7 +1333,8 @@ class FirecrawlSourceConfig(config.Config):
 
 @config.config
 class FireworksAISourceConfig(config.Config):
-    pass
+    account_id: str
+    api_key: str
 
 
 @config.config
