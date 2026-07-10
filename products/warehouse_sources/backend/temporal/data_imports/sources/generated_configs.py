@@ -3972,7 +3972,9 @@ class WikipediaPageviewsSourceConfig(config.Config):
 
 @config.config
 class WindmillSourceConfig(config.Config):
-    pass
+    host: str
+    workspace: str
+    api_token: str
 
 
 @config.config
