@@ -189,6 +189,7 @@ class DuckgresBatchQueue:
         lease_ttl_seconds: int = LEASE_TTL_SECONDS,
         max_groups: int | None = None,
         exclude_groups: list[tuple[int, str]] | None = None,
+        team_org_budgets: list[tuple[int, str, int]] | None = None,
     ) -> list[PendingBatch]:
         """Fetch Duckgres-eligible batches whose Delta load has succeeded.
 
@@ -227,6 +228,19 @@ class DuckgresBatchQueue:
         would apply them — including replace-head batches that bypass the unprimed
         block. Computed by ``sink_eligible_schema_ids``.
 
+        ``team_org_budgets`` — (team_id, org_id, budget) rows — enforces a
+        fleet-wide per-org cap on concurrently leased groups. Each in-flight
+        group holds at most one connection to the org's duckgres server, so the
+        cap bounds the sink's connection footprint independently of pod count.
+        Live leases (any owner) count as usage; eligible groups are ranked
+        oldest-first per org and only the org's remaining slots are claimable,
+        so a saturated org's groups are SKIPPED — they never head-of-line block
+        the pod from filling ``max_groups`` with other orgs' work. Soft cap:
+        overlapping claims from concurrent polls can transiently overshoot by a
+        group or two for one poll window; the org's duckgres ``max_connections``
+        is the hard backstop. Teams without a mapping row are uncapped
+        (None = no caps at all, for tests/dev).
+
         Intra-run head-of-line: LIVE batches stay strictly ordered (any
         unapplied lower batch_index blocks). Backfill CHUNKS relax this so a
         whole run drains in one claim: a pending predecessor blocks a chunk
@@ -247,6 +261,26 @@ class DuckgresBatchQueue:
             await cur.execute(
                 f"""
                 WITH {ELIGIBILITY_CTES}
+                team_org AS (
+                    -- Enabled-team -> (org, budget) mapping, passed in because the
+                    -- queue DB has no teams table. Empty when no caps apply.
+                    SELECT team_id, org_id, budget
+                    FROM unnest(
+                        %(budget_team_ids)s::bigint[],
+                        %(budget_org_ids)s::varchar[],
+                        %(budget_values)s::int[]
+                    ) AS t(team_id, org_id, budget)
+                ),
+                org_usage AS (
+                    -- Fleet-wide in-flight groups per org: every live lease, any
+                    -- owner (including this pod's own in-flight groups, which the
+                    -- candidates CTE already excludes from re-claiming).
+                    SELECT m.org_id, count(*) AS live
+                    FROM {DUCKGRES_LEASE_TABLE} l
+                    JOIN team_org m ON m.team_id = l.team_id
+                    WHERE l.expires_at > now()
+                    GROUP BY m.org_id
+                ),
                 candidates AS MATERIALIZED (
                     SELECT
                         {pending_batch_select_columns("dgs")}
@@ -275,6 +309,20 @@ class DuckgresBatchQueue:
                                 AND bl.schema_id = b.schema_id
                                 AND bl.expires_at > now()
                                 AND bl.owner_token <> %(owner)s
+                        )
+                        -- Fully budget-saturated orgs are unclaimable too, and for
+                        -- the same reason must be filtered BEFORE the LIMIT: a
+                        -- saturated org's deep backlog (e.g. a pending backfill)
+                        -- would otherwise fill the window with rows the group
+                        -- filter then drops, and the pod claims nothing while
+                        -- other orgs have work. Partially available orgs keep
+                        -- their rows; candidate_groups ranks those per org below.
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM team_org m
+                            JOIN org_usage u ON u.org_id = m.org_id
+                            WHERE m.team_id = b.team_id
+                                AND u.live >= m.budget
                         )
                         AND NOT {BLOCKED_LIVE_BATCH_CONDITION}
                         AND ds.job_state = 'succeeded'
@@ -377,11 +425,33 @@ class DuckgresBatchQueue:
                 candidate_groups AS (
                     -- Cap leased groups to the consumer's free slots, oldest work
                     -- first (NULL = no cap): a leased-but-unstarted group would be
-                    -- renewed by every poll and stay dark to other pods.
-                    SELECT c.team_id, c.schema_id
-                    FROM candidates c
-                    GROUP BY c.team_id, c.schema_id
-                    ORDER BY min(c.created_at) ASC, c.team_id ASC, c.schema_id ASC
+                    -- renewed by every poll and stay dark to other pods. Groups of
+                    -- an org with only PARTIAL budget left are ranked here and the
+                    -- overflow skipped (fully saturated orgs never reached the
+                    -- candidates window at all), so other orgs still fill max_groups.
+                    SELECT g.team_id, g.schema_id
+                    FROM (
+                        SELECT
+                            grp.team_id,
+                            grp.schema_id,
+                            grp.oldest,
+                            CASE WHEN m.org_id IS NULL THEN NULL
+                                 ELSE row_number() OVER (
+                                     PARTITION BY m.org_id
+                                     ORDER BY grp.oldest ASC, grp.team_id ASC, grp.schema_id ASC
+                                 )
+                            END AS org_rank,
+                            m.budget - COALESCE(u.live, 0) AS org_remaining
+                        FROM (
+                            SELECT c.team_id, c.schema_id, min(c.created_at) AS oldest
+                            FROM candidates c
+                            GROUP BY c.team_id, c.schema_id
+                        ) grp
+                        LEFT JOIN team_org m ON m.team_id = grp.team_id
+                        LEFT JOIN org_usage u ON u.org_id = m.org_id
+                    ) g
+                    WHERE g.org_rank IS NULL OR g.org_rank <= GREATEST(g.org_remaining, 0)
+                    ORDER BY g.oldest ASC, g.team_id ASC, g.schema_id ASC
                     LIMIT COALESCE(%(max_groups)s, 2147483647)
                 ),
                 claimed AS (
@@ -416,10 +486,49 @@ class DuckgresBatchQueue:
                     "max_groups": max_groups,
                     "exclude_team_ids": [team_id for team_id, _ in exclude_groups] if exclude_groups else None,
                     "exclude_schema_ids": [schema_id for _, schema_id in exclude_groups] if exclude_groups else None,
+                    "budget_team_ids": [team_id for team_id, _, _ in team_org_budgets] if team_org_budgets else [],
+                    "budget_org_ids": [org_id for _, org_id, _ in team_org_budgets] if team_org_budgets else [],
+                    "budget_values": [budget for _, _, budget in team_org_budgets] if team_org_budgets else [],
                 },
             )
             rows = await cur.fetchall()
         return [PendingBatch(**row) for row in rows]
+
+    @staticmethod
+    async def count_orgs_at_budget(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_org_budgets: list[tuple[int, str, int]],
+    ) -> int:
+        """How many orgs currently have live group leases at (or over) their sink
+        budget — the dashboard signal that backlog is budget-limited, not
+        pod-limited (raise the org's budget or duckgres capacity, not replicas)."""
+        if not team_org_budgets:
+            return 0
+        row = await conn.execute(
+            f"""
+            SELECT count(*)
+            FROM (
+                SELECT m.org_id
+                FROM {DUCKGRES_LEASE_TABLE} l
+                JOIN unnest(
+                    %(budget_team_ids)s::bigint[],
+                    %(budget_org_ids)s::varchar[],
+                    %(budget_values)s::int[]
+                ) AS m(team_id, org_id, budget) ON m.team_id = l.team_id
+                WHERE l.expires_at > now()
+                GROUP BY m.org_id
+                HAVING count(*) >= max(m.budget)
+            ) saturated
+            """,
+            {
+                "budget_team_ids": [team_id for team_id, _, _ in team_org_budgets],
+                "budget_org_ids": [org_id for _, org_id, _ in team_org_budgets],
+                "budget_values": [budget for _, _, budget in team_org_budgets],
+            },
+        )
+        result = await row.fetchone()
+        return int(result[0]) if result else 0
 
     @staticmethod
     async def supersede_replaced_runs(

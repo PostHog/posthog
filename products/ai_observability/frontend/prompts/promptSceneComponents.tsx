@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { lazy, Suspense, useRef } from 'react'
+import { Suspense, useRef } from 'react'
 
 import { IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import {
@@ -23,6 +23,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -39,7 +40,7 @@ import { PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic
 import { promptExperimentsLogic } from './promptExperimentsLogic'
 import { PROMPT_NAME_MAX_LENGTH } from './utils'
 
-const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
+const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
 
 function PromptOutline({
     promptText,
