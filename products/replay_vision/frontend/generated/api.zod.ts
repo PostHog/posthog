@@ -436,8 +436,8 @@ export const VisionScannersObservationsLabelCreateBody = /* @__PURE__ */ zod
 /**
  * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field; poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run consumes one observation of the monthly Replay Vision quota; the request is refused with 402 when the planned re-runs exceed what is left. Only monitor and classifier scanners are supported. Requires session recording edit access.
  */
-export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault = 10
-export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax = 10
+export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault = 100
+export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax = 100
 
 export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */ zod.object({
     session_limit: zod

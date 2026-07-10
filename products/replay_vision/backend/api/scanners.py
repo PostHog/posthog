@@ -124,6 +124,11 @@ def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any
     return None
 
 
+class FeedbackThemeSessionSerializer(serializers.Serializer):
+    observation_id = serializers.CharField(help_text="Observation whose feedback comment backs this theme.")
+    session_id = serializers.CharField(help_text="Session recording the feedback comment was about.")
+
+
 class FeedbackThemeSerializer(serializers.Serializer):
     theme = serializers.CharField(
         help_text='Short failure mode in sentence case, for example "Review page mistaken for confirmation".'
@@ -132,6 +137,11 @@ class FeedbackThemeSerializer(serializers.Serializer):
     examples = serializers.ListField(
         child=serializers.CharField(),
         help_text="Up to two short representative quotes from the feedback comments.",
+    )
+    sessions = FeedbackThemeSessionSerializer(
+        many=True,
+        help_text="The rated sessions whose feedback comments back this theme. Empty for summaries generated "
+        "before session tracking.",
     )
 
 
@@ -236,7 +246,8 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             return None
         # The staleness fingerprint is internal bookkeeping, not API surface.
         return {
-            "themes": cached.get("themes") or [],
+            # Summaries cached before session tracking lack the key, so default it to keep the shape stable.
+            "themes": [{**theme, "sessions": theme.get("sessions") or []} for theme in cached.get("themes") or []],
             "feedback_count": cached.get("feedback_count", 0),
             "generated_at": cached.get("generated_at"),
         }

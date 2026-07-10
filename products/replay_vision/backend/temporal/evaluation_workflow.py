@@ -48,8 +48,9 @@ from products.replay_vision.backend.temporal.types import (
     UploadVideoToGeminiInputs,
 )
 
-# Each session is a full video upload + LLM conversation; two at a time bounds worker load.
-_EVALUATION_CONCURRENCY = 2
+# Each session is a full video upload + LLM conversation; four at a time bounds worker load
+# while keeping a full 100-session run within the workflow execution timeout.
+_EVALUATION_CONCURRENCY = 4
 
 _STATE_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=1),

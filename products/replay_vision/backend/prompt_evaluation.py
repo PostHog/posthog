@@ -13,7 +13,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.temporal.constants import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
 
 # Each evaluated session is a full scanner run, so keep the bill bounded.
-EVALUATION_SESSION_CAP = 10
+EVALUATION_SESSION_CAP = 100
 
 _EVALUATION_USAGE_NAMESPACE = uuid.UUID("8f6f5e56-9f0b-4c5a-9a3e-2b7d1c4e8a90")
 

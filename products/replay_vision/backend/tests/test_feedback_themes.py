@@ -25,7 +25,13 @@ from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 _CANNED_THEMES = _LlmFeedbackThemes(
     themes=[
-        _LlmTheme(theme="Review page mistaken for confirmation", count=5, examples=["it was only the review step"]),
+        _LlmTheme(
+            theme="Review page mistaken for confirmation",
+            count=5,
+            examples=["it was only the review step"],
+            # 2 repeated (model noise) and 99 out of range: both must resolve to just comments 1 and 2.
+            comment_numbers=[1, 2, 2, 99],
+        ),
         _LlmTheme(theme="Coupon banner read as an error", count=2, examples=[]),
     ]
 )
@@ -61,14 +67,23 @@ class TestFeedbackThemes(_VisionAPITestCase):
         return refresh_feedback_themes_if_stale(self.scanner, distinct_id="test-user")
 
     def test_generates_then_skips_until_feedback_changes(self) -> None:
+        now = timezone.now()
         for i in range(3):
-            self._rate(f"sess-{i}", False, f"feedback {i}")
+            observation = self._rate(f"sess-{i}", False, f"feedback {i}")
+            # Deterministic recency: sess-0 newest, so comment number 1 maps to it.
+            ReplayObservation.objects.filter(id=observation.id).update(created_at=now - timedelta(minutes=i))
 
         self.assertEqual(self._refresh(), "generated")
         assert self.scanner.feedback_themes is not None
         self.assertEqual(self.scanner.feedback_themes["feedback_count"], 3)
-        self.assertEqual(self.scanner.feedback_themes["themes"][0]["theme"], "Review page mistaken for confirmation")
-        self.assertEqual(self.scanner.feedback_themes["themes"][0]["count"], 5)
+        first_theme = self.scanner.feedback_themes["themes"][0]
+        self.assertEqual(first_theme["theme"], "Review page mistaken for confirmation")
+        # Deduped and range-checked comment numbers resolve to sessions and override the model's count.
+        self.assertEqual([session["session_id"] for session in first_theme["sessions"]], ["sess-0", "sess-1"])
+        self.assertEqual(first_theme["count"], 2)
+        # No comment numbers: the model's count stands and there is nothing to link.
+        self.assertEqual(self.scanner.feedback_themes["themes"][1]["sessions"], [])
+        self.assertEqual(self.scanner.feedback_themes["themes"][1]["count"], 2)
 
         self.assertEqual(self._refresh(), "unchanged")
         self.assertEqual(self.mock_summarize.call_count, 1)
@@ -106,7 +121,7 @@ class TestFeedbackThemes(_VisionAPITestCase):
             generate_prompt_suggestion(self.scanner)
         user_content = mock_agentic.call_args.kwargs["user_content"]
         self.assertIn("Recurring failure modes summarized from the team's feedback", user_content)
-        self.assertIn("- Review page mistaken for confirmation (5 comments)", user_content)
+        self.assertIn("- Review page mistaken for confirmation (2 comments)", user_content)
         self.scanner.refresh_from_db()
         assert self.scanner.feedback_themes is not None
         self.assertEqual(self.scanner.feedback_themes["feedback_count"], 3)
@@ -140,6 +155,7 @@ class TestFeedbackThemes(_VisionAPITestCase):
         detail_url = f"{self.scanners_url}{self.scanner.id}/"
         self.assertIsNone(self.client.get(detail_url).json()["feedback_themes"])
 
+        # No "sessions" key: a summary cached before session tracking must still serve the full shape.
         self.scanner.feedback_themes = {
             "themes": [{"theme": "Review page mistaken for confirmation", "count": 5, "examples": ["a quote"]}],
             "feedback_count": 5,
@@ -151,6 +167,7 @@ class TestFeedbackThemes(_VisionAPITestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()["feedback_themes"]
         self.assertEqual(payload["themes"][0]["theme"], "Review page mistaken for confirmation")
+        self.assertEqual(payload["themes"][0]["sessions"], [])
         self.assertEqual(payload["feedback_count"], 5)
         self.assertNotIn("fingerprint", payload)
 

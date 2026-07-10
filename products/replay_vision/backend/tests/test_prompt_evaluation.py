@@ -31,6 +31,7 @@ from products.replay_vision.backend.temporal.activities.evaluate_prompt_suggesti
     record_evaluation_result_activity,
     select_evaluation_sessions_activity,
 )
+from products.replay_vision.backend.temporal.constants import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
 from products.replay_vision.backend.temporal.evaluation_types import (
     EvaluationSession,
     FinalizeEvaluationInputs,
@@ -310,7 +311,9 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         suggestion = self._create_pending_suggestion(
             evaluation={
                 "status": "running",
-                "started_at": (timezone.now() - timedelta(hours=2)).isoformat(),
+                "started_at": (
+                    timezone.now() - EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT - timedelta(minutes=10)
+                ).isoformat(),
                 "results": [],
                 "total": 3,
                 "summary": None,

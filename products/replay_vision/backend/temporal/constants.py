@@ -111,7 +111,8 @@ def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:
 
 
 EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME = "replay-vision-evaluate-prompt-suggestion"
-EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
+# Sized for a full run at the session cap (100 sessions, 4 concurrent, a few minutes each).
+EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT = dt.timedelta(hours=3)
 
 
 def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:

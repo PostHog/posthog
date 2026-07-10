@@ -586,6 +586,13 @@ export const ScannerModelEnumApi = {
     Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
 } as const
 
+export interface FeedbackThemeSessionApi {
+    /** Observation whose feedback comment backs this theme. */
+    observation_id: string
+    /** Session recording the feedback comment was about. */
+    session_id: string
+}
+
 export interface FeedbackThemeApi {
     /** Short failure mode in sentence case, for example "Review page mistaken for confirmation". */
     theme: string
@@ -593,6 +600,8 @@ export interface FeedbackThemeApi {
     count: number
     /** Up to two short representative quotes from the feedback comments. */
     examples: string[]
+    /** The rated sessions whose feedback comments back this theme. Empty for summaries generated before session tracking. */
+    sessions: FeedbackThemeSessionApi[]
 }
 
 export interface FeedbackThemesApi {
@@ -1022,7 +1031,7 @@ export interface EvaluatePromptSuggestionRequestApi {
     /**
      * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run consumes one observation of the monthly Replay Vision quota. Defaults to `evaluation_session_cap`, which is also the maximum.
      * @minimum 1
-     * @maximum 10
+     * @maximum 100
      */
     session_limit?: number
 }

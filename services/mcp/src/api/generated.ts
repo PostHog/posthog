@@ -21116,7 +21116,7 @@ export namespace Schemas {
       /**
          * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run consumes one observation of the monthly Replay Vision quota. Defaults to `evaluation_session_cap`, which is also the maximum.
          * @minimum 1
-         * @maximum 10
+         * @maximum 100
          */
       session_limit?: number;
     }
@@ -24556,6 +24556,13 @@ export namespace Schemas {
       readonly modified_by: number | null;
     }
 
+    export interface FeedbackThemeSession {
+      /** Observation whose feedback comment backs this theme. */
+      observation_id: string;
+      /** Session recording the feedback comment was about. */
+      session_id: string;
+    }
+
     export interface FeedbackTheme {
       /** Short failure mode in sentence case, for example "Review page mistaken for confirmation". */
       theme: string;
@@ -24563,6 +24570,8 @@ export namespace Schemas {
       count: number;
       /** Up to two short representative quotes from the feedback comments. */
       examples: string[];
+      /** The rated sessions whose feedback comments back this theme. Empty for summaries generated before session tracking. */
+      sessions: FeedbackThemeSession[];
     }
 
     export interface FeedbackThemes {
