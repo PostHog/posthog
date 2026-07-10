@@ -7,11 +7,13 @@ import api from '~/lib/api'
 import { ApiError } from '~/lib/api-error'
 import { EventsQuery, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { LLMPrompt, LLMPromptResolveResponse, PropertyFilterType, PropertyOperator } from '~/types'
+import { LLMPrompt, LLMPromptResolveResponse, PropertyFilterType, PropertyOperator, UserBasicType } from '~/types'
 
 import { PromptAnalyticsScope, PromptMode, ResolvedLLMPrompt, llmPromptLogic } from './llmPromptLogic'
 
-const mockPrompt = {
+const mockUser = { id: 1, email: 'test@example.com' } as UserBasicType
+
+const mockPrompt: ResolvedLLMPrompt = {
     id: 'prompt-version-2',
     name: 'my-test-prompt',
     prompt: 'You are a helpful assistant.',
@@ -23,19 +25,19 @@ const mockPrompt = {
     deleted: false,
     created_at: '2024-01-02T00:00:00Z',
     updated_at: '2024-01-02T00:00:00Z',
-    created_by: { id: 1, email: 'test@example.com' },
+    created_by: mockUser,
     versions: [
         {
             id: 'prompt-version-2',
             version: 2,
-            created_by: { id: 1, email: 'test@example.com' },
+            created_by: mockUser,
             created_at: '2024-01-02T00:00:00Z',
             is_latest: true,
         },
         {
             id: 'prompt-version-1',
             version: 1,
-            created_by: { id: 1, email: 'test@example.com' },
+            created_by: mockUser,
             created_at: '2024-01-01T00:00:00Z',
             is_latest: false,
         },
