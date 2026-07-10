@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconPlay, IconRefresh, IconRewindPlay } from '@posthog/icons'
+import { IconEye, IconPlay, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -148,7 +148,27 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         {
             title: 'Status',
             key: 'status',
-            render: (_, obs) => <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />,
+            render: (_, obs) => (
+                <div className="flex items-center gap-1">
+                    <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />
+                    {obs.status === 'failed' && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                icon={<IconRefresh />}
+                                onClick={() => retryObservation(obs.id)}
+                                loading={retryingObservationIds.includes(obs.id)}
+                                tooltip="Retry scan"
+                                data-attr="vision-observation-retry"
+                            />
+                        </AccessControlAction>
+                    )}
+                </div>
+            ),
         },
         {
             title: 'Result',
@@ -203,36 +223,16 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             key: 'actions',
             width: 1,
             render: (_, obs) => (
-                <div className="flex gap-1">
-                    {obs.status === 'failed' && (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                icon={<IconRefresh />}
-                                onClick={() => retryObservation(obs.id)}
-                                loading={retryingObservationIds.includes(obs.id)}
-                                className="whitespace-nowrap"
-                                data-attr="vision-observation-retry"
-                            >
-                                Retry
-                            </LemonButton>
-                        </AccessControlAction>
-                    )}
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconRewindPlay />}
-                        to={urls.replaySingle(obs.session_id)}
-                        className="whitespace-nowrap"
-                        data-attr="vision-observation-view-recording"
-                    >
-                        View recording
-                    </LemonButton>
-                </div>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconEye />}
+                    to={combineUrl(urls.replayVisionObservation(obs.id), observationDetailLinkParams).url}
+                    className="whitespace-nowrap"
+                    data-attr="vision-observation-view-details"
+                >
+                    View details
+                </LemonButton>
             ),
         },
     ]
