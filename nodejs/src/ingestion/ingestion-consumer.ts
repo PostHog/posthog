@@ -216,7 +216,6 @@ export class IngestionConsumer {
         })
 
         this.groupStore = new BatchWritingGroupStore(
-            this.deps.outputs,
             this.deps.groupRepository,
             this.deps.clickhouseGroupRepository,
             {

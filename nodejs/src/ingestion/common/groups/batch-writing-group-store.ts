@@ -7,13 +7,9 @@ import {
 } from '~/common/groups/repositories/clickhouse-group-repository'
 import { GroupRepositoryTransaction } from '~/common/groups/repositories/group-repository-transaction.interface'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
-import { GroupsOutput, IngestionWarningsOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { logger } from '~/common/utils/logger'
 import { promiseRetry } from '~/common/utils/retries'
 import { RaceConditionError } from '~/common/utils/utils'
-import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
 import { Group, GroupTypeIndex, TeamId } from '~/types'
@@ -316,9 +312,10 @@ interface PendingGroupWrite {
  */
 export class BatchWritingGroupStore implements GroupStore {
     private groupCache: GroupCache
+    /** ClickHouse messages queued by create/fallback paths, drained by flush(). */
+    private pendingFlushResults: GroupFlushResult[] = []
     private databaseOperationCounts: Map<string, number>
     private options: BatchWritingGroupStoreOptions
-    private outputs: IngestionOutputs<GroupsOutput | IngestionWarningsOutput>
     private groupRepository: GroupRepository
     private clickhouseGroupRepository: ClickhouseGroupRepository
     // Periodic metric emitter — emits accumulated group-operation metrics on
@@ -326,7 +323,6 @@ export class BatchWritingGroupStore implements GroupStore {
     private metricEmissionTimer: NodeJS.Timeout | undefined
 
     constructor(
-        outputs: IngestionOutputs<GroupsOutput | IngestionWarningsOutput>,
         groupRepository: GroupRepository,
         clickhouseGroupRepository: ClickhouseGroupRepository,
         options?: Partial<BatchWritingGroupStoreOptions>
@@ -334,7 +330,6 @@ export class BatchWritingGroupStore implements GroupStore {
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.groupCache = new GroupCache()
         this.databaseOperationCounts = new Map()
-        this.outputs = outputs
         this.groupRepository = groupRepository
         this.clickhouseGroupRepository = clickhouseGroupRepository
 
@@ -375,7 +370,7 @@ export class BatchWritingGroupStore implements GroupStore {
 
         if (pendingWrites.length === 0) {
             this.groupCache.processDeferredEvictions()
-            return []
+            return this.drainPendingFlushResults()
         }
 
         try {
@@ -383,7 +378,9 @@ export class BatchWritingGroupStore implements GroupStore {
                 ? await this.flushBatch(pendingWrites)
                 : await this.flushIndividual(pendingWrites)
             this.groupCache.processDeferredEvictions()
-            return results
+            // Drained after the writes so messages queued by fallback paths
+            // during this flush ride this flush's side effects too.
+            return [...results, ...this.drainPendingFlushResults()]
         } catch (error) {
             logger.error('Failed to flush group updates', {
                 error,
@@ -506,9 +503,7 @@ export class BatchWritingGroupStore implements GroupStore {
                 this.options.maxOptimisticUpdateRetries,
                 // Jitter the starting interval so pods that conflicted on the
                 // same group don't retry in lockstep and re-collide.
-                this.options.optimisticUpdateRetryInterval * (0.5 + Math.random()),
-                undefined,
-                [MessageSizeTooLarge]
+                this.options.optimisticUpdateRetryInterval * (0.5 + Math.random())
             )
             if (!message) {
                 return null
@@ -526,19 +521,13 @@ export class BatchWritingGroupStore implements GroupStore {
     }
 
     private async handleOptimisticUpdateFailure(error: unknown, update: GroupUpdate, cacheKey: string): Promise<void> {
-        if (error instanceof MessageSizeTooLarge) {
-            await emitIngestionWarning(this.outputs, update.team_id, {
-                type: 'group_upsert_message_size_too_large',
-                details: {
-                    groupTypeIndex: update.group_type_index,
-                    groupKey: update.group_key,
-                    distinctId: cacheKey,
-                },
-                pipelineStep: 'group-store',
-            })
-            return
-        }
-
+        logger.warn('⚠️', 'Optimistic group update failed after max retries', {
+            error,
+            teamId: update.team_id,
+            groupTypeIndex: update.group_type_index,
+            groupKey: update.group_key,
+            cacheKey,
+        })
         await this.fallbackToDirectUpsert(update, cacheKey)
     }
 
@@ -675,7 +664,12 @@ export class BatchWritingGroupStore implements GroupStore {
             needsWrite: false,
         })
 
-        await this.upsertToClickhouse(
+        // The ClickHouse message rides the next flush's side effects instead
+        // of being awaited here: delivery reports on the downstream producer
+        // can take ~seconds under backpressure, and awaiting one inline
+        // serializes the per-distinct-id lane (observed in production with
+        // create-heavy migration traffic).
+        this.queueClickhouseMessage(
             teamId,
             groupTypeIndex,
             groupKey,
@@ -715,7 +709,7 @@ export class BatchWritingGroupStore implements GroupStore {
         )
 
         if (propertiesUpdate.updated) {
-            await this.upsertToClickhouse(
+            this.queueClickhouseMessage(
                 teamId,
                 groupTypeIndex,
                 groupKey,
@@ -727,7 +721,13 @@ export class BatchWritingGroupStore implements GroupStore {
         }
     }
 
-    private async upsertToClickhouse(
+    /**
+     * Queue a group's ClickHouse message for the next flush, which returns it
+     * for side-effect production (awaited before the owning batch's offset
+     * commit). ReplacingMergeTree ordering by version makes produce order
+     * across flushes irrelevant.
+     */
+    private queueClickhouseMessage(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
@@ -735,16 +735,29 @@ export class BatchWritingGroupStore implements GroupStore {
         createdAt: DateTime,
         actualVersion: number,
         source: string
-    ): Promise<void> {
+    ): void {
         this.incrementDatabaseOperation('upsertClickhouse' + (source ? `-${source}` : ''))
-        await this.clickhouseGroupRepository.upsertGroup(
+        this.pendingFlushResults.push({
+            messages: [
+                this.clickhouseGroupRepository.buildUpsertMessage(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    properties,
+                    createdAt,
+                    actualVersion
+                ),
+            ],
             teamId,
             groupTypeIndex,
             groupKey,
-            properties,
-            createdAt,
-            actualVersion
-        )
+        })
+    }
+
+    private drainPendingFlushResults(): GroupFlushResult[] {
+        const pending = this.pendingFlushResults
+        this.pendingFlushResults = []
+        return pending
     }
 
     private async executeUpsertTransaction(
@@ -1088,17 +1101,6 @@ export class BatchWritingGroupStore implements GroupStore {
         timestamp: DateTime,
         batchId: number
     ): Promise<void> {
-        if (error instanceof MessageSizeTooLarge) {
-            await emitIngestionWarning(this.outputs, teamId, {
-                type: 'group_upsert_message_size_too_large',
-                details: {
-                    groupTypeIndex,
-                    groupKey,
-                },
-                pipelineStep: 'group-store',
-            })
-            return
-        }
         if (error instanceof RaceConditionError) {
             // Remove from cache to prevent retry, the group was already created by another thread
             this.groupCache.delete(teamId, groupKey)
@@ -1160,7 +1162,7 @@ export class BatchWritingGroupStore implements GroupStore {
             this.metricEmissionTimer = undefined
         }
 
-        let dirtyCount = 0
+        let dirtyCount = this.pendingFlushResults.length
         for (const [_, entry] of this.groupCache.entries()) {
             if (entry && entry.needsWrite) {
                 dirtyCount++

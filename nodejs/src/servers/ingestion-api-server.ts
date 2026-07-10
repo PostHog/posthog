@@ -344,7 +344,7 @@ export class IngestionApiServer implements NodeServer {
         })
         const personsStore: PersonsStore = this.personsStore
 
-        this.groupStore = new BatchWritingGroupStore(ingestionOutputs, groupRepository, clickhouseGroupRepository, {
+        this.groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {
             useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
             maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,

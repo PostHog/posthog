@@ -3,7 +3,6 @@ import { DateTime } from 'luxon'
 
 import { Group, GroupTypeIndex, ProjectId, TeamId } from '~/types'
 import { parseJSON } from '~/common/utils/json-parse'
-import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { RaceConditionError } from '~/common/utils/utils'
 
 import { BatchWritingGroupStore } from './batch-writing-group-store'
@@ -11,13 +10,7 @@ import { groupCacheOperationsCounter } from './metrics'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 
-// Mock the module before importing
-jest.mock('~/ingestion/common/ingestion-warnings', () => ({
-    emitIngestionWarning: jest.fn().mockResolvedValue(undefined),
-}))
-
-import { GroupsOutput, IngestionWarningsOutput } from '~/common/outputs'
-import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
+import { GroupsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 
 // Mock the DB class
@@ -30,7 +23,6 @@ describe('BatchWritingGroupStore', () => {
     let teamId: TeamId
     let projectId: ProjectId
     let group: Group
-    let mockOutputs: IngestionOutputs<GroupsOutput | IngestionWarningsOutput>
 
     beforeEach(() => {
         teamId = 1
@@ -114,8 +106,7 @@ describe('BatchWritingGroupStore', () => {
         clickhouseGroupRepository = new ClickhouseGroupRepository({
             queueMessages: mockQueueMessages,
         } as unknown as IngestionOutputs<GroupsOutput>)
-        mockOutputs = {} as unknown as IngestionOutputs<GroupsOutput | IngestionWarningsOutput>
-        groupStore = new BatchWritingGroupStore(mockOutputs, groupRepository, clickhouseGroupRepository)
+        groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository)
     })
 
     afterEach(async () => {
@@ -181,8 +172,14 @@ describe('BatchWritingGroupStore', () => {
         // Creation is a single ON CONFLICT insert — no wrapping transaction.
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(0)
         expect(groupRepository.insertGroup).toHaveBeenCalledTimes(1)
-        // New groups produce to ClickHouse inline (not deferred to flush).
-        expect(mockQueueMessages).toHaveBeenCalledTimes(1)
+        // The ClickHouse message is NOT awaited inline (delivery reports on a
+        // backpressured producer stall the sequential per-distinct-id lane);
+        // it rides the next flush's side effects instead.
+        expect(mockQueueMessages).not.toHaveBeenCalled()
+
+        const results = await groupStore.flush()
+        expect(results).toHaveLength(1)
+        expect(results[0]).toMatchObject({ teamId, groupTypeIndex: 1, groupKey: 'test' })
     })
 
     it('should accumulate changes in cache after db write, even if new group', async () => {
@@ -273,13 +270,15 @@ describe('BatchWritingGroupStore', () => {
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
         expect(mockQueueMessages).toHaveBeenCalledTimes(0)
 
-        await groupStore.flush()
+        const results = await groupStore.flush()
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(5)
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(1)
         expect((groupRepository as any).lastTransactionMock.updateGroup).toHaveBeenCalledTimes(1)
-        // The fallback path produces to ClickHouse inline.
-        expect(mockQueueMessages).toHaveBeenCalledTimes(1)
+        // The fallback path's ClickHouse message rides this flush's results
+        // instead of being produced inline.
+        expect(mockQueueMessages).not.toHaveBeenCalled()
+        expect(results).toHaveLength(1)
     })
 
     it('should share cache between distinct ids', async () => {
@@ -314,25 +313,6 @@ describe('BatchWritingGroupStore', () => {
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(0)
         // No transaction calls expected since no properties changed
-    })
-
-    it('should capture warning instead of throwing when create-path ClickHouse message is too large', async () => {
-        jest.spyOn(groupRepository, 'fetchGroup').mockResolvedValue(undefined)
-        mockQueueMessages.mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
-
-        await expect(
-            groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
-        ).resolves.not.toThrow()
-
-        expect(groupRepository.insertGroup).toHaveBeenCalledTimes(1)
-        expect(emitIngestionWarning).toHaveBeenCalledWith(mockOutputs, teamId, {
-            type: 'group_upsert_message_size_too_large',
-            details: {
-                groupTypeIndex: 1,
-                groupKey: 'test',
-            },
-            pipelineStep: 'group-store',
-        })
     })
 
     it('should retry on race condition error and clear cache', async () => {
@@ -417,7 +397,7 @@ describe('BatchWritingGroupStore', () => {
 
     describe('useBatchUpdates', () => {
         beforeEach(() => {
-            groupStore = new BatchWritingGroupStore(mockOutputs, groupRepository, clickhouseGroupRepository, {
+            groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {
                 useBatchUpdates: true,
             })
         })
