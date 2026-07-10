@@ -111,6 +111,7 @@ fn every_deployable_binary_has_an_image_entry() {
         "stl_dump",
         "run", // hogvm dev/diff CLI, not a service
         "hermes",
+        "personhog-stateright", // model-checker explorer CLI, not a service
     ]
     .into();
 

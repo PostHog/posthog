@@ -1,6 +1,8 @@
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
+
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import type { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 
@@ -12,7 +14,7 @@ type NotebookCompactTableProps = {
 // Lazy facade: the real table reuses the experiments scene (experimentLogic, featureFlagLogic, luxon,
 // cron-parser) — ~1.5 MiB. A static import would pull all of that into the always-loaded dashboard
 // graph; behind a dynamic import it loads only when a results widget actually renders.
-const LazyTable = lazy(() =>
+const LazyTable = lazyWithRetry(() =>
     import('scenes/experiments/notebook/NotebookCompactTable').then((module) => ({
         default: module.NotebookCompactTable,
     }))

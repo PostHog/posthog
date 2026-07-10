@@ -730,8 +730,6 @@ describe('BatchWritingPersonStore', () => {
                 personId: person.uuid,
                 distinctId: 'test',
             },
-            category: 'size',
-            severity: 'error',
             pipelineStep: 'person-store',
         })
     })
@@ -915,8 +913,6 @@ describe('BatchWritingPersonStore', () => {
                         personId: person.uuid,
                         distinctId: 'test',
                     },
-                    category: 'size',
-                    severity: 'error',
                     pipelineStep: 'person-store',
                 })
                 expect(mockRepo.updatePerson).not.toHaveBeenCalled() // No fallback for MessageSizeTooLarge

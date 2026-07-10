@@ -19,6 +19,7 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.instance_setting import get_instance_setting
 
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
 STALE_WEB_QUERIES_GAUGE = Gauge(
@@ -51,6 +52,38 @@ def increment_counter(team_id: int, normalized_query_hash: str, is_cached: bool)
 def get_teams_enabled_for_web_analytics_cache_warming() -> list[int]:
     value = get_instance_setting("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM")
     return value if isinstance(value, list) else []
+
+
+# Query kinds that carry the `useWebAnalyticsPrecompute` per-query opt-in.
+LAZY_PRECOMPUTE_QUERY_KINDS = frozenset(
+    {"WebStatsTableQuery", "WebOverviewQuery", "WebGoalsQuery", "WebVitalsPathBreakdownQuery"}
+)
+
+
+def maybe_opt_into_lazy_precompute(team: Team, query_json: dict) -> dict:
+    """Opt an enrolled team's replayed query into the lazy precompute path.
+
+    Replayed queries are the team's real production shapes, which for a
+    restricted-enrolled team carry no per-query opt-in (users only send one via
+    the UI toggle). Without this, warming such a team never computes its lazy
+    jobs — so enrolling a team on `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` plus
+    this warming list is what populates its precompute from real query shapes
+    while its user-facing reads stay on the raw path (their queries still have
+    no opt-in). That combination is how a team is evaluated before its reads
+    are switched over.
+
+    The opt-in changes the runner's cache key, so the warmed Django-cache entry
+    differs from the one raw user reads hit — acceptable: the durable output of
+    warming an enrolled team is the precompute jobs (shared by query shape),
+    not the result-cache row.
+    """
+    if query_json.get("kind") not in LAZY_PRECOMPUTE_QUERY_KINDS:
+        return query_json
+    if query_json.get("useWebAnalyticsPrecompute") is not None:
+        return query_json
+    if not is_precompute_enabled_for_team(team):
+        return query_json
+    return {**query_json, "useWebAnalyticsPrecompute": True}
 
 
 def queries_to_keep_fresh(
@@ -166,6 +199,8 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: dict) -> None:
             team_id = query_info["team_id"]
             query_json = query_info["query_json"]
             normalized_query_hash = query_info["normalized_query_hash"]
+
+            query_json = maybe_opt_into_lazy_precompute(team, query_json)
 
             runner = get_query_runner(
                 query=query_json,

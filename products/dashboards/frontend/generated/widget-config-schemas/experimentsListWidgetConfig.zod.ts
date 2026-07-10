@@ -29,7 +29,7 @@ export const ExperimentsListWidgetConfig = /* @__PURE__ */ zod.object({
         .default(experimentsListWidgetConfigOrderDirectionDefault)
         .describe('Sort direction for orderBy.'),
     status: zod
-        .enum(['draft', 'running', 'paused', 'stopped', 'all'])
+        .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
         .default(experimentsListWidgetConfigStatusDefault)
         .describe('Experiment status filter.'),
     createdBy: zod

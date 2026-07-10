@@ -4,4 +4,4 @@ rules:
     - match: '/email.py'
       owners: [team-platform-features]
     - match: '*llm_prompt*.py'
-      owners: [team-ai-observability, '@jurajmajerik']
+      owners: [team-ai-observability, team-experiments]

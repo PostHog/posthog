@@ -326,10 +326,6 @@ export const urls = {
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkHealth: (): string => '/health/sdk-health',
     exports: (): string => '/exports',
-    subscriptions: (): string => '/subscriptions',
-    subscription: (id: string | number): string => `/subscriptions/${id}`,
-    subscriptionNew: (): string => '/subscriptions/new',
-    subscriptionEdit: (id: string | number): string => `/subscriptions/${id}/edit`,
 }
 
 export interface UrlMatcher {

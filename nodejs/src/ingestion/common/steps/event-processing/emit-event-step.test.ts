@@ -136,8 +136,6 @@ describe('emit-event-step', () => {
                     distinctId: 'test-distinct-id',
                     personId: 'person-uuid',
                 },
-                category: 'size',
-                severity: 'error',
                 pipelineStep: 'emit-event',
             })
             // Metric should not be incremented when there's an error
