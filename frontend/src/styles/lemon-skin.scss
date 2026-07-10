@@ -115,7 +115,11 @@
 
 /* ═══ Button → LemonButton ═════════════════════════════════════════════ */
 
-[data-lemon-skin] .quill-button {
+/* The attribute matches an ancestor (wrapped surfaces, portaled content) or the
+   element itself, so an opted-in inline button is skinned without a wrapper. */
+
+[data-lemon-skin] .quill-button,
+.quill-button[data-lemon-skin] {
     font-family: var(--font-button);
     font-size: 0.875rem;
     font-weight: 500;
@@ -124,78 +128,92 @@
     border-radius: var(--lemon-skin-radius);
 }
 
-/* primary → Lemon primary (white face, brown border, single 3D frame fill below,
-   matching LemonButton's chrome ::after `0 3px 0 -1px`) */
+/* primary → Lemon primary (white face, brown border, single 3D frame fill below).
+   LemonButton draws that frame on a chrome pseudo-element inset -1px on the sides
+   (1px wider each side) with `0 3px 0 -1px`, so its net edge is full button width.
+   The skin's shadow sits on the button itself, so it uses 0 spread to match. */
 
-[data-lemon-skin] .quill-button--variant-primary {
+[data-lemon-skin] .quill-button--variant-primary,
+.quill-button--variant-primary[data-lemon-skin] {
     color: var(--text-3000-light);
     background-color: var(--primary-3000-button-bg);
     border: 1px solid var(--primary-3000-button-border);
-    box-shadow: 0 0.1875rem 0 -1px var(--primary-3000-frame-bg);
+    box-shadow: 0 0.1875rem 0 0 var(--primary-3000-frame-bg);
     translate: none;
 }
 
-[data-lemon-skin] .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):hover {
+[data-lemon-skin] .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):hover,
+.quill-button--variant-primary[data-lemon-skin]:not(:disabled, [aria-disabled='true']):hover {
     background-color: var(--primary-3000-button-bg);
     border-color: var(--primary-3000-button-border-hover);
 }
 
-[data-lemon-skin] .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):active {
+[data-lemon-skin] .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):active,
+.quill-button--variant-primary[data-lemon-skin]:not(:disabled, [aria-disabled='true']):active {
     box-shadow: none;
     translate: 0 0.1875rem;
 }
 
 /* outline → Lemon secondary */
 
-[data-lemon-skin] .quill-button--variant-outline {
-    background-color: var(--secondary-3000-button-bg);
+[data-lemon-skin] .quill-button--variant-outline,
+.quill-button--variant-outline[data-lemon-skin] {
+    background-color: transparent;
     border: 1px solid var(--secondary-3000-button-border);
-    box-shadow: 0 0.1875rem 0 -1px var(--secondary-3000-frame-bg);
+    box-shadow: 0 0.1875rem 0 0 var(--secondary-3000-frame-bg);
 }
 
-[data-lemon-skin] .quill-button--variant-outline:not(:disabled, [aria-disabled='true']):hover {
+[data-lemon-skin] .quill-button--variant-outline:not(:disabled, [aria-disabled='true']):hover,
+.quill-button--variant-outline[data-lemon-skin]:not(:disabled, [aria-disabled='true']):hover {
     color: var(--text-3000);
-    background-color: var(--secondary-3000-button-bg);
+    background-color: transparent;
     border-color: var(--secondary-3000-button-border-hover);
 }
 
-[data-lemon-skin] .quill-button--variant-outline:not(:disabled, [aria-disabled='true']):active {
+[data-lemon-skin] .quill-button--variant-outline:not(:disabled, [aria-disabled='true']):active,
+.quill-button--variant-outline[data-lemon-skin]:not(:disabled, [aria-disabled='true']):active {
     box-shadow: none;
     translate: 0 0.1875rem;
 }
 
 /* default (ghost) → Lemon tertiary */
 
-[data-lemon-skin] .quill-button--variant-default {
+[data-lemon-skin] .quill-button--variant-default,
+.quill-button--variant-default[data-lemon-skin] {
     background-color: transparent;
     border: none;
     box-shadow: none;
 }
 
-[data-lemon-skin] .quill-button--variant-default:not(:disabled, [aria-disabled='true']):hover {
+[data-lemon-skin] .quill-button--variant-default:not(:disabled, [aria-disabled='true']):hover,
+.quill-button--variant-default[data-lemon-skin]:not(:disabled, [aria-disabled='true']):hover {
     color: var(--text-3000);
     background-color: var(--color-bg-fill-button-tertiary-hover);
 }
 
-[data-lemon-skin] .quill-button--variant-default:not(:disabled, [aria-disabled='true']):active {
+[data-lemon-skin] .quill-button--variant-default:not(:disabled, [aria-disabled='true']):active,
+.quill-button--variant-default[data-lemon-skin]:not(:disabled, [aria-disabled='true']):active {
     background-color: var(--color-bg-fill-button-tertiary-active);
 }
 
 /* destructive → Lemon secondary + status="danger" */
 
-[data-lemon-skin] .quill-button--variant-destructive {
+[data-lemon-skin] .quill-button--variant-destructive,
+.quill-button--variant-destructive[data-lemon-skin] {
     color: var(--danger-3000-button-border-hover);
     background-color: var(--secondary-3000-button-bg);
     border: 1px solid var(--danger-3000-button-border);
-    box-shadow: 0 0.1875rem 0 -1px var(--danger-3000-frame-bg);
+    box-shadow: 0 0.1875rem 0 0 var(--danger-3000-frame-bg);
 }
 
-[data-lemon-skin] .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):hover {
+[data-lemon-skin] .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):hover,
+.quill-button--variant-destructive[data-lemon-skin]:not(:disabled, [aria-disabled='true']):hover {
     background-color: var(--secondary-3000-button-bg);
     border-color: var(--danger-3000-button-border-hover);
 }
 
-[data-lemon-skin] .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):active {
+[data-lemon-skin] .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):active,
+.quill-button--variant-destructive[data-lemon-skin]:not(:disabled, [aria-disabled='true']):active {
     box-shadow: none;
     translate: 0 0.1875rem;
 }
@@ -203,7 +221,9 @@
 /* link / link-muted → Lemon Link (accent text, no underline) */
 
 [data-lemon-skin] .quill-button--variant-link,
-[data-lemon-skin] .quill-button--variant-link-muted {
+[data-lemon-skin] .quill-button--variant-link-muted,
+.quill-button--variant-link[data-lemon-skin],
+.quill-button--variant-link-muted[data-lemon-skin] {
     height: auto;
     padding: 0;
     color: var(--lemon-skin-accent);
@@ -213,12 +233,17 @@
     box-shadow: none;
 }
 
-[data-lemon-skin] .quill-button--variant-link-muted {
+[data-lemon-skin] .quill-button--variant-link-muted,
+.quill-button--variant-link-muted[data-lemon-skin] {
     color: var(--text-3000);
 }
 
 [data-lemon-skin]
-    :is(.quill-button--variant-link, .quill-button--variant-link-muted):not(:disabled, [aria-disabled='true']):hover {
+    :is(.quill-button--variant-link, .quill-button--variant-link-muted):not(:disabled, [aria-disabled='true']):hover,
+:is(.quill-button--variant-link, .quill-button--variant-link-muted)[data-lemon-skin]:not(
+        :disabled,
+        [aria-disabled='true']
+    ):hover {
     color: var(--lemon-skin-accent-hover);
     text-decoration-line: none;
     background: none;
@@ -227,19 +252,22 @@
 /* Sizes → Lemon's scale by closest geometry: xs→xxsmall, sm→xsmall,
    default→small, lg→medium */
 
-[data-lemon-skin] .quill-button--size-default {
+[data-lemon-skin] .quill-button--size-default,
+.quill-button--size-default[data-lemon-skin] {
     gap: 0.5rem;
     height: 2.0625rem;
     padding-inline: 0.5rem;
     font-size: 0.875rem;
 }
 
-[data-lemon-skin] .quill-button--size-default svg:not([class*='size-']) {
+[data-lemon-skin] .quill-button--size-default svg:not([class*='size-']),
+.quill-button--size-default[data-lemon-skin] svg:not([class*='size-']) {
     width: 1.25rem;
     height: 1.25rem;
 }
 
-[data-lemon-skin] .quill-button--size-xs {
+[data-lemon-skin] .quill-button--size-xs,
+.quill-button--size-xs[data-lemon-skin] {
     gap: 0.1875rem;
     height: 1.25rem;
     padding-inline: 0.25rem;
@@ -247,31 +275,36 @@
     border-radius: var(--lemon-skin-radius);
 }
 
-[data-lemon-skin] .quill-button--size-xs svg:not([class*='size-']) {
+[data-lemon-skin] .quill-button--size-xs svg:not([class*='size-']),
+.quill-button--size-xs[data-lemon-skin] svg:not([class*='size-']) {
     width: 0.8125rem;
     height: 0.8125rem;
 }
 
-[data-lemon-skin] .quill-button--size-sm {
+[data-lemon-skin] .quill-button--size-sm,
+.quill-button--size-sm[data-lemon-skin] {
     gap: 0.25rem;
     height: 1.625rem;
     padding-inline: 0.375rem;
     font-size: 0.75rem;
 }
 
-[data-lemon-skin] .quill-button--size-sm svg:not([class*='size-']) {
+[data-lemon-skin] .quill-button--size-sm svg:not([class*='size-']),
+.quill-button--size-sm[data-lemon-skin] svg:not([class*='size-']) {
     width: 0.875rem;
     height: 0.875rem;
 }
 
-[data-lemon-skin] .quill-button--size-lg {
+[data-lemon-skin] .quill-button--size-lg,
+.quill-button--size-lg[data-lemon-skin] {
     gap: 0.5rem;
     height: 2.3125rem;
     padding-inline: 0.75rem;
     font-size: 0.875rem;
 }
 
-[data-lemon-skin] .quill-button--size-lg svg:not([class*='size-']) {
+[data-lemon-skin] .quill-button--size-lg svg:not([class*='size-']),
+.quill-button--size-lg[data-lemon-skin] svg:not([class*='size-']) {
     width: 1.5rem;
     height: 1.5rem;
 }
@@ -827,11 +860,12 @@
    an accent bottom edge (unselected), sinking onto it when pressed on. */
 
 [data-lemon-skin] .quill-toggle-group__item {
+    font-size: 0.75rem;
     color: var(--text-3000);
     background-color: var(--lemon-skin-surface);
     border: 1px solid var(--lemon-skin-border);
     border-radius: var(--lemon-skin-radius);
-    box-shadow: 0 0.1875rem 0 -1px var(--lemon-skin-accent);
+    box-shadow: 0 0.1875rem 0 0 var(--lemon-skin-accent);
     translate: none;
 }
 
