@@ -36,7 +36,9 @@ def _not_found_response() -> mock.Mock:
     response.headers = {}
     response.text = "Not Found"
     response.request = None
-    response.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Client Error: Not Found for url")
+    response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+        "404 Client Error: Not Found for url", response=response
+    )
     return response
 
 

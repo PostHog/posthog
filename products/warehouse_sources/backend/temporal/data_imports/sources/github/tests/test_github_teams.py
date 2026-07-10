@@ -39,7 +39,9 @@ def _not_found_response() -> mock.Mock:
     response.headers = {}
     response.text = "Not Found"
     response.request = None
-    response.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Client Error: Not Found for url")
+    response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+        "404 Client Error: Not Found for url", response=response
+    )
     return response
 
 
@@ -80,7 +82,7 @@ def test_team_members_child_404_stays_fatal_after_parent_listed() -> None:
     def fetch_page(url: str, *_args: Any, **kwargs: Any) -> mock.Mock:
         if "/orgs/acme/teams/core/members" in url:
             assert kwargs.get("skip_on_not_found") is False
-            raise requests.exceptions.HTTPError("404 Client Error: Not Found for url")
+            raise requests.exceptions.HTTPError("404 Client Error: Not Found for url", response=None)
         if "/orgs/acme/teams" in url:
             return _response([{"id": 1, "slug": "core", "name": "Core"}])
         raise AssertionError(f"Unexpected URL: {url}")
