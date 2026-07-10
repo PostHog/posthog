@@ -84,4 +84,21 @@ describe('sessionRecordingExperimentContextLogic', () => {
             hasExperimentContext: false,
         })
     })
+
+    it('loads once the feature flag arrives after mount', async () => {
+        setFlagEnabled(false)
+        logic = sessionRecordingExperimentContextLogic({ sessionRecordingId: 'session-1' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadExperimentContextSuccess']).toMatchValues({
+            experimentContext: null,
+        })
+
+        setFlagEnabled(true)
+
+        await expectLogic(logic).toDispatchActions(['loadExperimentContextSuccess']).toMatchValues({
+            experimentItems: mockResponse.results,
+            hasExperimentContext: true,
+        })
+    })
 })

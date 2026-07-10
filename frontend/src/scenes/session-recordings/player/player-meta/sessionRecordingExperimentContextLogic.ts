@@ -1,5 +1,6 @@
 import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -52,6 +53,11 @@ export const sessionRecordingExperimentContextLogic = kea<sessionRecordingExperi
         ],
     })),
     selectors({
+        experimentContextEnabled: [
+            (s) => [s.featureFlags, (_, props) => props.sessionRecordingId],
+            (featureFlags, sessionRecordingId): boolean =>
+                !!featureFlags[FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT] && !!sessionRecordingId,
+        ],
         experimentItems: [
             (s) => [s.experimentContext],
             (experimentContext): ExperimentSessionContextItemApi[] => experimentContext?.results ?? [],
@@ -62,7 +68,18 @@ export const sessionRecordingExperimentContextLogic = kea<sessionRecordingExperi
             (experimentItems): boolean => experimentItems.some((item) => item.multiple_variants),
         ],
     }),
-    afterMount(({ actions }) => {
-        actions.loadExperimentContext()
+    // Feature flags can arrive after the player mounts (posthog-js loads them asynchronously),
+    // so re-attempt the load when the gate flips on rather than only once at mount.
+    subscriptions(({ actions, values }) => ({
+        experimentContextEnabled: (enabled: boolean) => {
+            if (enabled && !values.experimentContext && !values.experimentContextLoading) {
+                actions.loadExperimentContext()
+            }
+        },
+    })),
+    afterMount(({ actions, values }) => {
+        if (!values.experimentContextLoading) {
+            actions.loadExperimentContext()
+        }
     }),
 ])

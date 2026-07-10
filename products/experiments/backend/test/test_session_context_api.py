@@ -3,6 +3,7 @@ from typing import Any, Optional
 
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -165,6 +166,25 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert sorted(results[0]["variants_seen"]) == ["control", "test"]
         assert results[0]["multiple_variants"] is True
         assert results[0]["first_flag_evaluation_timestamp"] == "2026-01-01T10:02:11Z"
+
+    def test_exposure_event_rescues_experiment_beyond_candidate_cap(self) -> None:
+        self._create_recording()
+        self._create_experiment(start_date=datetime(2025, 12, 1, tzinfo=UTC))
+        self._create_experiment(key="newer-exp", name="Newer experiment", start_date=datetime(2025, 12, 15, tzinfo=UTC))
+        self._create_session_event(
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        flush_persons_and_events()
+
+        # With the cap at 1, the newest-first slice keeps only "newer-exp" — the exposure
+        # event for "checkout-cta" must still bring its experiment back into the results.
+        with patch("products.experiments.backend.session_context.MAX_CANDIDATE_EXPERIMENTS", 1):
+            response = self._get_session_context()
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [result["flag_key"] for result in results] == ["checkout-cta"]
+        assert results[0]["variant"] == "test"
 
     def test_ignores_non_enrolled_flag_responses(self) -> None:
         self._create_recording()

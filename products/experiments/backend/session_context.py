@@ -57,22 +57,33 @@ def get_session_experiment_context(team: Team, session_id: str) -> Optional[list
 
     # Launched experiments whose run window overlaps the recording. Archived experiments are
     # kept on purpose: the session really saw their variant while they ran.
-    candidates = list(
+    overlapping = (
         Experiment.objects.filter(team_id=team.pk)
         .exclude(deleted=True)
         .filter(start_date__isnull=False, start_date__lte=recording_end)
         .filter(Q(end_date__isnull=True) | Q(end_date__gte=recording_start))
-        .select_related("feature_flag")[:MAX_CANDIDATE_EXPERIMENTS]
+        .select_related("feature_flag")
     )
+    # The stamped-property query needs one column per flag, so its candidate set must be capped;
+    # newest-first keeps the slice deterministic and biased toward the most relevant experiments.
+    candidates = list(overlapping.order_by("-start_date")[:MAX_CANDIDATE_EXPERIMENTS])
     if not candidates:
         return []
 
-    flag_keys = {experiment.feature_flag.key for experiment in candidates}
     window_start = recording_start - EVENT_WINDOW_SLACK
     window_end = recording_end + EVENT_WINDOW_SLACK
 
-    exposures = _query_exposure_events(team, session_id, flag_keys, window_start, window_end)
-    stamped = _query_stamped_flag_properties(team, session_id, flag_keys, window_start, window_end)
+    exposures = _query_exposure_events(team, session_id, window_start, window_end)
+
+    # The exposure query returns every flag the session called, so a flag with verifiable
+    # in-session evidence rescues its experiment even when it fell outside the cap above.
+    # Only the stamped-property (carried-over assignment) path stays capped.
+    candidate_keys = {experiment.feature_flag.key for experiment in candidates}
+    rescued_keys = set(exposures) - candidate_keys
+    if rescued_keys:
+        candidates += list(overlapping.filter(feature_flag__key__in=sorted(rescued_keys)))
+
+    stamped = _query_stamped_flag_properties(team, session_id, candidate_keys, window_start, window_end)
 
     items: list[ExperimentSessionContextItem] = []
     for experiment in candidates:
@@ -120,11 +131,10 @@ def _defined_variant_keys(experiment: Experiment) -> set[str]:
 def _query_exposure_events(
     team: Team,
     session_id: str,
-    flag_keys: set[str],
     window_start: datetime,
     window_end: datetime,
 ) -> dict[str, list[tuple[str, datetime]]]:
-    """`$feature_flag_called` events in the session, as flag_key -> [(variant, first_seen)]."""
+    """All `$feature_flag_called` events in the session, as flag_key -> [(variant, first_seen)]."""
     query = parse_select(
         """
         SELECT properties.$feature_flag AS flag_key,
@@ -147,7 +157,7 @@ def _query_exposure_events(
 
     exposures: dict[str, list[tuple[str, datetime]]] = {}
     for flag_key, variant, first_seen in response.results or []:
-        if flag_key not in flag_keys or not variant:
+        if not flag_key or not variant:
             continue
         exposures.setdefault(str(flag_key), []).append((str(variant), first_seen))
     return exposures
