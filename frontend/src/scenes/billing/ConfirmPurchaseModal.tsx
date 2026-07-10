@@ -33,7 +33,9 @@ export function ConfirmPurchaseModal({ product }: { product: BillingProductV2Add
         ? `${dayjs().format('MMM D')} - ${periodEnd.format('MMM D, YYYY')}`
         : undefined
 
-    if (!confirmPurchaseModalOpen || !targetPlan) {
+    // Require a loaded billing period: without it proratedAmount falls back to 0, which would
+    // misleadingly show "$0.00 due today" for a charge the backend still applies at the full rate.
+    if (!confirmPurchaseModalOpen || !targetPlan || !billing?.billing_period) {
         return null
     }
 
@@ -81,7 +83,7 @@ export function ConfirmPurchaseModal({ product }: { product: BillingProductV2Add
         <LemonModal
             onClose={hideConfirmPurchaseModal}
             isOpen={confirmPurchaseModalOpen}
-            closable={!isLoading}
+            closable={false}
             title={`Ready to subscribe to ${targetPlan.name}?`}
             footer={
                 <>
