@@ -6632,9 +6632,13 @@ const api = {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
         async getBatchTriggerBlastRadius(
-            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
+            dedupeKey?: 'email'
         ): Promise<BlastRadiusApi> {
-            return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
+            return await new ApiRequest()
+                .hogFlows()
+                .withAction('user_blast_radius')
+                .create({ data: { filters, dedupe_key: dedupeKey ?? null } })
         },
         async createHogFlowBatchJob(
             hogFlowId: HogFlow['id'],

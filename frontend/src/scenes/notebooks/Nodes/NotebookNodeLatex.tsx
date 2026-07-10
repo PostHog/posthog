@@ -22,6 +22,14 @@ const tex = new TeX({
 const svg = new SVG({ fontCache: 'none' })
 const mjxDocument = mathjax.document(document, { InputJax: tex, OutputJax: svg })
 
+// Renders LaTeX to an SVG node. MathJax v4's modern SVG font loads glyph data lazily from "dynamic
+// files" (e.g. 'shapes', 'arrows'); convert() defers those loads through the retry mechanism, so we
+// run it inside handleRetriesFor() to await them. The returned promise rejects if a dynamic file
+// fails to load, which is async and a synchronous try/catch would miss, so callers must catch it.
+export function renderLatexToNode(content: string): Promise<Node> {
+    return mathjax.handleRetriesFor(() => mjxDocument.convert(content, { display: true }))
+}
+
 interface NotebookNodeLatexAttributes extends CustomNotebookNodeAttributes {
     content: string
     editing: boolean
@@ -52,19 +60,35 @@ const LatexComponent = ({
     useEffect(() => {
         const mathJaxDisplayDiv = containerRef.current // The div for displaying rendered MathJax
 
-        if (mathJaxDisplayDiv) {
-            if (!editing && content) {
-                try {
-                    mathJaxDisplayDiv.innerHTML = '' // Clear before rendering
-                    const math = mjxDocument.convert(content, { display: true })
+        if (!mathJaxDisplayDiv) {
+            return
+        }
+
+        if (editing || !content) {
+            mathJaxDisplayDiv.innerHTML = ''
+            return
+        }
+
+        // A failed dynamic font load rejects asynchronously, so we catch it and fall back to a
+        // friendly message rather than letting it surface as an unhandled error. See renderLatexToNode.
+        let cancelled = false
+        mathJaxDisplayDiv.innerHTML = '' // Clear before rendering
+        renderLatexToNode(content)
+            .then((math: Node) => {
+                if (!cancelled) {
+                    mathJaxDisplayDiv.innerHTML = ''
                     mathJaxDisplayDiv.appendChild(math)
-                } catch (err) {
+                }
+            })
+            .catch((err: unknown) => {
+                if (!cancelled) {
                     mathJaxDisplayDiv.innerHTML = '<span style="color:red">LaTeX error</span>'
                     console.error('MathJax error:', err)
                 }
-            } else {
-                mathJaxDisplayDiv.innerHTML = ''
-            }
+            })
+
+        return () => {
+            cancelled = true
         }
     }, [content, editing])
 
