@@ -34,6 +34,10 @@ ENRICHMENT_SIGNAL_EVENT = "signup_enrichment_completed"
 # so a single lookup can legitimately run ~60s; give it headroom then stop.
 ENRICH_ACTIVITY_TIMEOUT = dt.timedelta(seconds=90)
 
+# A couple of retries for transient provider/network blips, then give up quietly. Kept as a
+# constant so the activity's failure-signal gate can't drift from the workflow's retry policy.
+MAX_ENRICH_ATTEMPTS = 3
+
 
 @dataclasses.dataclass
 class SignupEnrichmentInputs:
@@ -99,7 +103,9 @@ async def enrich_signup_organization_activity(inputs: SignupEnrichmentInputs) ->
 
     except Exception as e:
         capture_exception(e)
-        if pha_client is not None:
+        # Emit the failure signal only once retries are exhausted; a transient error that a later
+        # attempt recovers from must not count against the launch fill-rate/failure signal.
+        if pha_client is not None and activity.info().attempt >= MAX_ENRICH_ATTEMPTS:
             pha_client.capture(
                 distinct_id=inputs.distinct_id,
                 event=ENRICHMENT_SIGNAL_EVENT,
@@ -126,7 +132,6 @@ class SignupEnrichmentWorkflow(PostHogWorkflow):
             enrich_signup_organization_activity,
             inputs,
             start_to_close_timeout=ENRICH_ACTIVITY_TIMEOUT,
-            # A couple of retries for transient provider/network blips, then give up quietly —
-            # onboarding routing already degrades to a safe default when enrichment is absent.
-            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=5)),
+            # Onboarding routing already degrades to a safe default when enrichment is absent.
+            retry_policy=RetryPolicy(maximum_attempts=MAX_ENRICH_ATTEMPTS, initial_interval=dt.timedelta(seconds=5)),
         )

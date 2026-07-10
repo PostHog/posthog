@@ -1,9 +1,15 @@
+import dataclasses
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio.testing import ActivityEnvironment
 
-from posthog.temporal.signup_enrichment.workflow import SignupEnrichmentInputs, enrich_signup_organization_activity
+from posthog.temporal.signup_enrichment.workflow import (
+    MAX_ENRICH_ATTEMPTS,
+    SignupEnrichmentInputs,
+    enrich_signup_organization_activity,
+)
 
 from products.growth.backend.enrichment.fields import EnrichmentFields
 
@@ -48,11 +54,18 @@ async def test_falls_back_to_deterministic_company_type_on_miss():
     assert snapshot_mock.call_args.kwargs["snapshot"].company_type == "yc"
 
 
-async def test_failure_emits_failure_signal_and_reraises():
+@pytest.mark.parametrize("attempt,expect_signal", [(1, False), (MAX_ENRICH_ATTEMPTS, True)])
+async def test_failure_signal_emitted_only_on_final_attempt(attempt, expect_signal):
     pha_client, (get_client, enrich, det, snapshot) = _patches(enrich_return={"side_effect": RuntimeError("boom")})
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=attempt)
     with get_client, enrich, det, snapshot, pytest.raises(RuntimeError):
-        await ActivityEnvironment().run(enrich_signup_organization_activity, _INPUTS)
+        await env.run(enrich_signup_organization_activity, _INPUTS)
 
-    signal = next(c for c in pha_client.capture.call_args_list if c.kwargs["event"] == "signup_enrichment_completed")
-    assert signal.kwargs["properties"]["success"] is False
-    assert signal.kwargs["properties"]["error"] == "RuntimeError"
+    signals = [c for c in pha_client.capture.call_args_list if c.kwargs["event"] == "signup_enrichment_completed"]
+    if expect_signal:
+        assert len(signals) == 1
+        assert signals[0].kwargs["properties"]["success"] is False
+        assert signals[0].kwargs["properties"]["error"] == "RuntimeError"
+    else:
+        assert signals == []
