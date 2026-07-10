@@ -447,10 +447,12 @@ tools:
             idempotent: true
         title: Update evaluation
         description: >
-            Update an existing AI observability evaluation (partial update). Toggle enabled/disabled, update the
-            evaluation config (prompt, Hog source, or sentiment source), or change the model configuration for llm_judge
-            evaluations. Do not clear an llm_judge model configuration once set; provider_key_id may be null when no key
-            is pinned. Existing legacy llm_judge evaluations returned without a model configuration remain editable.
+            Partially update an AI observability evaluation. Toggle enabled, change its type or evaluation config, or
+            change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider and
+            model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide
+            both fields to replace it; null is rejected for configured judges. When switching an llm_judge to hog or
+            sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable.
+            provider_key_id may be null when no key is pinned.
     llma-evaluation-update-full:
         operation: evaluations_update
         enabled: false

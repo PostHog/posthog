@@ -152,6 +152,12 @@ class ModelConfigurationSerializer(serializers.Serializer):
     )
     provider_key_name = serializers.SerializerMethodField(read_only=True)
 
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        errors = {field: "This field is required." for field in ("provider", "model") if field not in data}
+        if errors:
+            raise serializers.ValidationError(errors, code="required")
+        return data
+
     def get_provider_key_name(self, obj: LLMModelConfiguration) -> str | None:
         if obj.provider_key:
             return obj.provider_key.name
@@ -189,10 +195,11 @@ class EvaluationSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Provider and model for an llm_judge evaluation. Required when creating an llm_judge, switching an "
-            "existing evaluation to llm_judge, or updating an llm_judge that already has an explicit model. "
-            "The nested provider_key_id may be null. Existing legacy llm_judge evaluations without an explicit "
-            "model remain editable. Omit this field for hog and sentiment evaluations."
+            "Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. "
+            "To add or replace a model, provide both provider and model. On an existing configured llm_judge, "
+            "omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or "
+            "sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable "
+            "without adding one. The nested provider_key_id may be null."
         ),
     )
     status_reason_detail = serializers.CharField(

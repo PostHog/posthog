@@ -274,7 +274,7 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            'Provider and model for an llm_judge evaluation. Required when creating an llm_judge, switching an existing evaluation to llm_judge, or updating an llm_judge that already has an explicit model. The nested provider_key_id may be null. Existing legacy llm_judge evaluations without an explicit model remain editable. Omit this field for hog and sentiment evaluations.'
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
         ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
@@ -450,7 +450,7 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            'Provider and model for an llm_judge evaluation. Required when creating an llm_judge, switching an existing evaluation to llm_judge, or updating an llm_judge that already has an explicit model. The nested provider_key_id may be null. Existing legacy llm_judge evaluations without an explicit model remain editable. Omit this field for hog and sentiment evaluations.'
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
         ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })

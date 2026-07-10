@@ -4,12 +4,14 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import IntegrityError, transaction
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Project, Team, User
 
+from products.ai_observability.backend.api.evaluations import ModelConfigurationSerializer
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -45,7 +47,38 @@ def _setup_team():
     return team
 
 
+class TestModelConfigurationSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing_provider", {"model": "gpt-5-mini"}, "provider"),
+            ("missing_model", {"provider": "openai"}, "model"),
+        ]
+    )
+    def test_partial_update_requires_complete_configuration(
+        self, _name: str, data: dict[str, str], missing_field: str
+    ) -> None:
+        serializer = ModelConfigurationSerializer(data=data, partial=True)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertEqual(serializer.errors[missing_field][0].code, "required")
+
+
 class TestEvaluationConfigsApi(APIBaseTest):
+    def _create_configured_llm_judge(self) -> tuple[Evaluation, LLMModelConfiguration]:
+        model_configuration = LLMModelConfiguration.objects.create(
+            team=self.team, provider="openai", model="gpt-5-mini"
+        )
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Judge",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test"},
+            output_type="boolean",
+            model_configuration=model_configuration,
+            created_by=self.user,
+        )
+        return evaluation, model_configuration
+
     def test_unauthenticated_user_cannot_access_evaluation_configs(self):
         self.client.logout()
         response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
@@ -342,17 +375,8 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.data["attr"], "model_configuration")
         self.assertEqual(Evaluation.objects.count(), 0)
 
-    def test_configured_llm_judge_rejects_clearing_model_configuration(self):
-        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
-        eval_obj = Evaluation.objects.create(
-            team=self.team,
-            name="Judge",
-            evaluation_type="llm_judge",
-            evaluation_config={"prompt": "Test"},
-            output_type="boolean",
-            model_configuration=mc,
-            created_by=self.user,
-        )
+    def test_configured_llm_judge_rejects_clearing_model_configuration(self) -> None:
+        eval_obj, mc = self._create_configured_llm_judge()
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
@@ -374,7 +398,19 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(eval_obj.model_configuration_id, mc.id)
         self.assertTrue(LLMModelConfiguration.objects.filter(id=mc.id).exists())
 
-    def test_switching_existing_evaluation_to_llm_judge_requires_model_configuration(self):
+    @parameterized.expand(
+        [
+            ("omitted", {}, "model_configuration"),
+            (
+                "incomplete",
+                {"model_configuration": {"provider": "openai"}},
+                "model_configuration__model",
+            ),
+        ]
+    )
+    def test_switching_existing_evaluation_to_llm_judge_requires_model_configuration(
+        self, _name: str, extra_payload: dict[str, object], expected_attr: str
+    ) -> None:
         eval_obj = Evaluation.objects.create(
             team=self.team,
             name="Hog evaluation",
@@ -389,14 +425,50 @@ class TestEvaluationConfigsApi(APIBaseTest):
             {
                 "evaluation_type": "llm_judge",
                 "evaluation_config": {"prompt": "Test"},
+                **extra_payload,
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["attr"], "model_configuration")
+        self.assertEqual(response.data["attr"], expected_attr)
         eval_obj.refresh_from_db()
         self.assertEqual(eval_obj.evaluation_type, "hog")
+
+    @parameterized.expand(
+        [
+            ("hog", "hog", "boolean", {"source": "return true"}),
+            ("sentiment", "sentiment", "sentiment", {"source": "user_messages"}),
+        ]
+    )
+    def test_switching_llm_judge_type_clears_model_configuration(
+        self,
+        _name: str,
+        evaluation_type: str,
+        output_type: str,
+        evaluation_config: dict[str, str],
+    ) -> None:
+        eval_obj, mc = self._create_configured_llm_judge()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {
+                "evaluation_type": evaluation_type,
+                "evaluation_config": evaluation_config,
+                "output_type": output_type,
+                "output_config": {},
+                "model_configuration": None,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertEqual(eval_obj.evaluation_type, evaluation_type)
+        self.assertEqual(eval_obj.output_type, output_type)
+        self.assertEqual(eval_obj.evaluation_config["source"], evaluation_config["source"])
+        self.assertIsNone(eval_obj.model_configuration_id)
+        self.assertFalse(LLMModelConfiguration.objects.filter(id=mc.id).exists())
 
     def test_db_constraint_blocks_model_config_on_non_judge_eval(self):
         # QuerySet.update() bypasses Evaluation.save(), so this exercises the DB constraint itself.
