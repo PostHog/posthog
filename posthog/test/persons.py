@@ -275,6 +275,74 @@ def _build_person(create_kwargs: dict[str, Any]) -> Person:
 # ── Public helpers: Person ───────────────────────────────────────────
 
 
+def create_people_bulk(specs: list[dict[str, Any]]) -> list[Person]:
+    """Create many persons at once: one ClickHouse insert per table instead of two per person.
+
+    Each spec is a create_person() kwargs dict (team/team_id, distinct_ids, uuid, ...). Row values
+    mirror what create_person writes via posthog.models.person.util.create_person /
+    create_person_distinct_id — only batched. Note: distinct-id rows use Python-side
+    (freezegun-frozen) time for _timestamp rather than ClickHouse server now(); harmless because
+    pdi2 dedup uses version, not _timestamp. The persons-DB-layer path (fake off) falls back to
+    per-person create_person.
+    """
+    import json  # noqa: PLC0415
+
+    from posthog.clickhouse.client import sync_execute  # noqa: PLC0415
+    from posthog.models.person.sql import BULK_INSERT_PERSON_DISTINCT_ID2, INSERT_PERSON_BULK_SQL  # noqa: PLC0415
+
+    if _get_active_fake() is None:
+        return [create_person(**spec) for spec in specs]
+
+    persons: list[Person] = []
+    person_rows: list[dict[str, Any]] = []
+    distinct_id_rows: list[dict[str, Any]] = []
+    for spec in specs:
+        create_kwargs = {key: value for key, value in spec.items() if key != "distinct_ids"}
+        if "team" in create_kwargs and create_kwargs["team"] is None:
+            create_kwargs.pop("team")
+        dids = [str(d) for d in (spec.get("distinct_ids") or [])]
+        person = _build_person(create_kwargs)
+        person._distinct_ids = list(dids)
+        if not signals.is_muted:
+            timestamp = now().astimezone(dt.UTC).replace(tzinfo=None)
+            created_at = person.created_at.astimezone(dt.UTC).replace(tzinfo=None) if person.created_at else timestamp
+            person_rows.append(
+                {
+                    "id": str(person.uuid),
+                    "created_at": created_at,
+                    "team_id": person.team_id,
+                    "properties": json.dumps(person.properties or {}),
+                    "is_identified": int(person.is_identified),
+                    "_timestamp": timestamp,
+                    "_offset": 0,
+                    "is_deleted": 0,
+                    "version": person.version or 0,
+                    "last_seen_at": timestamp.replace(minute=0, second=0, microsecond=0),
+                }
+            )
+            for distinct_id in dids:
+                distinct_id_rows.append(
+                    {
+                        "distinct_id": distinct_id,
+                        "person_id": str(person.uuid),
+                        "team_id": person.team_id,
+                        "is_deleted": 0,
+                        "version": 0,
+                        "_timestamp": timestamp,
+                        "_offset": 0,
+                        "_partition": 0,
+                    }
+                )
+        _seed_person_into_fake(person, dids)
+        persons.append(person)
+
+    if person_rows:
+        sync_execute(INSERT_PERSON_BULK_SQL, person_rows, flush=False)
+    if distinct_id_rows:
+        sync_execute(BULK_INSERT_PERSON_DISTINCT_ID2, distinct_id_rows, flush=False)
+    return persons
+
+
 def create_person(*, team: Team | None = None, distinct_ids: list[str] | None = None, **kwargs: Any) -> Person:
     """Create a person for tests.
 

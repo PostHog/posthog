@@ -193,7 +193,8 @@ export const sharingLogic = kea<sharingLogicType>([
                 width: defaultIframeConfig.width,
                 height: defaultIframeConfig.height,
                 frameBorder: 0,
-                allowfullscreen: true,
+                // React prop casing; embedCode lowercases keys, so the HTML snippet still reads "allowfullscreen"
+                allowFullScreen: true,
                 src: embedLink,
                 key: iframeKey,
                 sandbox: 'allow-scripts allow-same-origin allow-popups',

@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
-import { type DependencyList, useMemo } from 'react'
+import { type DependencyList, useCallback, useMemo } from 'react'
 
-import type { ChartTheme } from '@posthog/quill-charts'
+import type { ChartTheme, DateRangeZoomData } from '@posthog/quill-charts'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,15 +10,12 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { buildTheme } from './utils/theme'
 
-/** Rendering options the refreshed style turns on. Applied as config *defaults* — a chart's own
- *  config always wins. All four are stable quill-charts config keys, so removing the flag later
- *  means inlining these at the call sites (or flipping the library defaults), not deleting an API. */
 const REFRESHED_CONFIG_DEFAULTS = {
     curve: 'monotone',
     showAxisLines: true,
     showTickMarks: true,
     showCrosshair: true,
-    // Stacked bars round only the outermost segment, so this reads as "curved bar tops".
+    showGrid: true,
     barCornerRadius: 4,
 } as const
 
@@ -27,8 +24,6 @@ function refreshedThemeOverrides(isDarkModeOn: boolean): Partial<ChartTheme> {
         gridColor: isDarkModeOn ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
         gridDashPattern: [3, 3],
         axisLineColor: isDarkModeOn ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)',
-        // Dashed like the grid so the hover guide reads as a temporary sibling of the grid
-        // lines, slightly stronger than them so it stays findable.
         crosshairColor: isDarkModeOn ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
         crosshairDashPattern: [3, 3],
     }
@@ -53,9 +48,42 @@ export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
     )
 }
 
+/** The single rollout gate for chart drag-to-zoom, applied inside `useDateRangeZoom` so every
+ *  surface is enabled (and testable) through one check rather than per-host flag reads. */
+export function useDragToZoomEnabled(): boolean {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return !!featureFlags[FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]
+}
+
+/** Adapts a quill chart's drag-to-zoom callback to the host's `onZoom(dateFrom, dateTo)` by mapping
+ *  the dragged label indices into `dates` — the date value for each x position (trends result days,
+ *  a SQL date column's values). Returns undefined when zooming is unavailable — drag-to-zoom is
+ *  opt-in: it only surfaces behind the rollout flag, where the host passes a handler, and when the
+ *  x positions map to dates. */
+export function useDateRangeZoom(
+    dates: string[] | undefined,
+    onZoom: ((dateFrom: string, dateTo: string) => void) | undefined
+): ((data: DateRangeZoomData) => void) | undefined {
+    const enabled = useDragToZoomEnabled()
+    const handler = useCallback(
+        ({ startIndex, endIndex }: DateRangeZoomData) => {
+            const start = dates?.[startIndex]
+            const end = dates?.[endIndex]
+            if (!start || !end) {
+                return
+            }
+            // Screen order isn't guaranteed chronological (e.g. unsorted SQL results).
+            const [dateFrom, dateTo] = start <= end ? [start, end] : [end, start]
+            onZoom?.(dateFrom, dateTo)
+        },
+        [dates, onZoom]
+    )
+    return enabled && dates?.length && onZoom ? handler : undefined
+}
+
 /** Drop-in replacement for the `useMemo` that builds a chart's config object. On top of memoizing,
  *  it applies app-level rendering defaults — currently the refreshed style (monotone curve, axis
- *  lines, tick marks, crosshair) behind `QUILL_CHART_STYLE_REFRESH`. Keys the config sets
+ *  lines, tick marks, crosshair, grid) behind `QUILL_CHART_STYLE_REFRESH`. Keys the config sets
  *  explicitly (non-undefined) always win over the defaults. */
 export function useChartConfig<T extends object>(factory: () => T, deps: DependencyList): T
 export function useChartConfig<T extends object>(factory: () => T | undefined, deps: DependencyList): T | undefined

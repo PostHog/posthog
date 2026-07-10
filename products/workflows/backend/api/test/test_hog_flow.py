@@ -310,6 +310,27 @@ class TestHogFlowAPI(APIBaseTest):
             "type": "validation_error",
         }
 
+    def test_activating_draft_with_invalid_template_names_offending_step(self):
+        hog_flow, action = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                # Liquid-style syntax in a Hog-templated input: web drafts store it leniently,
+                # so the compile error only surfaces on activation.
+                "inputs": {"url": {"value": "{{ person.properties.email | upcase }}"}},
+            }
+        )
+        action["name"] = "Send webhook"
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Status-only activation (the workflows list toggle) re-validates the stored actions
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert response.status_code == 400, response.json()
+        detail = response.json()["detail"]
+        assert "Send webhook" in detail, response.json()
+        assert "Invalid template" in detail, response.json()
+
     def test_hog_flow_bytecode_compilation(self):
         hog_flow, action = self._create_hog_flow_with_action(
             {
@@ -3000,6 +3021,34 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["deleted"] == 0
         assert HogFlow.objects.filter(id=flow_id).exists()
+
+    @parameterized.expand(
+        [
+            ("single_delete",),
+            ("bulk_delete",),
+        ]
+    )
+    def test_delete_publishes_reload_to_workers(self, delete_mode):
+        flow_id = self._create_flow(name="Delete reload")
+        self._archive_flow(flow_id)
+
+        with (
+            patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers") as mock_reload,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if delete_mode == "single_delete":
+                response = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+                assert response.status_code == 204, response.content
+            else:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+                    {"ids": [flow_id]},
+                )
+                assert response.status_code == 200, response.json()
+                assert response.json()["deleted"] == 1
+
+        assert not HogFlow.objects.filter(id=flow_id).exists()
+        mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[flow_id])
 
     def _base_hog_flow_with_variables(self, variables):
         trigger_action = {

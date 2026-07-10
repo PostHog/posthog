@@ -6,21 +6,23 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use personhog_coordination::error::Result as CoordResult;
 use personhog_coordination::routing_table::StashHandler;
-use tonic::Status;
+use tonic::Code;
 
 use crate::backend::{LeaderBackend, StashedRequest};
+use crate::grpc_http::{grpc_error_response, grpc_status_code, is_grpc_error_response};
 
 /// Stash handler for the router. Reacts to handoff phase transitions:
 ///
 /// * `Freezing` / `Draining` / `Warming` → `begin_stash`: start (or
-///   re-confirm) buffering writes for the partition in the shared
-///   `StashTable`. The routing-table layer calls `begin_stash` on
+///   re-confirm) buffering leader-path requests — writes and strong
+///   reads — for the partition in the shared `StashTable`. The routing-table layer calls `begin_stash` on
 ///   every non-terminal phase the router observes, so the call must
 ///   be idempotent — `StashTable::begin_stash` no-ops if the entry is
-///   already live. New writes park in a per-partition queue while the
-///   handoff progresses through `Freezing → Draining → Warming`.
-/// * `Complete` → `drain_stash`: forward the buffered writes to the
-///   new owner. The drain runs as a loop over the queue; any request
+///   already live. New leader-path requests park in a per-partition
+///   queue while the handoff progresses through
+///   `Freezing → Draining → Warming`.
+/// * `Complete` → `drain_stash`: forward the buffered requests to the
+///   new owner, each to the method it arrived on. The drain runs as a loop over the queue; any request
 ///   that arrives during drain (the dashmap entry is still live until
 ///   drain observes the queue empty under the lock) is picked up by
 ///   the next iteration, preserving FIFO ordering across the cutover.
@@ -80,13 +82,15 @@ impl RouterStashHandler {
 /// the request has been waiting longer than `max_stash_wait`, send back
 /// `UNAVAILABLE` without forwarding so the client retries with a fresh
 /// request. Otherwise forward via the unified routing path and pipe the
-/// result through the oneshot. Tracks metrics for the four observable
-/// outcomes (expired, success, error, dropped) so operators can see
-/// stash-driven latency, leader failures during drain, and cases where
-/// the original caller disconnected before the reply.
+/// result through the oneshot. Tracks metrics for the five observable
+/// outcomes (expired, success, fenced, error, dropped) so operators can
+/// see stash-driven latency, drains racing a leader's fence or cutover,
+/// leader failures during drain, and cases where the original caller
+/// disconnected before the reply.
 async fn forward_one(
     leader_backend: &LeaderBackend,
     max_stash_wait: Duration,
+    partition: u32,
     stashed_req: StashedRequest,
 ) {
     let waited = stashed_req.enqueued_at.elapsed();
@@ -97,10 +101,11 @@ async fn forward_one(
         // Past deadline — return a definitive UNAVAILABLE so the
         // client knows it must retry, instead of leaving them waiting
         // for a leader response that may exceed their gRPC timeout.
-        let result = Err(Status::unavailable(
+        let response = grpc_error_response(
+            Code::Unavailable,
             "stash wait exceeded; retry through new owner",
-        ));
-        if stashed_req.reply.send(result).is_err() {
+        );
+        if stashed_req.reply.send(response).is_err() {
             metrics::counter!("personhog_router_stash_dropped_total").increment(1);
         }
         metrics::counter!(
@@ -111,21 +116,59 @@ async fn forward_one(
         return;
     }
 
-    // Bypass the stash hook on the way to the leader — the dashmap
-    // entry for this partition is still present (drain only evicts it
-    // when the queue is observed empty under the lock), so the
-    // normal `update_person_properties` would re-enqueue this request
-    // and stall drain progress.
-    let result = leader_backend
-        .update_person_properties_no_stash(stashed_req.request)
-        .await;
-    let outcome = if result.is_ok() { "success" } else { "error" };
+    // Forward the buffered frame straight to the new owner. The router
+    // stamps `x-partition` and the leader serializes per key, so replaying
+    // here preserves arrival order without re-entering the stash. The
+    // outcome label counts both transport failures and leader-returned
+    // gRPC errors (trailers-only responses carry their status in the
+    // headers, so no body poll is needed to classify them).
+    let (response, outcome) = match leader_backend
+        .forward_raw(
+            stashed_req.method,
+            partition,
+            &stashed_req.headers,
+            &stashed_req.frame,
+        )
+        .await
+    {
+        // A FailedPrecondition during drain means the target's fence or
+        // ownership is still settling: a cancellation's drain-back races
+        // the old owner's resume, and a completion's drain races the new
+        // owner's cutover. The condition clears in watch-propagation
+        // time, but FailedPrecondition reads as "do not retry" to
+        // clients — remap it to the same definitive retry contract as
+        // the deadline path above. Never silent: the write was never
+        // acked.
+        Ok((response, _call_ms))
+            if grpc_status_code(&response) == Some(Code::FailedPrecondition as i32) =>
+        {
+            (
+                grpc_error_response(
+                    Code::Unavailable,
+                    "leader transitioning during stash drain; retry",
+                ),
+                "fenced",
+            )
+        }
+        Ok((response, _call_ms)) => {
+            let outcome = if is_grpc_error_response(&response) {
+                "error"
+            } else {
+                "success"
+            };
+            (response, outcome)
+        }
+        Err(status) => (
+            grpc_error_response(status.code(), status.message()),
+            "error",
+        ),
+    };
     metrics::counter!(
         "personhog_router_stash_drained_total",
         "outcome" => outcome
     )
     .increment(1);
-    if stashed_req.reply.send(result).is_err() {
+    if stashed_req.reply.send(response).is_err() {
         metrics::counter!("personhog_router_stash_dropped_total").increment(1);
     }
 }
@@ -141,13 +184,13 @@ async fn forward_batch_by_key(
     leader_backend: Arc<LeaderBackend>,
     max_stash_wait: Duration,
     concurrency: usize,
+    partition: u32,
     batch: Vec<StashedRequest>,
 ) {
     type Key = (i64, i64);
     let mut groups: HashMap<Key, Vec<StashedRequest>> = HashMap::new();
     for req in batch {
-        let key = (req.request.team_id, req.request.person_id);
-        groups.entry(key).or_default().push(req);
+        groups.entry(req.key).or_default().push(req);
     }
 
     let mut groups_iter = groups.into_values();
@@ -160,7 +203,7 @@ async fn forward_batch_by_key(
             let leader = Arc::clone(&leader_backend);
             async move {
                 for req in group {
-                    forward_one(leader.as_ref(), max_stash_wait, req).await;
+                    forward_one(leader.as_ref(), max_stash_wait, partition, req).await;
                 }
             }
         });
@@ -210,7 +253,14 @@ impl StashHandler for RouterStashHandler {
                 let counter = Arc::clone(&counter);
                 async move {
                     let batch_size = batch.len() as u64;
-                    forward_batch_by_key(leader, max_stash_wait, drain_concurrency, batch).await;
+                    forward_batch_by_key(
+                        leader,
+                        max_stash_wait,
+                        drain_concurrency,
+                        partition,
+                        batch,
+                    )
+                    .await;
                     counter.fetch_add(batch_size, std::sync::atomic::Ordering::Relaxed);
                 }
             })

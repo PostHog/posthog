@@ -1,4 +1,27 @@
 {
     "name": "@posthog/products-subscriptions",
-    "scripts": {}
+    "scripts": {},
+    "dependencies": {
+        "@posthog/brand": "catalog:",
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:",
+        "rrule": "^2.8.1"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "catalog:",
+        "@storybook/react": "catalog:",
+        "@testing-library/jest-dom": "*",
+        "@testing-library/react": "*",
+        "@testing-library/user-event": "*",
+        "@types/react": "*",
+        "@types/react-dom": "*",
+        "react": "*",
+        "react-dom": "*"
+    }
 }

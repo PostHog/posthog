@@ -2,8 +2,6 @@
 
 from django.db import connection, migrations
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as ExternalDataSchemaModel
-
 
 def forwards(apps, schema_editor):
     with connection.cursor() as cursor:
@@ -14,7 +12,7 @@ def forwards(apps, schema_editor):
         """)
         stripe_schemas = cursor.fetchall()
 
-    ExternalDataSchema: ExternalDataSchemaModel = apps.get_model("posthog", "ExternalDataSchema")
+    ExternalDataSchema = apps.get_model("posthog", "ExternalDataSchema")
 
     for (id,) in stripe_schemas:
         schema = ExternalDataSchema.objects.get(id=id)

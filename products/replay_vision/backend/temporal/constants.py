@@ -29,6 +29,9 @@ SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 # Children are ABANDONed and don't count against this budget.
 SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
 
+# One LLM call; generous but bounded so a slow provider can't eat the sweep budget.
+REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(seconds=90)
+
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
 # Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
 SCANNER_SCHEDULE_TYPE = "replay-vision-scanner-sweep"
@@ -75,7 +78,10 @@ VISION_SIGNALS_SOURCE_TYPE = "scanner_finding"
 
 # Hard ceiling on a single scanner's concurrently-running apply-scanner workflows. Bounds one bad config
 # (broad filter on a high-volume team) from monopolising the shared rasterizer queue + provider concurrency.
-MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 50
+MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 150
+# Team-wide ceiling across all of a team's scanners and on-demand triggers, so N scanners can't hold
+# N x 150 rasterizer slots. Fairness only; the rasterizer scales horizontally for total throughput.
+MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
 
 

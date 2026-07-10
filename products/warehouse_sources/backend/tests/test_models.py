@@ -1,11 +1,15 @@
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db.models import Model
+from django.test import SimpleTestCase
+from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models.signals import model_activity_signal
 
@@ -18,6 +22,8 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -190,6 +196,43 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
             model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
         schema.refresh_from_db()
         assert schema.incremental_field_last_value == 42
+
+
+class TestExternalDataSchemaOOMEvent(BaseTest):
+    def _source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+
+    def _schema(self, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(team_id=self.team.pk, source=self._source(), name=name)
+
+    def _oom(self, schema: ExternalDataSchema, *, age_days: float = 0) -> ExternalDataSchemaOOMEvent:
+        event = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk).create(team_id=self.team.pk, schema=schema)
+        if age_days:
+            # created_at is auto_now_add, so backdate via an update to place the row outside the window.
+            ExternalDataSchemaOOMEvent.objects.unscoped().filter(pk=event.pk).update(
+                created_at=timezone.now() - timedelta(days=age_days)
+            )
+        return event
+
+    def test_recent_count_windows_and_scopes_to_schema(self) -> None:
+        # A miscounted window or a dropped schema filter would force-repartition a healthy table
+        # (or never fire): recent_count must count only this schema's occurrences inside the window.
+        schema_a = self._schema("orders")
+        schema_b = self._schema("events")
+        self._oom(schema_a)
+        self._oom(schema_a)
+        self._oom(schema_a, age_days=10)  # outside a 7-day window
+        self._oom(schema_b)  # different schema
+
+        assert ExternalDataSchemaOOMEvent.recent_count(schema_a, days=7) == 2
+        assert ExternalDataSchemaOOMEvent.recent_count(schema_a, days=30) == 3
+        assert ExternalDataSchemaOOMEvent.recent_count(schema_b, days=7) == 1
 
 
 class TestUpdateSyncTypeConfigKeys(BaseTest):
@@ -572,3 +615,33 @@ class TestStagedIncrementalCursor:
         with patch.object(schema, "save"):
             schema.update_sync_type_config_for_reset_pipeline()
         assert "incremental_staged" not in schema.sync_type_config
+
+
+class TestSSHTunnelPortValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Out-of-range ports previously slipped through to sshtunnel, which asserted `port >= 0`
+            # and crashed credential validation with a bare AssertionError ("PORT < 0 (...)").
+            ("negative", -122, False),
+            ("zero", 0, False),
+            ("too_large", 70000, False),
+            ("non_numeric", "not-a-number", False),
+            ("http", 80, False),
+            ("https", 443, False),
+            ("ssh", 22, True),
+            ("postgres", 5432, True),
+            ("max_valid", 65535, True),
+        ]
+    )
+    def test_has_valid_port(self, _name: str, port: int | str, expected_valid: bool) -> None:
+        tunnel = SSHTunnel(
+            enabled=True,
+            host="ssh.example.com",
+            port=port,
+            auth_type="password",
+            username="user",
+            password="pw",
+            private_key=None,
+            passphrase=None,
+        )
+        assert tunnel.has_valid_port()[0] is expected_valid

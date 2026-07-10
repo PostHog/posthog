@@ -1,0 +1,36 @@
+.DashboardSubscribeBell {
+    transform-origin: top center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .LemonButton:hover .DashboardSubscribeBell {
+        animation: DashboardSubscribeExperiment__ring 0.7s ease-in-out;
+    }
+}
+
+@keyframes DashboardSubscribeExperiment__ring {
+    0%,
+    100% {
+        transform: rotate(0);
+    }
+
+    15% {
+        transform: rotate(16deg);
+    }
+
+    30% {
+        transform: rotate(-14deg);
+    }
+
+    45% {
+        transform: rotate(10deg);
+    }
+
+    60% {
+        transform: rotate(-6deg);
+    }
+
+    75% {
+        transform: rotate(3deg);
+    }
+}

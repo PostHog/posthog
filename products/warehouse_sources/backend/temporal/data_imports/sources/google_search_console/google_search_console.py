@@ -304,7 +304,26 @@ def _query_search_analytics(
 
     for attempt in range(QUOTA_MAX_RETRIES + 1):
         _throttle(site_url)
-        response = session.post(url, json=body)
+        try:
+            response = session.post(url, json=body)
+        except requests.ConnectionError:
+            # A dropped connection (RemoteDisconnected / connection reset) is raised before any
+            # response, so the quota/5xx handling below never sees it, and the tracked adapter's
+            # retry skips it because searchAnalytics.query is a POST. It's transient, so retry
+            # inline like a 5xx; once the inline budget is spent, let it bubble so Temporal
+            # retries the activity (resuming from the last saved date).
+            if attempt == QUOTA_MAX_RETRIES:
+                raise
+            wait = QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
+            logger.warning(
+                "GSC request connection error, backing off",
+                site_url=site_url,
+                attempt=attempt,
+                wait_seconds=wait,
+            )
+            time.sleep(wait)
+            continue
+
         if response.ok:
             return response.json().get("rows", [])
 

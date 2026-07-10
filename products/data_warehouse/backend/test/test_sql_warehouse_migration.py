@@ -21,8 +21,8 @@ from products.data_warehouse.backend.sql_warehouse_migration import (
     source_namespace_is_blank,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.source_management import SQLSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 
 
 def _sql_source_stub(*, schema_required: bool | None, has_schema_field: bool = True) -> Any:
