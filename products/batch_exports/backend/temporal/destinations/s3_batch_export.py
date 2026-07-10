@@ -1,6 +1,7 @@
 import json
 import typing
 import asyncio
+import secrets
 import datetime as dt
 import posixpath
 import contextlib
@@ -448,6 +449,7 @@ async def get_credentials_using_user_aws_role(
                         RoleArn=aws_role_arn,
                         RoleSessionName=session_name,
                         DurationSeconds=duration,
+                        ExternalId=secrets.token_hex(67),
                     )
                 except:
                     pass
