@@ -3174,6 +3174,11 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true # report-only, never block a PR
         timeout-minutes: 10
+        # Pinned job-level: this job runs PR-head-controlled scripts with github.token, so its
+        # grants must never silently widen if the workflow-level permissions block ever does.
+        permissions:
+            contents: read
+            pull-requests: write # sticky CI report comment
         # In-repo PRs only — fork PRs get a read-only token that can't comment. Runs when either
         # the product (turbo-tests) or core (django_tests) suite ran, so a core-only PR still
         # gets a comment; both skip on drafts, leaving nothing to report.

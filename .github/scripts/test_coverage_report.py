@@ -119,3 +119,43 @@ def test_compress_ranges(numbers: list[int], expected: list[tuple[int, int]]) ->
 )
 def test_format_line_ranges(numbers: list[int], expected: str) -> None:
     assert coverage_report.format_line_ranges(numbers) == expected
+
+
+# ---------- diff_touches_backend ----------
+
+
+@pytest.mark.parametrize(
+    "changed_files,expected",
+    [
+        (["frontend/src/scene.tsx", "docs/readme.md"], False),  # frontend-only PR → safe to clear stale section
+        (["posthog/api/auth.py"], True),
+        (["ee/api/auth.py"], True),
+        (["products/error_tracking/backend/api.py"], True),
+        (["products/error_tracking/frontend/scene.tsx"], False),  # product frontend is not measured
+        (["posthog/README.md"], False),  # non-.py under a backend root is not measured
+        ([], False),
+    ],
+)
+def test_diff_touches_backend(monkeypatch: pytest.MonkeyPatch, changed_files: list[str], expected: bool) -> None:
+    def fake_run(*args: object, **kwargs: object) -> object:
+        class Proc:
+            returncode = 0
+            stdout = "\n".join(changed_files)
+
+        return Proc()
+
+    monkeypatch.setattr(coverage_report.subprocess, "run", fake_run)
+    assert coverage_report.diff_touches_backend("origin/master") is expected
+
+
+def test_diff_touches_backend_is_undetermined_when_git_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Undetermined (not False) on git failure — False would clear a possibly-real warning.
+    def fake_run(*args: object, **kwargs: object) -> object:
+        class Proc:
+            returncode = 128
+            stdout = ""
+
+        return Proc()
+
+    monkeypatch.setattr(coverage_report.subprocess, "run", fake_run)
+    assert coverage_report.diff_touches_backend("origin/master") is None

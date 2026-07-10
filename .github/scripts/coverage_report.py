@@ -267,6 +267,35 @@ def run_diff_cover(combined_path: Path, compare_branch: str, json_out: Path | No
         return None
 
 
+def diff_touches_backend(compare_branch: str) -> bool | None:
+    """Whether the diff vs compare_branch touches any measured backend path (None = can't tell).
+
+    Used when no coverage was collected at all: a diff with no backend files means there is
+    genuinely nothing to report and any stale section can be cleared, while a backend diff
+    without coverage data stays undetermined (never clear a real warning on missing data).
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--name-only", f"{compare_branch}...HEAD"], capture_output=True, text=True
+        )
+    except OSError:
+        return None
+    if proc.returncode != 0:
+        return None
+    for line in proc.stdout.splitlines():
+        path = line.strip()
+        if not path.endswith(".py"):
+            continue
+        if path.startswith(("posthog/", "ee/")) or (path.startswith("products/") and "/backend/" in path):
+            return True
+    return False
+
+
+def empty_patch_data() -> dict:
+    """A diff-cover-shaped payload for 'no measured backend lines changed'."""
+    return {"total_num_lines": 0, "total_num_violations": 0, "total_percent_covered": 100.0, "src_stats": {}}
+
+
 def bar(pct: float) -> str:
     filled = round(pct / 100 * BAR_WIDTH)
     return "█" * filled + "░" * (BAR_WIDTH - filled)
@@ -420,6 +449,13 @@ def main() -> int:
     if args.combined_out is not None and (results or core_valid):
         write_combined_cobertura(covered, valid, core_covered, core_valid, args.combined_out)
         patch_data = run_diff_cover(args.combined_out, args.compare_branch, args.patch_json_out)
+    elif not results and not core_valid and diff_touches_backend(args.compare_branch) is False:
+        # No coverage collected because nothing measured changed (e.g. a PR that dropped its
+        # backend changes) — emit an explicit zero-line payload so a stale warning section
+        # from an earlier run gets cleared rather than left standing.
+        patch_data = empty_patch_data()
+        if args.patch_json_out is not None:
+            args.patch_json_out.write_text(json.dumps(patch_data))
 
     markdown = render_markdown(results, patch_data)
 
