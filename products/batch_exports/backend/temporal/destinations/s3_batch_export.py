@@ -634,6 +634,8 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
                 )
 
             if isinstance(integration, S3CompatibleIntegration):
+                aws_access_key_id = integration.aws_access_key_id
+                aws_secret_access_key = integration.aws_secret_access_key
                 endpoint_url = integration.endpoint_url
 
         if not aws_access_key_id or not aws_secret_access_key:
