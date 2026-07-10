@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["diff-cover>=9,<11"]
+# dependencies = ["diff-cover>=9,<11", "defusedxml~=0.7"]
 # ///
 """Per-product backend coverage reporter.
 
@@ -20,7 +20,8 @@ Render-only: this script produces the markdown report and the machine-readable
 diff-cover JSON, nothing else. Posting into the shared CI report comment — and the
 comment-only-when-actionable logic — lives in .github/scripts/post-coverage-section.mjs.
 
-stdlib only — mirrors .github/scripts/report_test_timings.py.
+Near-stdlib — diff-cover for patch coverage, defusedxml for parsing artifact XML
+(semgrep blocks stdlib xml parsing; artifacts are PR-controlled input).
 """
 
 from __future__ import annotations
@@ -35,7 +36,11 @@ import subprocess
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+
+# nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (only used to build the output XML; all parsing goes through defusedxml)
 from xml.etree import ElementTree
+
+import defusedxml.ElementTree as DefusedElementTree
 
 BAR_WIDTH = 20
 
@@ -90,7 +95,7 @@ def _accumulate_class_lines(
 def parse_xml(xml_path: Path, covered_lines: dict[str, set[int]], valid_lines: dict[str, set[int]]) -> None:
     """Accumulate covered / valid line numbers per source file from one coverage.xml."""
     try:
-        root = ElementTree.parse(xml_path).getroot()
+        root = DefusedElementTree.parse(xml_path).getroot()
     except ElementTree.ParseError as exc:
         sys.stderr.write(f"::warning::skipping unparseable {xml_path}: {exc}\n")
         return
@@ -172,7 +177,7 @@ def aggregate_core(artifacts_dir: Path) -> tuple[dict[str, set[int]], dict[str, 
     cache: dict[str, str] = {}
     for xml_path in sorted(artifacts_dir.rglob("*.xml")):
         try:
-            root = ElementTree.parse(xml_path).getroot()
+            root = DefusedElementTree.parse(xml_path).getroot()
         except ElementTree.ParseError as exc:
             sys.stderr.write(f"::warning::skipping unparseable {xml_path}: {exc}\n")
             continue
