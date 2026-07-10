@@ -41,18 +41,17 @@ export function createHandleClientIngestionWarningStep<TInput extends HandleClie
             partition: message.partition,
         }
 
-        const ingested = emitIngestionWarning(
-            outputs,
-            team.id,
-            'client_ingestion_warning',
-            {
+        const ingested = emitIngestionWarning(outputs, team.id, {
+            type: 'client_ingestion_warning',
+            details: {
                 eventUuid: event.uuid,
                 event: event.event,
                 distinctId: event.distinct_id,
                 message: event.properties?.$$client_ingestion_warning_message,
             },
-            { alwaysSend: true }
-        ).then((emitted) => (emitted ? ingestedInfo : null))
+            pipelineStep: 'client-emit',
+            alwaysSend: true,
+        }).then((emitted) => (emitted ? ingestedInfo : null))
 
         return Promise.resolve(ok({ ingested: [ingested] }, [ingested]))
     }

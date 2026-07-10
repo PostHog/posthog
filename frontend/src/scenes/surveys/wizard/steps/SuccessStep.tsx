@@ -94,7 +94,7 @@ export function SuccessStep({ survey }: SuccessStepProps): JSX.Element {
                                     ? 'Every time a trigger event is captured'
                                     : survey.schedule === SurveySchedule.Once || !survey.iteration_frequency_days
                                       ? 'Once ever'
-                                      : `Up to ${survey.iteration_count ?? 10} times, every ${survey.iteration_frequency_days} days`}
+                                      : `Up to ${survey.iteration_count ?? 10} times, every ${survey.iteration_frequency_days} days from launch`}
                             </dd>
                         </div>
                         {survey.conditions?.seenSurveyWaitPeriodInDays != null && (

@@ -15,9 +15,14 @@ class ObservationStatus(models.TextChoices):
     INELIGIBLE = "ineligible", "Ineligible"
 
 
+# Not-yet-terminal statuses: what the quota meter reserves and the concurrency caps count as "in flight".
+IN_FLIGHT_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
+
+
 class ObservationTrigger(models.TextChoices):
     SCHEDULE = "schedule", "Schedule"
     ON_DEMAND = "on_demand", "On demand"
+    RETRY = "retry", "Retry"
 
 
 class ReplayObservation(UUIDModel):
@@ -64,7 +69,7 @@ class ReplayObservation(UUIDModel):
     triggered_by = models.CharField(
         max_length=16,
         choices=ObservationTrigger.choices,
-        help_text="What started this observation: a per-scanner schedule fire or an explicit /observe/ call.",
+        help_text="What started this observation: a per-scanner schedule fire, an explicit /observe/ call, or a retry of a failed observation.",
     )
     triggered_by_user = models.ForeignKey(
         "posthog.User",
@@ -72,7 +77,7 @@ class ReplayObservation(UUIDModel):
         null=True,
         blank=True,
         related_name="+",
-        help_text="Populated for on-demand triggers; null for schedule-driven observations.",
+        help_text="Populated for on-demand and retry triggers; null for schedule-driven observations.",
     )
 
     started_at = models.DateTimeField(null=True, blank=True)
@@ -101,7 +106,19 @@ class ReplayObservation(UUIDModel):
                 name="rlo_workflow_id_idx",
                 condition=~models.Q(workflow_id=""),
             ),
+            # Serves the per-team in-flight concurrency count (sweep headroom + on-demand 429). Partial on the
+            # in-flight statuses only, since terminal rows dominate and are never counted.
+            models.Index(
+                fields=["team", "scanner"],
+                name="rlo_team_in_flight_idx",
+                condition=models.Q(status__in=("pending", "running")),
+            ),
         ]
+
+    @classmethod
+    def in_flight_for_team(cls, team_id: int) -> "models.QuerySet[ReplayObservation]":
+        """A team's not-yet-terminal observations; the one predicate the quota meter and concurrency caps share."""
+        return cls.objects.filter(team_id=team_id, status__in=IN_FLIGHT_STATUSES)
 
     def save(self, *args, **kwargs) -> None:
         # Tenant invariant: observation.team_id must match scanner.team_id.

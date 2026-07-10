@@ -435,6 +435,12 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                     iconType: 'health',
                 },
                 {
+                    key: 'EngineeringAnalyticsPullRequests',
+                    name: 'Pull requests',
+                    path: urls.engineeringAnalyticsPullRequestList(),
+                    iconType: 'health',
+                },
+                {
                     key: ['EngineeringAnalyticsPullRequest', `${repoOwner}/${repoName}#${number}`],
                     name: `${repoOwner}/${repoName} #${number}`,
                     iconType: 'health',

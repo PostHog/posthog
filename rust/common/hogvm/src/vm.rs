@@ -23,7 +23,12 @@ use crate::{
     },
 };
 
-pub const MAX_JSON_SERDE_DEPTH: usize = 64;
+// Recursion guard for walking nested JSON/Hog containers (input deserialization, output
+// serialization, deep clones, json stringify). The reference VMs impose no explicit JSON-nesting
+// limit, so a low cap here shows up as a shadow `status_mismatch` (Rust errors where Node succeeds)
+// on legitimately deep event properties. 256 clears any realistic event nesting by a wide margin
+// while still bounding native recursion well within a worker thread's stack.
+pub const MAX_JSON_SERDE_DEPTH: usize = 256;
 
 /// The outcome of a virtual machine step.
 #[derive(Debug, Clone)]
@@ -265,23 +270,23 @@ impl<'a> HogVM<'a> {
                 self.push_stack(result)?;
             }
             Operation::Plus => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (a, b) = (self.pop_arith_operand()?, self.pop_arith_operand()?);
                 self.push_stack(Num::binary_op(NumOp::Add, &a, &b)?)?;
             }
             Operation::Minus => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (a, b) = (self.pop_arith_operand()?, self.pop_arith_operand()?);
                 self.push_stack(Num::binary_op(NumOp::Sub, &a, &b)?)?;
             }
             Operation::Mult => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (a, b) = (self.pop_arith_operand()?, self.pop_arith_operand()?);
                 self.push_stack(Num::binary_op(NumOp::Mul, &a, &b)?)?;
             }
             Operation::Div => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (a, b) = (self.pop_arith_operand()?, self.pop_arith_operand()?);
                 self.push_stack(Num::binary_op(NumOp::Div, &a, &b)?)?;
             }
             Operation::Mod => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (a, b) = (self.pop_arith_operand()?, self.pop_arith_operand()?);
                 self.push_stack(Num::binary_op(NumOp::Mod, &a, &b)?)?;
             }
             Operation::Eq => {
@@ -299,19 +304,19 @@ impl<'a> HogVM<'a> {
             Operation::Lt => self.compare_op(NumOp::Lt)?,
             Operation::LtEq => self.compare_op(NumOp::Lte)?,
             Operation::Like => {
-                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (val, pat) = self.pop_like_operands()?;
                 self.push_stack(like(val, pat, true)?)?;
             }
             Operation::Ilike => {
-                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (val, pat) = self.pop_like_operands()?;
                 self.push_stack(like(val, pat, false)?)?;
             }
             Operation::NotLike => {
-                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (val, pat) = self.pop_like_operands()?;
                 self.push_stack(!like(val, pat, true)?)?;
             }
             Operation::NotIlike => {
-                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (val, pat) = self.pop_like_operands()?;
                 self.push_stack(!like(val, pat, false)?)?;
             }
             Operation::In => {
@@ -448,7 +453,14 @@ impl<'a> HogVM<'a> {
                 for _ in 0..element_count {
                     // Note we don't put references into collections ever
                     values.push(self.pop_stack()?);
-                    keys.push(self.pop_stack_as::<String>()?);
+                    // Numeric keys coerce to their string form (the reference keys a JS Map with
+                    // the raw scalar; see values::num_key_string).
+                    let key_val = self.pop_stack()?;
+                    let key = match key_val.deref(&self.heap)? {
+                        HogLiteral::Number(n) => crate::values::num_key_string(n),
+                        lit => lit.try_as::<str>()?.to_string(),
+                    };
+                    keys.push(key);
                 }
                 // keys/values were popped in reverse (stack order), so reverse the zip to restore
                 // the source insertion order in the IndexMap.
@@ -856,28 +868,60 @@ impl<'a> HogVM<'a> {
         }
     }
 
-    /// `Gt`/`GtEq`/`Lt`/`LtEq` arm. The default (legacy) path requires numeric operands and errors
-    /// otherwise — the behavior `cymbal` and every other existing shared-crate consumer relies on
-    /// (a non-number operand erroring is what lets cymbal auto-disable a malformed rule). Only when
-    /// the context opts into coercing comparisons (the realtime-cohort evaluator, via
-    /// [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons))
-    /// does a non-`Number` operand reach [`compare_values`]' coercion instead of erroring. `a` is the
-    /// top of the stack.
-    // `=~`/`!~` (and the case-insensitive variants). The stack holds the pattern below the value;
-    // either operand being null never matches (the reference's external matcher returns false), so
-    // `=~` is false and `!~` is true.
+    // The reference VM applies JS arithmetic coercion, where null behaves as 0 (`5 - null` is
+    // 5); real transformations do arithmetic on absent event properties.
+    fn pop_arith_operand(&mut self) -> Result<Num, VmError> {
+        let val = self.pop_stack()?;
+        match val.deref(&self.heap)? {
+            HogLiteral::Null => Ok(Num::Integer(0)),
+            lit => lit.try_as::<Num>().cloned(),
+        }
+    }
+
+    // The reference VM funnels both like/ilike operands through JS String coercion (the pattern
+    // via String(...), the value via RegExp.test(...)), so null, booleans, and numbers stringify
+    // instead of erroring — `null like '%x%'` tests the string "null". Containers stay errors: the
+    // reference would produce "[object Object]", which no real program relies on.
+    fn pop_like_operands(&mut self) -> Result<(String, String), VmError> {
+        let val = self.pop_stack()?;
+        let pat = self.pop_stack()?;
+        Ok((self.js_string_coerce(&val)?, self.js_string_coerce(&pat)?))
+    }
+
+    fn js_string_coerce(&self, value: &HogValue) -> Result<String, VmError> {
+        match value.deref(&self.heap)? {
+            HogLiteral::String(s) => Ok(s.clone()),
+            HogLiteral::Null => Ok("null".to_string()),
+            HogLiteral::Boolean(b) => Ok(b.to_string()),
+            HogLiteral::Number(n) => Ok(match n {
+                Num::Integer(i) => i.to_string(),
+                Num::Float(f) => format!("{f}"),
+            }),
+            other => Err(VmError::InvalidValue(
+                other.type_name().to_string(),
+                "String".to_string(),
+            )),
+        }
+    }
+
+    /// `=~`/`!~` (and the case-insensitive variants). The stack holds the pattern below the value.
+    /// Mirrors the reference's `regexMatch`: `pattern && value ? external.match(pattern, value) :
+    /// false`, where the external matcher (RE2/RegExp `.test`) JS-String-coerces the value. So a
+    /// falsy pattern or value (null, `false`, `0`, `""`, `NaN`) never matches, and scalar values
+    /// (numbers, booleans) stringify just like `like`/`ilike` via `js_string_coerce`. Containers
+    /// still error, matching the deliberate `pop_like_operands` deviation.
     fn regex_op(&mut self, case_sensitive: bool, negate: bool) -> Result<(), VmError> {
         let val = self.pop_stack()?;
         let pat = self.pop_stack()?;
         let matched = {
             let val_lit = val.deref(&self.heap)?;
             let pat_lit = pat.deref(&self.heap)?;
-            if matches!(val_lit, HogLiteral::Null) || matches!(pat_lit, HogLiteral::Null) {
+            if !val_lit.truthy() || !pat_lit.truthy() {
                 false
             } else {
                 regex_match(
-                    val_lit.try_as::<str>()?,
-                    pat_lit.try_as::<str>()?,
+                    &self.js_string_coerce(&val)?,
+                    &self.js_string_coerce(&pat)?,
                     case_sensitive,
                 )?
             }
@@ -885,6 +929,13 @@ impl<'a> HogVM<'a> {
         self.push_stack(HogLiteral::Boolean(matched ^ negate))
     }
 
+    /// `Gt`/`GtEq`/`Lt`/`LtEq` arm. The default (legacy) path requires numeric operands and errors
+    /// otherwise — the behavior `cymbal` and every other existing shared-crate consumer relies on
+    /// (a non-number operand erroring is what lets cymbal auto-disable a malformed rule). Only when
+    /// the context opts into coercing comparisons (the realtime-cohort evaluator, via
+    /// [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons))
+    /// does a non-`Number` operand reach [`compare_values`]' coercion instead of erroring. `a` is the
+    /// top of the stack.
     fn compare_op(&mut self, op: NumOp) -> Result<(), VmError> {
         if !self.context.coerce_comparisons {
             // Legacy/reference path: both operands must be `Number` or this errors.

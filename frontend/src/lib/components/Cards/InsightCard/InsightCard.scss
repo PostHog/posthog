@@ -58,4 +58,22 @@
     .WebAnalyticsDashboard .InsightVizDisplay & {
         min-height: var(--insight-viz-min-height);
     }
+
+    // Clip while the JS-throttled pinned size lags the growing/shrinking tile mid-resize.
+    &--resizing {
+        overflow: hidden;
+    }
+}
+
+.InsightCard__vizInner {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    width: 100%;
+    min-height: 0;
+
+    .InsightCard__viz--resizing & {
+        flex: none;
+        pointer-events: none;
+    }
 }

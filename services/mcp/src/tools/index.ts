@@ -23,13 +23,13 @@ import notebookEdit from './notebooks/edit'
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
 import {
+    EXECUTE_SQL_TOOL_NAME,
     executeSql,
     externalDataSourcesDbSchema,
     externalDataSourcesJobs,
     externalDataSourcesPreview,
     externalDataSyncLogs,
     readDataSchema,
-    readDataWarehouseSchema,
 } from './posthogAiTools'
 // Projects
 import getProjects from './projects/getProjects'
@@ -90,9 +90,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-resolve-resource': resolveResource,
 
     // PostHog AI tools
-    'execute-sql': executeSql,
+    [EXECUTE_SQL_TOOL_NAME]: executeSql,
     'read-data-schema': readDataSchema,
-    'read-data-warehouse-schema': readDataWarehouseSchema,
 
     // Replay
     'session-recording-summarize': sessionRecordingSummarize,

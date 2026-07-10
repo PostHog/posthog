@@ -3,7 +3,7 @@ import z from 'zod'
 
 import { CyclotronJobInputsValidationResult } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 
-import { UserBasicType } from '~/types'
+import { AccessControlLevel, UserBasicType } from '~/types'
 
 import { CyclotronJobInputSchemaTypeSchema, HogFlowActionSchema, HogFlowTriggerSchema } from './steps/types'
 
@@ -80,6 +80,8 @@ export const HogFlowBatchJobSchema = z.object({
 // NOTE: these are purposefully exported as interfaces to support kea typegen
 export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     created_by?: UserBasicType | null
+    // Effective access level of the current user for this workflow (resource access control).
+    user_access_level?: AccessControlLevel
 }
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
 export interface HogFlowActionEdge extends Edge<{ edge: HogFlowEdge; label?: string }> {}

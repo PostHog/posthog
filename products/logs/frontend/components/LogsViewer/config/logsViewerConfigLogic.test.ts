@@ -99,4 +99,42 @@ describe('logsViewerConfigLogic', () => {
             logic2.unmount()
         })
     })
+
+    describe('legacy attribute-column migration', () => {
+        const legacyKey = (id: string): string =>
+            `products.logs.frontend.components.LogsViewer.logsViewerLogic.${id}.attributeColumnsConfig`
+
+        afterEach(() => {
+            localStorage.clear()
+        })
+
+        it('migrates persisted legacy config into typed columns on mount and removes the key', () => {
+            localStorage.setItem(
+                legacyKey('migrate-tab'),
+                JSON.stringify({ 'k8s.pod': { order: 1, width: 200 }, 'http.status': { order: 0 } })
+            )
+            const migrateLogic = logsViewerConfigLogic({ id: 'migrate-tab' })
+            migrateLogic.mount()
+
+            expect(migrateLogic.values.columns.map((c) => c.type)).toEqual(['timestamp', 'custom', 'custom', 'message'])
+            expect(migrateLogic.values.columns[1].name).toBe('http.status')
+            expect(migrateLogic.values.columns[2].name).toBe('k8s.pod')
+            expect(migrateLogic.values.columns[2].width).toBe(200)
+            expect(localStorage.getItem(legacyKey('migrate-tab'))).toBeNull()
+            migrateLogic.unmount()
+        })
+
+        it('does not overwrite an already-customized column set', () => {
+            const customizedLogic = logsViewerConfigLogic({ id: 'customized-tab' })
+            customizedLogic.mount()
+            customizedLogic.actions.setColumns([{ id: 'message', type: 'message' }])
+            customizedLogic.unmount()
+
+            localStorage.setItem(legacyKey('customized-tab'), JSON.stringify({ 'k8s.pod': { order: 0 } }))
+            const remounted = logsViewerConfigLogic({ id: 'customized-tab' })
+            remounted.mount()
+            expect(remounted.values.columns.map((c) => c.id)).toEqual(['message'])
+            remounted.unmount()
+        })
+    })
 })

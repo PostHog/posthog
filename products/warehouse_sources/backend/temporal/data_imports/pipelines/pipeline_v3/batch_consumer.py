@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import time
+import random
 import signal
 import asyncio
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -38,6 +40,10 @@ RECONCILE_LOOKBACK_SECONDS = 24 * 60 * 60  # wide enough to catch jobs orphaned 
 
 SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 30.0
 
+# Cap on the exponential backoff between failed polls — flat retries make the
+# whole fleet hammer a degraded queue DB in lockstep.
+POLL_BACKOFF_MAX_SECONDS = 30.0
+
 # Per-poll fetch cap multiplier: fetch at most (free slots x this) batches so a poll
 # never leases far more groups than it can dispatch. Runs average ~2 batches per
 # group (batch 0 + final), so x3 gives headroom for multi-batch runs without
@@ -47,6 +53,13 @@ BATCHES_PER_GROUP_FETCH_FACTOR = 3
 
 class OwnershipLostError(Exception):
     """Raised when the group lease for a (team_id, schema_id) is no longer held by this consumer."""
+
+
+class PermanentBatchApplyError(Exception):
+    """Raise from process_batch for errors retries cannot fix (unsupported batch
+    kind, missing primary keys, malformed batch metadata). The consumer skips
+    the waiting_retry cycle and fails the run on the first attempt — retrying a
+    permanent error only delays the terminal state and burns sink throughput."""
 
 
 @dataclass
@@ -71,10 +84,22 @@ class BatchConsumerConfig:
     reconcile_grace_seconds: int = RECONCILE_GRACE_SECONDS
     reconcile_lookback_seconds: int = RECONCILE_LOOKBACK_SECONDS
     reconcile_limit: int = 100
+    # Ceilings on queue-DB operations. Without them a claim query or sweep that
+    # degrades past "slow" into "never returns" silently wedges the consumer:
+    # the awaiting task holds its slot forever, with no error and no log.
+    connect_timeout_seconds: int = 10
+    poll_timeout_seconds: float | None = 180.0
+    sweep_timeout_seconds: float | None = 300.0
+    # Added to each connection's client ceiling to form its server-side
+    # statement_timeout, so an abandoned poll or sweep can't keep burning DB CPU.
+    statement_timeout_margin_seconds: float = 30.0
     # When set, the consumer stops reporting itself healthy once any single batch
     # has been executing longer than this, so a wedged sink connection turns into
     # a liveness-probe restart instead of an indefinite, invisible stall.
     stuck_batch_timeout_seconds: float | None = None
+    # Withhold liveness after this many consecutive failed polls: a pod that
+    # cannot poll does no work but would otherwise pass liveness forever.
+    poll_failure_liveness_threshold: int | None = 10
 
     def __post_init__(self) -> None:
         if self.recovery_grace_seconds is None:
@@ -138,6 +163,7 @@ class BatchConsumerAdapter(Protocol):
         job_state: str,
         attempt: int,
         error_response: dict[str, Any] | None = None,
+        batch_created_at: datetime | None = None,
     ) -> None: ...
 
     async def fail_run(
@@ -191,6 +217,12 @@ class BatchConsumerAdapter(Protocol):
         batch: PendingBatch,
     ) -> bool: ...
 
+    def is_retryable_error(self, err: Exception) -> bool:
+        """Whether a processing error can plausibly succeed on retry — deterministic
+        data/config errors fail identically every attempt, so retrying only delays
+        the run's terminal state."""
+        ...
+
     async def after_batch_processed(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -229,16 +261,52 @@ class BatchConsumer:
         # batch_id -> monotonic start, for the stuck-batch watchdog.
         self._inflight_started: dict[str, float] = {}
         self._last_stuck_log_monotonic = 0.0
+        # Consecutive failed polls, for the poll-failure liveness trip.
+        self._consecutive_poll_failures = 0
+        self._last_poll_failure_log_monotonic = 0.0
 
     @property
     def _lease_ttl_seconds(self) -> int:
         return self._config.lease_ttl_seconds or self._config.recovery_grace_seconds or RECOVERY_GRACE_SECONDS
 
-    async def _connect(self) -> psycopg.AsyncConnection[Any]:
-        return await psycopg.AsyncConnection.connect(
+    def _statement_timeout_ms(self, client_timeout_seconds: float | None) -> int | None:
+        """Server-side statement_timeout backstop in milliseconds; None when the
+        client ceiling is disabled (same "0 disables" contract)."""
+        if not client_timeout_seconds:
+            return None
+        return int((client_timeout_seconds + self._config.statement_timeout_margin_seconds) * 1000)
+
+    async def _connect(self, *, statement_timeout_seconds: float | None = None) -> psycopg.AsyncConnection[Any]:
+        conn = await psycopg.AsyncConnection.connect(
             self._config.database_url,
             autocommit=True,
+            connect_timeout=self._config.connect_timeout_seconds,
         )
+        # Session-scoped SET, not a libpq startup option: PgBouncer rejects
+        # statement_timeout inside the `options` startup parameter.
+        timeout_ms = self._statement_timeout_ms(statement_timeout_seconds)
+        if timeout_ms is not None:
+            try:
+                await conn.execute(f"SET statement_timeout = {timeout_ms}")
+            except psycopg.Error:
+                await conn.close()
+                raise
+        return conn
+
+    async def _drop_conn(self, attr: str) -> None:
+        """Close and forget a connection after a timed-out operation.
+
+        A cancelled psycopg operation can leave the connection mid-protocol;
+        re-dialing on the next cycle is cheaper than reasoning about its state.
+        """
+        conn: psycopg.AsyncConnection[Any] | None = getattr(self, attr)
+        setattr(self, attr, None)
+        if conn is None:
+            return
+        try:
+            await asyncio.wait_for(conn.close(), timeout=5.0)
+        except Exception:
+            pass
 
     async def _ensure_poll_conn(self) -> psycopg.AsyncConnection[Any]:
         """Return the poll connection, reconnecting if a failover/pgbouncer bounce dropped it."""
@@ -247,7 +315,7 @@ class BatchConsumer:
         async with self._poll_conn_lock:
             if self._poll_conn is None or self._poll_conn.closed or self._poll_conn.broken:
                 logger.warning(self._event("queue_db_poll_connection_reconnecting"))
-                self._poll_conn = await self._connect()
+                self._poll_conn = await self._connect(statement_timeout_seconds=self._config.poll_timeout_seconds)
             return self._poll_conn
 
     async def _ensure_recovery_conn(self) -> psycopg.AsyncConnection[Any]:
@@ -257,7 +325,7 @@ class BatchConsumer:
         async with self._recovery_conn_lock:
             if self._recovery_conn is None or self._recovery_conn.closed or self._recovery_conn.broken:
                 logger.warning(self._event("queue_db_recovery_connection_reconnecting"))
-                self._recovery_conn = await self._connect()
+                self._recovery_conn = await self._connect(statement_timeout_seconds=self._config.sweep_timeout_seconds)
             return self._recovery_conn
 
     async def _wait_or_shutdown(self, timeout: float) -> None:
@@ -269,8 +337,8 @@ class BatchConsumer:
     async def run(self) -> None:
         self._install_signal_handlers()
 
-        self._poll_conn = await self._connect()
-        self._recovery_conn = await self._connect()
+        self._poll_conn = await self._connect(statement_timeout_seconds=self._config.poll_timeout_seconds)
+        self._recovery_conn = await self._connect(statement_timeout_seconds=self._config.sweep_timeout_seconds)
 
         logger.info(
             self._event("batch_consumer_started"),
@@ -282,9 +350,12 @@ class BatchConsumer:
         )
 
         try:
-            await self._recovery_sweep()
-            self._recovery_task = asyncio.create_task(self._recovery_loop())
+            # Liveness must be reporting before the startup sweep runs: the sweep
+            # scans the whole queue and can outlast the health server's startup
+            # grace window, and a pod liveness-killed mid-sweep can never boot.
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+            await self._recovery_sweep_with_timeout()
+            self._recovery_task = asyncio.create_task(self._recovery_loop())
 
             while not self._shutdown.is_set():
                 self._report_health()
@@ -304,20 +375,39 @@ class BatchConsumer:
                 poll_start = time.monotonic()
                 try:
                     conn = await self._ensure_poll_conn()
-                    batches = await self._adapter.fetch_and_lock(
-                        conn,
-                        limit=self._fetch_limit(available),
-                        retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
-                        owner_token=self._owner_token,
-                        lease_ttl_seconds=self._lease_ttl_seconds,
+                    async with asyncio.timeout(self._config.poll_timeout_seconds):
+                        batches = await self._fetch_batches(conn, available=available)
+                except TimeoutError:
+                    # error, not exception: the timeout is the designed recovery
+                    # path and its traceback carries no diagnostic value.
+                    logger.error(  # noqa: TRY400
+                        self._event("poll_timed_out"),
+                        timeout_seconds=self._config.poll_timeout_seconds,
+                        consecutive_failures=self._consecutive_poll_failures + 1,
                     )
+                    self._note_poll_failure("timeout", duration=time.monotonic() - poll_start)
+                    await self._drop_conn("_poll_conn")
+                    await self._wait_or_shutdown(self._poll_retry_delay())
+                    continue
                 except psycopg.OperationalError as e:
                     logger.exception(self._event("poll_failed_queue_db_unreachable"))
                     capture_exception(e)
-                    await self._wait_or_shutdown(self._config.poll_interval_seconds)
+                    self._note_poll_failure("db_unreachable", duration=time.monotonic() - poll_start)
+                    await self._wait_or_shutdown(self._poll_retry_delay())
                     continue
-                self._metrics.poll_duration_seconds.observe(time.monotonic() - poll_start)
+                self._consecutive_poll_failures = 0
+                poll_duration = time.monotonic() - poll_start
+                self._metrics.poll_duration_seconds.observe(poll_duration)
                 self._metrics.poll_batches_fetched.observe(len(batches))
+                if poll_duration > self._lease_ttl_seconds / 2:
+                    # Leases are claimed at query start, so a poll this slow hands
+                    # groups over with most of their TTL already burned — the
+                    # leading indicator of fetch-expire-refetch churn fleet-wide.
+                    logger.warning(
+                        self._event("poll_duration_approaching_lease_ttl"),
+                        poll_duration_seconds=round(poll_duration, 3),
+                        lease_ttl_seconds=self._lease_ttl_seconds,
+                    )
 
                 if not batches:
                     await self._wait_or_shutdown(self._config.poll_interval_seconds)
@@ -328,6 +418,17 @@ class BatchConsumer:
                 await self._wait_or_shutdown(self._config.poll_interval_seconds)
         finally:
             await self._close()
+
+    async def _fetch_batches(self, conn: psycopg.AsyncConnection[Any], *, available: int) -> list[PendingBatch]:
+        """Claim the next batches to process. ``available`` is the number of free
+        group slots; subclasses may use it to bound how many groups they claim."""
+        return await self._adapter.fetch_and_lock(
+            conn,
+            limit=self._fetch_limit(available),
+            retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
+            owner_token=self._owner_token,
+            lease_ttl_seconds=self._lease_ttl_seconds,
+        )
 
     def _fetch_limit(self, available: int) -> int:
         """Cap the poll fetch so we never lease far more groups than we have free slots to run.
@@ -405,6 +506,25 @@ class BatchConsumer:
                 group_conn = self._poll_conn
                 assert group_conn is not None
 
+            # The lease was claimed when the poll query started; a slow poll can
+            # burn most of its TTL before the group task runs. Re-up it here so
+            # processing starts with a full window instead of expiring mid-batch
+            # and churning the group to another pod.
+            renewed = await self._adapter.renew_lease(
+                group_conn,
+                team_id=team_id,
+                schema_id=schema_id,
+                owner_token=self._owner_token,
+                lease_ttl_seconds=self._lease_ttl_seconds,
+            )
+            if not renewed:
+                logger.warning(
+                    self._event("lease_lost_before_dispatch"),
+                    team_id=team_id,
+                    schema_id=schema_id,
+                )
+                return
+
             for batch in batches:
                 if self._shutdown.is_set():
                     logger.info(
@@ -443,21 +563,34 @@ class BatchConsumer:
                     )
                     break
         finally:
-            if group_conn is not None:
-                try:
-                    await self._adapter.unlock(group_conn, batches=batches, owner_token=self._owner_token)
-                except Exception as e:
-                    logger.exception(
-                        self._event("unlock_for_batches_failed"),
-                        team_id=team_id,
-                        external_data_schema_id=schema_id,
-                    )
-                    capture_exception(e)
+            await self._unlock_group(group_conn, batches, team_id=team_id, schema_id=schema_id)
             if owns_conn and group_conn is not None:
                 try:
                     await group_conn.close()
                 except Exception:
                     pass
+
+    async def _unlock_group(
+        self,
+        group_conn: psycopg.AsyncConnection[Any] | None,
+        batches: list[PendingBatch],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None:
+        """Release the group's claim after processing. ``group_conn`` is None when
+        opening the per-group connection failed before processing started."""
+        if group_conn is None:
+            return
+        try:
+            await self._adapter.unlock(group_conn, batches=batches, owner_token=self._owner_token)
+        except Exception as e:
+            logger.exception(
+                self._event("unlock_for_batches_failed"),
+                team_id=team_id,
+                external_data_schema_id=schema_id,
+            )
+            capture_exception(e)
 
     async def _get_status_conn(self, lock_conn: psycopg.AsyncConnection[Any] | None) -> psycopg.AsyncConnection[Any]:
         """Return the connection to use for status writes, preferring the lock session."""
@@ -512,6 +645,7 @@ class BatchConsumer:
                     batch_id=batch.id,
                     job_state=self._adapter.executing_state,
                     attempt=attempt,
+                    batch_created_at=batch.created_at,
                 )
             except Exception:
                 return
@@ -596,18 +730,24 @@ class BatchConsumer:
             resource_name=batch.resource_name,
         )
 
-        # Pre-increment: if we OOM here, recovery sees attempt=N+1 and knows this attempt was consumed.
-        await self._adapter.update_status(
-            status_conn,
-            batch_id=batch.id,
-            job_state=self._adapter.executing_state,
-            attempt=attempt,
-        )
-
         heartbeat_task: asyncio.Task[None] | None = None
         try:
             start = time.monotonic()
+            # Before the executing write: adapters may read the batch's latest
+            # status here, and our own 'executing' row would mask a terminal
+            # status written while the batch waited in this claim.
             should_process = await self._adapter.should_process_batch(status_conn, batch=batch)
+
+            # Pre-increment: if we OOM during processing, recovery sees attempt=N+1
+            # and knows this attempt was consumed.
+            await self._adapter.update_status(
+                status_conn,
+                batch_id=batch.id,
+                job_state=self._adapter.executing_state,
+                attempt=attempt,
+                batch_created_at=batch.created_at,
+            )
+
             if should_process:
                 if lock_conn is not None:
                     heartbeat_task = asyncio.create_task(self._batch_heartbeat(lock_conn, batch, attempt))
@@ -637,6 +777,7 @@ class BatchConsumer:
                 batch_id=batch.id,
                 job_state=self._adapter.succeeded_state,
                 attempt=attempt,
+                batch_created_at=batch.created_at,
             )
             self._metrics.batches_processed_total.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
             logger.info(
@@ -654,29 +795,7 @@ class BatchConsumer:
             self._metrics.batches_processed_total.labels(team_id=team_id, schema_id=schema_id, status="error").inc()
             self._metrics.batch_retry_total.labels(attempt=str(attempt), error_type=type(err).__name__).inc()
 
-            if attempt >= self._config.max_attempts:
-                logger.exception(
-                    self._event("batch_failed_no_retries_left"),
-                    batch_id=batch.id,
-                    run_uuid=batch.run_uuid,
-                    attempt=attempt,
-                )
-                capture_exception(err)
-                await self._fail_run(batch, reason=f"max retries exceeded: {err}", conn=lock_conn)
-            else:
-                logger.warning(
-                    self._event("batch_failed_will_retry"),
-                    batch_id=batch.id,
-                    attempt=attempt,
-                    error=str(err),
-                )
-                await self._adapter.update_status(
-                    status_conn,
-                    batch_id=batch.id,
-                    job_state=self._adapter.waiting_retry_state,
-                    attempt=attempt,
-                    error_response={"error": str(err)[:1000]},
-                )
+            await self._handle_batch_failure(batch, attempt, err, lock_conn=lock_conn, status_conn=status_conn)
             return False
         finally:
             if heartbeat_task is not None:
@@ -685,6 +804,54 @@ class BatchConsumer:
                     await heartbeat_task
                 except asyncio.CancelledError:
                     pass
+
+    async def _handle_batch_failure(
+        self,
+        batch: PendingBatch,
+        attempt: int,
+        err: Exception,
+        *,
+        lock_conn: psycopg.AsyncConnection[Any] | None,
+        status_conn: psycopg.AsyncConnection[Any],
+    ) -> None:
+        """Write the retry/terminal state after a processing error."""
+        if not self._adapter.is_retryable_error(err):
+            # Deterministic failures do not benefit from retrying. Preserve their
+            # messages, except for explicitly classified permanent apply errors.
+            logger.exception(
+                self._event("batch_failed_non_retryable"),
+                batch_id=batch.id,
+                run_uuid=batch.run_uuid,
+                attempt=attempt,
+            )
+            capture_exception(err)
+            reason = f"permanent apply error: {err}" if isinstance(err, PermanentBatchApplyError) else str(err)
+            await self._fail_run(batch, reason=reason, conn=lock_conn)
+        elif attempt >= self._config.max_attempts:
+            reason = f"max retries exceeded: {err}"
+            logger.exception(
+                self._event("batch_failed_no_retries_left"),
+                batch_id=batch.id,
+                run_uuid=batch.run_uuid,
+                attempt=attempt,
+            )
+            capture_exception(err)
+            await self._fail_run(batch, reason=reason, conn=lock_conn)
+        else:
+            logger.warning(
+                self._event("batch_failed_will_retry"),
+                batch_id=batch.id,
+                attempt=attempt,
+                error=str(err),
+            )
+            await self._adapter.update_status(
+                status_conn,
+                batch_id=batch.id,
+                job_state=self._adapter.waiting_retry_state,
+                attempt=attempt,
+                error_response={"error": str(err)[:1000]},
+                batch_created_at=batch.created_at,
+            )
 
     async def _fail_run(
         self,
@@ -715,7 +882,7 @@ class BatchConsumer:
                 break
 
             try:
-                await self._recovery_sweep()
+                await self._recovery_sweep_with_timeout()
             except Exception as e:
                 logger.exception(self._event("recovery_sweep_error"))
                 capture_exception(e)
@@ -724,10 +891,29 @@ class BatchConsumer:
             if now - self._last_reconcile_monotonic >= self._config.reconcile_interval_seconds:
                 self._last_reconcile_monotonic = now
                 try:
-                    await self._reconcile_failed_runs()
+                    async with asyncio.timeout(self._config.sweep_timeout_seconds):
+                        await self._reconcile_failed_runs()
+                except TimeoutError:
+                    logger.error(  # noqa: TRY400 — designed recovery path, traceback is noise
+                        self._event("reconcile_sweep_timed_out"),
+                        timeout_seconds=self._config.sweep_timeout_seconds,
+                    )
+                    await self._drop_conn("_recovery_conn")
                 except Exception as e:
                     logger.exception(self._event("reconcile_sweep_error"))
                     capture_exception(e)
+
+    async def _recovery_sweep_with_timeout(self) -> None:
+        """Run the recovery sweep under the sweep timeout; a sweep that never returns must not stall the consumer."""
+        try:
+            async with asyncio.timeout(self._config.sweep_timeout_seconds):
+                await self._recovery_sweep()
+        except TimeoutError:
+            logger.error(  # noqa: TRY400 — designed recovery path, traceback is noise
+                self._event("recovery_sweep_timed_out"),
+                timeout_seconds=self._config.sweep_timeout_seconds,
+            )
+            await self._drop_conn("_recovery_conn")
 
     async def _reconcile_failed_runs(self) -> None:
         """Reconcile runs whose queue batch failed but whose terminal-state write never landed."""
@@ -740,15 +926,43 @@ class BatchConsumer:
             limit=self._config.reconcile_limit,
         )
 
+    def _note_poll_failure(self, reason: str, *, duration: float) -> None:
+        """Record a failed poll: the success path never reaches the poll histograms,
+        so without this a fleet whose polls all fail looks healthier than a slow one."""
+        self._consecutive_poll_failures += 1
+        self._metrics.poll_failures_total.labels(reason=reason).inc()
+        self._metrics.poll_duration_seconds.observe(duration)
+
+    def _poll_retry_delay(self) -> float:
+        """Capped, jittered backoff before retrying a failed poll: a degraded queue DB
+        gets exponentially less pressure and the fleet's retries desynchronize."""
+        base = self._config.poll_interval_seconds
+        failures = max(self._consecutive_poll_failures, 1)
+        backoff = min(base * 2 ** (failures - 1), POLL_BACKOFF_MAX_SECONDS)
+        return backoff + random.uniform(0, base)
+
     def _report_health(self) -> None:
-        """Report liveness, unless the stuck-batch watchdog has tripped.
+        """Report liveness, unless the stuck-batch watchdog or the poll-failure trip fired.
 
         Withholding the report makes the health server's timeout fail the liveness
         probe, so Kubernetes restarts the pod and the recovery sweep reassigns the
         wedged batch -- a sync thread blocked on a dead sink connection cannot be
         cancelled from the event loop, so a restart is the only real remedy.
+        Likewise for polling: a pod whose polls all fail does no work but would
+        otherwise report healthy forever.
         """
         if self._health_reporter is None:
+            return
+        threshold = self._config.poll_failure_liveness_threshold
+        if threshold is not None and self._consecutive_poll_failures >= threshold:
+            now = time.monotonic()
+            if now - self._last_poll_failure_log_monotonic > 60:
+                self._last_poll_failure_log_monotonic = now
+                logger.error(
+                    self._event("poll_failure_liveness_tripped"),
+                    consecutive_failures=self._consecutive_poll_failures,
+                    threshold=threshold,
+                )
             return
         timeout = self._config.stuck_batch_timeout_seconds
         if timeout is not None and self._inflight_started:
@@ -835,6 +1049,7 @@ class BatchConsumer:
                             job_state=self._adapter.waiting_retry_state,
                             attempt=batch.latest_attempt,
                             error_response={"error": "executing timed out - pod restart or OOM"},
+                            batch_created_at=batch.created_at,
                         )
                 finally:
                     structlog.contextvars.unbind_contextvars(*recovery_bound_keys)

@@ -18,6 +18,7 @@ import {
 import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomicFilterSurface'
 import {
     ExcludedOperators,
+    ExcludedProperties,
     InfiniteListLogicProps,
     META_GROUP_TYPES,
     QuickFilterItem,
@@ -30,6 +31,7 @@ import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import {
     buildUrlContainsShortcut,
@@ -42,6 +44,7 @@ import {
     pinnedSourceKey,
     recentSourceKey,
 } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
+import { floatToFront } from 'lib/components/TaxonomicFilter/utils/floatToFront'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
@@ -120,6 +123,14 @@ export interface RowInfo {
  */
 export const NO_ITEM_SELECTED = -1
 
+// Data-warehouse tabs keep their own committed-selection affordance (the pinned,
+// auto-expanded row via `getInitialPinnedRowIndex`), so they are excluded from
+// the generic selection-promotion below.
+const DATA_WAREHOUSE_GROUP_TYPES: TaxonomicFilterGroupType[] = [
+    TaxonomicFilterGroupType.DataWarehouse,
+    TaxonomicFilterGroupType.DataWarehouseSourceTables,
+]
+
 export function getInitialPinnedRowIndex({
     results,
     taxonomicGroups,
@@ -137,15 +148,11 @@ export function getInitialPinnedRowIndex({
     value: string | number | null | undefined
     isActiveTab: boolean
 }): number | null {
-    const dataWarehouseGroupTypes: TaxonomicFilterGroupType[] = [
-        TaxonomicFilterGroupType.DataWarehouse,
-        TaxonomicFilterGroupType.DataWarehouseSourceTables,
-    ]
     if (
         !isActiveTab ||
-        !dataWarehouseGroupTypes.includes(listGroupType) ||
+        !DATA_WAREHOUSE_GROUP_TYPES.includes(listGroupType) ||
         groupType === undefined ||
-        !dataWarehouseGroupTypes.includes(groupType) ||
+        !DATA_WAREHOUSE_GROUP_TYPES.includes(groupType) ||
         value == null
     ) {
         return null
@@ -482,12 +489,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.taxonomicGroupTypes,
                 (_, props: InfiniteListLogicProps) => props.excludedOperators,
                 (_, props: InfiniteListLogicProps) => props.selectingKeyOnly,
+                (_, props: InfiniteListLogicProps) => props.excludedProperties,
             ],
             (
                 recentFilterItems: TaxonomicDefinitionTypes[],
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
                 excludedOperators: ExcludedOperators | undefined,
-                selectingKeyOnly: boolean | undefined
+                selectingKeyOnly: boolean | undefined,
+                excludedProperties: ExcludedProperties | undefined
             ): TaxonomicDefinitionTypes[] => {
                 if (!recentFilterItems?.length) {
                     return []
@@ -495,6 +504,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const availableTypes = new Set(taxonomicGroupTypes)
                 const inScope = recentFilterItems.filter((item) => {
                     if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
+                        return false
+                    }
+                    // A group's excluded values (e.g. `message` for the logs group-by picker) must be
+                    // dropped from the Recent tab too, not just the group's own option list — otherwise
+                    // an excluded key recorded elsewhere leaks back in as a selectable recent.
+                    const excludedValues = excludedProperties?.[item._recentContext.sourceGroupType]
+                    if (excludedValues?.length && excludedValues.includes(item._recentContext.sourceValue)) {
                         return false
                     }
                     const excludedForGroup = excludedOperators?.[item._recentContext.sourceGroupType]
@@ -536,24 +552,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return substantive.length === 1 && substantive[0] === listGroupType
             },
         ],
-        // Keys a group result the same way recent/pinned entries are keyed
-        // (`sourceGroupType::value`), so `floatRecentAndPinnedToTop` can line the tiers up.
-        // Null unless this is the sole substantive group — kept off `items` as a small input.
-        soleGroupValueKeyer: [
+        // Whether the sole substantive group has a usable getValue function for
+        // floating recent/pinned items. The `items` selector reads this boolean
+        // (stable reference) rather than a function (unstable closure that would
+        // defeat kea's reference-equality memoisation and cause infinite re-renders).
+        soleGroupHasGetValue: [
             (s) => [s.isSoleSubstantiveGroup, s.listGroupType, s.taxonomicGroups],
             (
-                isSoleSubstantiveGroup,
-                listGroupType,
+                isSoleSubstantiveGroup: boolean,
+                listGroupType: TaxonomicFilterGroupType,
                 taxonomicGroups: TaxonomicFilterGroup[]
-            ): ((item: TaxonomicDefinitionTypes) => string | null) | null => {
+            ): boolean => {
                 if (!isSoleSubstantiveGroup) {
-                    return null
+                    return false
                 }
-                const getValue = taxonomicGroups.find((g) => g.type === listGroupType)?.getValue
-                if (!getValue) {
-                    return null
-                }
-                return (item: TaxonomicDefinitionTypes): string | null => groupItemKey(listGroupType, getValue(item))
+                return !!taxonomicGroups.find((g) => g.type === listGroupType)?.getValue
             },
         ],
         allowNonCapturedEvents: [
@@ -990,6 +1003,22 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 })
             },
         ],
+        // The list's own group plus the committed selection, bundled into one input so
+        // `items` stays within kea's 16-entry `SelectorTuple` cap (every extra input on
+        // `items` also lengthens typegen for downstream logics, per the note on
+        // `dedupedTopMatches`).
+        selectionPromotionContext: [
+            (s) => [s.group, s.groupType, s.value],
+            (
+                group,
+                groupType,
+                value
+            ): {
+                group: TaxonomicFilterGroup | undefined
+                groupType: TaxonomicFilterGroupType | undefined
+                value: TaxonomicFilterValue | undefined
+            } => ({ group, groupType, value }),
+        ],
         items: [
             (s) => [
                 s.remoteItems,
@@ -1002,7 +1031,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.suggestedPinnedMatches,
                 s.suggestedRecentMatches,
                 s.keywordShortcutItems,
-                s.soleGroupValueKeyer,
+                s.isSoleSubstantiveGroup,
+                s.soleGroupHasGetValue,
+                s.taxonomicGroups,
+                s.selectionPromotionContext,
                 (_, props: InfiniteListLogicProps) => props.collapseUrlsToContainsRow,
             ],
             (
@@ -1016,9 +1048,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 suggestedPinnedMatches,
                 suggestedRecentMatches,
                 keywordShortcutItems,
-                soleGroupValueKeyer,
+                isSoleSubstantiveGroup,
+                soleGroupHasGetValue,
+                taxonomicGroups,
+                selectionPromotionContext,
                 collapseUrlsToContainsRow
             ) => {
+                const { group, groupType, value } = selectionPromotionContext
                 // Collapse URL groups to a single "URL contains <query>" shortcut row
                 // (mirrors the rebuild menu's `COLLAPSED_TO_CONTAINS_ROW`). Only once
                 // the remote fetch for the *current* query has returned at least one
@@ -1033,6 +1069,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     const results = hasMatch ? [buildUrlContainsShortcut(trimmed, listGroupType)] : []
                     return {
                         results,
+                        syntheticSelectedCount: 0,
                         count: results.length,
                         searchQuery: remoteItems.searchQuery,
                         queryChanged: remoteItems.queryChanged,
@@ -1072,16 +1109,144 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 // Local-only groups (count 0, no remote) are always fully loaded.
                 const soleGroupFullyLoaded =
                     remoteItems.results.length >= remoteItems.count && !combinedResults.includes(undefined as any)
-                const orderedBase = searchQuery
-                    ? promoteMatchingProperties(combinedResults, searchQuery)
-                    : soleGroupValueKeyer && soleGroupFullyLoaded
-                      ? floatRecentAndPinnedToTop(
+                // Build the keyer inline (instead of a separate selector returning a
+                // function) so kea's reference-equality memoisation isn't defeated by a
+                // fresh closure on every evaluation.
+                const shouldFloat =
+                    !searchQuery && isSoleSubstantiveGroup && soleGroupHasGetValue && soleGroupFullyLoaded
+                let orderedBase: typeof combinedResults
+                if (searchQuery) {
+                    orderedBase = promoteMatchingProperties(combinedResults, searchQuery)
+                } else if (shouldFloat) {
+                    const getValue = taxonomicGroups.find(
+                        (g: TaxonomicFilterGroup) => g.type === listGroupType
+                    )?.getValue
+                    if (getValue) {
+                        const keyOf = (item: TaxonomicDefinitionTypes): string | null =>
+                            groupItemKey(listGroupType, getValue(item))
+                        orderedBase = floatRecentAndPinnedToTop(
                             combinedResults,
-                            soleGroupValueKeyer,
+                            keyOf,
                             contextFilteredRecentItems || [],
                             contextFilteredPinnedItems || []
                         )
-                      : combinedResults
+                    } else {
+                        orderedBase = combinedResults
+                    }
+                } else {
+                    orderedBase = combinedResults
+                }
+                // Mirrors the rebuild menu's Combobox idle promotion: with no search query,
+                // the committed selection leads the list so the user can see at a glance
+                // what is currently picked — floated in place when the real row is loaded,
+                // otherwise statically inserted as a synthetic row (the selection is known
+                // at open; there's no need to wait for the loader). A leading null-valued
+                // catch-all row (e.g. "All events") keeps its place, per the invariant in
+                // floatRecentPinned.ts — so the selection targets index 1 when one is
+                // present. While searching, relevance wins.
+                let syntheticSelectedCount = 0
+                if (
+                    !searchQuery &&
+                    value != null &&
+                    // An empty string is not a real committed selection: it round-trips through
+                    // `getValue` for name/value-keyed groups and would otherwise float a blank,
+                    // clickable synthetic row that re-commits `''` on click. `0`/`false` are kept.
+                    value !== '' &&
+                    groupType &&
+                    !META_GROUP_TYPES.has(groupType) &&
+                    !DATA_WAREHOUSE_GROUP_TYPES.includes(groupType)
+                ) {
+                    const selectionKey = groupItemKey(groupType, value)
+                    // A leading catch-all row (e.g. "All events") is a real, non-recent/pinned
+                    // group option whose `getValue` resolves to `null` — not merely a recent/
+                    // pinned row whose stripped shape happens to leave `getValue` undefined.
+                    const leadingItem = orderedBase[0]
+                    const leadingCatchAllOffset =
+                        leadingItem != null &&
+                        !isSkeletonItem(leadingItem) &&
+                        !hasRecentContext(leadingItem) &&
+                        !hasPinnedContext(leadingItem) &&
+                        getItemGroup(leadingItem, taxonomicGroups, group)?.getValue?.(leadingItem) === null
+                            ? 1
+                            : 0
+                    // The synthetic stand-in for a selection whose real row isn't loaded —
+                    // shaped like a top match, so `getItemGroup` resolves its source group.
+                    // Only usable when the source group round-trips it back to the committed
+                    // value: id-keyed groups (actions, cohorts) read `.id`, which the
+                    // `{ name, value, group }` shape lacks, so `getValue` returns `undefined`
+                    // and the round-trip fails — keeping their raw ids out of the list, which
+                    // is the intent. `name` stays the raw key, matching how real rows in
+                    // name/value-keyed groups are shaped: it round-trips through `getValue`,
+                    // and consumers that persist `item.name` verbatim don't get a friendly
+                    // label baked in. Renderers already prettify raw keys at render time.
+                    const sourceGroup = taxonomicGroups.find((g: TaxonomicFilterGroup) => g.type === groupType)
+                    const synthetic = {
+                        name: String(value),
+                        value,
+                        group: groupType,
+                    } as unknown as TaxonomicDefinitionTypes
+                    const syntheticRoundTrips = sourceGroup?.getValue?.(synthetic) === value
+                    const insertSynthetic = (list: typeof orderedBase): typeof orderedBase =>
+                        leadingCatchAllOffset > 0 ? [list[0], synthetic, ...list.slice(1)] : [synthetic, ...list]
+                    if (isSuggested) {
+                        // The aggregated list is fully client-side (recents/pinned prefixes),
+                        // so both floating and prepending are safe here.
+                        const selectedIndex = orderedBase.findIndex((item) => {
+                            if (item == null || isSkeletonItem(item)) {
+                                return false
+                            }
+                            if (recentSourceKey(item) === selectionKey || pinnedSourceKey(item) === selectionKey) {
+                                return true
+                            }
+                            const itemGroup = getItemGroup(item, taxonomicGroups, group)
+                            return (
+                                groupItemKey(itemGroup?.type ?? listGroupType, itemGroup?.getValue?.(item) ?? null) ===
+                                selectionKey
+                            )
+                        })
+                        if (selectedIndex >= 0) {
+                            orderedBase = floatToFront(orderedBase, selectedIndex, leadingCatchAllOffset)
+                        } else if (syntheticRoundTrips) {
+                            orderedBase = insertSynthetic(orderedBase)
+                            syntheticSelectedCount = 1
+                        }
+                    } else if (groupType === listGroupType && group?.getValue) {
+                        const getValue = group.getValue
+                        const selectedIndex = orderedBase.findIndex(
+                            (item) => item != null && !isSkeletonItem(item) && getValue(item) === value
+                        )
+                        if (selectedIndex === -1) {
+                            // The selection isn't among the loaded rows (first page still in
+                            // flight, or paginated past it) — insert the synthetic stand-in
+                            // rather than waiting for the loader. Once the page carrying the
+                            // real row lands, the `findIndex` above starts matching, the
+                            // synthetic drops out, and the float below takes over: the loaded
+                            // copy is the dedupe. The loader's display-index -> remote-offset
+                            // mapping stays exact because `onRowsRendered` subtracts
+                            // `syntheticSelectedCount` alongside `localItems.count`.
+                            if (syntheticRoundTrips) {
+                                orderedBase = insertSynthetic(orderedBase)
+                                syntheticSelectedCount = 1
+                            }
+                        } else {
+                            // Floating shifts every row above the selection down by one, so it
+                            // is only safe when those rows are all loaded — a hole changing
+                            // display position would desync the windowed loader's
+                            // display-index -> remote-offset mapping.
+                            const rowsAboveSelectionLoaded = (): boolean => {
+                                for (let i = 0; i < selectedIndex; i++) {
+                                    if (orderedBase[i] == null || isSkeletonItem(orderedBase[i])) {
+                                        return false
+                                    }
+                                }
+                                return true
+                            }
+                            if (selectedIndex > leadingCatchAllOffset && rowsAboveSelectionLoaded()) {
+                                orderedBase = floatToFront(orderedBase, selectedIndex, leadingCatchAllOffset)
+                            }
+                        }
+                    }
+                }
                 // The "URL contains <query>" shortcut leads the aggregated SuggestedFilters list —
                 // ahead of recents/pinned/top-matches — so a URL search surfaces the contains
                 // suggestion first. Everything else keeps its existing order.
@@ -1089,7 +1254,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const orderedResults = shortcutItems.length ? [...shortcutItems, ...otherItems] : orderedBase
                 return {
                     results: orderedResults,
+                    syntheticSelectedCount,
                     count:
+                        syntheticSelectedCount +
                         keywordShortcutItems.length +
                         recentPrefix.length +
                         pinnedPrefix.length +
@@ -1193,7 +1360,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                 }
                 if (loadFrom !== null) {
-                    const offset = (loadFrom || startIndex) - values.localItems.count
+                    // The synthetic selected row (when present) sits before the remote block,
+                    // so it shifts every remote row's display index by one — subtract it along
+                    // with the local rows to recover the true remote offset.
+                    const offset =
+                        (loadFrom || startIndex) - values.localItems.count - (values.items.syntheticSelectedCount ?? 0)
                     actions.loadRemoteItems({ offset, limit: values.limit })
                 }
             }
@@ -1205,6 +1376,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             cache.lastActiveTab = activeTab
             actions.resetPinnedRowState()
             actions.reconcilePinnedRowState()
+
+            // A tab switch can cut short this list's in-flight (debounced) remote search before
+            // it lands, leaving the cached results stale for the current query. Nothing else
+            // re-fires the load, so the stale list surfaces as a false "No results" until a later
+            // render or re-type. Reconcile here: if the cached remote query no longer matches the
+            // active search, re-dispatch so switching to (or back to) a tab always reloads against
+            // the current query. Skip when a load is already in flight — it reads the current
+            // query at fetch time and settles correctly on its own.
+            if (
+                values.hasRemoteDataSource &&
+                !values.remoteItemsLoading &&
+                (values.remoteItems.searchQuery ?? '') !== values.searchQuery
+            ) {
+                actions.loadRemoteItems({ offset: 0, limit: values.limit })
+            }
         },
         setSearchQuery: async () => {
             const searchQueryChanged = cache.lastSearchQuery !== values.searchQuery

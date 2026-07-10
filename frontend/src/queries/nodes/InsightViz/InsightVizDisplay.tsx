@@ -21,6 +21,10 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
+import {
+    SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN,
+    isPropertyValueMath,
+} from 'scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils'
 import { InsightAIAnalysis } from 'scenes/insights/InsightAIAnalysis'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -46,7 +50,14 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
-import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
+import {
+    ChartDisplayType,
+    ExporterFormat,
+    FunnelVizType,
+    InsightLogicProps,
+    InsightType,
+    PropertyMathType,
+} from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
@@ -215,18 +226,39 @@ export function InsightVizDisplay({
                     Reset unsupported settings
                 </LemonButton>
             ) : undefined
+            const useAverageCta =
+                validationErrorCode === 'property_math_unsupported_with_histogram_breakdown' ? (
+                    <LemonButton
+                        type="primary"
+                        loading={insightDataLoading}
+                        onClick={() =>
+                            updateQuerySource({
+                                series: ((series as TrendsQuery['series']) ?? []).map((s) =>
+                                    isPropertyValueMath(s.math) &&
+                                    !SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN.has(s.math)
+                                        ? { ...s, math: PropertyMathType.Average }
+                                        : s
+                                ),
+                            } as Partial<TrendsQuery>)
+                        }
+                    >
+                        Use average instead
+                    </LemonButton>
+                ) : undefined
+            const cta = resetCta ?? useAverageCta
             return (
                 <InsightValidationError
                     query={query}
                     detail={validationError}
+                    validationErrorCode={validationErrorCode}
                     onRetry={
-                        resetCta
+                        cta
                             ? undefined
                             : () => {
                                   loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                               }
                     }
-                    cta={resetCta}
+                    cta={cta}
                 />
             )
         }
@@ -329,7 +361,14 @@ export function InsightVizDisplay({
                     />
                 )
             case InsightType.FUNNELS:
-                return <Funnel inCardView={embedded} inSharedMode={inSharedMode} showPersonsModal={!inSharedMode} />
+                return (
+                    <Funnel
+                        context={context}
+                        inCardView={embedded}
+                        inSharedMode={inSharedMode}
+                        showPersonsModal={!inSharedMode}
+                    />
+                )
             case InsightType.RETENTION:
                 return (
                     <RetentionContainer
