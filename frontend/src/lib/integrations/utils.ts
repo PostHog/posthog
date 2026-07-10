@@ -77,6 +77,10 @@ export const ICONS: Record<IntegrationKind, any> = {
     's3-compatible': IconS3Compatible,
 }
 
+// Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark
+// surface, so invert them in dark mode (`dark:invert`) wherever the integration icon is rendered.
+export const DARK_MODE_INVERT_ICON_KINDS = new Set<IntegrationKind>(['apns', 'github'])
+
 export const getIntegrationNameFromKind = (kind: string): string => {
     switch (kind) {
         case 'google-pubsub':
