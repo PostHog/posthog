@@ -15,7 +15,7 @@ Use this skill when a vendor has released a new API version and an existing sour
   - `supported_versions: tuple[str, ...]` — opaque vendor labels, never parsed or ordered by the framework. Default `("v1",)` (`UNVERSIONED_API_VERSION`) for vendors without meaningful versioning.
   - `default_version: str` — used when a source instance has no pin, and stamped onto newly created sources.
   - `api_docs_url: str | None` — the vendor's API docs/changelog page (where new versions are announced). Distinct from `docsUrl` (posthog.com).
-  - `deprecated_versions: tuple[VersionDeprecation, ...]` — versions the vendor has deprecated (`VersionDeprecation(version=..., sunset_at=date | None)` from `sources/common/versioning.py`).
+  - `deprecated_versions: tuple[VersionDeprecation, ...]` — versions the vendor has deprecated (`VersionDeprecation(version=..., sunset_at=date | None)` from `sources/common/base.py`).
 - Each `ExternalDataSource` row pins one version in its `api_version` column (NULL resolves to `default_version`). The sync pipeline resolves the pin in `workflow_activities/import_data_sync.py` and hands it to the source as `SourceInputs.api_version` — already resolved, never None there.
 - These declarations are exposed publicly via `GET /api/public_source_configs/` (`versions`, `defaultVersion`, `apiDocsUrl`, `deprecatedVersions`) and per-instance via the source API (`api_version`, `api_version_deprecation`). The `api_version` pin is queryable in HogQL via the `data_warehouse_sources` system table.
 - Registry-wide invariants are enforced by `sources/tests/test_source_versions.py`: default in supported, deprecated ⊆ supported, default never deprecated, https `api_docs_url`.

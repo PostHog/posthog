@@ -1,11 +1,8 @@
 import pytest
 
 import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.versioning import (
-    VersionDeprecation,
-    resolve_api_version,
-)
 
 ALL_SOURCES = SourceRegistry.get_all_sources()
 SOURCE_TYPES = sorted(ALL_SOURCES.keys(), key=str)
@@ -48,14 +45,8 @@ def test_every_source_declares_valid_versions(source_type):
         )
 
 
-@pytest.mark.parametrize(
-    "pinned,default,expected",
-    [
-        (None, "v1", "v1"),
-        ("v1", "v1", "v1"),
-        ("2024-09-30.acacia", "2026-02-25.clover", "2024-09-30.acacia"),
-        ("", "v1", "v1"),
-    ],
-)
-def test_resolve_api_version_honors_pin_and_falls_back_to_default(pinned, default, expected):
-    assert resolve_api_version(pinned, default) == expected
+def test_resolve_api_version_honors_pin_and_falls_back_to_default():
+    source = ALL_SOURCES[SOURCE_TYPES[0]]
+    assert source.resolve_api_version(None) == source.default_version
+    assert source.resolve_api_version("") == source.default_version
+    assert source.resolve_api_version("some-undeclared-label") == "some-undeclared-label"

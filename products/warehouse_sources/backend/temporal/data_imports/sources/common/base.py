@@ -1,3 +1,4 @@
+import datetime
 import dataclasses
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
@@ -34,11 +35,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.versioning import (
-    UNVERSIONED_API_VERSION,
-    VersionDeprecation,
-    resolve_api_version,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import get_config_for_source
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
 
@@ -96,6 +92,18 @@ FieldType = Union[
 ]
 
 SourceCredentialsValidationResult = tuple[bool, str | None]
+
+# Label used by sources whose vendor has no meaningful API versioning. Version strings are
+# opaque vendor labels (Stripe date versions, semver, names) — never parsed or ordered.
+UNVERSIONED_API_VERSION = "v1"
+
+
+@dataclasses.dataclass(frozen=True)
+class VersionDeprecation:
+    """Deprecation metadata for a single supported version of a source's vendor API."""
+
+    version: str
+    sunset_at: datetime.date | None = None
 
 
 class _BaseSource(ABC, Generic[ConfigType]):
@@ -164,8 +172,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return config
 
     def resolve_api_version(self, pinned: str | None) -> str:
-        """Effective vendor API version for a source instance's stored pin."""
-        return resolve_api_version(pinned, self.default_version)
+        """Effective vendor API version for a source instance's stored pin.
+
+        A present pin is honored verbatim — even one no longer declared — because silently
+        moving a customer to another version is the failure mode this framework exists to
+        prevent; the vendor API is the real validator of the label. A missing/empty pin
+        falls back to `default_version`.
+        """
+        return pinned or self.default_version
 
     def get_version_deprecation(self, version: str | None) -> VersionDeprecation | None:
         """Deprecation metadata for the given pin (resolved through the default), if any."""
