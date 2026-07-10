@@ -152,7 +152,7 @@ class TestProductCostThrottle:
         ctx_wizard = make_context(product="wizard")
         ctx_posthog_code = make_context(product="posthog_code")
 
-        await throttle.record_cost(ctx_wizard, 2000.0)
+        await throttle.record_cost(ctx_wizard, 10000.0)
 
         result_wizard = await throttle.allow_request(ctx_wizard)
         result_posthog_code = await throttle.allow_request(ctx_posthog_code)

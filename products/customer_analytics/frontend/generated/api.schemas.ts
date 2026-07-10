@@ -625,6 +625,27 @@ export interface PatchedCustomPropertyDefinitionApi {
     readonly references?: readonly CustomPropertyReferenceApi[]
 }
 
+/**
+ * One suggested filter value for a custom property.
+ */
+export interface CustomPropertyValueSuggestionApi {
+    /** A suggested value for the custom property. */
+    readonly name: string
+}
+
+/**
+ * Response shape of the custom property value-suggestions endpoint.
+ *
+ * Matches the contract of the shared property-values picker (``propertyDefinitionsModel``
+ * on the frontend), which expects ``{results: [{name}], refreshing}``.
+ */
+export interface CustomPropertyValueSuggestionsResponseApi {
+    /** Suggested values matching the search input. */
+    readonly results: readonly CustomPropertyValueSuggestionApi[]
+    /** Always false — present for compatibility with the property-values consumer. */
+    readonly refreshing: boolean
+}
+
 export interface PaginatedCustomPropertySourceListApi {
     count: number
     /** @nullable */
@@ -1008,6 +1029,17 @@ export type CustomPropertyDefinitionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type CustomPropertyDefinitionsValuesRetrieveParams = {
+    /**
+     * Id of the custom property definition to suggest values for.
+     */
+    key: string
+    /**
+     * Case-insensitive substring to narrow the suggestions.
+     */
+    value?: string
 }
 
 export type CustomPropertySourcesListParams = {

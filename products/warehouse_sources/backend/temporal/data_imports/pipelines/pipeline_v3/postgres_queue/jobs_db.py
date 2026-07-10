@@ -167,74 +167,13 @@ def _bulk_fail_dual_write_sql(where_sql: str) -> str:
 FAIL_RUN_SQL = _bulk_fail_dual_write_sql("b.run_uuid = %(run_uuid)s")
 
 
-def _legacy_claim_candidates_sql() -> str:
-    """Claimable-batch candidates derived from the status log (lateral probes).
-
-    Cost scales with every batch retained in the window; kept as the rollback
-    path while the state-column variant proves itself in production.
-    """
-    return f"""
-        SELECT
-            {pending_batch_select_columns("s")}
-        FROM {BATCH_TABLE} b
-        {latest_status_lateral("b", "s")}
-        WHERE
-            b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-            AND (
-                s.batch_id IS NULL
-                OR (
-                    s.job_state = 'waiting_retry'
-                    AND s.created_at <= now() - make_interval(
-                        secs => %(backoff)s * GREATEST(COALESCE(s.attempt, 1), 1)
-                    )
-                )
-            )
-            AND NOT EXISTS (
-                SELECT 1
-                FROM {BATCH_TABLE} b_prev
-                {latest_status_lateral("b_prev", "s_prev")}
-                WHERE b_prev.run_uuid = b.run_uuid
-                    AND b_prev.batch_index < b.batch_index
-                    AND b_prev.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                    AND (
-                        s_prev.job_state = 'executing'
-                        OR (
-                            s_prev.job_state = 'waiting_retry'
-                            AND s_prev.created_at > now() - make_interval(
-                                secs => %(backoff)s * GREATEST(COALESCE(s_prev.attempt, 1), 1)
-                            )
-                        )
-                    )
-            )
-            AND NOT EXISTS (
-                SELECT 1
-                FROM {BATCH_TABLE} b2
-                {latest_status_lateral("b2", "s2", join="INNER")}
-                WHERE b2.run_uuid = b.run_uuid
-                    AND b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                    AND s2.job_state = 'failed'
-            )
-            AND NOT EXISTS (
-                SELECT 1
-                FROM {BATCH_TABLE} b_busy
-                {latest_status_lateral("b_busy", "s_busy", join="INNER")}
-                WHERE b_busy.team_id = b.team_id
-                    AND b_busy.schema_id = b.schema_id
-                    AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                    AND s_busy.job_state = 'executing'
-            )
-    """
-
-
 def _state_claim_candidates_sql() -> str:
     """Claimable-batch candidates read from the denormalized state columns.
 
-    Semantics mirror the legacy variant gate for gate; the difference is cost:
-    the claimable scan and every NOT EXISTS gate are answered by the partial
+    The claimable scan and every NOT EXISTS gate are answered by the partial
     indexes (sb_claimable_idx, sb_run_gate_idx, sb_schema_busy_idx), so the
     work tracks the claimable set instead of everything retained. 'pending'
-    means no status row yet; 'waiting' is deliberately not claimable, matching
-    the legacy predicate.
+    means no status row yet; 'waiting' is deliberately not claimable.
     """
     return f"""
         SELECT
@@ -291,15 +230,14 @@ def _state_claim_candidates_sql() -> str:
     """
 
 
-def _stale_executing_sql(scope_sql: str = "", *, use_state: bool = False) -> str:
+def _stale_executing_sql(scope_sql: str = "") -> str:
     """Shared body of the stale-executing sweep (async consumer and its sync ops twin).
 
-    ``use_state`` pre-filters on the denormalized column so the lateral probes
-    only currently-executing batches instead of everything retained. The
-    lateral stays either way: heartbeats refresh the status log, not the
-    column, so the grace clock must come from ``s.created_at``.
+    The denormalized-column pre-filter keeps the lateral probing only
+    currently-executing batches. The lateral itself must stay: heartbeats
+    refresh the status log, deliberately not the column, so the grace clock
+    comes from ``s.created_at``.
     """
-    state_filter = "AND b.latest_state = 'executing'" if use_state else ""
     return f"""
         SELECT
             {pending_batch_select_columns("s")}
@@ -308,7 +246,7 @@ def _stale_executing_sql(scope_sql: str = "", *, use_state: bool = False) -> str
         LEFT JOIN {LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
         WHERE
             b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-            {state_filter}
+            AND b.latest_state = 'executing'
             AND s.job_state = 'executing'
             AND s.created_at <= now() - make_interval(secs => %(grace)s)
             AND (l.team_id IS NULL OR l.expires_at <= now())
@@ -529,16 +467,12 @@ class BatchQueue:
         limit: int = 50,
         retry_backoff_base_seconds: int = 0,
         lease_ttl_seconds: int = LEASE_TTL_SECONDS,
-        use_state: bool = False,
     ) -> list[PendingBatch]:
         """Fetch unprocessed batches whose (team_id, schema_id) group lease is claimable by ``owner_token``.
 
-        ``use_state`` selects the candidate source: the denormalized state
-        columns (cost tracks the claimable set) or the legacy status-log
-        laterals (cost tracks everything retained). Both feed the identical
-        fairness sort and lease-claim CTE, and must return identical batches
-        for the same queue state — the equivalence test suite runs every claim
-        test through both.
+        Candidates come from the denormalized state columns, so poll cost
+        tracks the claimable set rather than everything retained in the
+        14-day window.
 
         Group ownership is a row in ``sourcegrouplease`` keyed by
         (team_id, schema_id). The outer query claims-or-renews the lease for
@@ -555,15 +489,15 @@ class BatchQueue:
         affect the same (team_id, schema_id) row twice in one statement.
 
         ``retry_backoff_base_seconds`` gates the ``waiting_retry`` branch on
-        the age of the latest status row: a batch is only eligible when
-        ``now() - s.created_at >= retry_backoff_base_seconds * GREATEST(s.attempt, 1)``
+        ``state_changed_at``: a batch is only eligible when
+        ``now() - state_changed_at >= retry_backoff_base_seconds * GREATEST(latest_attempt, 1)``
         (attempt is floored at 1 so that a zero-attempt row still waits at least one
         base period).
 
         Head-of-line gating per run: a batch is excluded if any earlier
         ``batch_index`` in the same ``run_uuid`` is currently ``executing`` or
         in ``waiting_retry`` whose backoff window has not yet elapsed. Earlier
-        batches that are unprocessed (NULL status) or ``waiting_retry`` with
+        batches that are unprocessed (``pending``) or ``waiting_retry`` with
         backoff met are treated as siblings that will be returned alongside
         in the same poll and processed sequentially by the consumer.
 
@@ -586,7 +520,7 @@ class BatchQueue:
         Own-leased groups stay in the window so a pod can keep draining a group it
         already holds.
         """
-        candidates_sql = _state_claim_candidates_sql() if use_state else _legacy_claim_candidates_sql()
+        candidates_sql = _state_claim_candidates_sql()
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
@@ -718,11 +652,38 @@ class BatchQueue:
             return bool(row and row[0])
 
     @staticmethod
+    def verify_group_lease_sync(
+        database_url: str,
+        *,
+        team_id: int,
+        schema_id: str,
+        owner_token: str,
+        connect_timeout_seconds: int = 10,
+    ) -> bool:
+        """Sync counterpart of verify_advisory_lock: the Delta write runs in a worker thread
+        that can't share the group's async connection, so use a short-lived sync one."""
+        with psycopg.connect(database_url, autocommit=True, connect_timeout=connect_timeout_seconds) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT EXISTS (
+                        SELECT 1 FROM {LEASE_TABLE}
+                        WHERE team_id = %(team_id)s
+                          AND schema_id = %(schema_id)s
+                          AND owner_token = %(owner)s
+                          AND expires_at > now()
+                    )
+                    """,
+                    {"team_id": team_id, "schema_id": schema_id, "owner": owner_token},
+                )
+                row = cur.fetchone()
+                return bool(row and row[0])
+
+    @staticmethod
     async def get_stale_executing(
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int = 0,
-        use_state: bool = False,
     ) -> list[PendingBatch]:
         """Find batches stuck in 'executing' whose group lease is absent or expired (previous pod gone).
 
@@ -737,7 +698,7 @@ class BatchQueue:
         this threshold before the batch is considered orphaned.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
-            await cur.execute(_stale_executing_sql(use_state=use_state), {"grace": grace_seconds})
+            await cur.execute(_stale_executing_sql(), {"grace": grace_seconds})
             rows = await cur.fetchall()
 
         return [PendingBatch(**row) for row in rows]
@@ -823,17 +784,14 @@ class BatchQueue:
         grace_seconds: int,
         lookback_seconds: int,
         limit: int,
-        use_state: bool = False,
     ) -> list[FailedRunRef]:
         """Return one ref per run with a ``failed`` batch older than ``grace_seconds``, within ``lookback_seconds``.
 
         Ordered by latest failure first so fresh failures still land in the window when
-        already-reconciled runs outnumber ``limit`` within the lookback.
-        ``use_state`` pre-filters on the denormalized column so the lateral
-        (still needed for the failure timestamp and error payload) probes only
-        failed batches instead of everything retained.
+        already-reconciled runs outnumber ``limit`` within the lookback. The
+        denormalized-column pre-filter keeps the lateral (still needed for the
+        failure timestamp and error payload) probing only failed batches.
         """
-        state_filter = "AND b.latest_state = 'failed'" if use_state else ""
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
@@ -846,7 +804,7 @@ class BatchQueue:
                     {latest_status_lateral("b", "s", join="INNER")}
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        {state_filter}
+                        AND b.latest_state = 'failed'
                         AND s.job_state = 'failed'
                         AND s.created_at <= now() - make_interval(secs => %(grace)s)
                         AND s.created_at >= now() - make_interval(secs => %(lookback)s)
@@ -875,39 +833,24 @@ class BatchQueue:
     @staticmethod
     async def get_oldest_unclaimed_batch_age_seconds(
         conn: psycopg.AsyncConnection[Any],
-        *,
-        use_state: bool = False,
     ) -> float | None:
         """Age in seconds of the oldest batch no consumer has ever picked up, or None when none are waiting.
 
-        A batch with no status row has never been claimed — this is the queue's
-        data-freshness signal, and it rises whenever loading stalls regardless
-        of the cause. Bounded to ``FRESHNESS_WINDOW`` so the probe stays cheap
-        on a healthy queue and the reported age saturates instead of scanning
-        unbounded history. ``use_state`` answers from the claimable partial
-        index ('pending' ⇔ no status row) instead of anti-joining the log.
+        'pending' means no status row yet — this is the queue's data-freshness
+        signal, and it rises whenever loading stalls regardless of the cause.
+        Answered from the claimable partial index; bounded to
+        ``FRESHNESS_WINDOW`` so the reported age saturates instead of scanning
+        unbounded history.
         """
-        if use_state:
-            sql = f"""
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
                 SELECT EXTRACT(EPOCH FROM (now() - min(b.created_at)))
                 FROM {BATCH_TABLE} b
                 WHERE b.created_at > now() - interval '{FRESHNESS_WINDOW}'
                   AND b.latest_state = 'pending'
-            """
-        else:
-            sql = f"""
-                SELECT EXTRACT(EPOCH FROM (now() - min(b.created_at)))
-                FROM {BATCH_TABLE} b
-                WHERE b.created_at > now() - interval '{FRESHNESS_WINDOW}'
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM {STATUS_TABLE} s
-                      WHERE s.batch_id = b.id
-                        AND s.created_at > now() - interval '{FRESHNESS_WINDOW}'
-                  )
-            """
-        async with conn.cursor() as cur:
-            await cur.execute(sql)
+                """
+            )
             row = await cur.fetchone()
         if row is None or row[0] is None:
             return None

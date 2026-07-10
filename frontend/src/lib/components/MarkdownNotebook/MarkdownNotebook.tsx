@@ -12,7 +12,6 @@ import {
     MouseEvent as ReactMouseEvent,
     ReactNode,
     Suspense,
-    lazy,
     useCallback,
     useEffect,
     useId,
@@ -26,9 +25,13 @@ import { IconCode, IconComment, IconDrag } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { downloadFile } from 'lib/utils/dom'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 // Monaco is heavy, so the markdown source editor only loads when the source drawer opens.
-const LazyCodeEditor = lazy(() => import('lib/monaco/CodeEditor').then((module) => ({ default: module.CodeEditor })))
+const LazyCodeEditor = lazyWithRetry(() =>
+    import('lib/monaco/CodeEditor').then((module) => ({ default: module.CodeEditor }))
+)
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
@@ -59,6 +62,7 @@ import {
     getDiscussionCommentRefId,
     isBlankInsertMenuButtonRow,
     isDiscussionCommentNode,
+    isGroupedBlockquoteNode,
     isPromptComponentNode,
     isTextBlockNode,
     makeEmptyNotebookTitle,
@@ -130,7 +134,12 @@ import {
     TextSelectionPointerStartEvent,
     TextSelectionPointerState,
 } from './editorTypes'
-import { FormattingToolbar, getFloatingToolbarLinkHref, getSelectedBlockStyle } from './FormattingToolbar'
+import {
+    FormattingToolbar,
+    getFloatingToolbarLinkHref,
+    getSelectedBlockStyle,
+    getSelectedBlocksQuoted,
+} from './FormattingToolbar'
 import { markNotebookNodeFreshlyInserted } from './freshlyInserted'
 import {
     InlineMarkSelection,
@@ -169,6 +178,7 @@ import {
     makeEmptyParagraph,
     makeListItemId,
     parseMarkdownNotebook,
+    sanitizeNotebookLinkHref,
     serializeMarkdownNotebook,
 } from './markdown'
 import { NOTEBOOK_AI_WRITING_PLACEHOLDER } from './notebookAI'
@@ -309,6 +319,11 @@ type NotebookHistoryState = {
 }
 
 /** Consecutive single-block edits within this window fold into one undo step. */
+// The editable surfaces whose links are pointer-inert while editing (see MarkdownNotebook.scss);
+// only these get the modifier-click open behavior, everything else keeps native navigation
+const POINTER_INERT_LINK_CONTAINER_SELECTOR =
+    '.MarkdownNotebook__text-block[contenteditable="true"], .MarkdownNotebook__list-block[contenteditable="true"], .MarkdownNotebook__table-cell-content[contenteditable="true"]'
+
 const UNDO_TYPING_GROUP_MS = 1000
 
 /** How many recent local serializations to remember for save-echo detection. Must comfortably
@@ -687,13 +702,15 @@ function MarkdownNotebookEditor({
     }
 
     const downloadDebugLog = useCallback((log: NotebookDebugLog): void => {
-        const blob = new Blob([log.entries.join('\n') + '\n'], { type: 'text/plain' })
-        const url = URL.createObjectURL(blob)
-        const anchor = window.document.createElement('a')
-        anchor.href = url
-        anchor.download = `markdown-notebook-debug-${new Date().toISOString().replace(/[:.]/g, '-')}.log`
-        anchor.click()
-        URL.revokeObjectURL(url)
+        // downloadFile appends the anchor to the DOM and defers the object-URL revoke, which
+        // Firefox needs for the download to actually start.
+        downloadFile(
+            new File(
+                [log.entries.join('\n') + '\n'],
+                `markdown-notebook-debug-${new Date().toISOString().replace(/[:.]/g, '-')}.log`,
+                { type: 'text/plain' }
+            )
+        )
     }, [])
 
     const stopDebugLoggingAndDownload = (): void => {
@@ -1878,7 +1895,7 @@ function MarkdownNotebookEditor({
     // merges `<li>` elements in place, and React then crashes on its next commit because the
     // list structure it manages no longer matches the DOM (removeChild NotFoundError).
     const deleteListItemRangeAtCurrentSelection = useCallback(
-        (replacementText: string = ''): boolean => {
+        (replacementText: string = '', claimSingleItemRange: boolean = false): boolean => {
             const notebookElement = notebookRef.current
             const selection = window.getSelection()
             if (!notebookElement || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
@@ -1912,10 +1929,11 @@ function MarkdownNotebookEditor({
             }
 
             // A range confined to a single item's content element is safe to leave to the
-            // browser: only that item's manually synced innerHTML changes.
+            // browser: only that item's manually synced innerHTML changes. Cut still claims it,
+            // because cut prevents the browser default that would otherwise delete the text.
             const startElement = getClosestEditableBlockElement(getElementForNode(range.startContainer))
             const endElement = getClosestEditableBlockElement(getElementForNode(range.endContainer))
-            if (startElement === element && endElement === element) {
+            if (!claimSingleItemRange && startElement === element && endElement === element) {
                 return false
             }
 
@@ -3340,7 +3358,7 @@ function MarkdownNotebookEditor({
             event.preventDefault()
             notebookClipboardMarkdownRef.current = markdown
             setClipboardMarkdown(event.clipboardData, markdown)
-            if (!deleteSelectedNotebookBlocks()) {
+            if (!deleteSelectedNotebookBlocks() && !deleteListItemRangeAtCurrentSelection('', true)) {
                 deleteTextAtCurrentSelection('forward')
             }
             return
@@ -3604,6 +3622,14 @@ function MarkdownNotebookEditor({
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
 
+        // The quote button toggles quote membership: unquote only when the whole selection is already quoted.
+        const selectedNodes = nodes.filter(
+            (node) =>
+                selectedTextNodeIds.has(node.id) || selectedCodeNodeIds.has(node.id) || selectedListNodeIds.has(node.id)
+        )
+        const shouldUnquote =
+            style === 'blockquote' && selectedNodes.length > 0 && selectedNodes.every(isGroupedBlockquoteNode)
+
         const inlineRangesByNodeId = new Map(
             [...(activeTextRanges ?? []), ...(activeCodeRanges ?? [])].map(({ range }) => [range.nodeId, range])
         )
@@ -3641,8 +3667,8 @@ function MarkdownNotebookEditor({
                 }
                 if (selectedListNodeIds.has(node.id) && node.type === 'list') {
                     // Lists only toggle blockquote membership; heading and code styles do not apply to them.
-                    if (style === 'blockquote' && !node.blockquote) {
-                        return { ...node, blockquote: true }
+                    if (style === 'blockquote') {
+                        return { ...node, blockquote: shouldUnquote ? undefined : true }
                     }
                     if (style === 'paragraph' && node.blockquote) {
                         return { ...node, blockquote: undefined }
@@ -3669,9 +3695,19 @@ function MarkdownNotebookEditor({
                         blockquote: node.type === 'blockquote' || node.blockquote ? true : undefined,
                     }
                 }
-                if (style === 'blockquote' && node.type === 'heading') {
-                    // Quoting a heading keeps it a heading, mirroring list quote membership
-                    return { ...node, blockquote: true }
+                if (style === 'blockquote') {
+                    if (node.type === 'heading') {
+                        // Quote membership toggles without touching the heading level
+                        return { ...node, blockquote: shouldUnquote ? undefined : true }
+                    }
+                    if (shouldUnquote) {
+                        return { ...node, type: 'paragraph', level: undefined, blockquote: undefined }
+                    }
+                    return { ...node, type: 'blockquote', level: undefined, blockquote: undefined }
+                }
+                if (style === 'paragraph' && node.type === 'heading' && node.blockquote) {
+                    // Removing the heading style inside a quote downgrades to quote text, not plain text
+                    return { ...node, type: 'blockquote', level: undefined, blockquote: undefined }
                 }
                 return { ...node, type: style, level: undefined, blockquote: undefined }
             }),
@@ -3905,9 +3941,53 @@ function MarkdownNotebookEditor({
         }, 0)
     }
 
+    // Links in editable blocks are pointer-inert so plain clicks place the caret; holding
+    // Cmd/Ctrl re-enables them (see MarkdownNotebook.scss) so they can be opened, matching
+    // the TipTap editor's link mark behavior.
+    useEffect(() => {
+        if (mode !== 'edit') {
+            return
+        }
+
+        const setLinkModifierHeld = (isHeld: boolean): void => {
+            notebookRef.current?.classList.toggle('MarkdownNotebook--link-modifier-held', isHeld)
+        }
+        const handleModifierKeyChange = (event: globalThis.KeyboardEvent): void =>
+            setLinkModifierHeld(event.metaKey || event.ctrlKey)
+        const resetLinkModifier = (): void => setLinkModifierHeld(false)
+
+        window.addEventListener('keydown', handleModifierKeyChange)
+        window.addEventListener('keyup', handleModifierKeyChange)
+        window.addEventListener('blur', resetLinkModifier)
+        return () => {
+            window.removeEventListener('keydown', handleModifierKeyChange)
+            window.removeEventListener('keyup', handleModifierKeyChange)
+            window.removeEventListener('blur', resetLinkModifier)
+            resetLinkModifier()
+        }
+    }, [mode])
+
     const handleCanvasClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
-        const refElement = event.target instanceof Element ? event.target.closest('[data-notebook-ref]') : null
-        const refId = refElement?.getAttribute('data-notebook-ref')
+        if (!(event.target instanceof Element)) {
+            return
+        }
+
+        const linkElement = event.target.closest('a[href]')
+        if (linkElement && linkElement.closest(POINTER_INERT_LINK_CONTAINER_SELECTOR)) {
+            if (event.metaKey || event.ctrlKey) {
+                const href = sanitizeNotebookLinkHref(linkElement.getAttribute('href') ?? '')
+                if (href) {
+                    event.preventDefault()
+                    window.open(href, '_blank', 'noopener')
+                    return
+                }
+            } else {
+                // While editing, a plain click only places the caret, never navigates
+                event.preventDefault()
+            }
+        }
+
+        const refId = event.target.closest('[data-notebook-ref]')?.getAttribute('data-notebook-ref')
         if (refId) {
             focusDiscussionCommentForRef(refId)
         }
@@ -5955,6 +6035,11 @@ function MarkdownNotebookEditor({
                     {floatingToolbar && mode === 'edit' ? (
                         <FormattingToolbar
                             selectedBlockStyle={getSelectedBlockStyle(
+                                floatingToolbar.textRanges,
+                                floatingToolbar.codeRanges,
+                                floatingToolbar.listItemRanges
+                            )}
+                            selectedBlockQuoted={getSelectedBlocksQuoted(
                                 floatingToolbar.textRanges,
                                 floatingToolbar.codeRanges,
                                 floatingToolbar.listItemRanges
