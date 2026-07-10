@@ -1,5 +1,5 @@
 """Activities for the prompt-suggestion evaluation workflow. Selection and comparison logic lives in
-`prompt_evaluation`; these activities wire it to the suggestion row's `evaluation` JSON."""
+`prompt_evaluation`. These activities wire it to the suggestion row's `evaluation` JSON."""
 
 from typing import Any
 
@@ -15,6 +15,7 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
     SuggestionStatus,
 )
 from products.replay_vision.backend.prompt_evaluation import (
+    EvaluationOutcome,
     build_running_evaluation,
     classify_outcome,
     evaluation_supported,
@@ -88,8 +89,13 @@ def select_evaluation_sessions_activity(inputs: SelectEvaluationSessionsInputs) 
 @track_activity()
 def record_evaluation_result_activity(inputs: RecordEvaluationResultInputs) -> None:
     """Classify one session's fresh output against its rating and append it to the evaluation results."""
-    after = primary_outcome(inputs.after_output) if inputs.after_output is not None else None
-    outcome = classify_outcome(inputs.session.rated_correct, inputs.session.before_outcome, after)
+    # Only a missing output means the run failed. An empty output (e.g. no tags) is a valid outcome.
+    after: str | None = None
+    if inputs.after_output is None:
+        outcome: EvaluationOutcome = "error"
+    else:
+        after = primary_outcome(inputs.after_output)
+        outcome = classify_outcome(inputs.session.rated_correct, inputs.session.before_outcome, after)
     result = {
         "session_id": inputs.session.session_id,
         "observation_id": str(inputs.session.observation_id),

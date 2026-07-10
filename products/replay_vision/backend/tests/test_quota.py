@@ -18,6 +18,7 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
 from products.replay_vision.backend.quota import MONTHLY_OBSERVATION_QUOTA, compute_quota_snapshot
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
@@ -73,6 +74,27 @@ class _VisionQuotaTestCase(APIBaseTest):
             defaults={
                 "organization_id": observation.team.organization_id,
                 "observation_created_at": observation.created_at,
+            },
+        )
+
+    @staticmethod
+    def _make_running_evaluation(
+        *,
+        scanner: ReplayScanner,
+        total: int,
+        status: str = "running",
+        age: timedelta = timedelta(0),
+        settled: int = 0,
+    ) -> ReplayScannerPromptSuggestion:
+        return ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=scanner.team,
+            suggested_prompt="p",
+            evaluation={
+                "status": status,
+                "started_at": (timezone.now() - age).isoformat(),
+                "total": total,
+                "results": [{"session_id": f"s-{i}"} for i in range(settled)],
             },
         )
 
@@ -149,6 +171,7 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
             completed_at=timezone.now(),
         )
         self._make_receipt(other_obs)
+        self._make_running_evaluation(scanner=other_scanner, total=5)
 
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         assert snapshot.usage_this_month == 0
@@ -193,6 +216,20 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
         )
         self._make_receipt(observation)
         assert compute_quota_snapshot(organization_id=self.organization.id).usage_this_month == 1
+
+    @parameterized.expand(
+        [
+            ("running_counts_unsettled", "running", timedelta(0), 2, 3),
+            # A dead workflow can't charge anymore, so a stale "running" row holds no quota.
+            ("stale_running_ignored", "running", timedelta(hours=3), 0, 0),
+            ("finished_ignored", "succeeded", timedelta(0), 0, 0),
+        ]
+    )
+    def test_running_evaluations_count_unsettled_sessions(
+        self, _name: str, status: str, age: timedelta, settled: int, expected_usage: int
+    ) -> None:
+        self._make_running_evaluation(scanner=self.scanner, total=5, status=status, age=age, settled=settled)
+        assert compute_quota_snapshot(organization_id=self.organization.id).usage_this_month == expected_usage
 
 
 class TestProjectedMonthlyObservations(_VisionQuotaTestCase):

@@ -64,7 +64,9 @@ class PromptEvaluationResultSerializer(serializers.Serializer):
     rated_correct = serializers.BooleanField(help_text="The team's rating of the original output (thumbs up = true).")
     before = serializers.CharField(allow_null=True, help_text="The original output's primary outcome.")
     after = serializers.CharField(
-        allow_null=True, help_text="The suggested prompt's outcome for the same session; null when the run errored."
+        allow_null=True,
+        help_text="The suggested prompt's outcome for the same session. Null when the run errored or "
+        "returned no discrete outcome (e.g. a classifier with no tags).",
     )
     outcome = serializers.CharField(
         help_text="kept (up, unchanged), regressed (up, changed), fixed (down, changed), "
@@ -90,7 +92,7 @@ class PromptSuggestionEvaluationSerializer(serializers.Serializer):
     labels_fingerprint = serializers.CharField(help_text="The rated set the evaluation ran against.")
     results = PromptEvaluationResultSerializer(many=True, help_text="Per-session outcomes, in completion order.")
     summary = PromptEvaluationSummarySerializer(
-        allow_null=True, help_text="Outcome counts; null while the evaluation is running."
+        allow_null=True, help_text="Outcome counts. Null while the evaluation is running."
     )
 
 
@@ -112,7 +114,7 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
     @extend_schema_field(PromptSuggestionEvaluationSerializer(allow_null=True))
     def get_evaluation(self, suggestion: ReplayScannerPromptSuggestion) -> dict[str, Any] | None:
         evaluation = suggestion.evaluation
-        # A workflow killed before finalizing leaves "running" behind forever; serve it as failed
+        # A workflow killed before finalizing leaves "running" behind forever. Serve it as failed
         # so the UI stops polling and the test can be re-run.
         if (
             isinstance(evaluation, dict)
@@ -332,10 +334,10 @@ class ReplayScannerPromptSuggestionViewSet(
         description=(
             "Test this suggestion before applying it: re-run the scanner with the suggested prompt against "
             "already-rated sessions in the background and compare each fresh output with the stored one. "
-            "Results land on the suggestion's `evaluation` field; poll `current` while status is running. "
+            "Results land on the suggestion's `evaluation` field. Poll `current` while status is running. "
             "`session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to "
             "`evaluation_session_cap`). Each successful re-run consumes one observation of the monthly "
-            "Replay Vision quota; the request is refused with 402 when the planned re-runs exceed what is "
+            "Replay Vision quota. The request is refused with 402 when the planned re-runs exceed what is "
             "left. Only monitor and classifier scanners are supported. Requires session recording edit access."
         ),
     )
@@ -353,12 +355,11 @@ class ReplayScannerPromptSuggestionViewSet(
             raise ValidationError("Testing is available for monitor and classifier scanners.")
         rated_count = self._rated_count(scanner)
         if rated_count == 0:
-            raise ValidationError("Rate some results first; they are what the suggestion is tested against.")
+            raise ValidationError("Rate some results first. They are what the suggestion is tested against.")
         # A test already in flight keeps reporting its state even if quota ran out meanwhile.
         if evaluation_in_flight(suggestion.evaluation):
             return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
-        # The workflow writes a usage receipt per re-run session, so refuse to start a test that would
-        # spend more than what is left. The user can lower session_limit instead.
+        # Each re-run session charges a usage receipt, so refuse a test that would overspend the month.
         planned = min(session_limit, rated_count)
         quota = compute_quota_snapshot(organization_id=self.team.organization_id)
         if planned > quota.remaining:
@@ -370,10 +371,10 @@ class ReplayScannerPromptSuggestionViewSet(
                 )
             )
 
-        # Stamp running before starting the workflow so the UI never sees a gap. The select activity
-        # replaces this stub with the real total and fingerprint.
+        # Stamp running first so the UI never sees a gap and the planned spend counts against quota
+        # right away. The select activity replaces this stub with the real total and fingerprint.
         previous_evaluation = suggestion.evaluation
-        suggestion.evaluation = build_running_evaluation(total=0, labels_fingerprint="")
+        suggestion.evaluation = build_running_evaluation(total=planned, labels_fingerprint="")
         suggestion.save(update_fields=["evaluation"])
         try:
             client = sync_connect()

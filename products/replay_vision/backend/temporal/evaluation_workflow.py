@@ -48,7 +48,7 @@ from products.replay_vision.backend.temporal.types import (
     UploadVideoToGeminiInputs,
 )
 
-# Each session is a full video upload + LLM conversation; two at a time bounds worker load.
+# Each session is a full video upload + LLM conversation, so two at a time bounds worker load.
 _EVALUATION_CONCURRENCY = 2
 
 _STATE_RETRY = common.RetryPolicy(

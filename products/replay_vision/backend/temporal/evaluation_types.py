@@ -10,7 +10,7 @@ from products.replay_vision.backend.temporal.types import ScannerSnapshot
 class EvaluatePromptSuggestionInputs(BaseModel, frozen=True):
     suggestion_id: UUID
     team_id: int
-    # How many rated sessions to re-run; None means the cap. Can lower the cap, never raise it.
+    # How many rated sessions to re-run. None means the cap. Can lower the cap, never raise it.
     session_limit: int | None = None
 
 

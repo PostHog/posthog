@@ -14,6 +14,7 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.prompt_evaluation import in_flight_evaluation_sessions
 
 MONTHLY_OBSERVATION_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_OBSERVATION_QUOTA", 3000, type_cast=int)
 
@@ -73,7 +74,8 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
         created_at__gte=period_start,
         created_at__lt=period_end,
     ).count()
-    usage = consumed + in_flight
+    # Prompt tests have no observation rows. Their unsettled sessions are committed spend too.
+    usage = consumed + in_flight + in_flight_evaluation_sessions(organization_id)
     bonus = ReplayQuotaGrant.objects.filter(
         organization_id=organization_id,
         expires_at__gt=now,

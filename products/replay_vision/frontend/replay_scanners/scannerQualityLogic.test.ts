@@ -201,7 +201,6 @@ describe('scannerQualityLogic', () => {
     })
 
     it('a running test refreshes the quota snapshot on every poll', async () => {
-        // A running test spends quota, so stale quota numbers would make the cost line lie.
         ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockResolvedValue({
             suggestion: {
                 ...PENDING_SUGGESTION,

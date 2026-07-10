@@ -908,7 +908,7 @@ export interface PromptEvaluationResultApi {
      */
     before: string | null
     /**
-     * The suggested prompt's outcome for the same session; null when the run errored.
+     * The suggested prompt's outcome for the same session. Null when the run errored or returned no discrete outcome (e.g. a classifier with no tags).
      * @nullable
      */
     after: string | null
@@ -950,7 +950,7 @@ export interface PromptSuggestionEvaluationApi {
     labels_fingerprint: string
     /** Per-session outcomes, in completion order. */
     results: PromptEvaluationResultApi[]
-    /** Outcome counts; null while the evaluation is running. */
+    /** Outcome counts. Null while the evaluation is running. */
     summary: PromptEvaluationSummaryApi | null
 }
 

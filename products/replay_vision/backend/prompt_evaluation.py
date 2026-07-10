@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
 from products.replay_vision.backend.temporal.constants import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
 
 # Each evaluated session is a full scanner run, so keep the bill bounded.
@@ -36,7 +37,7 @@ def evaluation_supported(scanner: ReplayScanner) -> bool:
 def select_evaluation_observations(scanner: ReplayScanner, session_limit: int | None = None) -> list[ReplayObservation]:
     """Thumbs-down first (what the rewrite must fix), newest first, then thumbs-up to fill the cap.
 
-    `session_limit` lets the caller re-run fewer sessions than the cap; it can never raise it.
+    `session_limit` lets the caller re-run fewer sessions than the cap. It can never raise it.
     """
     cap = min(EVALUATION_SESSION_CAP, session_limit) if session_limit else EVALUATION_SESSION_CAP
     rated = (
@@ -67,8 +68,7 @@ def primary_outcome(model_output: dict[str, Any] | None) -> str | None:
 
 
 def classify_outcome(rated_correct: bool, before: str | None, after: str | None) -> EvaluationOutcome:
-    if after is None:
-        return "error"
+    """A `None` outcome is valid (e.g. a classifier with no tags). The caller records run failures as `error`."""
     changed = before != after
     if rated_correct:
         return "regressed" if changed else "kept"
@@ -80,7 +80,7 @@ _EVALUATION_RUNNING_GRACE = dt.timedelta(minutes=5)
 
 
 def evaluation_in_flight(evaluation: Any) -> bool:
-    """True while a running evaluation's workflow can still be alive; past the timeout nothing is left to finalize it."""
+    """True while a running evaluation's workflow can still be alive. Past the timeout nothing is left to finalize it."""
     if not isinstance(evaluation, dict) or evaluation.get("status") != "running":
         return False
     try:
@@ -90,6 +90,19 @@ def evaluation_in_flight(evaluation: Any) -> bool:
     if started_at.tzinfo is None:
         return False
     return timezone.now() - started_at < EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT + _EVALUATION_RUNNING_GRACE
+
+
+def in_flight_evaluation_sessions(organization_id: uuid.UUID) -> int:
+    """Sessions that running evaluations still plan to charge. Settled ones hold a receipt or never charge."""
+    evaluations = ReplayScannerPromptSuggestion.objects.filter(
+        team__organization_id=organization_id, evaluation__status="running"
+    ).values_list("evaluation", flat=True)
+    total = 0
+    for evaluation in evaluations:
+        if not evaluation_in_flight(evaluation):
+            continue
+        total += max(0, int(evaluation.get("total") or 0) - len(evaluation.get("results") or []))
+    return total
 
 
 def build_running_evaluation(total: int, labels_fingerprint: str) -> dict[str, Any]:

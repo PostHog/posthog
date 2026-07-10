@@ -251,7 +251,7 @@ function SuggestionEvaluationPanel({
     const summary = evaluation.summary ?? { kept: 0, regressed: 0, fixed: 0, still_wrong: 0, errors: 0 }
     const downTotal = summary.fixed + summary.still_wrong
     const upTotal = summary.kept + summary.regressed
-    // Mirrors the backend: only sessions that ran successfully wrote a quota receipt.
+    // Only sessions that ran successfully were charged.
     const chargedCount = evaluation.results.filter((result) => result.outcome !== 'error').length
     return (
         <div className="border rounded p-3 space-y-2">
@@ -420,7 +420,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                             ? `Only ${quota.remaining.toLocaleString()} observations left this month. Lower the test session count.`
                                             : undefined)
                                 }
-                                tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying. Each tested session uses one observation of your monthly Replay Vision quota; pick how many below."
+                                tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying. Each tested session uses one observation of your monthly Replay Vision quota. Pick how many below."
                                 onClick={() => evaluateSuggestion(currentSuggestion.id)}
                                 data-attr="vision-quality-evaluate-suggestion"
                             >
