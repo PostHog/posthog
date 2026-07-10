@@ -129,9 +129,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                     columns: [
                         'id',
                         'traceName',
-                        ...(featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT] && showInputOutputColumns
-                            ? ['inputState', 'outputState']
-                            : []),
+                        ...(showInputOutputColumns ? ['inputState', 'outputState'] : []),
                         'person',
                         ...(showSentimentColumn ? ['__llm_sentiment'] : []),
                         '__llm_tools',

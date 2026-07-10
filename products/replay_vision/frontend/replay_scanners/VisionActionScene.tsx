@@ -4,6 +4,9 @@ import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -94,6 +97,11 @@ function VisionActionDetail(): JSX.Element {
 
 function VisionActionSceneComponent(): JSX.Element {
     const { actionId } = useValues(visionActionSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION] || !featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]) {
+        return <NotFound object="page" />
+    }
 
     if (!actionId) {
         return (

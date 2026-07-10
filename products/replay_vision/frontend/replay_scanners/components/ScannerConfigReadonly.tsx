@@ -33,6 +33,7 @@ import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
 import { LabeledRow } from '../../components/LabeledRow'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
+import { formatCredits } from '../../utils/credits'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { MODEL_OPTIONS, ReplayScanner, SAMPLING_MODE_OPTIONS, ScannerType } from '../types'
 
@@ -314,10 +315,13 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconGraph />} title="Usage" />
                     <div className="flex flex-col gap-3">
-                        <LabeledRow label="Estimated monthly observations">
-                            {scanner.estimated_monthly_observations != null ? (
+                        <LabeledRow label="Estimated monthly cost">
+                            {scanner.estimated_monthly_credits != null ? (
                                 <span className="tabular-nums">
-                                    {scanner.estimated_monthly_observations.toLocaleString()}
+                                    {formatCredits(scanner.estimated_monthly_credits)}{' '}
+                                    <span className="text-muted">
+                                        ({(scanner.estimated_monthly_observations ?? 0).toLocaleString()} observations)
+                                    </span>
                                 </span>
                             ) : (
                                 <span className="text-muted">—</span>

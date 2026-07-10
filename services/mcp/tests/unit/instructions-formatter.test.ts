@@ -34,7 +34,7 @@ const fullCtx: InstructionsContext = {
     metadata: realisticMetadata,
     tools: realisticTools,
     queryTools: realisticQueryTools,
-    featureFlags: { 'mcp-feedback-tool': true, 'mcp-render-ui': true },
+    featureFlags: { 'mcp-feedback-tool': true },
     renderUiEnabled: true,
 }
 
@@ -174,7 +174,9 @@ describe('InstructionsFormatter', () => {
             const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false })
             expect(result).toContain("The user's name is Jane Doe")
             expect(result).toContain('Defined group types: organization')
-            expect(result).toContain('- dashboard')
+            // Tool domains render in the compact pipe-separated form inside the
+            // command reference to conserve the exec tool entry's size budget.
+            expect(result).toContain('dashboard|execute-sql|feature-flag|query')
             expect(result).toContain('- `query-trends` — time series')
         })
 
@@ -185,9 +187,7 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('Defined group types: organization')
             // The query catalog stays on the exec command reference even when env is stripped.
             expect(result).toContain('- `query-trends` — time series')
-            // The bullet for the `dashboard` domain would clash with in-prose mentions,
-            // so anchor on the list-prefix newline pattern to avoid false positives.
-            expect(result).not.toContain('\n- dashboard\n')
+            expect(result).not.toContain('dashboard|execute-sql')
         })
 
         it('keeps the full env-context even when stripEnvContext is set, when keepEnvContext is set', () => {
@@ -199,7 +199,7 @@ describe('InstructionsFormatter', () => {
             // The whole env-context (tool domains, project metadata, group types)
             // survives for clients (Claude web/desktop) that ignore the `instructions`
             // payload, so it still reaches the model via the command reference.
-            expect(result).toContain('- dashboard')
+            expect(result).toContain('dashboard|execute-sql|feature-flag|query')
             expect(result).toContain("The user's name is Jane Doe")
             expect(result).toContain('Defined group types: organization')
         })
@@ -265,12 +265,12 @@ describe('InstructionsFormatter', () => {
                 expect(instructions).toContain('Defined group types: organization')
                 expect(commandReference).not.toContain("The user's name is Jane Doe")
                 expect(commandReference).not.toContain('Defined group types: organization')
-                expect(commandReference).not.toContain('\n- dashboard\n')
+                expect(commandReference).not.toContain('dashboard|execute-sql')
             } else {
                 expect(instructions).toBe('')
                 expect(commandReference).toContain('- `query-trends` — time series')
                 expect(commandReference).toContain("The user's name is Jane Doe")
-                expect(commandReference).toContain('- dashboard')
+                expect(commandReference).toContain('dashboard|execute-sql|feature-flag|query')
                 expect(commandReference).toContain('Defined group types: organization')
             }
         })

@@ -18,21 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 OWNER_A = str(uuid4())
 OWNER_B = str(uuid4())
 
-# Claim-path under test for classes marked usefixtures("claim_path"): the legacy
-# status-log laterals and the denormalized state columns must claim identically.
-_CLAIM_USE_STATE = False
-
-
-@pytest.fixture(params=[False, True], ids=["legacy", "state"])
-def claim_path(request):
-    global _CLAIM_USE_STATE
-    _CLAIM_USE_STATE = request.param
-    yield request.param
-    _CLAIM_USE_STATE = False
-
 
 async def _claim(conn: psycopg.AsyncConnection[Any], owner: str = OWNER_A, **kwargs: Any) -> list[PendingBatch]:
-    return await BatchQueue.get_unprocessed_and_lock(conn, owner_token=owner, use_state=_CLAIM_USE_STATE, **kwargs)
+    return await BatchQueue.get_unprocessed_and_lock(conn, owner_token=owner, **kwargs)
 
 
 async def _release(conn: psycopg.AsyncConnection[Any], *, batches: list[PendingBatch], owner: str = OWNER_A) -> None:
@@ -212,7 +200,6 @@ class TestBatchQueueInsert:
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.usefixtures("claim_path")
 class TestBatchQueueGetUnprocessed:
     @pytest.mark.asyncio
     async def test_returns_new_batches(self, conn):
@@ -421,7 +408,6 @@ async def _insert_backdated_executing(
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.usefixtures("claim_path")
 class TestBatchQueueGroupLease:
     @pytest.mark.asyncio
     async def test_live_lease_excludes_other_owner(self, conn, conn_b):
@@ -615,7 +601,6 @@ class TestGroupLeaseRecovery:
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.usefixtures("claim_path")
 class TestBatchQueueRetryBackoff:
     @pytest.mark.asyncio
     async def test_backoff_gates_fresh_waiting_retry(self, conn):
@@ -634,8 +619,8 @@ class TestBatchQueueRetryBackoff:
     async def test_backoff_scales_with_attempt(self, conn):
         bid = await _insert_batch(conn)
         await BatchQueue.update_status(conn, batch_id=bid, job_state="waiting_retry", attempt=3)
-        # Backdate both backoff clocks by 10 seconds: the status log drives the
-        # legacy path, the state column drives the state path.
+        # Backdate both the status log (audit trail) and the state column
+        # (the backoff clock the claim reads) by 10 seconds.
         await conn.execute(
             f"UPDATE {STATUS_TABLE} SET created_at = created_at - interval '10 seconds' WHERE batch_id = %s",
             [bid],
@@ -821,7 +806,6 @@ class TestGetRunActivitySummary:
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.usefixtures("claim_path")
 class TestClaimWindowSkipsForeignLeasedGroups:
     @pytest.mark.asyncio
     async def test_foreign_leased_group_does_not_occupy_the_window(self, conn, conn_b):
@@ -969,9 +953,9 @@ class TestStateDualWrite:
 
 
 @pytest.mark.django_db(transaction=True)
-class TestClaimPathEquivalence:
-    """Direct legacy-vs-state comparisons; divergence here means the A2 flip
-    would silently claim different work than today."""
+class TestClaimGates:
+    """Every claim gate exercised in one scenario; a predicate edit that breaks
+    a gate shows up as a wrong claim set here."""
 
     async def _seed_rich_scenario(self, conn) -> None:
         # Claimable: fresh pending batches on two teams.
@@ -992,59 +976,24 @@ class TestClaimPathEquivalence:
         # waiting_retry with backoff already elapsed (backoff=0 in the claim call).
         retry = await _insert_batch(conn, team_id=6, schema_id="s-f", run_uuid="run-f", batch_index=0)
         await BatchQueue.update_status(conn, batch_id=retry, job_state="waiting_retry", attempt=1)
-        # 'waiting' latest state is not claimable on either path.
+        # 'waiting' latest state is not claimable.
         waiting = await _insert_batch(conn, team_id=7, schema_id="s-g", run_uuid="run-g", batch_index=0)
         await BatchQueue.update_status(conn, batch_id=waiting, job_state="waiting", attempt=0)
 
     @pytest.mark.asyncio
-    async def test_both_paths_claim_identical_batches_in_identical_order(self, conn):
+    async def test_claim_applies_every_gate_at_once(self, conn):
         await self._seed_rich_scenario(conn)
 
-        legacy = await BatchQueue.get_unprocessed_and_lock(conn, owner_token=OWNER_A, limit=50, use_state=False)
-        await conn.execute(f"DELETE FROM {LEASE_TABLE}")  # reset the claim's lease side effects
-        state = await BatchQueue.get_unprocessed_and_lock(conn, owner_token=OWNER_A, limit=50, use_state=True)
+        claimed = await BatchQueue.get_unprocessed_and_lock(conn, owner_token=OWNER_A, limit=50)
 
-        assert [b.id for b in legacy] == [b.id for b in state]
-        assert [(b.latest_attempt, b.batch_index) for b in legacy] == [(b.latest_attempt, b.batch_index) for b in state]
-        # run-a (2) + run-b (1) + run-f retry (1); failed-run, busy-schema,
-        # 'waiting', and terminal batches are excluded on both paths.
-        assert len(legacy) == 4
-
-    @pytest.mark.asyncio
-    async def test_freshness_probe_agrees_across_paths(self, conn):
-        await _insert_batch(conn, batch_index=0)
-        claimed = await _insert_batch(conn, batch_index=1)
-        await BatchQueue.update_status(conn, batch_id=claimed, job_state="executing", attempt=1)
-
-        legacy_age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn, use_state=False)
-        state_age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn, use_state=True)
-
-        assert legacy_age is not None and state_age is not None
-        assert abs(legacy_age - state_age) < 2.0
-
-    @pytest.mark.asyncio
-    async def test_stale_executing_sweep_agrees_across_paths(self, conn):
-        orphan = await _insert_batch(conn, batch_index=0, run_uuid="run-orphan")
-        await BatchQueue.update_status(conn, batch_id=orphan, job_state="executing", attempt=1)
-        healthy = await _insert_batch(conn, batch_index=0, run_uuid="run-live", schema_id="schema-live")
-        await BatchQueue.update_status(conn, batch_id=healthy, job_state="succeeded", attempt=1)
-
-        legacy = await BatchQueue.get_stale_executing(conn, grace_seconds=0, use_state=False)
-        state = await BatchQueue.get_stale_executing(conn, grace_seconds=0, use_state=True)
-
-        assert [str(b.id) for b in legacy] == [str(b.id) for b in state] == [orphan]
-
-    @pytest.mark.asyncio
-    async def test_failed_runs_reconcile_agrees_across_paths(self, conn):
-        failed = await _insert_batch(conn, run_uuid="run-fx", batch_index=0)
-        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
-
-        legacy = await BatchQueue.get_failed_runs(
-            conn, grace_seconds=0, lookback_seconds=3600, limit=10, use_state=False
-        )
-        state = await BatchQueue.get_failed_runs(conn, grace_seconds=0, lookback_seconds=3600, limit=10, use_state=True)
-
-        assert [r.run_uuid for r in legacy] == [r.run_uuid for r in state] == ["run-fx"]
+        # run-a (2) + run-b (1) + run-f retry (1); failed-run siblings, busy-schema
+        # runs, 'waiting', and terminal batches are all excluded.
+        assert sorted((b.run_uuid, b.batch_index) for b in claimed) == [
+            ("run-a", 0),
+            ("run-a", 1),
+            ("run-b", 0),
+            ("run-f", 0),
+        ]
 
     @pytest.mark.asyncio
     async def test_state_claim_candidates_can_use_the_claimable_index(self, conn):

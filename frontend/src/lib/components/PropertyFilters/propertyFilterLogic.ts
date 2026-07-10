@@ -29,6 +29,7 @@ const TAXONOMIC_GROUP_TYPE_TO_DISPLAY_NAME: Partial<Record<TaxonomicFilterGroupT
     [TaxonomicFilterGroupType.LogEntries]: 'Log entries',
     [TaxonomicFilterGroupType.LogAttributes]: 'Log attributes',
     [TaxonomicFilterGroupType.LogResourceAttributes]: 'Log resource attributes',
+    [TaxonomicFilterGroupType.MetricAttributes]: 'Metric attributes',
     [TaxonomicFilterGroupType.SpanAttributes]: 'Span attributes',
     [TaxonomicFilterGroupType.SpanResourceAttributes]: 'Span resource attributes',
     [TaxonomicFilterGroupType.FeatureFlags]: 'Feature flags',

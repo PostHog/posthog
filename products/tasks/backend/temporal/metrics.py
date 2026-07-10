@@ -1,6 +1,7 @@
 import time
 import datetime as dt
 from collections.abc import Mapping
+from typing import Any
 
 from temporalio import activity
 from temporalio.common import MetricMeter
@@ -27,6 +28,30 @@ TASKS_LATENCY_HISTOGRAM_BUCKETS = [
     1_800_000.0,
     3_600_000.0,
 ]
+
+TASKS_RUN_TOKENS_HISTOGRAM_METRICS = ("tasks_run_total_tokens",)
+TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS = [
+    10_000.0,
+    50_000.0,
+    100_000.0,
+    250_000.0,
+    500_000.0,
+    1_000_000.0,
+    2_500_000.0,
+    5_000_000.0,
+    10_000_000.0,
+    25_000_000.0,
+    50_000_000.0,
+    100_000_000.0,
+]
+
+_RUN_TOKEN_KINDS = {
+    "input": "input_tokens",
+    "output": "output_tokens",
+    "cache_read": "cache_read_tokens",
+    "cache_write": "cache_write_tokens",
+    "thought": "thought_tokens",
+}
 
 
 def _metric_meter(additional_attributes: Mapping[str, str | int | float | bool] | None = None) -> MetricMeter:
@@ -104,6 +129,42 @@ def record_snapshot_create_latency_ms(snapshot_kind: str, outcome: str, latency_
             "Resume snapshot creation latency for process-task runs",
             unit="ms",
         ).record(delta)
+    except Exception:
+        pass
+
+
+def record_run_token_usage(
+    usage: Mapping[str, Any],
+    *,
+    origin_product: str | None,
+    run_environment: str | None,
+    rtk_enabled: bool | None,
+    status: str | None,
+) -> None:
+    """Record a terminal run's token expenditure (from ``TaskRun.state.token_usage``).
+
+    Best-effort: a metric failure must never affect the status transition.
+    """
+    try:
+        base_attributes: Attributes = {
+            "origin_product": origin_product or "unknown",
+            "run_environment": run_environment or "unknown",
+            "rtk_enabled": _bool_label(rtk_enabled),
+            "status": status or "unknown",
+        }
+        for kind, key in _RUN_TOKEN_KINDS.items():
+            value = usage.get(key)
+            if isinstance(value, int | float) and not isinstance(value, bool) and value > 0:
+                _metric_meter({**base_attributes, "kind": kind}).create_counter(
+                    "tasks_run_tokens_total",
+                    "Token expenditure of terminal task runs, by token kind",
+                ).add(int(value))
+        total = usage.get("total_tokens")
+        if isinstance(total, int | float) and not isinstance(total, bool) and total > 0:
+            _metric_meter(base_attributes).create_histogram(
+                "tasks_run_total_tokens",
+                "Total tokens spent per terminal task run",
+            ).record(int(total))
     except Exception:
         pass
 

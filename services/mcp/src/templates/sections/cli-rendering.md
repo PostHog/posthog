@@ -13,12 +13,6 @@ Assistant: <concise summary of the results>, then renders it so the user can ver
 
 <bad-example>
 User: How is the "File engagement boost" experiment going?
-Assistant: [Calls render-ui with a guessed id before running any exec command]
-WRONG — run exec first to resolve the real id and read the results; render-ui is not a discovery tool.
-</bad-example>
-
-<bad-example>
-User: How is the "File engagement boost" experiment going?
 Assistant: [Reads the results via exec, then replies with a long text-only breakdown of every metric and never calls render-ui]
 WRONG — the answer centers on a single experiment, which has a UI app (`experiment-get` is in `render-ui`'s enum). Render it with render-ui so the user can see and verify the results, then add your summary. Strongly prefer render-and-summarize over a text dump alone.
 </bad-example>
