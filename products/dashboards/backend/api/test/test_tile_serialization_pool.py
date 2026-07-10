@@ -7,10 +7,28 @@ from django.test import SimpleTestCase
 
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit, get_task_chain
 
-from products.dashboards.backend.api.dashboard import collect_tile_futures, serialize_tile_in_worker
+from products.dashboards.backend.api.dashboard import (
+    collect_tile_futures,
+    release_tile_pool_slot,
+    serialize_tile_in_worker,
+    try_acquire_tile_pool_slot,
+)
 
 
 class TestTileSerializationPool(SimpleTestCase):
+    def test_team_pool_slot_quota_caps_one_team_without_blocking_others(self):
+        with patch("products.dashboards.backend.api.dashboard.DASHBOARD_TILE_SERIALIZE_TEAM_SLOTS", 2):
+            acquired = [try_acquire_tile_pool_slot(team_id=1) for _ in range(3)]
+            assert acquired == [True, True, False]
+            # Another team is unaffected by team 1 sitting at quota.
+            assert try_acquire_tile_pool_slot(team_id=2)
+            release_tile_pool_slot(team_id=2)
+            # Releasing frees the slot for the capped team again.
+            release_tile_pool_slot(team_id=1)
+            assert try_acquire_tile_pool_slot(team_id=1)
+            release_tile_pool_slot(team_id=1)
+            release_tile_pool_slot(team_id=1)
+
     def test_collect_returns_results_in_submission_order(self):
         def make(i: int) -> tuple[int, dict, list]:
             return (i, {"order": i}, [])
