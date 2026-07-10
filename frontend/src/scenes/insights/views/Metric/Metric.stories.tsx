@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { InsightVizStory } from 'scenes/insights/__mocks__/createInsightVizStory'
 
 import __trendsMetric from '~/mocks/fixtures/api/projects/team_id/insights/trendsMetric.json'
@@ -15,7 +14,6 @@ const meta: Meta = {
     parameters: {
         layout: 'centered',
         mockDate: '2022-04-01',
-        featureFlags: [FEATURE_FLAGS.METRIC_INSIGHT],
         testOptions: {
             snapshotBrowsers: ['chromium'],
             waitForSelector: '.Metric canvas',
