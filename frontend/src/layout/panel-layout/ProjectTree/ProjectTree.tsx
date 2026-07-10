@@ -13,7 +13,6 @@ import {
     IconStar,
 } from '@posthog/icons'
 
-import { commandLogic } from 'lib/components/Command/commandLogic'
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { dayjs } from 'lib/dayjs'
@@ -33,7 +32,6 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { isMobile } from 'lib/utils/dom'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -74,8 +72,6 @@ export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
-const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal-v2'
-const CMD_K_HELPER_DISMISSAL_LOCAL_STORAGE_KEY = 'cmd-k-helper-dismissal'
 const SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY = 'seen-custom-products'
 
 const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: string } = {
@@ -176,25 +172,13 @@ export function ProjectTree({
     const treeRef = useRef<LemonTreeRef>(null)
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
-    const { customProducts, customProductsLoading } = useValues(customProductsLogic)
+    const { customProductsLoading } = useValues(customProductsLogic)
     const { seed } = useActions(customProductsLogic)
-    const { toggleCommand } = useActions(commandLogic)
 
     const [shortcutHelperDismissed, setShortcutHelperDismissed] = useLocalStorage<boolean>(
         SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY,
         false
     )
-    const [customProductHelperDismissed, setCustomProductHelperDismissed] = useLocalStorage<boolean>(
-        CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY,
-        false
-    )
-    const [cmdKHelperDismissed, setCmdKHelperDismissed] = useLocalStorage<boolean>(
-        CMD_K_HELPER_DISMISSAL_LOCAL_STORAGE_KEY,
-        false
-    )
-    // Capture the original-banner dismissal state once on mount so the Cmd+K hint only appears
-    // on subsequent sessions — dismissing the first banner shouldn't swap in the second immediately.
-    const [originalDismissedOnMount] = useState<boolean>(() => customProductHelperDismissed === true)
 
     const [seenCustomProducts, setSeenCustomProducts] = useLocalStorage<string[]>(
         `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
@@ -244,70 +228,26 @@ export function ProjectTree({
             })
         }
 
-        if (root === 'custom-products://') {
-            const hasRecommendedTools = customProducts.some(
-                (item) =>
-                    item.reason === UserProductListReason.USED_BY_COLLEAGUES ||
-                    item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
-            )
-
-            const showOriginalBanner = fullFileSystemFiltered.length === 0 || !customProductHelperDismissed
-            const showCmdKBanner =
-                !showOriginalBanner && originalDismissedOnMount && !cmdKHelperDismissed && !isMobile()
-
-            if (showOriginalBanner) {
-                treeData.push({
-                    id: 'products/custom-products-helper-category',
-                    name: 'Example custom products',
-                    type: 'category',
-                    displayName: (
-                        <div className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1')}>
-                            You can display your preferred tools here. You can configure what items show up in here by
-                            clicking on the{' '}
-                            <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
-                            above. We'll automatically suggest new tools to this list as you use them.{' '}
-                            {fullFileSystemFiltered.length > 0 && (
-                                <span
-                                    className="cursor-pointer underline"
-                                    onClick={() => setCustomProductHelperDismissed(true)}
-                                >
-                                    Dismiss.
-                                </span>
-                            )}
-                            {!hasRecommendedTools && fullFileSystemFiltered.length <= 3 && (
-                                <>
-                                    <br />
-                                    <br />
-                                    <span className="cursor-pointer underline" onClick={seed}>
-                                        {customProductsLoading ? 'Adding...' : 'Add recommended tools?'}
-                                    </span>
-                                </>
-                            )}
-                        </div>
-                    ),
-                })
-            } else if (showCmdKBanner) {
-                treeData.push({
-                    id: 'products/cmd-k-helper-category',
-                    name: 'Quick search tip',
-                    type: 'category',
-                    displayName: (
-                        <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1">
-                            Want to browse all tools or jump back into something recent? Press{' '}
-                            <span
-                                className="cursor-pointer inline-flex items-center gap-1"
-                                onClick={() => toggleCommand()}
-                            >
-                                <KeyboardShortcut command k />
-                            </span>{' '}
-                            to open search. It's faster than hunting through the sidebar.{' '}
-                            <span className="cursor-pointer underline" onClick={() => setCmdKHelperDismissed(true)}>
-                                Dismiss.
-                            </span>
-                        </div>
-                    ),
-                })
-            }
+        // Only nudge users to add tools when they have none. Once the list has anything in it, keep it clean.
+        if (root === 'custom-products://' && fullFileSystemFiltered.length === 0) {
+            treeData.push({
+                id: 'products/custom-products-helper-category',
+                name: 'Example custom products',
+                type: 'category',
+                displayName: (
+                    <div className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1')}>
+                        You can display your preferred tools here. You can configure what items show up in here by
+                        clicking on the{' '}
+                        <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon above.
+                        We'll automatically suggest new tools to this list as you use them.
+                        <br />
+                        <br />
+                        <span className="cursor-pointer underline" onClick={seed}>
+                            {customProductsLoading ? 'Adding...' : 'Add recommended tools?'}
+                        </span>
+                    </div>
+                ),
+            })
         }
     }
 
