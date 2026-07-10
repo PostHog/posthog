@@ -1010,6 +1010,15 @@ class DateRange(BaseModel):
             " days. Only applied by insight queries."
         ),
     )
+    excludeIncompletePeriods: bool | None = Field(
+        default=False,
+        description=(
+            "Exclude the current, still-collecting period by clipping date_to to the"
+            " end of the last complete interval (evaluated in the project timezone)."
+            " No-op when the range contains no complete interval. Only applied by"
+            " insight queries."
+        ),
+    )
     explicitDate: bool | None = Field(
         default=False,
         description=(
@@ -5721,6 +5730,10 @@ class QueryStatus(BaseModel):
         description=(
             "If the query failed, this will be set to true. More information can be found in the error_message field."
         ),
+    )
+    error_code: str | None = Field(
+        default=None,
+        description=("Stable machine-readable code for the error (the DRF exception code), when known."),
     )
     error_message: str | None = None
     expiration_time: AwareDatetime | None = None
