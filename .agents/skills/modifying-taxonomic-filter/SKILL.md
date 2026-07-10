@@ -174,6 +174,28 @@ One intentional divergence is already documented in
 whereas legacy gates that on the pill variant. Preserve documented
 divergences; don't "fix" them into parity.
 
+## Async search invariants — the recurring bug class
+
+The same class of bug has shipped (and been re-fixed) repeatedly:
+a false **"No results"** state caused by search results not being tied to the query and tab that produced them.
+Three separate fixes landed in one two-week stretch alone
+(#67499 stale-response guard, #69597-era tab-switch refetch, and a mid-typing flash fix),
+plus a react-window update loop (React error #185) from churning dependencies.
+When touching anything in the fetch path, hold these invariants:
+
+1. **A response only applies if it matches the current query.**
+   Async fetches resolve out of order; a stale empty response must never overwrite results for the query the user is now looking at.
+   Guard by comparing the response's originating query (and group type) against current state before writing it — in `infiniteListLogic.ts` (legacy) and `useGroupList.ts` / `fetchTaxonomicListPage.ts` (rebuild).
+2. **"No results" is only rendered for a completed search of the current query.**
+   While a fetch for the current input is in flight, show the loading state — an empty list mid-flight is a race, not an answer.
+   Users read a false empty state as "my event is gone" and abandon the flow.
+3. **Switching tabs (or group types) must refetch or re-validate the cache for the new tab.**
+   A cached empty result from an earlier query on another tab is not evidence of no matches here.
+4. **Selector/hook dependencies feeding virtualized lists must be referentially stable.**
+   `taxonomicGroups`-style selectors have many dependencies that churn during mount; unstable arrays/objects passed into react-window trigger layout-effect update loops.
+
+Any change to search, caching, or pagination should state which of these invariants it touches and how each surface (legacy + rebuild) preserves them.
+
 ## Pre-change checklist
 
 - [ ] Read references when relevant: [architecture](references/architecture.md),
@@ -185,6 +207,8 @@ divergences; don't "fix" them into parity.
 - [ ] Test all three surfaces if you touched tabs/groups: `legacy-control`,
       `legacy-pill`, `rebuild-menu`
 - [ ] Confirm shared telemetry payloads still match across both emitters
+- [ ] Touched search/fetch/caching? Re-check the four async search invariants
+      on every affected surface
 - [ ] Ordering / promotion / position-0 -> human sign-off, not agent judgement
 - [ ] Flag the ongoing experiments to the human reviewer: the
       control->pill rollout and the internal `rebuild-menu` opt-in

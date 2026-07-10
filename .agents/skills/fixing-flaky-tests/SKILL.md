@@ -57,6 +57,9 @@ git log --oneline -10 -- <test_file_path>          # recently fixed already?
 hogli ci:insights search "<test name or error>"    # historical context / existing fix — corroborate against the run data, do not trust blindly
 ```
 
+Trunk.io flaky-test analytics is a third rate source: most CI suites (backend, frontend Jest, Playwright, Node.js ingestion, Rust, Dagster, MCP, AI evals, LLM gateway) upload junit results via `trunk-io/analytics-uploader`, and the Trunk dashboard tracks per-test flake rates over time.
+Like `ci:insights`, treat it as corroboration — the raw run data remains the classification authority.
+
 An insight with a **merged fix** means the flake may already be resolved — read the fix, confirm _against the run data_ that it covers this failure, and report instead of re-fixing.
 
 ## 2. Extract the failure from CI
@@ -194,6 +197,17 @@ If the flake was never reproducible locally, run N = 20 as a regression check an
 
 Any failure in the loop → back to step 4; the root cause was wrong or incomplete.
 Finish with one normal run of the surrounding file/suite to confirm the fix didn't break sibling tests.
+
+## 6b. Quarantined tests — `.test_quarantine.json`
+
+Flakes that can't be fixed immediately get quarantined in `.test_quarantine.json` (managed with `hogli test:quarantine`, schema in `tools/hogli-commands/hogli_commands/quarantine/core.py`).
+CI's quarantine gate passes a job when every failure is an already-quarantined flake, so quarantined tests still run — they just stop blocking merges.
+
+What this means for a fix:
+
+- **Fixing a quarantined test is the same workflow as above**, but finish by removing its quarantine entry in the same PR — the entry is the tombstone, and un-quarantining re-runs the affected tests in CI so the fix is proven where it failed.
+- **Check the quarantine list before starting**: if the test you were pointed at is already quarantined, the failure signal you're chasing may be stale — measure the current rate first.
+- **Quarantining is a holding action, not a fix.** Only add an entry with explicit user approval (same rule as skipping), and pair it with an issue or follow-up naming the root-cause hypothesis.
 
 ## 7. Report
 

@@ -23,6 +23,9 @@ Edges: `task→theme`, `task→pr`, `learning→theme`, `learning→task` (evide
 POSTHOG_PERSONAL_API_KEY=... python3 tools/dev-knowledge-graph/ingest.py \
     --days 14 --project 2 --repository posthog/posthog
 
+# Include the whole team's conversations (filter by user in the viewer)
+POSTHOG_PERSONAL_API_KEY=... python3 tools/dev-knowledge-graph/ingest.py --all-users
+
 # Or rebuild offline from a previously fetched dump
 python3 tools/dev-knowledge-graph/ingest.py --from-file /path/to/tasks.json
 
@@ -44,8 +47,11 @@ The interesting half of the graph is `learnings.json`. When a piece of work teac
   "body": "The why, with enough detail that a stranger gets it.",
   "themes": ["pr-adoption"],
   "evidence_tasks": [72639, 73819],
-  "skills": [{ "name": "adopting-prs", "status": "proposed" }]
+  "skills": [{ "name": "adopting-prs", "status": "proposed" }],
+  "author": "your-name"
 }
 ```
 
-`evidence_tasks` are PostHog Code task numbers; the ingest links them if they appear in the fetched window. `skills[].status` is `existing` or `proposed` — proposed skills render differently so the graph doubles as a backlog of skills worth writing.
+`evidence_tasks` are PostHog Code task numbers; the ingest links them if they appear in the fetched window. `skills[].status` is `existing` or `proposed` — proposed skills render differently so the graph doubles as a backlog of skills worth writing. `author` powers the viewer's user filter; use the same short name consistently (the ingest derives task authors from the email local part, so matching that keeps one identity per person).
+
+The `growing-dev-knowledge-graph` skill (`.agents/skills/`) guides agents through adding a learning at the end of significant work — learnings must be public-repo safe (no customer data, internal scale, or Slack quotes).

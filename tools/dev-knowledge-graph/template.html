@@ -31,6 +31,7 @@
 </div>
 <div id="controls">
   <input id="search" type="search" placeholder="Search nodes…" />
+  <select id="userFilter" style="width:100%; box-sizing:border-box; background:#131015; color:#eee; border:1px solid #444; border-radius:5px; padding:5px 8px; margin-bottom:8px;"></select>
   <div id="filters"></div>
 </div>
 <div id="panel"></div>
@@ -69,7 +70,11 @@ for (const e of edges) {
 
 const visibleKinds = new Set(Object.keys(COLORS));
 let searchTerm = "";
-function isVisible(n) { return visibleKinds.has(n.kind); }
+let userFilter = "all";
+function isVisible(n) {
+  if (!visibleKinds.has(n.kind)) return false;
+  return userFilter === "all" || !n.author || n.author === userFilter;
+}
 function matches(n) { return searchTerm && n.label.toLowerCase().includes(searchTerm); }
 
 // Barnes-Hut-free O(n^2) force layout; fine for a few hundred nodes.
@@ -196,7 +201,7 @@ function select(n) {
   panel.style.display = "block";
   panel.innerHTML = `
     <h2>${esc(n.label)}</h2>
-    <div class="meta">${n.kind}${n.status ? " · " + n.status : ""}${n.date ? " · " + n.date : ""}${n.origin ? " · via " + esc(n.origin) : ""}
+    <div class="meta">${n.kind}${n.status ? " · " + n.status : ""}${n.date ? " · " + n.date : ""}${n.origin ? " · via " + esc(n.origin) : ""}${n.author && n.author !== "unknown" ? " · by " + esc(n.author) : ""}
       ${n.url ? ` · <a href="${esc(n.url)}" target="_blank">open</a>` : ""}</div>
     ${n.detail ? `<div class="detail">${esc(n.detail)}</div>` : ""}
     <div class="meta" style="margin-top:8px">${neighbors.length} connections: ${neighbors.slice(0, 12).map((m) => esc(m.label.slice(0, 30))).join(" · ")}${neighbors.length > 12 ? " …" : ""}</div>`;
@@ -216,6 +221,14 @@ for (const kind of Object.keys(COLORS)) {
 }
 document.getElementById("search").addEventListener("input", (ev) => {
   searchTerm = ev.target.value.trim().toLowerCase();
+});
+const userSelect = document.getElementById("userFilter");
+const authors = [...new Set(nodes.map((n) => n.author).filter((a) => a && a !== "unknown"))].sort();
+userSelect.innerHTML = `<option value="all">Everyone</option>` +
+  authors.map((a) => `<option value="${esc(a)}">${esc(a)}</option>`).join("");
+userSelect.addEventListener("change", (ev) => {
+  userFilter = ev.target.value;
+  alpha = Math.max(alpha, 0.4);
 });
 document.getElementById("stats").textContent =
   `${nodes.length} nodes · ${edges.length} edges · generated ${GRAPH.generated_at.slice(0, 16).replace("T", " ")} UTC`;

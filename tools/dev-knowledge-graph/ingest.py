@@ -63,7 +63,9 @@ THEME_RULES: list[tuple[str, str, str]] = [
 PR_RE = re.compile(r"(?:github\.com/PostHog/posthog/pull/|(?:\bpr\b|pull request)\s*#?\s*|#)(\d{4,6})", re.IGNORECASE)
 
 
-def fetch_tasks(host: str, key: str, project: int, repository: str, since: datetime) -> list[dict[str, Any]]:
+def fetch_tasks(
+    host: str, key: str, project: int, repository: str, since: datetime, all_users: bool
+) -> list[dict[str, Any]]:
     params = urllib.parse.urlencode({"limit": 100, "repository": repository, "internal": "all", "archived": "all"})
     url: str | None = f"{host.rstrip('/')}/api/projects/{project}/tasks/?{params}"
     me_req = urllib.request.Request(f"{host.rstrip('/')}/api/users/@me/", headers={"Authorization": f"Bearer {key}"})
@@ -80,8 +82,15 @@ def fetch_tasks(host: str, key: str, project: int, repository: str, since: datet
         if not results or results[-1]["created_at"] < since_iso:
             break
         url = page.get("next")
+    if all_users:
+        return tasks
     # The list endpoint has no created_by filter guarantee across versions, so filter locally when present.
     return [t for t in tasks if not t.get("created_by") or t["created_by"].get("id") == my_id]
+
+
+def task_author(task: dict[str, Any]) -> str:
+    creator = task.get("created_by") or {}
+    return (creator.get("email") or "").split("@")[0] or creator.get("first_name", "").lower() or "unknown"
 
 
 def classify(task: dict[str, Any]) -> list[str]:
@@ -123,6 +132,7 @@ def build_graph(tasks: list[dict[str, Any]], learnings: list[dict[str, Any]]) ->
             task.get("title") or f"(untitled) #{task['task_number']}",
             date=task["created_at"][:10],
             origin=task.get("origin_product", "unknown"),
+            author=task_author(task),
             url=task.get("_posthogUrl", ""),
             detail=(task.get("description") or "")[:600],
         )
@@ -135,7 +145,13 @@ def build_graph(tasks: list[dict[str, Any]], learnings: list[dict[str, Any]]) ->
 
     for learning in learnings:
         lid = f"learning:{learning['id']}"
-        add_node(lid, "learning", learning["title"], detail=learning.get("body", ""))
+        add_node(
+            lid,
+            "learning",
+            learning["title"],
+            detail=learning.get("body", ""),
+            author=learning.get("author", "unknown"),
+        )
         for theme in learning.get("themes", []):
             add_node(f"theme:{theme}", "theme", theme)
             add_edge(lid, f"theme:{theme}", "about")
@@ -166,6 +182,7 @@ def main() -> None:
     parser.add_argument("--repository", default="posthog/posthog")
     parser.add_argument("--host", default=os.environ.get("POSTHOG_API_URL", "https://us.posthog.com"))
     parser.add_argument("--from-file", help="Skip the API and load a previously saved tasks.json")
+    parser.add_argument("--all-users", action="store_true", help="Include everyone's tasks, not just your own")
     args = parser.parse_args()
 
     if args.from_file:
@@ -175,7 +192,7 @@ def main() -> None:
         if not key:
             sys.exit("Set POSTHOG_PERSONAL_API_KEY or pass --from-file")
         since = datetime.now(UTC) - timedelta(days=args.days)
-        tasks = fetch_tasks(args.host, key, args.project, args.repository, since)
+        tasks = fetch_tasks(args.host, key, args.project, args.repository, since, args.all_users)
 
     learnings = json.loads((HERE / "learnings.json").read_text())["learnings"]
     graph = build_graph(tasks, learnings)
