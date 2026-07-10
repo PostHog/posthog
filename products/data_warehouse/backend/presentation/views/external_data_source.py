@@ -1857,7 +1857,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if self.prefix_required(source_type):
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
-                        data={"message": "Source type already exists. Prefix is required"},
+                        data={
+                            "message": "You already have a source of this type. Add a table prefix so this connection's tables don't clash with your existing source."
+                        },
                     )
             elif self.prefix_exists(source_type, prefix):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
@@ -3904,7 +3906,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if self.prefix_required(source_type):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Source type already exists. Prefix is required"},
+                    data={
+                        "message": "You already have a source of this type. Add a table prefix so this connection's tables don't clash with your existing source."
+                    },
                 )
         elif self.prefix_exists(source_type, prefix):
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
