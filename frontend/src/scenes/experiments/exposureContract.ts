@@ -29,8 +29,9 @@ function isEventConfig(config: ExperimentExposureConfig): config is ExperimentEv
  *
  * - No exposure config, or a `$feature_flag_called` config: the default event, with the variant on
  *   `$feature_flag_response`.
- * - Any custom exposure event or action: that event (default event name for actions, which match
- *   multiple events), with the variant on `$feature/<flag_key>`.
+ * - A custom exposure event: that event, with the variant on `$feature/<flag_key>`.
+ * - An action exposure config: `event` is `null` because an action can match multiple events, so no
+ *   single event name applies (mirrors the backend returning `None`). Variant is on `$feature/<flag_key>`.
  */
 export function getExposureEventAndProperty({
     featureFlagKey,
@@ -38,15 +39,19 @@ export function getExposureEventAndProperty({
 }: {
     featureFlagKey: string
     exposureCriteria: ExperimentExposureCriteria | undefined
-}): { event: string; variantProperty: string } {
+}): { event: string | null; variantProperty: string } {
     const exposureConfig = exposureCriteria?.exposure_config
 
-    if (exposureConfig && !(isEventConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
-        return {
-            event: isEventConfig(exposureConfig) ? exposureConfig.event : EXPOSURE_DEFAULT_EVENT,
-            variantProperty: featureFlagVariantProperty(featureFlagKey),
-        }
+    // No config, or the default `$feature_flag_called` event: variant lives on `$feature_flag_response`.
+    if (!exposureConfig || (isEventConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
+        return { event: EXPOSURE_DEFAULT_EVENT, variantProperty: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY }
     }
 
-    return { event: EXPOSURE_DEFAULT_EVENT, variantProperty: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY }
+    // Custom exposure event: that event carries the variant on `$feature/<flag_key>`.
+    if (isEventConfig(exposureConfig)) {
+        return { event: exposureConfig.event, variantProperty: featureFlagVariantProperty(featureFlagKey) }
+    }
+
+    // Action config: actions can match multiple events, so there is no single event to filter on.
+    return { event: null, variantProperty: featureFlagVariantProperty(featureFlagKey) }
 }

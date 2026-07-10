@@ -10,7 +10,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
 import { isMetricThresholdCueVisible } from 'scenes/experiments/ExperimentMetricThreshold'
-import { getExposureEventAndProperty } from 'scenes/experiments/exposureContract'
+import { EXPOSURE_DEFAULT_EVENT, getExposureEventAndProperty } from 'scenes/experiments/exposureContract'
 import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 import { sharedMetricDetailsModalLogic } from 'scenes/experiments/Metrics/sharedMetricDetailsModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
@@ -30,7 +30,7 @@ const getExposureEvent = (experiment: Experiment): string =>
     getExposureEventAndProperty({
         featureFlagKey: experiment.feature_flag_key,
         exposureCriteria: experiment.exposure_criteria,
-    }).event
+    }).event ?? EXPOSURE_DEFAULT_EVENT
 
 const AddBreakdownMenuItem = ({
     experiment,
