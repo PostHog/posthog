@@ -245,6 +245,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 'taxonomicGroupTypes',
                 'topMatchItemsWithSkeletons',
                 'anyGroupLoading',
+                'anyGroupStale',
                 'includeStaleEvents',
             ],
             teamLogic,
@@ -682,6 +683,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.isLoading,
                 s.isSuggestedFilters,
                 s.anyGroupLoading,
+                s.anyGroupStale,
                 s.searchQuery,
                 s.hasRemoteDataSource,
                 s.showNonCapturedEventOption,
@@ -693,6 +695,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 isLoading: boolean,
                 isSuggestedFilters: boolean,
                 anyGroupLoading: boolean,
+                anyGroupStale: boolean,
                 searchQuery: string,
                 hasRemoteDataSource: boolean,
                 showNonCapturedEventOption: boolean,
@@ -704,7 +707,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     // Don't declare "No results" until the fetch for the *current* query has landed —
                     // otherwise a stale/empty list from the previous query masquerades as no matches.
                     remoteResultsAreFresh &&
-                    !(isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0) &&
+                    // The aggregated SuggestedFilters tab runs no fetch of its own, so it can only
+                    // tell it has settled by watching its sibling groups. `anyGroupLoading` alone
+                    // is a transient boolean that dips false between a keystroke and the next
+                    // debounced fetch; `anyGroupStale` holds the empty state back until every group
+                    // has actually caught up to the current query, matching the per-list freshness
+                    // gate above and killing the mid-typing "No results" flash.
+                    !(isSuggestedFilters && (anyGroupLoading || anyGroupStale) && searchQuery.trim().length > 0) &&
                     (!!searchQuery || !hasRemoteDataSource) &&
                     !showNonCapturedEventOption) ||
                 needsMoreSearchCharacters,
@@ -714,6 +723,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.isLoading,
                 s.isSuggestedFilters,
                 s.anyGroupLoading,
+                s.anyGroupStale,
                 s.results,
                 s.searchQuery,
                 s.hasRemoteDataSource,
@@ -723,13 +733,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 isLoading: boolean,
                 isSuggestedFilters: boolean,
                 anyGroupLoading: boolean,
+                anyGroupStale: boolean,
                 results: TaxonomicDefinitionTypes[],
                 searchQuery: string,
                 hasRemoteDataSource: boolean,
                 remoteResultsAreFresh: boolean
             ): boolean =>
                 (isLoading ||
-                    (isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0) ||
+                    // The aggregated tab keeps the spinner up while any sibling group is still
+                    // loading *or* hasn't caught up to the current query — see `anyGroupStale`.
+                    (isSuggestedFilters && (anyGroupLoading || anyGroupStale) && searchQuery.trim().length > 0) ||
                     // The current-query remote fetch hasn't landed yet: keep the spinner up rather
                     // than flash a premature "No results". Gated on there being nothing to show
                     // (below) so still-valid rows aren't replaced by a spinner on every keystroke.
