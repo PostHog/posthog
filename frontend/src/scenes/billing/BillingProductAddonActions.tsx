@@ -153,14 +153,18 @@ export const BillingProductAddonActions = ({
                         }
                         loading={billingProductLoading === addon.type || trialLoading}
                         onClick={() => {
-                            onPurchaseClick?.()
                             if (isTrialEligible) {
+                                onPurchaseClick?.()
                                 activateTrial()
                             } else if (hasFlatRate) {
-                                // Flat-rate add-ons are charged immediately when a card is on file,
-                                // so confirm the amount with the customer before activating.
+                                // Flat-rate add-ons are charged immediately when a card is on file, so
+                                // confirm the amount first. Defer onPurchaseClick (the parent "activating"
+                                // lock) until the user actually confirms — firing it on open would strand
+                                // the cards on "Please wait…" if they cancel, since that lock only clears
+                                // on a billing reload.
                                 showConfirmPurchaseModal()
                             } else {
+                                onPurchaseClick?.()
                                 initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
                             }
                         }}
@@ -352,7 +356,7 @@ export const BillingProductAddonActions = ({
             {surveyID === TRIAL_CANCELLATION_SURVEY_ID && <TrialCancellationSurveyModal product={addon} />}
             <ConfirmUpgradeModal product={addon} />
             <ConfirmDowngradeModal product={addon} />
-            <ConfirmPurchaseModal product={addon} />
+            <ConfirmPurchaseModal product={addon} onConfirm={onPurchaseClick} />
         </div>
     )
 }
