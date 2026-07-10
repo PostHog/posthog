@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { BaseBatchPipeline, BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { BaseBatchPipeline, ChunkProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { BufferingBatchPipeline } from '~/ingestion/framework/buffering-batch-pipeline'
 import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 import { ConcurrentBatchProcessingPipeline } from '~/ingestion/framework/concurrent-batch-pipeline'
@@ -70,7 +70,7 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
     constructor(protected pipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>) {}
 
     pipeBatch<U, R2 extends string = never>(
-        step: BatchProcessingStep<TOutput, U, R2>,
+        step: ChunkProcessingStep<TOutput, U, R2>,
         options?: { retry?: RetryOptions }
     ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         const wrappedStep = options?.retry ? withBatchRetry(step, options.retry) : step

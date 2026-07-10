@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { logger } from '~/common/utils/logger'
-import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { drop, ok } from '~/ingestion/framework/results'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
@@ -32,7 +32,7 @@ export function createResolveRetentionStep<
 >(
     retentionService: RetentionService,
     sessionBatchManager: SessionBatchManager
-): BatchProcessingStep<T, T & { retentionPeriod: RetentionPeriod }> {
+): ChunkProcessingStep<T, T & { retentionPeriod: RetentionPeriod }> {
     return async function resolveRetentionStep(values) {
         const batch = sessionBatchManager.getCurrentBatch()
         // Reuse retention already resolved for sessions still in the current batch; resolve the rest.

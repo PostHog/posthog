@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { logger } from '~/common/utils/logger'
-import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { drop, ok } from '~/ingestion/framework/results'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
@@ -47,7 +47,7 @@ type TrackAndGateStepInput = {
 export function createTrackAndGateStep<T extends TrackAndGateStepInput>(
     sessionTracker: SessionTracker,
     sessionFilter: SessionFilter
-): BatchProcessingStep<T, Allowed<T & NewSessionFlag>> {
+): ChunkProcessingStep<T, Allowed<T & NewSessionFlag>> {
     return async function trackAndGateStep(values) {
         // Dedupe repeated sessions so each one's Redis bootstrap runs exactly once per batch.
         const toResolve = new SessionSet()

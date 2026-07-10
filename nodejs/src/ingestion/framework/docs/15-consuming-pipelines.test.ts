@@ -45,7 +45,7 @@
  * stage is missing from the pipeline.
  */
 import { logger } from '~/common/utils/logger'
-import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
@@ -63,7 +63,7 @@ describe('Consuming a Pipeline', () => {
      * next() drives processing; null marks the pipeline drained.
      */
     it('feed() then next() drives the pipeline until it returns null', async () => {
-        function createDoubleStep(): BatchProcessingStep<Event, Event> {
+        function createDoubleStep(): ChunkProcessingStep<Event, Event> {
             return function doubleStep(events) {
                 return Promise.resolve(events.map((event) => ok({ id: event.id * 2 })))
             }
@@ -94,7 +94,7 @@ describe('Consuming a Pipeline', () => {
      * results (here, DROP). The consumer never sees result-with-context objects.
      */
     it('BatchPipelineUnwrapper returns plain values and drops non-OK results', async () => {
-        function createFilterStep(): BatchProcessingStep<Event, Event> {
+        function createFilterStep(): ChunkProcessingStep<Event, Event> {
             return function filterStep(events) {
                 // Drop even ids, keep odd ones
                 return Promise.resolve(events.map((event) => (event.id % 2 === 0 ? drop('even filtered') : ok(event))))
@@ -125,7 +125,7 @@ describe('Consuming a Pipeline', () => {
     it('BatchPipelineUnwrapper warns about unhandled side effects', async () => {
         const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => undefined)
 
-        function createStepWithSideEffect(): BatchProcessingStep<Event, Event> {
+        function createStepWithSideEffect(): ChunkProcessingStep<Event, Event> {
             return function stepWithSideEffect(events) {
                 // Attach a side effect that no downstream stage handles
                 return Promise.resolve(events.map((event) => ok(event, [Promise.resolve('unhandled')])))

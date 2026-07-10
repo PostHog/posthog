@@ -2,7 +2,7 @@ import { logger } from '~/common/utils/logger'
 import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
 import { invalidTimestampCounter } from '~/ingestion/common/metrics'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
-import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -75,7 +75,7 @@ function getCymbalProcessingWarnings(response: CymbalResponse, eventUuid: string
  */
 export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
     cymbalClient: CymbalClient
-): BatchProcessingStep<T, T> {
+): ChunkProcessingStep<T, T> {
     return async function cymbalProcessingStep(inputs: T[]): Promise<PipelineResult<T>[]> {
         if (inputs.length === 0) {
             return []

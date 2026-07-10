@@ -2,7 +2,7 @@ import { Counter } from 'prom-client'
 
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { KeyedRateLimitRequest, KeyedRateLimiter } from '~/common/services/keyed-rate-limiter.service'
-import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { drop, ok } from '~/ingestion/framework/results'
 
 const outcomeCounter = new Counter({
@@ -59,7 +59,7 @@ export interface KeyedRateLimiterStepOptions<T> {
  * Cost is summed per unique key within a batch so we make one Redis call per key
  * regardless of how many inputs share it.
  */
-export function createKeyedRateLimiterStep<T>(opts: KeyedRateLimiterStepOptions<T>): BatchProcessingStep<T, T> {
+export function createKeyedRateLimiterStep<T>(opts: KeyedRateLimiterStepOptions<T>): ChunkProcessingStep<T, T> {
     const costFn = opts.getCost ?? (() => 1)
     const dropReason = opts.dropReason ?? 'rate_limited'
     const reportingModeLabel = opts.reportingMode ? 'true' : 'false'

@@ -1,5 +1,5 @@
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { Team } from '~/types'
 
@@ -10,7 +10,7 @@ export interface PrefetchHogFunctionsStepInput {
 export function createPrefetchHogFunctionsStep<TInput extends PrefetchHogFunctionsStepInput>(
     hogTransformer: HogTransformer,
     sampleRate: number
-): BatchProcessingStep<TInput, TInput> {
+): ChunkProcessingStep<TInput, TInput> {
     return async function prefetchHogFunctionsStep(events: TInput[]): Promise<PipelineResult<TInput>[]> {
         // Skip prefetching if sampling determines we shouldn't run hog watcher
         const shouldRunHogWatcher = Math.random() < sampleRate

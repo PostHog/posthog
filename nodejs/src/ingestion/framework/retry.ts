@@ -2,7 +2,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { retryIfRetriable } from '~/common/utils/retries'
 
-import { BatchProcessingStep } from './base-batch-pipeline'
+import { ChunkProcessingStep } from './base-batch-pipeline'
 import { pipelineRetryAttemptsHistogram } from './metrics'
 import { dlq } from './results'
 import { ProcessingStep } from './steps'
@@ -83,11 +83,11 @@ export function withStepRetry<T, U, R extends string = never>(
  * retries, causing the process to crash (appropriate for unexpected errors).
  */
 export function withBatchRetry<T, U, R extends string = never>(
-    step: BatchProcessingStep<T, U, R>,
+    step: ChunkProcessingStep<T, U, R>,
     options: RetryOptions = {}
-): BatchProcessingStep<T, U, R> {
+): ChunkProcessingStep<T, U, R> {
     const name = options.name ?? step.name ?? 'unknown'
-    const wrappedStep: BatchProcessingStep<T, U, R> = async (values: T[]) => {
+    const wrappedStep: ChunkProcessingStep<T, U, R> = async (values: T[]) => {
         let attempts = 0
         try {
             const result = await retryIfRetriable(

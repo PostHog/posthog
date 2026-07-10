@@ -15,12 +15,12 @@ function isSuccessResultWithContext<T, C, R extends string>(
 }
 
 /**
- * Batch processing step that takes an array of values and returns a result per value.
+ * Chunk processing step that takes an array of values and returns a result per value.
  *
  * @typeParam R - Union of redirect output names this step can produce.
  *   Defaults to `never` (no redirects).
  */
-export type BatchProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
+export type ChunkProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
 
 export class BaseBatchPipeline<
     TInput,
@@ -35,7 +35,7 @@ export class BaseBatchPipeline<
     private stepName: string
 
     constructor(
-        private currentStep: BatchProcessingStep<TIntermediate, TOutput, RStep>,
+        private currentStep: ChunkProcessingStep<TIntermediate, TOutput, RStep>,
         private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, COutput, RPrev>
     ) {
         this.stepName = this.currentStep.name || 'anonymousBatchStep'

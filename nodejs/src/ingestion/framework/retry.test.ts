@@ -1,6 +1,6 @@
 import { captureException } from '~/common/utils/posthog'
 
-import { BatchProcessingStep } from './base-batch-pipeline'
+import { ChunkProcessingStep } from './base-batch-pipeline'
 import { newBatchPipelineBuilder, newPipelineBuilder } from './builders'
 import { createOkContext } from './helpers'
 import { pipelineRetryAttemptsHistogram } from './metrics'
@@ -72,7 +72,7 @@ const batchVariant: Variant = {
     async run(script, retry, opts) {
         const inputs = opts?.inputs ?? [1]
         // Inline function literal so the computed-property key names the step (for the metric-name test).
-        const step: BatchProcessingStep<number, string> = opts?.stepName
+        const step: ChunkProcessingStep<number, string> = opts?.stepName
             ? {
                   [opts.stepName]: (values: number[]): Promise<PipelineResult<string>[]> => {
                       script()

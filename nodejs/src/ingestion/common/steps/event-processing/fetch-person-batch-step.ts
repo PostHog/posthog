@@ -1,5 +1,5 @@
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'
@@ -35,7 +35,7 @@ function personKey(teamId: number, distinctId: string): string {
  */
 export function createFetchPersonBatchStep<T extends FetchPersonBatchStepInput>(
     personRepository: PersonReadRepository
-): BatchProcessingStep<T, T & { person: Person | undefined }> {
+): ChunkProcessingStep<T, T & { person: Person | undefined }> {
     return async function fetchPersonBatchStep(
         inputs: T[]
     ): Promise<PipelineResult<T & { person: Person | undefined }>[]> {

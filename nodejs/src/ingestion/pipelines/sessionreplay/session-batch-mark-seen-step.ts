@@ -1,5 +1,5 @@
 import { logger } from '~/common/utils/logger'
-import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { drop, ok } from '~/ingestion/framework/results'
 import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
@@ -25,7 +25,7 @@ type MarkSeenStepInput = { team: TeamForReplay; headers: SessionReplayHeaders } 
  */
 export function createMarkSeenStep<T extends MarkSeenStepInput>(
     sessionTracker: SessionTracker
-): BatchProcessingStep<Resolved<T>, Recordable<T>> {
+): ChunkProcessingStep<Resolved<T>, Recordable<T>> {
     return async function markSeenStep(values) {
         const newlySeen = new SessionSet()
         for (const value of values) {

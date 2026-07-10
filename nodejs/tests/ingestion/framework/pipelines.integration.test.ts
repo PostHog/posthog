@@ -9,7 +9,7 @@ import {
     OverflowOutput,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { createBatch, createUnwrapper } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
@@ -99,7 +99,7 @@ const createMockStep = <TInput extends { message: Message }, TOutput, R extends 
 
 const createMockBatchStep = <TInput, TOutput>(
     resultMap: Map<number, PipelineResult<TOutput>>
-): jest.MockedFunction<BatchProcessingStep<TInput, TOutput>> => {
+): jest.MockedFunction<ChunkProcessingStep<TInput, TOutput>> => {
     return jest.fn(async (events: TInput[]): Promise<PipelineResult<TOutput>[]> => {
         await new Promise((resolve) => setTimeout(resolve, 1)) // Simulate async work
         return events.map((_, index) => {
@@ -1793,7 +1793,7 @@ describe('Pipeline Integration Tests', () => {
             const step3 = createMockStep<TestEventWithTeam, TestEventWithTeam>(step3Map)
             // Batch step adds batch_result to each event - uses input content instead of index
             // because filterMap feeds events in separate batches (not gathered)
-            const batchStep: jest.MockedFunction<BatchProcessingStep<TestEventWithTeam, TestEventWithTeam>> = jest.fn(
+            const batchStep: jest.MockedFunction<ChunkProcessingStep<TestEventWithTeam, TestEventWithTeam>> = jest.fn(
                 (events) =>
                     Promise.resolve(
                         events.map((event) => ok({ ...event, event: { ...event.event, batch_result: 'processed' } }))
