@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
-import { IconCheckCircle, IconClock, IconMinus, IconWarning, IconX } from '@posthog/icons'
-import { LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconExternal, IconMinus, IconSpinner, IconWarning, IconX } from '@posthog/icons'
+import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import type { PullRequestCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -32,16 +32,59 @@ function resolveCheckVariant(check: PullRequestCheckApi): CheckVariant {
     }
 }
 
-const VARIANT_META: Record<CheckVariant, { icon: JSX.Element; label: string; className: string }> = {
-    failure: { icon: <IconWarning />, label: 'Failed', className: 'text-danger' },
-    cancelled: { icon: <IconX />, label: 'Cancelled', className: 'text-muted' },
-    pending: { icon: <IconClock />, label: 'Running', className: 'text-warning' },
-    success: { icon: <IconCheckCircle />, label: 'Passed', className: 'text-success' },
-    neutral: { icon: <IconMinus />, label: 'Skipped', className: 'text-muted' },
+const VARIANT_META: Record<
+    CheckVariant,
+    { icon: JSX.Element; label: string; iconClassName: string; summaryClassName: string }
+> = {
+    failure: {
+        icon: <IconWarning />,
+        label: 'Failed',
+        iconClassName: 'text-danger',
+        summaryClassName: 'text-danger',
+    },
+    cancelled: {
+        icon: <IconX />,
+        label: 'Cancelled',
+        iconClassName: 'text-muted',
+        summaryClassName: 'text-secondary',
+    },
+    pending: {
+        icon: <IconSpinner className="animate-spin motion-reduce:animate-none" />,
+        label: 'Running',
+        iconClassName: 'text-warning',
+        summaryClassName: 'text-warning',
+    },
+    success: {
+        icon: <IconCheckCircle />,
+        label: 'Successful',
+        iconClassName: 'text-success',
+        summaryClassName: 'text-success',
+    },
+    neutral: {
+        icon: <IconMinus />,
+        label: 'Skipped',
+        iconClassName: 'text-muted',
+        summaryClassName: 'text-tertiary',
+    },
 }
 
 // Failed first, then in-flight, then the rest — the buckets worth a human's attention lead.
-const VARIANT_ORDER: CheckVariant[] = ['failure', 'cancelled', 'pending', 'success', 'neutral']
+const VARIANT_ORDER: CheckVariant[] = ['failure', 'pending', 'cancelled', 'success', 'neutral']
+
+function CheckSummary({ variant, count }: { variant: CheckVariant; count: number }): JSX.Element | null {
+    if (count === 0) {
+        return null
+    }
+
+    const meta = VARIANT_META[variant]
+    return (
+        <span className={`inline-flex items-center gap-1 whitespace-nowrap ${meta.summaryClassName}`}>
+            <span className={`flex items-center [&_svg]:size-3 ${meta.iconClassName}`}>{meta.icon}</span>
+            <span className="font-medium tabular-nums">{count}</span>
+            <span>{meta.label.toLowerCase()}</span>
+        </span>
+    )
+}
 
 /**
  * "CI checks" section for a report's implementation PR: the GitHub Actions check runs and legacy
@@ -67,57 +110,83 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
     const sorted = (prChecks ?? [])
         .map((check) => ({ check, variant: resolveCheckVariant(check) }))
         .sort((a, b) => VARIANT_ORDER.indexOf(a.variant) - VARIANT_ORDER.indexOf(b.variant))
-    const failing = sorted.filter((c) => c.variant === 'failure').length
-    const pending = sorted.filter((c) => c.variant === 'pending').length
+    const counts = sorted.reduce<Record<CheckVariant, number>>(
+        (result, { variant }) => {
+            result[variant] += 1
+            return result
+        },
+        { failure: 0, cancelled: 0, pending: 0, success: 0, neutral: 0 }
+    )
+    const hasChecksNeedingAttention = counts.failure > 0 || counts.cancelled > 0 || counts.pending > 0
 
     return (
         <DetailSection
+            // `DetailSection` reads `defaultCollapsed` only on mount. This section mounts while
+            // `prChecks` is still null (skeleton), when the "all green → collapse" default computes to
+            // false, so remount once the checks resolve to let the settled default take effect.
+            key={prChecks === null ? 'checks-loading' : 'checks-loaded'}
             icon={<IconCheckCircle />}
             title="CI checks"
             collapsible
-            defaultCollapsed={sorted.length > 0 && failing === 0 && pending === 0}
+            defaultCollapsed={sorted.length > 0 && !hasChecksNeedingAttention}
             rightSlot={
                 sorted.length > 0 ? (
-                    <span className="text-[0.6875rem] text-tertiary tabular-nums">
-                        {failing > 0 ? `${failing} failing · ` : ''}
-                        {pending > 0 ? `${pending} running · ` : ''}
-                        {sorted.length} total
+                    <span className="flex items-center justify-end gap-x-2.5 gap-y-1 flex-wrap text-[0.6875rem]">
+                        {VARIANT_ORDER.map((variant) => (
+                            <CheckSummary key={variant} variant={variant} count={counts[variant]} />
+                        ))}
                     </span>
                 ) : undefined
             }
         >
             {prChecksError ? (
-                <p className="m-0 py-2 text-sm text-danger">{prChecksError}</p>
+                <div className="rounded border border-danger bg-danger-highlight px-3 py-2.5 text-sm text-danger">
+                    {prChecksError}
+                </div>
             ) : prChecks === null ? (
-                <div className="flex flex-col gap-2">
-                    <LemonSkeleton className="h-6 w-full" />
-                    <LemonSkeleton className="h-6 w-4/5" />
+                <div className="overflow-hidden rounded border border-primary bg-surface-primary">
+                    <LemonSkeleton className="h-10 w-full rounded-none" />
+                    <LemonSkeleton className="h-10 w-full rounded-none border-t border-primary" />
+                    <LemonSkeleton className="h-10 w-full rounded-none border-t border-primary" />
                 </div>
             ) : (
-                <ul className="flex flex-col gap-1 m-0 p-0 list-none">
+                <ul className="m-0 max-h-96 overflow-y-auto rounded border border-primary bg-surface-primary p-0 list-none divide-y divide-border">
                     {sorted.map(({ check, variant }, i) => {
                         const meta = VARIANT_META[variant]
                         const row = (
-                            <span className="flex items-center gap-2 min-w-0">
-                                <Tooltip title={meta.label}>
-                                    <span className={`flex shrink-0 items-center [&_svg]:size-4 ${meta.className}`}>
-                                        {meta.icon}
-                                    </span>
-                                </Tooltip>
-                                <span className="truncate text-sm">{check.name}</span>
-                            </span>
+                            <>
+                                <span
+                                    className={`flex shrink-0 items-center [&_svg]:size-[1.125rem] ${meta.iconClassName}`}
+                                    aria-hidden
+                                >
+                                    {meta.icon}
+                                </span>
+                                <span
+                                    className="min-w-0 flex-1 truncate text-sm font-medium text-primary"
+                                    title={check.name}
+                                >
+                                    {check.name}
+                                </span>
+                                <span className="shrink-0 text-xs text-tertiary transition-colors group-hover:text-secondary">
+                                    {meta.label}
+                                </span>
+                                {check.url && (
+                                    <IconExternal className="size-3.5 shrink-0 text-tertiary opacity-60 transition-opacity group-hover:opacity-100" />
+                                )}
+                            </>
                         )
                         return (
-                            <li
-                                key={`${check.name}-${i}`}
-                                className="flex items-center gap-2 rounded px-2 py-1 hover:bg-fill-highlight-50"
-                            >
+                            <li key={`${check.name}-${i}`}>
                                 {check.url ? (
-                                    <Link to={check.url} target="_blank" className="min-w-0 text-primary">
+                                    <Link
+                                        to={check.url}
+                                        target="_blank"
+                                        className="group flex min-w-0 items-center gap-2.5 px-3 py-2.5 text-primary no-underline transition-colors hover:bg-fill-highlight-50 hover:text-primary focus-visible:bg-fill-highlight-50"
+                                    >
                                         {row}
                                     </Link>
                                 ) : (
-                                    row
+                                    <span className="group flex min-w-0 items-center gap-2.5 px-3 py-2.5">{row}</span>
                                 )}
                             </li>
                         )
