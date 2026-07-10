@@ -1,1 +1,1 @@
-0030_vision_action_unique_scanner_digest
+0041_strip_summarizer_emits_embeddings

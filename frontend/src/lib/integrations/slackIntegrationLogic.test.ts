@@ -333,4 +333,25 @@ describe('slackIntegrationLogic — slackChannelsForPicker', () => {
         }).toFinishAllListeners()
         expect(logic.values.slackChannelsForPicker.map((c) => c.id)).toEqual(['C2', 'C1', 'C3'])
     })
+
+    it('sorts channels without a name (inaccessible private channels) without throwing', () => {
+        // Slack returns private channels the bot can't access with no `name`; the picker sort
+        // must not blow up on them (regression: crashed the whole workflow step config panel).
+        logic.actions.loadAllSlackChannelsSuccess({
+            channels: [
+                fixtureChannel('C1', 'alerts'),
+                {
+                    id: 'C_PRIV',
+                    is_private: true,
+                    is_ext_shared: false,
+                    is_member: false,
+                    is_private_without_access: true,
+                },
+                fixtureChannel('C2', 'general'),
+            ] as SlackChannelType[],
+            lastRefreshedAt: '2026-01-01T00:00:00Z',
+        })
+
+        expect(logic.values.slackChannelsForPicker.map((c) => c.id)).toEqual(['C_PRIV', 'C1', 'C2'])
+    })
 })

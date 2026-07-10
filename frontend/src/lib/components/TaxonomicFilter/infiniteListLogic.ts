@@ -18,6 +18,7 @@ import {
 import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomicFilterSurface'
 import {
     ExcludedOperators,
+    ExcludedProperties,
     InfiniteListLogicProps,
     META_GROUP_TYPES,
     QuickFilterItem,
@@ -488,12 +489,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.taxonomicGroupTypes,
                 (_, props: InfiniteListLogicProps) => props.excludedOperators,
                 (_, props: InfiniteListLogicProps) => props.selectingKeyOnly,
+                (_, props: InfiniteListLogicProps) => props.excludedProperties,
             ],
             (
                 recentFilterItems: TaxonomicDefinitionTypes[],
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
                 excludedOperators: ExcludedOperators | undefined,
-                selectingKeyOnly: boolean | undefined
+                selectingKeyOnly: boolean | undefined,
+                excludedProperties: ExcludedProperties | undefined
             ): TaxonomicDefinitionTypes[] => {
                 if (!recentFilterItems?.length) {
                     return []
@@ -501,6 +504,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const availableTypes = new Set(taxonomicGroupTypes)
                 const inScope = recentFilterItems.filter((item) => {
                     if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
+                        return false
+                    }
+                    // A group's excluded values (e.g. `message` for the logs group-by picker) must be
+                    // dropped from the Recent tab too, not just the group's own option list — otherwise
+                    // an excluded key recorded elsewhere leaks back in as a selectable recent.
+                    const excludedValues = excludedProperties?.[item._recentContext.sourceGroupType]
+                    if (excludedValues?.length && excludedValues.includes(item._recentContext.sourceValue)) {
                         return false
                     }
                     const excludedForGroup = excludedOperators?.[item._recentContext.sourceGroupType]

@@ -52,3 +52,27 @@ def test_duckgres_sink_skips_team_when_flag_unresolved_locally(
     mock_feature_enabled.return_value = None
 
     assert duckgres_sink_team_ids() == []
+
+
+@pytest.mark.django_db
+@patch.object(enablement, "is_dev_mode", return_value=False)
+@patch.object(enablement.posthoganalytics, "feature_enabled")
+def test_duckgres_sink_enablement_carries_org_budgets(mock_feature_enabled: MagicMock, _mock_dev: MagicMock) -> None:
+    """The per-org sink_max_concurrency must ride along with each enabled team,
+    or the claim query silently applies no cap (empty mapping = uncapped)."""
+    org_a = Organization.objects.create(name="A")
+    org_b = Organization.objects.create(name="B")
+    team_a = Team.objects.create(organization=org_a)
+    team_b = Team.objects.create(organization=org_b)
+    DuckgresServer.objects.create(organization=org_a, host="h", username="root", password="x")
+    DuckgresServer.objects.create(organization=org_b, host="h", username="root", password="x", sink_max_concurrency=7)
+    mock_feature_enabled.return_value = True
+
+    result = enablement.duckgres_sink_enablement()
+
+    assert result is not None
+    assert sorted(result.team_ids) == sorted([team_a.id, team_b.id])
+    assert set(result.team_org_budgets) == {
+        (team_a.id, str(org_a.id), 4),  # model default
+        (team_b.id, str(org_b.id), 7),
+    }

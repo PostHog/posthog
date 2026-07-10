@@ -18,7 +18,7 @@ import { notebooksModel } from '~/models/notebooksModel'
 import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
-export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
+export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPanel?: boolean }): JSX.Element {
     const { notebook, showHistory, isLocalOnly, content } = useValues(notebookLogic({ shortId }))
     const { openShareModal, duplicateNotebook, exportJSON, downloadMarkdown, copyMarkdown, setShowHistory } =
         useActions(notebookLogic({ shortId }))
@@ -78,7 +78,11 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                             <ButtonPrimitive
                                 onClick={() => {
                                     notebooksModel.actions.deleteNotebook(shortId, notebook?.title)
-                                    router.actions.push(urls.notebooks())
+                                    // In the side panel the deleted notebook is swapped for the
+                                    // scratchpad in place, so we stay on the current scene.
+                                    if (!inPanel) {
+                                        router.actions.push(urls.notebooks())
+                                    }
                                 }}
                                 menuItem
                                 variant="danger"

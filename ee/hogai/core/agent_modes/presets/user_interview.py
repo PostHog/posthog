@@ -84,7 +84,10 @@ class UserInterviewAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        from products.user_interviews.backend.facade.api import AnalyzeUserInterviewsTool, CreateUserInterviewTopicTool
+        from products.user_interviews.backend.facade.max_tools import (
+            AnalyzeUserInterviewsTool,
+            CreateUserInterviewTopicTool,
+        )
 
         tools: list[type[MaxTool]] = [CreateUserInterviewTopicTool, AnalyzeUserInterviewsTool]
         return tools
@@ -102,7 +105,7 @@ class ReadOnlyUserInterviewAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        from products.user_interviews.backend.facade.api import AnalyzeUserInterviewsTool
+        from products.user_interviews.backend.facade.max_tools import AnalyzeUserInterviewsTool
 
         return [AnalyzeUserInterviewsTool]
 

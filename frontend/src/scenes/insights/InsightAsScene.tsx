@@ -19,6 +19,7 @@ import { InsightRetentionBanner } from './dataRetention/InsightRetentionBanner'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightSceneHeader } from './InsightSceneHeader'
+import { insightVizDataLogic } from './insightVizDataLogic'
 
 export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'
@@ -45,6 +46,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
     // insightDataLogic
     const { query, showQueryEditor } = useValues(insightDataLogic(insightProps))
     const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
+    const { zoomDateRange } = useActions(insightVizDataLogic(insightProps))
 
     useFileSystemLogView({
         type: 'insight',
@@ -104,6 +106,8 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                             showQueryEditor: actuallyShowQueryEditor,
                             showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
                             insightProps,
+                            // Flag-gated inside the charts' shared useDateRangeZoom hook.
+                            onDateRangeZoom: zoomDateRange,
                         }}
                         filtersOverride={filtersOverride}
                         variablesOverride={variablesOverride}

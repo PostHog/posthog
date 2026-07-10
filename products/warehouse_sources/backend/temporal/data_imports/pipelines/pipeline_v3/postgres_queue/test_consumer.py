@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
-    DeltaBatchConsumerAdapter,
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -330,6 +329,8 @@ class TestProcessGroup:
     @pytest.mark.asyncio
     async def test_abandons_group_when_lease_lost_before_dispatch(self):
         consumer = _make_consumer()
+        process_mock = AsyncMock()
+        consumer._process_batch = process_mock
         batch = _make_batch()
 
         with (
@@ -347,7 +348,7 @@ class TestProcessGroup:
             await consumer._process_group((1, "schema-1"), [batch])
 
         # Another pod owns the group now — processing it here would double-write.
-        cast(AsyncMock, consumer._process_batch).assert_not_called()
+        process_mock.assert_not_called()
         mock_unlock.assert_called_once()
 
 
@@ -1343,6 +1344,47 @@ class TestOwnershipVerification:
         mock_verify.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_process_batch_receives_working_precommit_ownership_check(self):
+        # Guards the wiring: without a working check handed to the processor,
+        # a write could start (or post-load run) after a takeover.
+        config = ConsumerConfig(database_url="postgres://unused:unused@localhost/unused")
+        captured: dict[str, Any] = {}
+
+        async def fake_process(batch, verify_ownership=None):
+            captured["check"] = verify_ownership
+
+        consumer = BatchConsumer(config=config, process_batch=fake_process)
+        await consumer._process_batch(_make_batch())
+
+        check = captured["check"]
+        assert check is not None
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_group_lease_sync",
+            return_value=True,
+        ):
+            check()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_group_lease_sync",
+                return_value=False,
+            ),
+            pytest.raises(OwnershipLostError),
+        ):
+            check()
+
+        # Fail-closed: an unverifiable lease must not be treated as owned.
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_group_lease_sync",
+                side_effect=Exception("queue db unreachable"),
+            ),
+            pytest.raises(OwnershipLostError),
+        ):
+            check()
+
+    @pytest.mark.asyncio
     async def test_heartbeat_stops_when_lease_renewal_fails(self):
         # A lost lease (another pod reclaimed the group) must end the heartbeat so the
         # group isn't double-processed while still re-stamping executing.
@@ -1480,20 +1522,3 @@ class TestDispatchGroups:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-
-
-class TestClaimPathWiring:
-    def test_claim_path_config_reaches_the_adapter(self):
-        # A flag that parses but never reaches the adapter would leave the
-        # fleet silently on the legacy path after the flip.
-        state = BatchConsumer(
-            config=ConsumerConfig(database_url="postgres://unused:unused@localhost/unused", claim_path="state"),
-            process_batch=AsyncMock(),
-        )
-        legacy = BatchConsumer(
-            config=ConsumerConfig(database_url="postgres://unused:unused@localhost/unused"),
-            process_batch=AsyncMock(),
-        )
-
-        assert cast(DeltaBatchConsumerAdapter, state._adapter)._use_state is True
-        assert cast(DeltaBatchConsumerAdapter, legacy._adapter)._use_state is False
