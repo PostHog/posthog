@@ -129,6 +129,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         setSelectedPerson: (person: Partial<PersonType> | null, distinctId?: string) => ({ person, distinctId }),
         setIncludeTime: (includeTime: boolean) => ({ includeTime }),
         setSelectedResultDistinctId: (distinctId: string | null) => ({ distinctId }),
+        clearBatchEvaluations: true,
         clearTestForm: true,
     }),
     loaders(({ values }) => ({
@@ -191,12 +192,14 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                         })
                     )
                 },
-                // Reset when the single-ID path runs or the person/form changes, so a stale
-                // batch table never lingers next to an unrelated single result.
-                testFlagEvaluation: () => null,
-                setTestFormData: () => null,
-                setSelectedPerson: () => null,
-                clearTestForm: () => null,
+                // Reset via a dedicated action rather than reusing other actions as keys.
+                // Every key in a loader map registers a listener that dispatches
+                // `${key}Success`, so listing an action another loader already owns
+                // (setSelectedPerson/clearTestForm) or another loader's trigger
+                // (testFlagEvaluation) would double-dispatch its success action and corrupt
+                // that loader's value. A unique action keeps the reset isolated; listeners
+                // dispatch it on person/form changes.
+                clearBatchEvaluations: () => null,
             },
         ],
     })),
@@ -274,6 +277,8 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
     }),
     listeners(({ actions, values }) => ({
         setSelectedPerson: ({ person, distinctId }) => {
+            // A different person invalidates any batch table from the previous one.
+            actions.clearBatchEvaluations()
             // Persons from the recent tab arrive without distinct_ids. Fetch the full
             // person so hasMultipleDistinctIds and the bucketing picker work correctly.
             if (person && !person.distinct_ids?.length) {
@@ -282,6 +287,14 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                     actions.resolvePersonDistinctIds(id)
                 }
             }
+        },
+        // Editing distinct_id/timestamp/groups invalidates prior results, matching how
+        // testResult resets on the same action.
+        setTestFormData: () => {
+            actions.clearBatchEvaluations()
+        },
+        clearTestForm: () => {
+            actions.clearBatchEvaluations()
         },
     })),
     selectors({
