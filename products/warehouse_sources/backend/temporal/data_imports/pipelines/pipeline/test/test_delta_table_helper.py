@@ -7,6 +7,8 @@ from typing import Any, cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
@@ -130,6 +132,36 @@ _COMMIT_LAYOUT_CASES: list[tuple[str, list[dict], dict, bool]] = [
         True,
     ),
 ]
+
+
+class TestStorageOptionsCommitSafety:
+    # Re-adding AWS_S3_ALLOW_UNSAFE_RENAME unconditionally would silently restore
+    # the legacy rename backend, which has no commit-conflict detection.
+    @parameterized.expand(
+        [
+            ("production_default_safe", False, False),
+            ("production_rollback_escape_hatch", False, True),
+            ("local_default_safe", True, False),
+        ]
+    )
+    def test_conditional_put_on_unsafe_rename_gated(
+        self, _case: str, use_local_setup: bool, allow_unsafe: bool
+    ) -> None:
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+
+        with (
+            override_settings(
+                USE_LOCAL_SETUP=use_local_setup,
+                DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME=allow_unsafe,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper.ensure_bucket_exists"
+            ),
+        ):
+            options = helper.get_storage_options()
+
+        assert options["conditional_put"] == "etag"
+        assert ("AWS_S3_ALLOW_UNSAFE_RENAME" in options) is allow_unsafe
 
 
 class TestHasCommitWithMetadata:
