@@ -565,7 +565,6 @@ def _iter_child_for_parent(
     logger: FilteringBoundLogger,
     config: GithubEndpointConfig,
     egress_identity: GithubEgressIdentity | None = None,
-    skip_on_not_found: bool = False,
 ) -> Iterator[dict[str, Any]]:
     """Walk a fan-out child endpoint for one parent, substituting the parent's value into the
     child path placeholder (e.g. {run_id} for workflow_jobs, {team_slug} for team_members)."""
@@ -585,7 +584,6 @@ def _iter_child_for_parent(
         max_pages=config.max_pages_per_parent,
         page_cap_context={"repository": repository, fan_out_param: parent_value},
         egress_identity=egress_identity,
-        skip_on_not_found=skip_on_not_found,
     ):
         yield from items
 
@@ -618,9 +616,10 @@ def _fan_out_get_rows(
     child_config = GITHUB_ENDPOINTS[endpoint]
     assert child_config.fan_out_parent is not None  # guarded by the get_rows dispatch
     parent_config = GITHUB_ENDPOINTS[child_config.fan_out_parent]
-    # team_members fans out from the org-scoped teams parent; a 404 on either walk (user-owned repo,
-    # or a team deleted mid-sync) is a benign skip, not a schema failure.
-    org_scoped = endpoint in ORG_SCOPED_ENDPOINTS
+    # team_members fans out from the org-scoped teams parent, which 404s for a user-owned repo (no
+    # org). Skip only that parent walk — a 404 on a specific team's members is not this benign case
+    # and should still surface.
+    parent_org_scoped = child_config.fan_out_parent in ORG_SCOPED_ENDPOINTS
     headers = _get_headers(personal_access_token, endpoint)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
@@ -657,7 +656,7 @@ def _fan_out_get_rows(
         parent_config.response_data_path,
         logger,
         egress_identity=egress_identity,
-        skip_on_not_found=org_scoped,
+        skip_on_not_found=parent_org_scoped,
     ):
         stop_after_this_page = _should_stop_desc(parents, "desc", parent_cursor_field, parent_cutoff)
 
@@ -674,7 +673,7 @@ def _fan_out_get_rows(
                 else None
             )
             for item in _iter_child_for_parent(
-                repository, parent_value, headers, logger, child_config, egress_identity, skip_on_not_found=org_scoped
+                repository, parent_value, headers, logger, child_config, egress_identity
             ):
                 batcher.batch(inject(item) if inject else item)
                 if batcher.should_yield():

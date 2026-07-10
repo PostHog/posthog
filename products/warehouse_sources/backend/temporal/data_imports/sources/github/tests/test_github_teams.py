@@ -73,6 +73,31 @@ def test_org_scoped_404_syncs_zero_rows_while_repo_scoped_404_stays_fatal(endpoi
             assert list(rows) == []
 
 
+def test_team_members_child_404_stays_fatal_after_parent_listed() -> None:
+    # The org-scoped skip covers only the parent teams walk (user-owned repo, no org). Once the org
+    # resolves and a team is listed, a 404 on that team's members is unexpected and must surface, not
+    # silently drop the team's members.
+    def fetch_page(url: str, *_args: Any, **kwargs: Any) -> mock.Mock:
+        if "/orgs/acme/teams/core/members" in url:
+            assert kwargs.get("skip_on_not_found") is False
+            raise requests.exceptions.HTTPError("404 Client Error: Not Found for url")
+        if "/orgs/acme/teams" in url:
+            return _response([{"id": 1, "slug": "core", "name": "Core"}])
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    with mock.patch.object(github, "_fetch_page", side_effect=fetch_page):
+        with pytest.raises(requests.exceptions.HTTPError):
+            list(
+                github.get_rows(
+                    personal_access_token="tok",
+                    repository="acme/widgets",
+                    endpoint="team_members",
+                    logger=mock.Mock(),
+                    resumable_source_manager=_no_resume(),
+                )
+            )
+
+
 def _collect(endpoint: str, responses_by_url: dict[str, mock.Mock]) -> list[dict[str, Any]]:
     with mock.patch.object(github, "_fetch_page", side_effect=_fetch_page_by_url(responses_by_url)):
         tables = list(
