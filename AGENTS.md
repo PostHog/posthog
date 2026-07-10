@@ -1,9 +1,5 @@
 # PostHog Development Guide
 
-## General guidelines
-
-- Avoid em-dashes like the plague. A lint-staged fixer (`.github/scripts/lint-em-dashes.mjs`) auto-replaces them with hyphens on staged lines at commit time, so don't spend effort hand-editing them
-
 ## Codebase Structure
 
 - Key entry points: `posthog/api/__init__.py` (API URL routing skeleton; products register their own routes in `products/<name>/backend/routes.py` via `register_routes(routers)`), `posthog/settings/web.py` (Django settings, INSTALLED_APPS), `products/` (product apps)
