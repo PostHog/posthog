@@ -6,7 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { visionObservationsRetrieve } from '../generated/api'
-import type { ReplayObservationApi } from '../generated/api.schemas'
+import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { observationProgressLogic } from './observationProgressLogic'
@@ -15,6 +15,20 @@ import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 export interface ReplayObservationLogicProps {
     id: string
+}
+
+const NEIGHBOR_FILTER_KEYS = ['status', 'triggered_by', 'verdict', 'tags', 'recording_subject', 'order_by'] as const
+
+/** List filters carried in the observation URL; passed to retrieve so prev/next stay within the filtered set. */
+export function neighborFilterParams(searchParams: Record<string, unknown>): VisionObservationsRetrieveParams {
+    const params: Record<string, string> = {}
+    for (const key of NEIGHBOR_FILTER_KEYS) {
+        const value = searchParams[key]
+        if (typeof value === 'string' && value) {
+            params[key] = value
+        }
+    }
+    return params
 }
 
 export const replayObservationLogic = kea<replayObservationLogicType>([
@@ -74,7 +88,11 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                     return
                 }
                 try {
-                    const response = await visionObservationsRetrieve(String(teamId), props.id)
+                    const response = await visionObservationsRetrieve(
+                        String(teamId),
+                        props.id,
+                        neighborFilterParams(router.values.searchParams)
+                    )
                     actions.loadObservationSuccess(response)
                     // Link the breadcrumb to the parent scanner so "back" returns to the scanner, not the vision home.
                     replayObservationSceneLogic().actions.setScannerContext(

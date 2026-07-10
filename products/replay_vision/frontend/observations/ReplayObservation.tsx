@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import {
@@ -66,7 +67,7 @@ import {
 } from '../replay_scanners/types'
 import { ImproveScannerPromptButton, describeObservationOutcome } from './ImproveScannerPromptButton'
 import { ObservationLabelControl } from './ObservationLabelControl'
-import { replayObservationLogic } from './replayObservationLogic'
+import { neighborFilterParams, replayObservationLogic } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 export const scene: SceneExport = {
@@ -111,6 +112,7 @@ function AutoSeekToTime({
 
 export function ReplayObservationSceneComponent(): JSX.Element {
     const { observationId } = useValues(replayObservationSceneLogic)
+    const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const qualityEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
     const [recordingExpanded, setRecordingExpanded] = useState(false)
@@ -193,6 +195,12 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 : humanFriendlyDuration(durationMs / 1000)
             : null
 
+    // Filters carried over from the scanner's observations table; preserved on prev/next so
+    // navigation (and the server-computed neighbor ids) stay within the filtered list.
+    const neighborParams = neighborFilterParams(searchParams)
+    const neighborsFiltered = Object.keys(neighborParams).some((key) => key !== 'order_by')
+    const observationUrl = (id: string): string => combineUrl(urls.replayVisionObservation(id), neighborParams).url
+
     const seekEmbeddedPlayer = (ms: number): void => {
         if (!recordingExpanded) {
             setRecordingExpanded(true)
@@ -222,11 +230,21 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             size="small"
                             to={
                                 observation.previous_observation_id
-                                    ? urls.replayVisionObservation(observation.previous_observation_id)
+                                    ? observationUrl(observation.previous_observation_id)
                                     : undefined
                             }
-                            disabledReason={observation.previous_observation_id ? undefined : 'No newer observation'}
-                            tooltip="Previous (newer) observation for this scanner"
+                            disabledReason={
+                                observation.previous_observation_id
+                                    ? undefined
+                                    : neighborsFiltered
+                                      ? 'No previous observation matching your filters'
+                                      : 'No newer observation'
+                            }
+                            tooltip={
+                                neighborsFiltered
+                                    ? 'Previous observation matching your filters'
+                                    : 'Previous (newer) observation for this scanner'
+                            }
                             data-attr="vision-observation-prev"
                         >
                             Previous
@@ -237,11 +255,21 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             size="small"
                             to={
                                 observation.next_observation_id
-                                    ? urls.replayVisionObservation(observation.next_observation_id)
+                                    ? observationUrl(observation.next_observation_id)
                                     : undefined
                             }
-                            disabledReason={observation.next_observation_id ? undefined : 'No older observation'}
-                            tooltip="Next (older) observation for this scanner"
+                            disabledReason={
+                                observation.next_observation_id
+                                    ? undefined
+                                    : neighborsFiltered
+                                      ? 'No next observation matching your filters'
+                                      : 'No older observation'
+                            }
+                            tooltip={
+                                neighborsFiltered
+                                    ? 'Next observation matching your filters'
+                                    : 'Next (older) observation for this scanner'
+                            }
                             data-attr="vision-observation-next"
                         >
                             Next

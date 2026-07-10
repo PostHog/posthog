@@ -175,10 +175,16 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         ),
     )
     previous_observation_id = serializers.SerializerMethodField(
-        help_text="Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.",
+        help_text=(
+            "Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list "
+            "filters and ordering passed to retrieve; only set on retrieve, null at the start of the set."
+        ),
     )
     next_observation_id = serializers.SerializerMethodField(
-        help_text="Id of the older sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the end.",
+        help_text=(
+            "Id of the following sibling observation for the same scanner (prev/next nav), honoring any list "
+            "filters and ordering passed to retrieve; only set on retrieve, null at the end of the set."
+        ),
     )
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
@@ -713,7 +719,15 @@ class ReplayObservationViewSet(
                 description="Session recording id to return observations for.",
             )
         ]
-    )
+    ),
+    retrieve=extend_schema(
+        parameters=ReplayObservationFilter.schema_parameters(),
+        description=(
+            "Retrieve one observation. Any list filters passed along (status, tags, order_by, …) scope the "
+            "`previous_observation_id`/`next_observation_id` navigation to the matching, identically-ordered "
+            "set — so prev/next from a filtered table stays within that filtered list."
+        ),
+    ),
 )
 class SessionReplayObservationViewSet(ReplayObservationViewSet):
     """Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock."""
@@ -751,24 +765,24 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         context = {**self.get_serializer_context(), "neighbors": self._observation_neighbors(observation)}
         return Response(self.get_serializer(observation, context=context).data)
 
-    @staticmethod
-    def _observation_neighbors(observation: ReplayObservation) -> dict[str, uuid.UUID | None]:
-        # Newest-first list order, so the newer sibling is "previous" and the older one is "next".
+    def _observation_neighbors(self, observation: ReplayObservation) -> dict[str, uuid.UUID | None]:
+        # Neighbors honor the same filters and ordering as the scanner's list endpoint, so prev/next
+        # navigation started from a filtered table stays within the filtered set.
         siblings = ReplayObservation.objects.filter(
             team_id=observation.team_id, scanner_id=observation.scanner_id
-        ).values_list("id", flat=True)
-        # Tie-break on id to mirror the list's (-created_at, id) order, so same-timestamp siblings aren't skipped.
+        ).order_by("-created_at", "id")
+        filterset = ReplayObservationFilter(self.request.query_params, queryset=siblings, request=self.request)
+        if filterset.is_valid():
+            siblings = filterset.qs
+        ids: list[uuid.UUID] = list(siblings.values_list("id", flat=True))
+        try:
+            index = ids.index(observation.id)
+        except ValueError:
+            # The observation itself falls outside the filtered set (e.g. a stale deep link) — no neighbors.
+            return {"previous": None, "next": None}
         return {
-            "previous": siblings.filter(
-                Q(created_at__gt=observation.created_at) | Q(created_at=observation.created_at, id__lt=observation.id)
-            )
-            .order_by("created_at", "-id")
-            .first(),
-            "next": siblings.filter(
-                Q(created_at__lt=observation.created_at) | Q(created_at=observation.created_at, id__gt=observation.id)
-            )
-            .order_by("-created_at", "id")
-            .first(),
+            "previous": ids[index - 1] if index > 0 else None,
+            "next": ids[index + 1] if index < len(ids) - 1 else None,
         }
 
     # Hide `stats/` on the session-scoped viewset — it has no `parent_lookup_scanner_id` to dispatch on.

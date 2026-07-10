@@ -514,12 +514,12 @@ export interface ReplayObservationApi {
      */
     readonly recording_subject_email: string | null
     /**
-     * Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.
+     * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
      * @nullable
      */
     readonly previous_observation_id: string | null
     /**
-     * Id of the older sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the end.
+     * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
      * @nullable
      */
     readonly next_observation_id: string | null
@@ -1176,6 +1176,37 @@ export type VisionObservationsListParams = {
      * Session recording id to return observations for.
      */
     session_id: string
+}
+
+export type VisionObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
 }
 
 export type VisionScannersListParams = {

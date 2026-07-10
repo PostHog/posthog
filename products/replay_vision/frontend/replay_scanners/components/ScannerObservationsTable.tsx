@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { IconPlay, IconRefresh, IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
@@ -93,6 +94,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationTagFilter,
         observationSubjectFilter,
         hasActiveObservationFilters,
+        observationDetailLinkParams,
         availableTags,
         observationStats,
         scanner,
@@ -121,7 +123,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             width: 300,
             render: (_, obs) => (
                 <Link
-                    to={urls.replayVisionObservation(obs.id)}
+                    to={combineUrl(urls.replayVisionObservation(obs.id), observationDetailLinkParams).url}
                     className="font-mono text-xs text-primary truncate block"
                 >
                     {obs.session_id}
@@ -152,7 +154,10 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             title: 'Result',
             key: 'result',
             render: (_, obs) => (
-                <Link to={urls.replayVisionObservation(obs.id)} className="block">
+                <Link
+                    to={combineUrl(urls.replayVisionObservation(obs.id), observationDetailLinkParams).url}
+                    className="block"
+                >
                     <div className="min-w-[18rem] max-w-xl">
                         <ObservationResultSummary observation={obs} />
                     </div>

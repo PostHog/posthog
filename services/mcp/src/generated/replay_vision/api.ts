@@ -32,7 +32,7 @@ export const VisionObservationsListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
+ * Retrieve one observation. Any list filters passed along (status, tags, order_by, …) scope the `previous_observation_id`/`next_observation_id` navigation to the matching, identically-ordered set — so prev/next from a filtered table stays within that filtered list.
  */
 export const VisionObservationsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this replay observation.'),
@@ -41,6 +41,38 @@ export const VisionObservationsRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    labeled: zod
+        .string()
+        .optional()
+        .describe(
+            'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
+        ),
+    recording_subject: zod
+        .string()
+        .optional()
+        .describe('Filter to observations whose recording subject email contains this value (case-insensitive).'),
+    session_id: zod
+        .string()
+        .optional()
+        .describe('Filter to observations of one or more session recordings. Accepts a comma-separated list.'),
+    status: zod.string().optional().describe('Filter by observation status. Accepts a comma-separated list.'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
+        ),
+    triggered_by: zod
+        .string()
+        .optional()
+        .describe('Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.'),
+    verdict: zod
+        .string()
+        .optional()
+        .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
 })
 
 /**

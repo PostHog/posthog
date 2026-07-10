@@ -1791,6 +1791,53 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(body["previous_observation_id"], str(lo.id))
         self.assertEqual(body["next_observation_id"], str(hi.id))
 
+    def test_retrieve_neighbors_honor_list_filters(self) -> None:
+        now = timezone.now()
+        old = self._create_observation(self.scanner_a, "s-old")
+        failed = self._create_observation(self.scanner_a, "s-failed")
+        new = self._create_observation(self.scanner_a, "s-new")
+        ReplayObservation.objects.filter(pk=old.id).update(
+            created_at=now - timedelta(minutes=2), status=ObservationStatus.SUCCEEDED, completed_at=now
+        )
+        ReplayObservation.objects.filter(pk=failed.id).update(
+            created_at=now - timedelta(minutes=1),
+            status=ObservationStatus.FAILED,
+            completed_at=now,
+            error_reason="boom",
+        )
+        ReplayObservation.objects.filter(pk=new.id).update(
+            created_at=now, status=ObservationStatus.SUCCEEDED, completed_at=now
+        )
+
+        unfiltered = self.client.get(f"{self.session_observations_url}{new.id}/").json()
+        self.assertEqual(unfiltered["next_observation_id"], str(failed.id))
+
+        filtered = self.client.get(f"{self.session_observations_url}{new.id}/?status=succeeded").json()
+        self.assertEqual(filtered["next_observation_id"], str(old.id))
+        self.assertIsNone(filtered["previous_observation_id"])
+
+    def test_retrieve_neighbors_honor_order_by(self) -> None:
+        now = timezone.now()
+        old = self._create_observation(self.scanner_a, "s-old")
+        mid = self._create_observation(self.scanner_a, "s-mid")
+        new = self._create_observation(self.scanner_a, "s-new")
+        ReplayObservation.objects.filter(pk=old.id).update(created_at=now - timedelta(minutes=2))
+        ReplayObservation.objects.filter(pk=mid.id).update(created_at=now - timedelta(minutes=1))
+        ReplayObservation.objects.filter(pk=new.id).update(created_at=now)
+
+        # Ascending created_at reverses the list, so prev/next flip relative to the default ordering.
+        body = self.client.get(f"{self.session_observations_url}{mid.id}/?order_by=created_at").json()
+        self.assertEqual(body["previous_observation_id"], str(old.id))
+        self.assertEqual(body["next_observation_id"], str(new.id))
+
+    def test_retrieve_neighbors_empty_when_observation_outside_filtered_set(self) -> None:
+        observation = self._create_observation(self.scanner_a, "s-pending")
+        self._create_observation(self.scanner_a, "s-sibling")
+
+        body = self.client.get(f"{self.session_observations_url}{observation.id}/?status=succeeded").json()
+        self.assertIsNone(body["previous_observation_id"])
+        self.assertIsNone(body["next_observation_id"])
+
 
 class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
     @property
