@@ -32894,6 +32894,24 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `gauge` - gauge
+     * * `sum` - sum
+     * * `histogram` - histogram
+     * * `exponential_histogram` - exponential_histogram
+     * * `summary` - summary
+     */
+    export type OtelMetricTypeEnum = typeof OtelMetricTypeEnum[keyof typeof OtelMetricTypeEnum];
+
+
+    export const OtelMetricTypeEnum = {
+      Gauge: 'gauge',
+      Sum: 'sum',
+      Histogram: 'histogram',
+      ExponentialHistogram: 'exponential_histogram',
+      Summary: 'summary',
+    } as const;
+
+    /**
      * Initial goal and session outcome coming from LLM.
      */
     export interface Outcome {
@@ -58262,6 +58280,14 @@ export namespace Schemas {
          * @maxLength 255
          */
       metricName: string;
+      /** Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.
+       *
+       * * `gauge` - gauge
+       * * `sum` - sum
+       * * `histogram` - histogram
+       * * `exponential_histogram` - exponential_histogram
+       * * `summary` - summary */
+      metricType?: OtelMetricTypeEnum | null;
       /** Aggregation applied per time bucket; same semantics as the top-level aggregation.
        *
        * * `sum` - sum
@@ -58342,6 +58368,14 @@ export namespace Schemas {
          * @maxLength 255
          */
       metricName?: string;
+      /** Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.
+       *
+       * * `gauge` - gauge
+       * * `sum` - sum
+       * * `histogram` - histogram
+       * * `exponential_histogram` - exponential_histogram
+       * * `summary` - summary */
+      metricType?: OtelMetricTypeEnum | null;
       /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
        *
        * * `sum` - sum
