@@ -40,7 +40,27 @@ class BackfillSnapshotPlan:
 
 
 def delta_table_uri(schema: ExternalDataSchema) -> str:
-    return f"{settings.BUCKET_URL}/{schema.folder_path()}/{schema.normalized_name}"
+    return f"{settings.BUCKET_URL}/{schema.folder_path()}/{_delta_table_folder(schema)}"
+
+
+def _delta_table_folder(schema: ExternalDataSchema) -> str:
+    """The Delta table's own folder segment, as the loader actually wrote it.
+
+    The loader names the folder after the DLT resource (the unqualified table
+    name), so it diverges from schema.normalized_name for schema-qualified
+    sources: Postgres "public.foo" normalizes to "public_foo", but the Delta
+    folder is "foo". Reading normalized_name here points the backfill at a
+    prefix with no _delta_log (surfaces as "No files in log segment"). The
+    catalog table's url_pattern is the authoritative location — it is what the
+    query engine reads — so take the leaf from there, and fall back to
+    normalized_name only when no table row exists yet (nothing to backfill).
+    """
+    table = schema.table
+    if table and table.url_pattern:
+        segments = [seg for seg in table.url_pattern.rstrip("/").split("/") if seg and seg not in ("*", "**")]
+        if segments:
+            return segments[-1]
+    return schema.normalized_name
 
 
 def _delta_storage_options() -> dict[str, str]:
