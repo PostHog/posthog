@@ -45,10 +45,19 @@ const itemVariants = cva(
                 sm: 'quill-item--size-sm',
                 xs: 'quill-item--size-xs',
             },
+            tone: {
+                default: '',
+                info: 'quill-item--tone-info',
+                success: 'quill-item--tone-success',
+                warning: 'quill-item--tone-warning',
+                completed: 'quill-item--tone-completed',
+                destructive: 'quill-item--tone-destructive',
+            },
         },
         defaultVariants: {
             variant: 'default',
             size: 'default',
+            tone: 'default',
         },
     }
 )
@@ -57,6 +66,7 @@ function Item({
     className,
     variant = 'default',
     size = 'default',
+    tone = 'default',
     role,
     render,
     ...props
@@ -66,7 +76,8 @@ function Item({
         props: mergeProps<'div'>(
             {
                 'data-quill': '',
-                className: cn(itemVariants({ variant, size, className })),
+                'data-tone': tone && tone !== 'default' ? tone : undefined,
+                className: cn(itemVariants({ variant, size, tone, className })),
                 role: variant === 'pressable' ? 'link' : undefined,
             } as Omit<React.ComponentProps<'div'>, 'ref'>,
             props
@@ -76,6 +87,7 @@ function Item({
             slot: 'item',
             variant,
             size,
+            tone,
         },
     })
 }
@@ -196,7 +208,7 @@ function ItemMedia({
     )
 }
 
-const itemContentVariants = cva('quill-item__content flex flex-1 flex-col gap-1', {
+const itemContentVariants = cva('quill-item__content flex flex-1 flex-col gap-0.5', {
     variants: {
         variant: {
             default: '',

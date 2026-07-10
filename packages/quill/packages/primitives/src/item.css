@@ -61,6 +61,7 @@
     }
 
     .quill-item--variant-pressable:not(:disabled):active {
+        border-width: 1px;
         box-shadow: var(--shadow-sm);
         translate: 0 1px;
     }
@@ -72,6 +73,44 @@
     .quill-item--variant-menu:hover {
         color: var(--foreground);
         background-color: var(--fill-hover);
+    }
+
+    /* Semantic tones — orthogonal to variant, designed to pair with
+       `variant="pressable"`. Each sets a tint (pastel surface) + accent
+       (readable foreground) pair, applied via shared rules below. */
+    .quill-item--tone-info {
+        --quill-item-tint: color-mix(in oklab, var(--info) 12%, var(--card));
+        --quill-item-accent: var(--info-foreground);
+    }
+
+    .quill-item--tone-success {
+        --quill-item-tint: color-mix(in oklab, var(--success) 12%, var(--card));
+        --quill-item-accent: var(--success-foreground);
+    }
+
+    .quill-item--tone-warning {
+        --quill-item-tint: color-mix(in oklab, var(--warning) 12%, var(--card));
+        --quill-item-accent: var(--warning-foreground);
+    }
+
+    .quill-item--tone-completed {
+        --quill-item-tint: color-mix(in oklab, var(--completed) 12%, var(--card));
+        --quill-item-accent: var(--completed-foreground);
+    }
+
+    .quill-item--tone-destructive {
+        --quill-item-tint: color-mix(in oklab, var(--destructive) 12%, var(--card));
+        --quill-item-accent: var(--destructive-foreground);
+    }
+
+    .quill-item[data-tone] {
+        background-color: var(--quill-item-tint);
+        border-color: color-mix(in oklab, var(--quill-item-accent) 50%, transparent);
+    }
+
+    /* Deepen the tint on hover for pressable toned items */
+    .quill-item--variant-pressable[data-tone]:hover {
+        background-color: color-mix(in oklab, var(--quill-item-accent) 12%, var(--card));
     }
 
     /* Sizes */
@@ -129,10 +168,6 @@
         object-fit: cover;
     }
 
-    .group\/item[role='link']:hover .quill-item__media {
-        color: var(--primary);
-    }
-
     /* ItemMedia pushes down slightly when description is present */
     .group\/item:has([data-slot='item-description']) .quill-item__media {
         align-self: flex-start;
@@ -142,10 +177,6 @@
     /* =========================================================================
        ItemContent
        ========================================================================= */
-    .quill-item__content {
-        /* gap handled by tailwind */
-    }
-
     .group\/item[data-size='xs'] .quill-item__content {
         gap: 0.125rem;
     }
@@ -183,11 +214,8 @@
         line-height: 1.375;
         text-underline-offset: 4px;
         -webkit-line-clamp: 1;
+        line-clamp: 1;
         -webkit-box-orient: vertical;
-    }
-
-    .group\/item[role='link']:hover .quill-item__title {
-        color: var(--primary);
     }
 
     .quill-item__description {
@@ -199,15 +227,12 @@
         color: var(--muted-foreground);
         text-align: start;
         -webkit-line-clamp: 2;
+        line-clamp: 2;
         -webkit-box-orient: vertical;
     }
 
     .quill-item__description > a {
         text-decoration: underline;
         text-underline-offset: 4px;
-    }
-
-    .quill-item__description > a:hover {
-        color: var(--primary);
     }
 }

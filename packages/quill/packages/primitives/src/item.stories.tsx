@@ -84,6 +84,47 @@ export const Pressable: Story = {
     ),
 } satisfies Story
 
+// Semantic `tone` is orthogonal to `variant` — here paired with `pressable`
+// (the right way to build a clickable, link-like row). Each renders as an <a>.
+export const Tones: Story = {
+    render: () => {
+        const tones = [
+            { tone: undefined, title: 'Default', description: 'Neutral pressable row' },
+            { tone: 'info' as const, title: 'Info', description: 'Informational status' },
+            { tone: 'success' as const, title: 'Success', description: 'Completed successfully' },
+            { tone: 'warning' as const, title: 'Warning', description: 'Needs attention' },
+            { tone: 'completed' as const, title: 'Completed', description: 'Merged / terminal state' },
+            { tone: 'destructive' as const, title: 'Destructive', description: 'Failed or removed' },
+        ]
+        return (
+            <ItemGroup className="max-w-sm">
+                {tones.map(({ tone, title, description }) => (
+                    <Item
+                        key={title}
+                        variant="pressable"
+                        tone={tone}
+                        render={
+                            // eslint-disable-next-line react/forbid-elements
+                            <a href="#">
+                                <ItemMedia variant="icon">
+                                    <BadgeCheckIcon className="size-5" />
+                                </ItemMedia>
+                                <ItemContent>
+                                    <ItemTitle>{title}</ItemTitle>
+                                    <ItemDescription>{description}</ItemDescription>
+                                </ItemContent>
+                                <ItemActions>
+                                    <ChevronRightIcon className="size-4" />
+                                </ItemActions>
+                            </a>
+                        }
+                    />
+                ))}
+            </ItemGroup>
+        )
+    },
+} satisfies Story
+
 export const Group: Story = {
     render: () => (
         <ItemGroup>
