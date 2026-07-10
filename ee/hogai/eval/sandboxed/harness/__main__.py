@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
 import sys
 import logging
 
 from .cli import parse_args
 from .django_env import setup_django
-from .providers import PreflightError
+from .providers import SANDBOX_PROVIDER_SETTING, PreflightError
 
 USAGE_ERROR_EXIT_CODE = 2
 
@@ -13,6 +14,13 @@ USAGE_ERROR_EXIT_CODE = 2
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
     options = parse_args(argv)
+
+    # Select the sandbox class before Django loads settings. products.tasks resolves
+    # settings.SANDBOX_PROVIDER once and caches the class in module globals, so the
+    # async-phase override_settings runs too late to change it. .env ships
+    # SANDBOX_PROVIDER=docker, so without this a modal run would cache DockerSandbox
+    # and execute locally. See SANDBOX_PROVIDER_SETTING.
+    os.environ["SANDBOX_PROVIDER"] = SANDBOX_PROVIDER_SETTING[options.provider]
 
     setup_django()
 
