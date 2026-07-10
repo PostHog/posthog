@@ -28,7 +28,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 
 from products.metrics.backend.facade.api import run_metric_query
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
-from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
+from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -68,6 +68,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
                 name=clause.name,
                 metric_name=clause.metricName,
                 aggregation=MetricAggregation(clause.aggregation.value),
+                metric_type=MetricType(clause.metricType.value) if clause.metricType is not None else None,
                 filters=tuple(
                     MetricFilter(
                         key=f.key,

@@ -1139,22 +1139,10 @@ describe('insightVizDataLogic', () => {
             [FunnelVizType.TimeToConvert, true],
             // FLOW is excluded — the backend ignores compare for it.
             [FunnelVizType.Flow, false],
-        ] as [FunnelVizType, boolean][])('flag on, %s viz → %s', (funnelVizType, expected) => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]: true,
-            })
+        ] as [FunnelVizType, boolean][])('%s viz → %s', (funnelVizType, expected) => {
             setFunnelVizType(funnelVizType)
 
             expect(builtInsightVizDataLogic.values.supportsCompare).toBe(expected)
-        })
-
-        it('flag off → compare unsupported even for steps viz', () => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]: false,
-            })
-            setFunnelVizType(FunnelVizType.Steps)
-
-            expect(builtInsightVizDataLogic.values.supportsCompare).toBe(false)
         })
     })
 })

@@ -20,7 +20,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionTemplateType } from '~/types'
+import { AccessControlLevel, HogFunctionTemplateType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
@@ -427,6 +427,10 @@ export const workflowLogic = kea<workflowLogicType>([
     }),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
+        workflowUserAccessLevel: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow): AccessControlLevel | null => originalWorkflow?.user_access_level ?? null,
+        ],
         currentSchedule: [(s) => [s.schedules], (schedules): HogFlowSchedule | null => schedules[0] ?? null],
         pendingSchedule: [
             (s) => [s.currentSchedule, s.scheduleState, s.scheduleStartsAt, s.scheduleTimezone, s.isScheduleRepeating],

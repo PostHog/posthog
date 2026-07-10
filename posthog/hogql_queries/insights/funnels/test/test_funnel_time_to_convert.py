@@ -8,7 +8,6 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from unittest.case import skip
-from unittest.mock import patch
 
 from posthog.schema import (
     CompareFilter,
@@ -672,8 +671,7 @@ class TestFunnelTimeToConvertCompare(ClickhouseTestMixin, APIBaseTest):
             compareFilter=CompareFilter(compare=compare, compare_to=compare_to),
         )
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_returns_two_histograms_on_shared_bins(self, _feature_enabled):
+    def test_compare_returns_two_histograms_on_shared_bins(self):
         # Current window 2021-06-07..06-13: one 600 s conversion.
         # Default previous window 2021-05-31..06-06: one 3600 s conversion.
         journeys_for(

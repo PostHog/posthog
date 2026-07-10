@@ -475,7 +475,7 @@ jobs:
                   # frontend is swapped in afterwards (once build-frontend finishes,
                   # below) so this step runs in parallel with the FE build. The tool
                   # streams `[hogbox-preview +NNNs] <stage>` lines to STDERR for
-                  # per-stage visibility; stdout stays the url=/box_id= contract.
+                  # per-stage visibility; stdout stays the url=/box_id=/pen_id= contract.
                   out=$(uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 \
                     python -m hogbox_preview \
                     --host "$HOG_HOST" \
@@ -488,6 +488,7 @@ jobs:
                   {
                     echo "url=$(echo "$out" | sed -n 's/^url=//p')"
                     echo "box_id=$(echo "$out" | sed -n 's/^box_id=//p')"
+                    echo "pen_id=$(echo "$out" | sed -n 's/^pen_id=//p')"
                   } >> "$GITHUB_OUTPUT"
               working-directory: tools/hogbox-preview
 
@@ -564,7 +565,10 @@ jobs:
               env:
                   URL: ${{ steps.build.outputs.url }}
                   BOX: ${{ steps.build.outputs.box_id }}
+                  PEN: ${{ steps.build.outputs.pen_id }}
                   SWAP: ${{ steps.fe.outputs.swap }}
+                  # The hogland admin/console host (same value as the OIDC audience).
+                  CONSOLE_HOST: ${{ env.HOG_OIDC_AUDIENCE }}
               with:
                   script: |
                       const pr = Number(process.env.PR);
@@ -589,6 +593,16 @@ jobs:
                       const running = process.env.SWAP === 'true'
                           ? "this PR's backend **and** frontend, on the PostHog `:master` base"
                           : "this PR's backend on the PostHog `:master` base (frontend unchanged by this PR)";
+                      // Admin/console link for the pen — lets folks inspect and
+                      // debug box state in hogland. Only when both the host and pen
+                      // id are known.
+                      // Guard the literal 'None' too — the CLI parser can surface
+                      // it as a string, and it would otherwise be truthy here.
+                      const pen = process.env.PEN;
+                      const consoleHost = process.env.CONSOLE_HOST;
+                      const adminUrl = (consoleHost && pen && pen !== 'None')
+                          ? `https://${consoleHost}/console/fleet/pens/${pen}`
+                          : null;
                       const marker = '<!-- hogbox-preview-comment -->';
                       const body =
                           `${marker}\n### 🦔 Hogbox preview &middot; ✅ ready\n\n` +
@@ -598,6 +612,7 @@ jobs:
                           `| 🧩 **Running** | ${running} |\n` +
                           `| 🔗 **Link** | **stable across rebuilds** — a re-push swaps the box underneath, the URL stays |\n` +
                           `| 🔒 **Access** | tailnet only (PostHog VPN) |\n` +
+                          (adminUrl ? `| 🛠️ **Admin** | [inspect & debug state in hogland](${adminUrl}) |\n` : ``) +
                           `| 💤 **Idle** | sleeps after ~30 min idle (snapshot to S3, zero node cost) and wakes on your next visit in ~30s, behind a brief "waking up" screen |\n\n` +
                           `<sub>commit \`${(process.env.SHA || '').slice(0, 7)}\` &middot; box \`${process.env.BOX}\` &middot; ready in ${secs}s (push → usable) &middot; ` +
                           `<a href="${runUrl}">build log</a> &middot; rebuilds on every push, torn down on close</sub>`;

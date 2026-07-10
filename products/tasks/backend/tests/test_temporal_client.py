@@ -75,10 +75,14 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
         with (
             patch(connect_target, connect_mock),
             patch("products.tasks.backend.temporal.client.posthoganalytics.feature_enabled", return_value=False),
+            patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture,
         ):
             self._execute_workflow(executor, run, self.user.id)
 
         self._assert_run_failed(run, "Failed to start task workflow: temporal unavailable")
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0].kwargs["properties"]["error_type"], "workflow_start_failed")
 
     @parameterized.expand([("sync",), ("async",)])
     def test_does_not_overwrite_run_that_already_started(self, executor: str) -> None:

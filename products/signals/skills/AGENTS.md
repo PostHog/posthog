@@ -270,9 +270,12 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   fields the project captures (they split by regime — PostHog's own hono server vs
   external SDK servers) and picks lenses to match, resting detection only on always-present
   fields (error flag, duration, tool name, session). On the **report channel**
-  (`emit_report` / `edit_report`): files one report per tool carrying the fix hypothesis,
-  editing the live report when the problem persists; bundles `references/queries.md`, a
-  HogQL cookbook validated against real telemetry.
+  (`emit_report` / `edit_report`): files one report per problem category
+  (`$mcp_tool_category`, the owning product team) listing that category's problem tools
+  each with a fix hypothesis, editing the live category report while the category still
+  has problem tools; falls back to one report per tool where category coverage is absent
+  (external-SDK regime); bundles `references/queries.md`, a HogQL cookbook validated
+  against real telemetry.
 
 ### How the coordinator decides what runs
 
