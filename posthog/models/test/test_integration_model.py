@@ -1138,6 +1138,31 @@ class TestGitHubIntegrationModel(BaseTest):
             result = github.get_check_runs("PostHog/posthog", "abc123f")
         assert result == {"success": False, "error": "Not Found", "status_code": 404}
 
+    def test_get_check_runs_paginates_so_a_later_failure_is_not_a_false_green(self):
+        # A failing run beyond the first page must still turn the rollup red, otherwise a large
+        # commit reads as "All checks passed" while GitHub shows red.
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        page_one = MagicMock(status_code=200)
+        page_one.json.return_value = {
+            "total_count": 3,
+            "check_runs": [
+                {"name": "a", "status": "completed", "conclusion": "success", "html_url": "https://gh/a"},
+                {"name": "b", "status": "completed", "conclusion": "success", "html_url": "https://gh/b"},
+            ],
+        }
+        page_two = MagicMock(status_code=200)
+        page_two.json.return_value = {
+            "total_count": 3,
+            "check_runs": [{"name": "c", "status": "completed", "conclusion": "failure", "html_url": "https://gh/c"}],
+        }
+        with patch.object(github, "api_request", side_effect=[page_one, page_two]) as mock_get:
+            result = github.get_check_runs("PostHog/posthog", "abc123f")
+        assert result["success"] is True
+        assert result["rollup"] == "failure"
+        assert [run["name"] for run in result["check_runs"]] == ["a", "b", "c"]
+        assert [call.kwargs["params"]["page"] for call in mock_get.call_args_list] == [1, 2]
+
     @parameterized.expand(
         [
             ("traversal", "../../other/repo"),

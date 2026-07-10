@@ -116,8 +116,13 @@ def _is_safe_github_sha(sha: str) -> bool:
 
 
 # Check-run conclusions that make the commit's overall CI state red. Everything else that has
-# completed (success, neutral, skipped) is treated as non-blocking green.
+# completed (success, neutral, skipped) is treated as non-blocking green. Keep in lockstep with
+# the frontend `FAILING_STATES` in PullRequestChecksSection.tsx.
 _FAILING_CHECK_CONCLUSIONS = {"failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"}
+
+# Cap on check-run pages fetched (100 runs/page). Bounds the work for a pathological commit while
+# still letting the rollup see a failing run past the first page, so it can't report a false green.
+_MAX_CHECK_RUN_PAGES = 10
 
 
 def _rollup_check_state(check_runs: list[dict[str, Any]]) -> str | None:
@@ -2761,10 +2766,12 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         Mirrors :meth:`get_diff`: ``repository`` may be ``owner/name`` or a bare name resolved against
         the installation's org, and ``ref`` comes from team-writable artefact content, so both are
-        validated before interpolation — a crafted value could otherwise redirect the authenticated
-        request to a different GitHub endpoint. Uses the GitHub check-runs API (the surface GitHub
+        validated before interpolation (a crafted value could otherwise redirect the authenticated
+        request to a different GitHub endpoint). Uses the GitHub check-runs API (the surface GitHub
         Actions and most modern CI report to) and derives a single rollup state from the runs so the
-        caller can show a green/red summary without a second request.
+        caller can show a green/red summary without a second request. Pages through the runs (up to
+        ``_MAX_CHECK_RUN_PAGES``) so the rollup reflects every check, not just the first 100: a
+        failing run past the first page would otherwise be dropped and read as a false green.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
@@ -2774,22 +2781,31 @@ class GitHubIntegration(GitHubIntegrationBase):
         if not (_is_safe_github_sha(ref) or _is_safe_github_ref(ref)):
             return {"success": False, "error": f"Invalid ref '{ref}'.", "status_code": 400}
 
-        try:
-            response = self.api_request(
-                "GET",
-                f"/repos/{repo_path}/commits/{ref}/check-runs",
-                endpoint="/repos/{owner}/{repo}/commits/{ref}/check-runs",
-                params={"per_page": 100},
-            )
-        except GitHubIntegrationError:
-            # Don't let a slow/unreachable GitHub hang a worker or 500 the caller.
-            return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
-        if response.status_code != 200:
-            return {"success": False, "error": response.text, "status_code": response.status_code}
-        try:
-            payload = response.json()
-        except ValueError:
-            return {"success": False, "error": "GitHub returned an unexpected response.", "status_code": 502}
+        collected: list[dict[str, Any]] = []
+        for page in range(1, _MAX_CHECK_RUN_PAGES + 1):
+            try:
+                response = self.api_request(
+                    "GET",
+                    f"/repos/{repo_path}/commits/{ref}/check-runs",
+                    endpoint="/repos/{owner}/{repo}/commits/{ref}/check-runs",
+                    params={"per_page": 100, "page": page},
+                )
+            except GitHubIntegrationError:
+                # Don't let a slow/unreachable GitHub hang a worker or 500 the caller.
+                return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
+            if response.status_code != 200:
+                return {"success": False, "error": response.text, "status_code": response.status_code}
+            try:
+                payload = response.json()
+            except ValueError:
+                return {"success": False, "error": "GitHub returned an unexpected response.", "status_code": 502}
+
+            page_runs = [run for run in (payload.get("check_runs") or []) if isinstance(run, dict)]
+            collected.extend(page_runs)
+            total_count = payload.get("total_count")
+            # Stop once GitHub has no more runs to give (empty page, no total, or we've seen them all).
+            if not page_runs or not isinstance(total_count, int) or len(collected) >= total_count:
+                break
 
         check_runs = [
             {
@@ -2798,8 +2814,7 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "conclusion": run.get("conclusion"),
                 "html_url": run.get("html_url") or run.get("details_url"),
             }
-            for run in (payload.get("check_runs") or [])
-            if isinstance(run, dict)
+            for run in collected
         ]
         return {"success": True, "check_runs": check_runs, "rollup": _rollup_check_state(check_runs)}
 

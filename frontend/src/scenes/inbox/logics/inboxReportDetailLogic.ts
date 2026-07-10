@@ -220,7 +220,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
         // The report's CI checks (its latest `commit` artefact's check runs + rollup), rendered in the
         // "Checks" section. Loaded alongside the diff, keyed to the report and cascading off the artefact
-        // load — re-fetched only when a *new* commit lands, not on every activity poll.
+        // load. Re-fetched when a new commit lands, and (unlike the diff) while the rollup is still
+        // pending so a running CI resolves live; see the `loadReportArtefactsSuccess` listener.
         reportChecks: [
             null as CheckRunsResponseApi | null,
             {
@@ -296,11 +297,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             {
                 loadReportChecks: () => null,
                 loadReportChecksSuccess: () => null,
-                loadReportChecksFailure: () => "Couldn't load checks — the commit may have been rewritten or removed.",
+                loadReportChecksFailure: () => "Couldn't load checks. The commit may have been rewritten or removed.",
             },
         ],
-        // The commit artefact the current `reportChecks` was loaded for, so the artefact poll re-fetches
-        // the checks only when a new commit lands rather than on every tick.
+        // The commit artefact the current `reportChecks` was loaded for, so the artefact poll forces a
+        // fresh fetch when a new commit lands (settled checks for the same commit aren't re-fetched).
         checksArtefactId: [
             null as string | null,
             {
@@ -478,10 +479,22 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         loadReportArtefactsSuccess: () => {
             actions.loadReportTasks()
             const commit = values.latestCommitArtefact
-            if (commit && commit.id !== values.diffArtefactId) {
+            if (!commit) {
+                return
+            }
+            // The diff is immutable for a commit, so only re-fetch when a new commit lands.
+            if (commit.id !== values.diffArtefactId) {
                 actions.loadReportDiff({ artefactId: commit.id })
             }
-            if (commit && commit.id !== values.checksArtefactId) {
+            // CI checks, unlike the diff, keep changing while a commit's runs progress (queued to
+            // in_progress to success/failure), so also re-fetch while the last result is still pending.
+            // Only pending is retried: a settled rollup is done, and an errored/permanent 404 must not
+            // re-hit GitHub every tick. The artefact poll only ticks while the report is active, so this
+            // self-terminates; the in-flight guard avoids overlapping fetches.
+            const checks = values.reportChecks
+            const checksPending = checks !== null && checks.rollup === 'pending'
+            const isNewCommit = commit.id !== values.checksArtefactId
+            if (!values.reportChecksLoading && (isNewCommit || checksPending)) {
                 actions.loadReportChecks({ artefactId: commit.id })
             }
         },

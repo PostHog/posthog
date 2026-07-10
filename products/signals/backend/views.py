@@ -2168,13 +2168,13 @@ class SignalReportArtefactViewSet(
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         if not result.get("success"):
-            # A 404 from the check-runs API means the commit (or repo) isn't on the remote — most
+            # A 404 from the check-runs API means the commit (or repo) isn't on the remote: most
             # often a commit that was force-rewritten away after the artefact was recorded.
             if result.get("status_code") == 404:
                 return Response(
                     {
-                        "error": f"Commit '{commit_sha}' or repository '{repository}' was not found on GitHub — "
-                        "the commit may have been rewritten or the branch deleted."
+                        "error": f"Commit '{commit_sha}' or repository '{repository}' was not found on GitHub. "
+                        "The commit may have been rewritten or the branch deleted."
                     },
                     status=status.HTTP_404_NOT_FOUND,
                 )

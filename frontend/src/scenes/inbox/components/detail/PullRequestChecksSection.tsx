@@ -19,6 +19,8 @@ function checkRunState(run: CheckRunResponseApi): string {
     return run.conclusion || 'pending'
 }
 
+// Keep in lockstep with the backend `_FAILING_CHECK_CONCLUSIONS` (posthog/models/integration.py),
+// which computes the rollup; a drift here would make a per-run tag disagree with the summary.
 const FAILING_STATES = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale'])
 const PENDING_STATES = new Set(['pending', 'queued', 'in_progress'])
 
@@ -36,12 +38,8 @@ function stateTagType(state: string): LemonTagType {
     return 'muted'
 }
 
-// The rollup summarizes all checks into one green/red/pending tag mirroring GitHub's merge-box state.
-const ROLLUP_TAG_TYPE: Record<string, LemonTagType> = {
-    success: 'success',
-    failure: 'danger',
-    pending: 'warning',
-}
+// The rollup summarizes all checks into one green/red/pending tag mirroring GitHub's merge-box state;
+// it reuses `stateTagType` for color (rollup values are a subset of per-run states) and labels here.
 const ROLLUP_LABEL: Record<string, string> = {
     success: 'All checks passed',
     failure: 'Some checks failed',
@@ -51,7 +49,7 @@ const ROLLUP_LABEL: Record<string, string> = {
 /**
  * "Checks" section: the report's latest `commit` artefact's CI check runs plus a green/red rollup,
  * so the PR's CI state is visible in-app without opening GitHub. The data is loaded by
- * `inboxReportDetailLogic` (keyed to the report, cascading off the artefact load) — this component
+ * `inboxReportDetailLogic` (keyed to the report, cascading off the artefact load); this component
  * just renders the current state. Mirrors `PullRequestDiffPanel`.
  */
 export function PullRequestChecksSection({ report }: { report: SignalReport }): JSX.Element {
@@ -64,9 +62,7 @@ export function PullRequestChecksSection({ report }: { report: SignalReport }): 
             icon={<IconCheckCircle />}
             title="Checks"
             afterTitle={
-                rollup ? (
-                    <LemonTag type={ROLLUP_TAG_TYPE[rollup] ?? 'muted'}>{ROLLUP_LABEL[rollup] ?? rollup}</LemonTag>
-                ) : undefined
+                rollup ? <LemonTag type={stateTagType(rollup)}>{ROLLUP_LABEL[rollup] ?? rollup}</LemonTag> : undefined
             }
         >
             {reportChecksError ? (
