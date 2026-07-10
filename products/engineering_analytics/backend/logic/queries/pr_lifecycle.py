@@ -22,20 +22,18 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._pr_header import pr_header_placeholders, pr_header_query
 
 # The curated subqueries and the repo filter are filled with str.replace (trusted
 # constants), leaving the HogQL {value} placeholders untouched for parse_select.
-_HEADER = """
-    SELECT
+_HEADER = pr_header_query(
+    """
         id, number, title, state, is_draft,
         created_at, merged_at, closed_at,
         author_handle, author_avatar_url, is_bot,
         repo_owner, repo_name, head_sha
-    FROM __PR_SOURCE__ AS pr
-    WHERE number = {pr_number} AND repo_owner = {repo_owner} AND repo_name = {repo_name}
-    ORDER BY created_at DESC
-    LIMIT 1
-"""
+    """
+)
 
 _RUNS = """
     SELECT id, workflow_name, status, conclusion, run_started_at, updated_at
@@ -52,11 +50,7 @@ def query_pr_lifecycle(
     repo_owner: str,
     repo_name: str,
 ) -> PRLifecycle | None:
-    placeholders: dict[str, ast.Expr] = {
-        "pr_number": ast.Constant(value=pr_number),
-        "repo_owner": ast.Constant(value=repo_owner),
-        "repo_name": ast.Constant(value=repo_name),
-    }
+    placeholders = pr_header_placeholders(pr_number=pr_number, repo_owner=repo_owner, repo_name=repo_name)
     header_sql = _HEADER.replace("__PR_SOURCE__", curated.pr_source())
     header = curated.run(
         header_sql,

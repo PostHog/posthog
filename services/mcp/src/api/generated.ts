@@ -11567,6 +11567,23 @@ export namespace Schemas {
       false_label?: string;
     }
 
+    export interface BranchPRMatch {
+      /** Repository the pull request belongs to, as 'owner/name'. */
+      repo: string;
+      /** Pull request number within the repository — pair with `repo` to link to it. */
+      number: number;
+      /**
+         * Pull request title, or null when the snapshot carries no title.
+         * @nullable
+         */
+      title: string | null;
+      /**
+         * Derived PR state ('open', 'closed', 'merged'), or null when the snapshot carries no state.
+         * @nullable
+         */
+      state: string | null;
+    }
+
     export interface BreakdownItem {
       label: string;
       value: string | number;
@@ -13335,23 +13352,6 @@ export namespace Schemas {
       readonly diff: string;
       /** True when the diff was too large to return in full and has been truncated. */
       readonly truncated: boolean;
-    }
-
-    export interface CommitPRMatch {
-      /** Repository the pull request belongs to, as 'owner/name'. */
-      repo: string;
-      /** Pull request number within the repository — pair with `repo` to link to it. */
-      number: number;
-      /**
-         * Pull request title, or null when the PR is no longer in the current-state warehouse snapshot (the SHA still resolved it through a workflow run association).
-         * @nullable
-         */
-      title: string | null;
-      /**
-         * Derived PR state ('open', 'closed', 'merged'), or null when the PR is not in the snapshot.
-         * @nullable
-         */
-      state: string | null;
     }
 
     export interface CompareItem {
@@ -63536,19 +63536,15 @@ export namespace Schemas {
     source_id?: string;
     };
 
-    export type EngineeringAnalyticsResolveCommitParams = {
+    export type EngineeringAnalyticsResolveBranchParams = {
     /**
-     * Git branch (the PR's head ref) to resolve. Used only when `sha` resolves nothing or is omitted. Open PRs are returned first, then most recently updated.
+     * Git branch (the PR's head ref) to resolve. Open PRs are returned first, then most recently updated.
      */
-    branch?: string;
+    branch: string;
     /**
      * Optional 'owner/name' repository to narrow matching to a single repo.
      */
     repo?: string;
-    /**
-     * Full or short commit SHA (at least 7 characters) to resolve. Matched as a prefix of the workflow-run head SHA, so a run's pull_requests association carries the PR across every push.
-     */
-    sha?: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

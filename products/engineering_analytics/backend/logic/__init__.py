@@ -15,9 +15,9 @@ from posthog.models.team import Team
 from posthog.utils import relative_date_parse
 
 from products.engineering_analytics.backend.facade.contracts import (
+    BranchPRMatch,
     CICardSummary,
     CIFailureLogs,
-    CommitPRMatch,
     GitHubSource,
     MasterFailureGroup,
     PRCostSummary,
@@ -56,7 +56,7 @@ from products.engineering_analytics.backend.logic.queries.pr_runs import query_p
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
 from products.engineering_analytics.backend.logic.queries.repo_overview import query_default_branch, query_repo_overview
 from products.engineering_analytics.backend.logic.queries.repo_run_activity import query_repo_run_activity
-from products.engineering_analytics.backend.logic.queries.resolve_commit import query_resolve_commit
+from products.engineering_analytics.backend.logic.queries.resolve_branch import query_resolve_branch
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
 from products.engineering_analytics.backend.logic.queries.workflow_run import query_workflow_run
@@ -97,25 +97,13 @@ def build_pr_runs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | N
     return query_pr_runs(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
-def build_resolve_commit(
-    *, curated: CuratedGitHubSource, sha: str | None, branch: str | None, repo: str | None
-) -> list[CommitPRMatch]:
-    resolved_sha = (sha or "").strip()
+def build_resolve_branch(*, curated: CuratedGitHubSource, branch: str | None, repo: str | None) -> list[BranchPRMatch]:
     resolved_branch = (branch or "").strip()
-    if not resolved_sha and not resolved_branch:
-        raise ValueError("provide a commit sha or a branch to resolve")
-    # A too-short prefix would over-match unrelated commits; reject it rather than resolve to noise.
-    if resolved_sha and len(resolved_sha) < 7:
-        raise ValueError("sha must be at least 7 characters")
+    if not resolved_branch:
+        raise ValueError("provide a branch to resolve")
     # repo is an optional narrowing filter: absent -> (None, None); malformed (bare org) -> raises.
     owner, name = _split_repo(repo)
-    return query_resolve_commit(
-        curated=curated,
-        sha=resolved_sha or None,
-        branch=resolved_branch or None,
-        repo_owner=owner,
-        repo_name=name,
-    )
+    return query_resolve_branch(curated=curated, branch=resolved_branch, repo_owner=owner, repo_name=name)
 
 
 def build_ci_failure_logs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> CIFailureLogs:
@@ -129,9 +117,9 @@ def build_pr_cost(*, curated: CuratedGitHubSource, pr_number: int, repo: str | N
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    # LLM token spend is an additive component joined by branch from the events table; it is independent
-    # of the CI job cost (which reads the warehouse), so both are computed and merged here rather than
-    # threaded through the CI-cost query.
+    # LLM token spend is an additive component joined by branch from the events table, merged onto the
+    # CI cost summary. Kept sequential: HogQL table resolution reads warehouse metadata through the
+    # request's DB connection, which worker threads don't share.
     summary = query_pr_cost(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
     llm_spend = query_pr_llm_spend(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
     return replace(summary, llm_spend=llm_spend)

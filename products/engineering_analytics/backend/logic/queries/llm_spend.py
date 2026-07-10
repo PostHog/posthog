@@ -15,6 +15,7 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import PRLLMSpend
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._pr_header import pr_header_placeholders, pr_header_query
 
 # Tokens are spent before a PR opens (the agent runs, then the PR is created), so the window reaches
 # back this far from created_at. The tradeoff: head_branch is reused across PRs over time, so a
@@ -22,13 +23,7 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 # own open→merge/close life (below).
 _LEAD_DAYS = 14
 
-_HEADER = """
-    SELECT head_branch, created_at, merged_at, closed_at
-    FROM __PR_SOURCE__ AS pr
-    WHERE number = {pr_number} AND repo_owner = {repo_owner} AND repo_name = {repo_name}
-    ORDER BY created_at DESC
-    LIMIT 1
-"""
+_HEADER = pr_header_query("head_branch, created_at, merged_at, closed_at")
 
 # The repo guard keeps events that stamped no $ai_git_repo (older agents that only carried the branch)
 # while still rejecting a same-named branch in a different repo once the repo is stamped. coalesce
@@ -58,11 +53,7 @@ def query_pr_llm_spend(
     header = curated.run(
         _HEADER.replace("__PR_SOURCE__", curated.pr_source()),
         query_type="engineering_analytics.pr_llm_spend.header",
-        placeholders={
-            "pr_number": ast.Constant(value=pr_number),
-            "repo_owner": ast.Constant(value=repo_owner),
-            "repo_name": ast.Constant(value=repo_name),
-        },
+        placeholders=pr_header_placeholders(pr_number=pr_number, repo_owner=repo_owner, repo_name=repo_name),
     )
     if not header.results:
         return None

@@ -61,7 +61,7 @@ import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
-import type { CommitPRMatchApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
+import type { BranchPRMatchApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import { EnrichedTraceTreeNode, findNodeForEvent, aiObservabilityTraceDataLogic } from './aiObservabilityTraceDataLogic'
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
@@ -1002,18 +1002,17 @@ function TraceGitChip({
     branch,
     repo,
     commitPRMatches,
-    engineeringAnalyticsEnabled,
 }: {
     branch: string
     repo: string | null
-    commitPRMatches: CommitPRMatchApi[]
-    engineeringAnalyticsEnabled: boolean
+    commitPRMatches: BranchPRMatchApi[]
 }): JSX.Element {
     // Repo lives in the tooltip only; the chip content is the branch name.
     const repoPrefix = repo ? `${repo} - ` : ''
 
+    // The loader gates on the engineering-analytics flag, so a populated match already implies it's on.
     // While the resolution request is in flight matches is empty, so this renders the plain chip.
-    const match = engineeringAnalyticsEnabled ? commitPRMatches[0] : undefined
+    const match = commitPRMatches[0]
     if (match) {
         const [owner, name] = match.repo.split('/')
         const prTitle = match.title ? `: ${match.title}` : ''
@@ -1054,7 +1053,6 @@ function TraceMetadata({
     const { personsCache } = useValues(llmPersonsLazyLoaderLogic)
     const { traceGitMetadata } = useValues(aiObservabilityTraceDataLogic)
     const { commitPRMatches } = useValues(aiObservabilityTraceLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const sentimentResult = trace.sentiment
 
     const traceCostContext = costContextFromTrace(trace)
@@ -1086,7 +1084,6 @@ function TraceMetadata({
                     branch={traceGitMetadata.branch}
                     repo={traceGitMetadata.repo}
                     commitPRMatches={commitPRMatches}
-                    engineeringAnalyticsEnabled={!!featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]}
                 />
             )}
             <UsageChip event={trace} />

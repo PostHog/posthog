@@ -9,9 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BranchPRMatchApi,
     CICardSummaryApi,
     CIFailureLogsApi,
-    CommitPRMatchApi,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
@@ -24,7 +24,7 @@ import type {
     EngineeringAnalyticsQuarantineParams,
     EngineeringAnalyticsRepoOverviewParams,
     EngineeringAnalyticsRepoRunActivityParams,
-    EngineeringAnalyticsResolveCommitParams,
+    EngineeringAnalyticsResolveBranchParams,
     EngineeringAnalyticsRunFailureLogsParams,
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
@@ -460,9 +460,9 @@ export const engineeringAnalyticsRepoRunActivity = async (
     })
 }
 
-export const getEngineeringAnalyticsResolveCommitUrl = (
+export const getEngineeringAnalyticsResolveBranchUrl = (
     projectId: string,
-    params?: EngineeringAnalyticsResolveCommitParams
+    params: EngineeringAnalyticsResolveBranchParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -475,19 +475,19 @@ export const getEngineeringAnalyticsResolveCommitUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/engineering_analytics/resolve_commit/?${stringifiedParams}`
-        : `/api/projects/${projectId}/engineering_analytics/resolve_commit/`
+        ? `/api/projects/${projectId}/engineering_analytics/resolve_branch/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/resolve_branch/`
 }
 
 /**
- * Resolve a git commit SHA and/or branch to the pull request(s) it belongs to — the cross-product link seam so another product (the LLM analytics UI) can turn a git ref into a PR detail link. The SHA path resolves through each workflow run's pull_requests association (so it survives every push, unlike a head-SHA join against the current-state PR snapshot); the branch path matches the PR's head ref. At least one of `sha`/`branch` is required. Returns a possibly-empty, possibly-multi list — an empty list is a valid 200 (the caller renders a plain chip).
+ * Resolve a git branch to the pull request(s) it belongs to — the cross-product link seam so another product (the LLM analytics UI) can turn a git branch into a PR detail link. Matches the PR's head ref, open PRs first then most recently updated. `branch` is required. Returns a possibly-empty, possibly-multi list — an empty list is a valid 200 (the caller renders a plain chip).
  */
-export const engineeringAnalyticsResolveCommit = async (
+export const engineeringAnalyticsResolveBranch = async (
     projectId: string,
-    params?: EngineeringAnalyticsResolveCommitParams,
+    params: EngineeringAnalyticsResolveBranchParams,
     options?: RequestInit
-): Promise<CommitPRMatchApi[]> => {
-    return apiMutator<CommitPRMatchApi[]>(getEngineeringAnalyticsResolveCommitUrl(projectId, params), {
+): Promise<BranchPRMatchApi[]> => {
+    return apiMutator<BranchPRMatchApi[]>(getEngineeringAnalyticsResolveBranchUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -28,8 +28,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { ActivityScope, AnyPropertyFilter, Breadcrumb, InsightLogicProps } from '~/types'
 
-import { engineeringAnalyticsResolveCommit } from 'products/engineering_analytics/frontend/generated/api'
-import type { CommitPRMatchApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
+import { engineeringAnalyticsResolveBranch } from 'products/engineering_analytics/frontend/generated/api'
+import type { BranchPRMatchApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import type { aiObservabilityTraceLogicType } from './aiObservabilityTraceLogicType'
@@ -325,7 +325,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
             },
         ],
         commitPRMatches: [
-            [] as CommitPRMatchApi[],
+            [] as BranchPRMatchApi[],
             {
                 loadCommitPRMatches: async (gitMetadata: TraceGitMetadata | null, breakpoint) => {
                     // Gated on engineering analytics: only that product can turn a git branch into a PR link.
@@ -336,9 +336,9 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                     await breakpoint(100)
 
                     // A failed resolution just means no PR link, the chip renders plain and never blocks the header.
-                    let matches: CommitPRMatchApi[]
+                    let matches: BranchPRMatchApi[]
                     try {
-                        matches = await engineeringAnalyticsResolveCommit(projectId(), {
+                        matches = await engineeringAnalyticsResolveBranch(projectId(), {
                             branch: gitMetadata.branch,
                             repo: gitMetadata.repo ?? undefined,
                         })

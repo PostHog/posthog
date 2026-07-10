@@ -251,13 +251,13 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_resolve_commit_serializes(self) -> None:
+    def test_resolve_branch_serializes(self) -> None:
         matches = [
-            contracts.CommitPRMatch(repo="PostHog/posthog", number=42, title="Fix bug", state="merged"),
-            contracts.CommitPRMatch(repo="PostHog/posthog", number=7, title=None, state=None),
+            contracts.BranchPRMatch(repo="PostHog/posthog", number=42, title="Fix bug", state="merged"),
+            contracts.BranchPRMatch(repo="PostHog/posthog", number=7, title=None, state=None),
         ]
-        with mock.patch(f"{_VIEWS}.resolve_commit", return_value=matches) as resolve:
-            response = self.client.get(self._url("resolve_commit"), {"sha": "abc1234", "repo": "PostHog/posthog"})
+        with mock.patch(f"{_VIEWS}.resolve_branch", return_value=matches) as resolve:
+            response = self.client.get(self._url("resolve_branch"), {"branch": "feat/x", "repo": "PostHog/posthog"})
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -265,12 +265,12 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
             (42, "PostHog/posthog", "Fix bug", "merged"),
             (7, "PostHog/posthog", None, None),
         ]
-        assert resolve.call_args.kwargs["sha"] == "abc1234"
+        assert resolve.call_args.kwargs["branch"] == "feat/x"
         assert resolve.call_args.kwargs["repo"] == "PostHog/posthog"
 
-    def test_resolve_commit_400_when_neither_given(self) -> None:
-        # Validation lives in the facade; a request with no sha/branch surfaces as a 400 (source connected in setUp).
-        response = self.client.get(self._url("resolve_commit"))
+    def test_resolve_branch_400_when_branch_missing(self) -> None:
+        # Validation lives in the facade; a request with no branch surfaces as a 400 (source connected in setUp).
+        response = self.client.get(self._url("resolve_branch"))
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 

@@ -23,9 +23,9 @@ from posthog.models.team import Team
 
 from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
+    BranchPRMatch,
     CICardSummary,
     CIFailureLogs,
-    CommitPRMatch,
     GitHubSource,
     MasterFailureGroup,
     PRCostSummary,
@@ -111,21 +111,20 @@ def list_pr_runs(
     )
 
 
-def resolve_commit(
+def resolve_branch(
     *,
     team: Team,
-    sha: str | None = None,
     branch: str | None = None,
     repo: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
-) -> list[CommitPRMatch]:
-    """Resolve a git commit SHA and/or branch to the pull request(s) it belongs to — the cross-product
-    link seam (LLM analytics links a git ref to a PR detail page). At least one of ``sha`` / ``branch``
-    is required; ``repo`` ('owner/name') optionally narrows to one repository.
+) -> list[BranchPRMatch]:
+    """Resolve a git branch to the pull request(s) it belongs to — the cross-product link seam
+    (LLM analytics links a git branch to a PR detail page). ``branch`` is required; ``repo``
+    ('owner/name') optionally narrows to one repository.
     """
-    return logic.build_resolve_commit(
-        curated=_authorized_source(team, source_id, user_access_control), sha=sha, branch=branch, repo=repo
+    return logic.build_resolve_branch(
+        curated=_authorized_source(team, source_id, user_access_control), branch=branch, repo=repo
     )
 
 

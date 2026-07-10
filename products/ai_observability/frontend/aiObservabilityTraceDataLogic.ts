@@ -514,7 +514,7 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 actions.setEventId(mostRelevantEvent.id)
             }
         },
-        trace: (trace: LLMTrace | undefined) => {
+        trace: (trace: LLMTrace | undefined, oldTrace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
                 aiObservabilityTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
             }
@@ -523,7 +523,13 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
             }
 
-            aiObservabilityTraceLogic.actions.loadCommitPRMatches(deriveTraceGitMetadata(trace))
+            // Resolve the branch to a PR only when the branch or repo actually changed — re-dispatching
+            // on an unrelated trace update would refire the same resolution request.
+            const gitMetadata = values.traceGitMetadata
+            const previous = deriveTraceGitMetadata(oldTrace)
+            if (gitMetadata?.branch !== previous?.branch || gitMetadata?.repo !== previous?.repo) {
+                aiObservabilityTraceLogic.actions.loadCommitPRMatches(gitMetadata)
+            }
 
             actions.reportSingleTraceLoadIfReady()
         },

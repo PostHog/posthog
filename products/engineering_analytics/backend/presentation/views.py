@@ -28,9 +28,9 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineWriteError,
 )
 from products.engineering_analytics.backend.presentation.serializers import (
+    BranchPRMatchSerializer,
     CICardSummarySerializer,
     CIFailureLogsSerializer,
-    CommitPRMatchSerializer,
     GitHubSourceSerializer,
     MasterFailureGroupSerializer,
     PRCostSummarySerializer,
@@ -134,7 +134,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "pull_requests",
         "workflow_health",
         "pr_lifecycle",
-        "resolve_commit",
+        "resolve_branch",
         "quarantine",
         "pr_runs",
         "ci_failure_logs",
@@ -324,23 +324,15 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return Response(PRLifecycleSerializer(instance=result).data)
 
     @extend_schema(
-        operation_id="engineering_analytics_resolve_commit",
+        operation_id="engineering_analytics_resolve_branch",
         parameters=[
-            OpenApiParameter(
-                name="sha",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Full or short commit SHA (at least 7 characters) to resolve. Matched as a prefix of the "
-                "workflow-run head SHA, so a run's pull_requests association carries the PR across every push.",
-            ),
             OpenApiParameter(
                 name="branch",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                required=False,
-                description="Git branch (the PR's head ref) to resolve. Used only when `sha` resolves nothing or is "
-                "omitted. Open PRs are returned first, then most recently updated.",
+                required=True,
+                description="Git branch (the PR's head ref) to resolve. Open PRs are returned first, then most "
+                "recently updated.",
             ),
             OpenApiParameter(
                 name="repo",
@@ -352,34 +344,29 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             _SOURCE_ID,
         ],
         responses={
-            200: CommitPRMatchSerializer(many=True),
-            400: OpenApiResponse(
-                description="Neither sha nor branch given, a sha shorter than 7 characters, or invalid repo/source_id."
-            ),
+            200: BranchPRMatchSerializer(many=True),
+            400: OpenApiResponse(description="Branch missing/empty, or invalid repo/source_id."),
         },
         description=(
-            "Resolve a git commit SHA and/or branch to the pull request(s) it belongs to — the cross-product link "
-            "seam so another product (the LLM analytics UI) can turn a git ref into a PR detail link. The SHA path "
-            "resolves through each workflow run's pull_requests association (so it survives every push, unlike a "
-            "head-SHA join against the current-state PR snapshot); the branch path matches the PR's head ref. At "
-            "least one of `sha`/`branch` is required. Returns a possibly-empty, possibly-multi list — an empty list "
-            "is a valid 200 (the caller renders a plain chip)."
+            "Resolve a git branch to the pull request(s) it belongs to — the cross-product link seam so another "
+            "product (the LLM analytics UI) can turn a git branch into a PR detail link. Matches the PR's head ref, "
+            "open PRs first then most recently updated. `branch` is required. Returns a possibly-empty, "
+            "possibly-multi list — an empty list is a valid 200 (the caller renders a plain chip)."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
-    def resolve_commit(self, request: Request, **kwargs) -> Response:
+    def resolve_branch(self, request: Request, **kwargs) -> Response:
         try:
-            matches = api.resolve_commit(
+            matches = api.resolve_branch(
                 team=self.team,
-                sha=request.query_params.get("sha") or None,
                 branch=request.query_params.get("branch") or None,
                 repo=request.query_params.get("repo") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
-            return _bad_request(exc, fallback="Provide a commit sha or branch")
-        return Response(CommitPRMatchSerializer(instance=matches, many=True).data)
+            return _bad_request(exc, fallback="Provide a branch")
+        return Response(BranchPRMatchSerializer(instance=matches, many=True).data)
 
     @extend_schema(
         operation_id="engineering_analytics_pr_runs",

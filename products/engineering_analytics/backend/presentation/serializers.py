@@ -11,12 +11,12 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
     Author,
+    BranchPRMatch,
     CICardSummary,
     CIFailureLogLine,
     CIFailureLogs,
     CIJobFailureLog,
     CIStatusRollup,
-    CommitPRMatch,
     CostPerMergeBucket,
     GitHubSource,
     MasterFailureGroup,
@@ -457,19 +457,18 @@ class PullRequestListSerializer(DataclassSerializer):
         }
 
 
-class CommitPRMatchSerializer(DataclassSerializer):
+class BranchPRMatchSerializer(DataclassSerializer):
     class Meta:
-        dataclass = CommitPRMatch
+        dataclass = BranchPRMatch
         extra_kwargs = {
             "repo": {"help_text": "Repository the pull request belongs to, as 'owner/name'."},
             "number": {"help_text": "Pull request number within the repository — pair with `repo` to link to it."},
             "title": {
-                "help_text": "Pull request title, or null when the PR is no longer in the current-state warehouse "
-                "snapshot (the SHA still resolved it through a workflow run association).",
+                "help_text": "Pull request title, or null when the snapshot carries no title.",
                 "allow_null": True,
             },
             "state": {
-                "help_text": "Derived PR state ('open', 'closed', 'merged'), or null when the PR is not in the snapshot.",
+                "help_text": "Derived PR state ('open', 'closed', 'merged'), or null when the snapshot carries no state.",
                 "allow_null": True,
             },
         }
