@@ -27,7 +27,7 @@ from posthog.hogql.property import (
     property_to_expr,
 )
 
-from posthog.clickhouse.query_tagging import get_query_tag_value
+from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.settings.data_stores import is_web_analytics_events_prefilter_team
 
@@ -442,6 +442,10 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             offset=offset,
         )
         if rows is None:
+            # The lazy module may have tagged precompute_stale before its read failed;
+            # clear it so the fallback response (and its query_log rows) are not
+            # mislabeled as stale-served.
+            clear_tag("precompute_stale")
             return None
         return self._build_response_from_lazy_rows(rows, limit=limit, offset=offset)
 

@@ -254,7 +254,7 @@ export async function performQuery<N extends DataNode>(
             }
             if (response && typeof response === 'object') {
                 // Web analytics responses report which read path served them and whether
-                // a lazy-precompute read was served stale — undefined elsewhere, so these
+                // a lazy-precompute read was served stale. Undefined elsewhere, so these
                 // props only land on events that carry them.
                 const { preComputeStrategy, preComputeStale } = response as {
                     preComputeStrategy?: string
