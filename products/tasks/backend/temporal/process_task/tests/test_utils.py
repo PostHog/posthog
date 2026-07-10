@@ -326,6 +326,13 @@ class TestFetchUserMcpServerConfigs(TestCase):
 
     MOCK_FACADE = "products.tasks.backend.temporal.process_task.utils.get_installations_for_sandbox"
     MOCK_API_URL = "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url"
+    MOCK_FLAG = "products.tasks.backend.temporal.process_task.utils.posthoganalytics.feature_enabled"
+
+    def setUp(self) -> None:
+        super().setUp()
+        flag_patcher = patch(self.MOCK_FLAG, return_value=False)
+        self.mock_feature_enabled = flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
 
     def _make_installation(self, **kwargs) -> ActiveInstallationInfo:
         defaults = {
@@ -430,6 +437,50 @@ class TestFetchUserMcpServerConfigs(TestCase):
         assert len(configs) == 2
         assert configs[0].name == "Linear"
         assert configs[1].name == "Notion"
+
+    @parameterized.expand(
+        [
+            ("flag_on", True),
+            ("flag_off", False),
+        ]
+    )
+    @patch(MOCK_API_URL)
+    @patch(MOCK_FACADE)
+    def test_gateway_flag_gates_per_installation_configs(
+        self, _name: str, flag_enabled: bool, mock_facade, mock_api_url
+    ) -> None:
+        mock_api_url.return_value = self.API_BASE
+        self.mock_feature_enabled.return_value = flag_enabled
+        installation = self._make_installation()
+        mock_facade.return_value = [installation]
+
+        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
+
+        if flag_enabled:
+            assert configs == []
+            mock_facade.assert_not_called()
+        else:
+            assert configs == [
+                McpServerConfig(
+                    type="http",
+                    name="Linear",
+                    url=f"{self.API_BASE}{installation.proxy_path}",
+                    headers=self._expected_user_headers(),
+                )
+            ]
+
+    @patch(MOCK_API_URL)
+    @patch(MOCK_FACADE)
+    def test_gateway_flag_check_failure_falls_back_to_per_installation(self, mock_facade, mock_api_url) -> None:
+        mock_api_url.return_value = self.API_BASE
+        self.mock_feature_enabled.side_effect = Exception("flag service down")
+        installation = self._make_installation()
+        mock_facade.return_value = [installation]
+
+        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
+
+        assert len(configs) == 1
+        assert configs[0].url == f"{self.API_BASE}{installation.proxy_path}"
 
 
 class TestGetGitIdentityEnvVars(TestCase):

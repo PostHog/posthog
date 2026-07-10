@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 
+import posthoganalytics
 from pydantic import BaseModel
 
 from posthog.models.integration import GitHubIntegration, Integration
@@ -19,6 +20,7 @@ from products.mcp_store.backend.facade.api import get_installations_for_sandbox
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    MCP_GATEWAY_FEATURE_FLAG,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     InitialPermissionMode,
@@ -396,6 +398,23 @@ def get_sandbox_api_url() -> str:
     return settings.SANDBOX_API_URL or settings.SITE_URL
 
 
+def _is_mcp_gateway_enabled(team_id: int) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                MCP_GATEWAY_FEATURE_FLAG,
+                f"team-{team_id}",
+                groups={"project": str(team_id)},
+                group_properties={"project": {"id": str(team_id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        logger.warning("MCP gateway flag check failed; using per-installation configs", extra={"error": str(e)})
+        return False
+
+
 def get_user_mcp_server_configs(
     token: str,
     team_id: int,
@@ -410,6 +429,11 @@ def get_user_mcp_server_configs(
     ``include_personal`` is True and a ``user_id`` is provided, the user's
     personal installations are included too.
 
+    When the team has the MCP gateway flag enabled, no per-installation
+    configs are emitted at all: the sandbox's PostHog MCP config (see
+    ``get_sandbox_ph_mcp_configs``) is the single access point, and connected
+    MCP servers are reached through its gateway surface instead.
+
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
     the user installed. The PostHog MCP needs this to resolve single-exec mode
@@ -418,6 +442,9 @@ def get_user_mcp_server_configs(
 
     Returns an empty list on errors (non-fatal).
     """
+    if _is_mcp_gateway_enabled(team_id):
+        return []
+
     installations = get_installations_for_sandbox(
         team_id,
         user_id=user_id,

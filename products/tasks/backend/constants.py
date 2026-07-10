@@ -7,6 +7,10 @@ SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
+# Drops per-installation MCP configs from sandboxes: with the flag on, the
+# sandbox's PostHog MCP config is the single access point and connected MCP
+# servers are reached through its gateway surface (backed by mcp_store).
+MCP_GATEWAY_FEATURE_FLAG = "mcp-gateway"
 
 
 def vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
