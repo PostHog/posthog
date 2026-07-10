@@ -27966,11 +27966,24 @@ export namespace Schemas {
       scope?: MetricsAttributeScope | null;
     }
 
+    export type MetricsOtelType = typeof MetricsOtelType[keyof typeof MetricsOtelType];
+
+
+    export const MetricsOtelType = {
+      Gauge: 'gauge',
+      Sum: 'sum',
+      Histogram: 'histogram',
+      ExponentialHistogram: 'exponential_histogram',
+      Summary: 'summary',
+    } as const;
+
     export interface MetricsQueryClause {
       aggregation: MetricsAggregation;
       filters?: MetricsQueryFilter[] | null;
       groupBy?: MetricsQueryGroupBy[] | null;
       metricName: string;
+      /** Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series. */
+      metricType?: MetricsOtelType | null;
       /** Alias a formula refers to (e.g. "a"); must be unique within the query */
       name: string;
       /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
