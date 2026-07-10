@@ -463,11 +463,16 @@ function buildMatrix(products, durations) {
             const shards = Math.ceil(raw / targetWall)
             console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
+            // optimal_chunks (PostHog pytest-split fork) makes the same contiguous,
+            // order-preserving cuts as duration_based_chunks but balances them
+            // optimally. The greedy rule in duration_based_chunks lets every shard
+            // overrun the per-shard average, which on skewed suites starves trailing
+            // shards down to zero tests (pytest exit 5, "no tests collected").
             for (let i = 1; i <= shards; i++) {
                 matrix.push({
                     group: `${product} (${i}/${shards})`,
                     filters,
-                    pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm duration_based_chunks`,
+                    pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm optimal_chunks`,
                 })
             }
         } else if (DEDICATED_BUCKET_PRODUCTS.has(product)) {
