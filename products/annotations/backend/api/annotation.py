@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Prefetch, Q, QuerySet
 
 from rest_framework import filters, pagination, serializers, viewsets
@@ -75,10 +76,16 @@ class AnnotationSerializer(TaggedItemSerializerMixin, serializers.ModelSerialize
                 "help_text": "Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.",
             },
             "dashboard_id": {
-                "help_text": "Optional dashboard ID to attach this annotation to. Must belong to the current project.",
+                "help_text": (
+                    "Optional dashboard ID to attach this annotation to. Must belong to the current project. "
+                    "Ignored (cleared) when `scope` is `tag`."
+                ),
             },
             "dashboard_item": {
-                "help_text": "Optional insight ID to attach this annotation to. Must belong to the current project.",
+                "help_text": (
+                    "Optional insight ID to attach this annotation to. Must belong to the current project. "
+                    "Ignored (cleared) when `scope` is `tag`."
+                ),
             },
             "deleted": {
                 "help_text": "Soft-delete flag. Set to true to hide the annotation, or false to restore it.",
@@ -113,9 +120,23 @@ class AnnotationSerializer(TaggedItemSerializerMixin, serializers.ModelSerialize
 
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]
-        # `tags` isn't a model field; TaggedItemSerializerMixin.update persists it from initial_data.
-        validated_data.pop("tags", None)
-        return super().update(instance, validated_data)
+        tags = validated_data.pop("tags", None)
+        effective_scope = validated_data.get("scope", instance.scope)
+        if effective_scope == Annotation.Scope.TAG.value:
+            # Tag scope draws its surfaces from tags alone; a lingering insight/dashboard linkage
+            # would hide the annotation everywhere once that object is soft-deleted.
+            validated_data["dashboard_item"] = None
+            validated_data["dashboard_id"] = None
+        else:
+            # Tags only mean something on tag scope; clear them when the scope moves away so the
+            # stored object never violates this serializer's own scope/tags validation.
+            tags = []
+        with transaction.atomic():
+            # Bypass TaggedItemSerializerMixin.update: it persists raw `initial_data` tags, which
+            # skips DRF validation/coercion. We persist the validated list ourselves instead.
+            instance = serializers.ModelSerializer.update(self, instance, validated_data)
+            self._attempt_set_tags(tags, instance)
+        return instance
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()
@@ -151,13 +172,21 @@ class AnnotationSerializer(TaggedItemSerializerMixin, serializers.ModelSerialize
         team = self.context["get_team"]()
 
         tags = validated_data.pop("tags", None)
-        annotation = Annotation.objects.create(
-            organization_id=team.organization_id,
-            team_id=team.id,
-            created_by=request.user,
-            **validated_data,
-        )
-        self._attempt_set_tags(tags, annotation)
+        if validated_data.get("scope") == Annotation.Scope.TAG.value:
+            # The modal sends the originating insight/dashboard regardless of scope; drop the
+            # linkage for tag scope so soft-deleting that object can't hide the annotation.
+            validated_data["dashboard_item"] = None
+            validated_data["dashboard_id"] = None
+        # Atomic so a tag-persistence failure can't leave a zero-tag `scope=tag` annotation
+        # that validation then blocks from being edited.
+        with transaction.atomic():
+            annotation = Annotation.objects.create(
+                organization_id=team.organization_id,
+                team_id=team.id,
+                created_by=request.user,
+                **validated_data,
+            )
+            self._attempt_set_tags(tags, annotation)
         return annotation
 
 

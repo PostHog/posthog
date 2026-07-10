@@ -34,6 +34,33 @@ export function NewAnnotationButton(): JSX.Element {
     )
 }
 
+function AnnotationTagsField(): JSX.Element {
+    // Reading tagsModel here rather than in AnnotationModal keeps the lazy project-wide tags
+    // fetch from firing on every chart render (the overlay mounts the modal unconditionally);
+    // this component only exists once Tag scope is selected.
+    const { tags: allTags, tagsLoading } = useValues(tagsModel)
+    return (
+        <LemonField
+            name="tags"
+            label="Tags"
+            info="This annotation will appear on every dashboard and insight carrying one of these tags."
+        >
+            {({ value, onChange }) => (
+                <LemonInputSelect
+                    mode="multiple"
+                    allowCustomValues
+                    value={value ?? []}
+                    onChange={onChange}
+                    options={allTags.map((tag) => ({ key: tag, label: tag }))}
+                    loading={tagsLoading}
+                    placeholder="Select or create tags…"
+                    data-attr="annotation-tags-select"
+                />
+            )}
+        </LemonField>
+    )
+}
+
 export function AnnotationModal({
     overlayRef,
     contentRef,
@@ -48,7 +75,6 @@ export function AnnotationModal({
         timezone,
     } = useValues(annotationModalLogic)
     const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
-    const { tags: allTags, tagsLoading } = useValues(tagsModel)
 
     const scopeOptions: LemonSelectOptions<AnnotationType['scope'] | null> = [
         {
@@ -188,26 +214,7 @@ export function AnnotationModal({
                         <LemonSelect options={scopeOptions} fullWidth />
                     </LemonField>
                 </div>
-                {annotationModal.scope === AnnotationScope.Tag && (
-                    <LemonField
-                        name="tags"
-                        label="Tags"
-                        info="This annotation will appear on every dashboard and insight carrying one of these tags."
-                    >
-                        {({ value, onChange }) => (
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                value={value ?? []}
-                                onChange={onChange}
-                                options={allTags.map((tag) => ({ key: tag, label: tag }))}
-                                loading={tagsLoading}
-                                placeholder="Select or create tags…"
-                                data-attr="annotation-tags-select"
-                            />
-                        )}
-                    </LemonField>
-                )}
+                {annotationModal.scope === AnnotationScope.Tag && <AnnotationTagsField />}
                 <LemonField name="content" label="Content">
                     <LemonTextAreaMarkdown
                         placeholder="What's this annotation about?"

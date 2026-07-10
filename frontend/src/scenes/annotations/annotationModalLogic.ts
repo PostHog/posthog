@@ -101,21 +101,18 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         ],
     })),
     listeners(({ cache, actions, values }) => ({
-        openModalToEditAnnotation: ({
-            annotation: { date_marker, scope, content, emoji, tags },
-            insightId,
-            dashboardId,
-        }) => {
+        openModalToEditAnnotation: ({ annotation, insightId, dashboardId }) => {
+            const { date_marker, scope, content, emoji, tags } = annotation
             actions.setAnnotationModalValues({
                 dateMarker: dayjs(date_marker).tz(values.timezone),
                 scope,
                 content,
                 emoji,
                 tags: tags ?? [],
+                // Seed from the annotation itself so editing from the annotations list (no insight
+                // context) doesn't PATCH `dashboard_item: null` and detach an insight-scoped annotation.
+                dashboardItemId: insightId ?? annotation.dashboard_item ?? null,
             })
-            if (insightId) {
-                actions.setAnnotationModalValue('dashboardItemId', insightId)
-            }
             if (dashboardId) {
                 actions.setAnnotationModalValue('dashboardId', dashboardId)
             }

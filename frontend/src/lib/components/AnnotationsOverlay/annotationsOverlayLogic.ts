@@ -199,11 +199,14 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 // A tag-scoped annotation shows on any surface sharing one of its tags: the insight's own tags,
                 // plus - mirroring how Dashboard scope behaves - the current dashboard's tags when on a dashboard,
                 // or the tags of every dashboard the insight is tiled on when viewed standalone.
+                // With a dashboardId, union the mounted dashboardLogic's tags with dashboardsModel's copy:
+                // on /insights/X?dashboard=N (insight opened from a tile) the dashboard scene is unmounted,
+                // so findMounted alone would drop the tags.
                 const tiledDashboardTags = !dashboardId
                     ? (savedInsight?.dashboard_tiles ?? []).flatMap(
                           ({ dashboard_id }) => rawDashboards[dashboard_id]?.tags ?? []
                       )
-                    : (dashboardTags ?? [])
+                    : [...(dashboardTags ?? []), ...(rawDashboards[dashboardId]?.tags ?? [])]
                 const surfaceTags = new Set<string>([...(savedInsight?.tags ?? []), ...tiledDashboardTags])
 
                 const filteredAnnotations = dateRange

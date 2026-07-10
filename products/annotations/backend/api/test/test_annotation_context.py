@@ -159,6 +159,33 @@ class TestAnnotationContext(APIBaseTest):
 
         assert [a["content"] for a in result] == ["product a release"]
 
+    @parameterized.expand([("tile_deleted",), ("dashboard_deleted",)])
+    def test_does_not_inherit_tags_through_deleted_tiles_or_dashboards(self, deletion: str) -> None:
+        in_window = datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC"))
+        dashboard = Dashboard.objects.create(team=self.team, name="product a dashboard")
+        set_tags_on_object(["product-a"], dashboard)
+        insight = Insight.objects.create(team=self.team, name="untagged insight")
+        tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        annotation = self._make_annotation("product a release", in_window, scope=Annotation.Scope.TAG)
+        set_tags_on_object(["product-a"], annotation)
+
+        if deletion == "tile_deleted":
+            tile.deleted = True
+            tile.save()
+        else:
+            dashboard.deleted = True
+            dashboard.save()
+
+        result = get_annotations_for_ai_context(
+            self.team,
+            datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC")),
+            datetime(2026, 1, 31, tzinfo=ZoneInfo("UTC")),
+            insight_ids=[insight.id],
+        )
+
+        assert result == []
+
     def test_includes_org_scoped_annotation_from_sibling_team_in_same_org(self) -> None:
         in_window = datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC"))
         sibling_team = Team.objects.create(organization=self.organization, name="sibling")

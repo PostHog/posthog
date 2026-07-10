@@ -507,6 +507,55 @@ describe('annotationsOverlayLogic', () => {
             dashLogic.unmount()
         })
 
+        it('keeps a tag-scoped annotation when the insight is opened from a tile (?dashboard=N, dashboardLogic unmounted)', async () => {
+            const tileRouteAnnotation: RawAnnotationType = {
+                id: 55,
+                content: 'TAG_SCOPED_TILE_ROUTE',
+                date_marker: '2022-08-10T04:00:00.000Z',
+                dashboard_item: null,
+                insight_short_id: null,
+                insight_name: null,
+                insight_derived_name: null,
+                scope: AnnotationScope.Tag,
+                tags: ['product-tile-route'],
+                ...BASE_MOCK_ANNOTATION,
+            }
+            useInsightMocks()
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/annotations/': { results: [tileRouteAnnotation] },
+                    '/api/environments/:team_id/dashboards/': {
+                        count: 1,
+                        next: null,
+                        results: [{ id: MOCK_DASHBOARD_ID, name: 'Tagged dashboard', tags: ['product-tile-route'] }],
+                    },
+                    '/api/users/@me/': [200, {}],
+                },
+            })
+
+            // dashboardId is set (as on /insights/X?dashboard=N) but dashboardLogic is never
+            // mounted - tags must come from dashboardsModel's copy of the dashboard
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+                dashboardId: MOCK_DASHBOARD_ID,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActionsInAnyOrder([
+                annotationsModel.actionTypes.loadAnnotationsSuccess,
+                dashboardsModel.actionTypes.loadDashboardsSuccess,
+                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID }).actionTypes
+                    .loadInsightSuccess,
+            ])
+            await expectLogic(logic).toMatchValues({
+                relevantAnnotations: [tileRouteAnnotation].map((annotation) =>
+                    deserializeAnnotation(annotation, 'UTC')
+                ),
+            })
+        })
+
         it('shows a tag-scoped annotation on a standalone insight tiled on a dashboard carrying the tag', async () => {
             const insightWithTile = {
                 result: {},

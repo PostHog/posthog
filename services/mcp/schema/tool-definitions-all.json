@@ -1002,7 +1002,7 @@
         }
     },
     "annotations-partial-update": {
-        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), its visibility scope (`project`, `organization`, or `tag` — with `tag`, set `tags` to control which dashboards and insights it shows on), or its `emoji`. Only the fields you provide are updated.",
+        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), its visibility scope (`project`, `organization`, or `tag`, where `tags` controls which dashboards and insights it shows on), or its `emoji`. Only the fields you provide are updated.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "Update annotation",

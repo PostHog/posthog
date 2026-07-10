@@ -9,6 +9,7 @@ from posthog.models import TaggedItem, Team
 from posthog.utils import relative_date_parse
 
 from products.annotations.backend.models.annotation import Annotation
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 logger = structlog.get_logger(__name__)
 
@@ -56,8 +57,11 @@ def get_annotations_for_ai_context(
             )
         )
         # Insights also inherit the tags of dashboards they're tiled on, mirroring the chart overlay.
+        # Route through DashboardTile.objects: a plain `dashboard__tiles` join would bypass the
+        # manager's exclusion of soft-deleted tiles and dashboards.
+        tiled_dashboard_ids = DashboardTile.objects.filter(insight_id__in=insight_ids).values("dashboard_id")
         target_tags.update(
-            TaggedItem.objects.filter(dashboard__tiles__insight_id__in=insight_ids, tag__team_id=team.id).values_list(
+            TaggedItem.objects.filter(dashboard_id__in=tiled_dashboard_ids, tag__team_id=team.id).values_list(
                 "tag__name", flat=True
             )
         )

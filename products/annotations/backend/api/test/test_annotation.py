@@ -210,6 +210,79 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert sorted(response.json()["tags"]) == ["new-1", "new-2"]
 
+    def test_switching_scope_away_from_tag_clears_tags(self) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {"content": "Tagged", "scope": "tag", "date_marker": "2020-01-01T00:00:00Z", "tags": ["product-a"]},
+            format="json",
+        ).json()
+
+        # PATCH without a tags key (the MCP partial-update shape) must not orphan the tags
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{created['id']}/", {"scope": "project"}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == []
+
+        get_response = self.client.get(f"/api/projects/{self.team.id}/annotations/{created['id']}/").json()
+        assert get_response["scope"] == "project"
+        assert get_response["tags"] == []
+
+        # The stored object stays PATCHable (previously orphaned tags 400'd every subsequent edit)
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{created['id']}/", {"deleted": True}, format="json"
+        )
+        assert delete_response.status_code == status.HTTP_200_OK, delete_response.json()
+
+        # And stale tags must not silently resurrect on a switch back to tag scope
+        back_response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{created['id']}/", {"scope": "tag"}, format="json"
+        )
+        assert back_response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_patch_persists_validated_tags_not_raw_input(self) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {"content": "Tagged", "scope": "tag", "date_marker": "2020-01-01T00:00:00Z", "tags": ["old"]},
+            format="json",
+        ).json()
+
+        # Non-string JSON values are coerced by the CharField child; previously the raw
+        # initial_data list bypassed validation and 500'd in tagify()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{created['id']}/", {"tags": [123]}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["123"]
+
+    def test_tag_scope_clears_insight_and_dashboard_linkage(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="origin dashboard")
+        insight = Insight.objects.create(team=self.team, name="origin insight")
+
+        # The modal sends the originating surface regardless of scope; tag scope must drop it
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Tagged from an insight",
+                "scope": "tag",
+                "date_marker": "2020-01-01T00:00:00Z",
+                "tags": ["product-a"],
+                "dashboard_item": insight.id,
+                "dashboard_id": dashboard.id,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        data = response.json()
+        assert data["dashboard_item"] is None
+        assert data["dashboard_id"] is None
+
+        # The regression this guards: soft-deleting the origin insight must not hide the annotation
+        insight.deleted = True
+        insight.save()
+        listed = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
+        assert [a["id"] for a in listed["results"]] == [data["id"]]
+
     @parameterized.expand(
         [
             ("non_tag_scope", "project", ["release"]),
