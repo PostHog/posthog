@@ -1558,16 +1558,22 @@ class SafeDateLoader(Loader):
     """Load PostgreSQL dates, handling edge cases beyond Python's date range.
 
     PostgreSQL can store dates beyond Python's datetime.date limits (year 1 to
-    year 9999). This includes 'infinity', '-infinity', and dates in years > 9999.
-    When encountering such dates, we clamp to Python's date limits rather than
-    raising an error.
+    year 9999). This includes 'infinity', '-infinity', and dates in years > 9999,
+    which we clamp to Python's date limits rather than raising an error.
+
+    Some Postgres-compatible engines (duckdb/duckgres) render a `date` in text
+    mode with a trailing time component ("2022-04-01 00:00:00" or ISO "…T…") — we
+    strip it before parsing. A value we genuinely cannot parse raises rather than
+    being clamped: silently mapping it onto date.max fabricates a real-looking
+    9999-12-31 and corrupts the whole column, which is far worse than a loud sync
+    failure.
     """
 
     def load(self, data) -> date | None:
         if data is None:
             return None
 
-        s = bytes(data).decode("utf-8")
+        s = bytes(data).decode("utf-8").strip()
 
         if s in ("infinity", "-infinity"):
             return date.max if s == "infinity" else date.min
@@ -1576,24 +1582,20 @@ class SafeDateLoader(Loader):
         if s.startswith("-") or "bc" in s.lower():
             return date.min
 
+        # Keep only the date portion — duckdb/duckgres may append a time or ISO "T".
+        date_part = s.replace("T", " ").split(" ", 1)[0]
+
         try:
-            parts = s.split("-")
-            if len(parts) == 3:
-                year = int(parts[0])
-                month = int(parts[1])
-                day = int(parts[2])
+            year, month, day = (int(part) for part in date_part.split("-"))
+        except ValueError as e:
+            raise ValueError(f"Unparseable PostgreSQL date value: {s!r}") from e
 
-                if year > 9999:
-                    return date.max
-                if year < 1:
-                    return date.min
+        if year > 9999:
+            return date.max
+        if year < 1:
+            return date.min
 
-                return date(year, month, day)
-        except (ValueError, IndexError):
-            pass
-
-        # Fallback: clamp to max for unparseable dates
-        return date.max
+        return date(year, month, day)
 
 
 def _clamp_out_of_range_timestamp(data, *, tzinfo: timezone | None) -> datetime:
