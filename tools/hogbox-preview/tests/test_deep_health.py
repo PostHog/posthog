@@ -123,11 +123,39 @@ class DeepHealthTest(unittest.TestCase):
         # It actually fetched the logs.
         self.assertTrue(any("docker logs" in c for c in backend.execs))
 
-    def test_skipped_when_no_seed(self):
-        backend = _RecordingBackend()
+    def test_no_seed_still_probes_the_preseeded_golden(self):
+        # The CI workflow calls `up --no-seed` (the golden is pre-seeded), so the
+        # probe must RUN on no-seed runs — keying the gate off seed_demo_data
+        # disabled it in exactly the production path (Codex review catch).
+        backend = _RecordingBackend(probe_result=ExecResult(0, "DEEP_HEALTH_OK", ""))
         PostHogPreviewStack(backend, seed_demo_data=False).deep_health()
-        # No probe ran at all — nothing to authenticate as.
-        self.assertFalse(any("DEEP_HEALTH_OK" in c for c in backend.execs))
+        self.assertTrue(any("DEEP_HEALTH_OK" in c for c in backend.execs))
+
+    def test_no_seed_tolerates_failed_login_only(self):
+        # A genuinely unseeded box has no demo user: a failed api_login on a
+        # no-seed run soft-skips instead of raising...
+        login_fail = ExecResult(1, "STEP login 200\nSTEP api_login 401\nBODY_START\n{}\nBODY_END", "")
+        backend = _RecordingBackend(probe_result=login_fail)
+        PostHogPreviewStack(backend, seed_demo_data=False).deep_health()  # no raise
+        # ...but a post-login failure raises even on no-seed (app is unusable).
+        later_fail = ExecResult(
+            1, "STEP login 200\nSTEP api_login 200\nSTEP projects 500\nBODY_START\n{}\nBODY_END", ""
+        )
+        backend = _RecordingBackend(probe_result=later_fail)
+        with self.assertRaises(RuntimeError):
+            PostHogPreviewStack(backend, seed_demo_data=False).deep_health()
+
+    def test_seeded_run_fails_hard_on_login_failure(self):
+        login_fail = ExecResult(1, "STEP login 200\nSTEP api_login 401\nBODY_START\n{}\nBODY_END", "")
+        backend = _RecordingBackend(probe_result=login_fail)
+        with self.assertRaises(RuntimeError):
+            PostHogPreviewStack(backend, seed_demo_data=True).deep_health()
+
+    def test_personhog_services_started_with_deps(self):
+        # Nothing else starts them (up_web brings up only web) — a cold/reset box
+        # must not boot web pointing at a router that never started.
+        self.assertIn("personhog-replica", PostHogPreviewStack.DEPS)
+        self.assertIn("personhog-router", PostHogPreviewStack.DEPS)
 
 
 if __name__ == "__main__":

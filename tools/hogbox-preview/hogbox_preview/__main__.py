@@ -111,7 +111,8 @@ def cmd_health(args: argparse.Namespace) -> int:
     backend.wait_http_ok("/_health", expect=200, timeout=args.timeout)
     # /_health only proves the process is up. Run the authed deep-health probe
     # too so this subcommand catches an unusable app (the personhog-drift 500s
-    # slipped past /_health). Skipped on --no-seed (no demo user to log in as).
+    # slipped past /_health). --no-seed only tolerates a failed demo login
+    # (genuinely unseeded box); it no longer skips the probe outright.
     build_stack(backend, args).deep_health()
     print(f"healthy: {backend.web_url}")
     return 0

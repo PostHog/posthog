@@ -82,7 +82,22 @@ class PostHogPreviewStack:
     COMPOSE = "docker-compose.dev-full.yml"
     OVERRIDE = "docker-compose.preview.yml"
     # Dependency services (published images, pulled by `up`).
-    DEPS = ["db", "redis7", "clickhouse", "zookeeper", "kafka", "objectstorage"]
+    # personhog-replica/router are defined in the OVERRIDE (not dev-full.yml) —
+    # compose merges both files, so starting them here works. They must be in
+    # this list: nothing else starts them (up_web brings up only `web`, no
+    # depends_on edges), so a cold/reset box would otherwise boot web with
+    # PERSONHOG_ADDR pointing at a service that was never started. On the warm
+    # golden they're already running and `up` is a no-op.
+    DEPS = [
+        "db",
+        "redis7",
+        "clickhouse",
+        "zookeeper",
+        "kafka",
+        "objectstorage",
+        "personhog-replica",
+        "personhog-router",
+    ]
     # App services built from the checkout (build escape hatch only). web shares
     # its image with the other build: . services, so building web warms them all.
     BUILD_SERVICES = ["web"]
@@ -452,13 +467,14 @@ class PostHogPreviewStack:
         # seeded demo user and hits the endpoints that actually broke, so a
         # regression like that fails the bring-up instead of shipping a dead box.
         #
-        # Skipped on --no-seed: no seed means no demo user to log in as. The CI
-        # path always seeds and the golden is pre-seeded, so in practice the
-        # probes run; but if seeding was skipped, note it and move on rather than
-        # fail on a login that can't succeed.
-        if not self.seed_demo_data:
-            sys.stderr.write("[hogbox-preview] deep health skipped: --no-seed leaves no demo user to authenticate as\n")
-            return
+        # ALWAYS attempt the probe — including on --no-seed. The CI preview
+        # workflow calls `up --no-seed` because the golden is pre-seeded, so the
+        # demo user exists even when this run skipped the seed step; keying the
+        # whole gate off seed_demo_data would disable it in exactly the
+        # production path it was built for. The only concession to --no-seed is
+        # a failed LOGIN (a genuinely unseeded box has no demo user): that
+        # soft-skips with a note instead of failing. Any failure past login —
+        # and a failed login on a seeded run — is fatal.
         timing.stage("deep health (authed api)")
         self._run_authed_probe()
 
@@ -498,6 +514,17 @@ echo "DEEP_HEALTH_OK"
         r = self.backend.exec(script, timeout=180)
         if "DEEP_HEALTH_OK" in r.stdout:
             timing.stage("deep health pass")
+            return
+        # Login failed on a run that skipped seeding: the box may genuinely have
+        # no demo user (e.g. `up --no-seed` on a non-golden image), which isn't
+        # an app-health failure. Everything past a successful login stays fatal.
+        failed_step = ([ln.split()[1] for ln in r.stdout.splitlines() if ln.startswith("STEP ")] or ["?"])[-1]
+        if not self.seed_demo_data and failed_step == "api_login":
+            sys.stderr.write(
+                "[hogbox-preview] deep health: demo login failed on a --no-seed run — "
+                "assuming an unseeded box and skipping the authed probes\n"
+            )
+            timing.stage("deep health skipped (unseeded box)")
             return
         # Failed: surface the step + status + body, and the web log tail. The
         # missing traceback is what cost hours on 2026-07-06 — dump it here so
