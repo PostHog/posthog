@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { GatheringBatchPipeline } from './gathering-batch-pipeline'
 import { createContext, createNewBatchPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok, redirect } from './results'
@@ -8,11 +8,11 @@ import { dlq, drop, ok, redirect } from './results'
 const TEST_REDIRECT_OUTPUT = 'test_redirect' as const
 
 // Mock batch processing pipeline for testing
-class MockBatchProcessingPipeline<T, C, R extends string = never> implements BatchPipeline<T, T, C, C, R> {
-    private results: BatchPipelineResultWithContext<T, C, R>[] = []
+class MockBatchProcessingPipeline<T, C, R extends string = never> implements ChunkPipeline<T, T, C, C, R> {
+    private results: ChunkPipelineResultWithContext<T, C, R>[] = []
     private currentIndex = 0
 
-    constructor(results: BatchPipelineResultWithContext<T, C, R>[]) {
+    constructor(results: ChunkPipelineResultWithContext<T, C, R>[]) {
         this.results = results
     }
 
@@ -20,7 +20,7 @@ class MockBatchProcessingPipeline<T, C, R extends string = never> implements Bat
         this.results.push(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<T, C, R> | null> {
+    async next(): Promise<ChunkPipelineResultWithContext<T, C, R> | null> {
         if (this.currentIndex >= this.results.length) {
             return Promise.resolve(null)
         }
@@ -216,7 +216,7 @@ describe('GatheringBatchPipeline', () => {
         })
 
         it('should handle large number of batches', async () => {
-            const batches: BatchPipelineResultWithContext<string, any>[] = []
+            const batches: ChunkPipelineResultWithContext<string, any>[] = []
             for (let i = 0; i < 10; i++) {
                 batches.push([createContext(ok(`item${i}`), context1)])
             }

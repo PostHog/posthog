@@ -1,6 +1,6 @@
 import pLimit from 'p-limit'
 
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { InterleavingBatchPipeline, PullOutcome } from './interleaving-batch-pipeline'
 import { Pipeline, PipelineContext, PipelineResultWithContext } from './pipeline.interface'
 import { isOkResult } from './results'
@@ -27,7 +27,7 @@ export class ConcurrentBatchProcessingPipeline<
     COutput = CInput,
     RPrev extends string = never,
     RStep extends string = never,
-> implements BatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
+> implements ChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 {
     private promiseQueue: Promise<PipelineResultWithContext<TOutput, COutput, RPrev | RStep>>[] = []
     private inner: InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
@@ -37,7 +37,7 @@ export class ConcurrentBatchProcessingPipeline<
 
     constructor(
         private processor: Pipeline<TIntermediate, TOutput, COutput, RStep>,
-        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput, RPrev>,
+        private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, COutput, RPrev>,
         maxConcurrency?: number
     ) {
         this.limit = maxConcurrency !== undefined ? pLimit(maxConcurrency) : null
@@ -52,7 +52,7 @@ export class ConcurrentBatchProcessingPipeline<
         this.inner.feed(elements)
     }
 
-    next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
+    next(): Promise<ChunkPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
         return this.inner.next()
     }
 
@@ -83,7 +83,7 @@ export class ConcurrentBatchProcessingPipeline<
     }
 
     /** Emit the next processed item in FIFO order, or null when the queue is empty. */
-    private async dequeueProcessed(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
+    private async dequeueProcessed(): Promise<ChunkPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
         const promise = this.promiseQueue.shift()
         if (promise === undefined) {
             return null

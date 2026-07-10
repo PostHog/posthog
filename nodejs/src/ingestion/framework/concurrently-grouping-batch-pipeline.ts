@@ -1,6 +1,6 @@
 import pLimit from 'p-limit'
 
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { InterleavingBatchPipeline, PullOutcome } from './interleaving-batch-pipeline'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { ResettableSignal } from './resettable-signal'
@@ -39,7 +39,7 @@ export class ConcurrentlyGroupingBatchPipeline<
     COutput = CInput,
     RPrev extends string = never,
     RStep extends string = never,
-> implements BatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
+> implements ChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 {
     // Queue of items waiting to be processed for each group
     private groupQueues: Map<TKey, PipelineResultWithContext<TIntermediate, COutput, RPrev | RStep>[]> = new Map()
@@ -69,7 +69,7 @@ export class ConcurrentlyGroupingBatchPipeline<
     constructor(
         private groupingFn: GroupingFunction<TIntermediate, TKey>,
         private processor: Pipeline<TIntermediate, TOutput, COutput, RStep>,
-        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput, RPrev>,
+        private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, COutput, RPrev>,
         maxConcurrency?: number
     ) {
         this.limit = maxConcurrency !== undefined ? pLimit(maxConcurrency) : null
@@ -84,7 +84,7 @@ export class ConcurrentlyGroupingBatchPipeline<
         this.inner.feed(elements)
     }
 
-    next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
+    next(): Promise<ChunkPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
         return this.inner.next()
     }
 
@@ -100,7 +100,7 @@ export class ConcurrentlyGroupingBatchPipeline<
     }
 
     /** Emit the next completed group's results, parking until one finishes. */
-    private async pullProcessed(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
+    private async pullProcessed(): Promise<ChunkPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
         while (true) {
             const completed = this.completedResults.shift()
             if (completed !== undefined) {

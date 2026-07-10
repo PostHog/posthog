@@ -2,8 +2,8 @@ import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
 import { TeamIdContext } from './builders/batch-pipeline-builders'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 
 export class IngestionWarningHandlingBatchPipeline<
     TInput,
@@ -11,18 +11,18 @@ export class IngestionWarningHandlingBatchPipeline<
     CInput extends TeamIdContext,
     COutput extends TeamIdContext = CInput,
     R extends string = never,
-> implements BatchPipeline<TInput, TOutput, CInput, COutput, R>
+> implements ChunkPipeline<TInput, TOutput, CInput, COutput, R>
 {
     constructor(
         private outputs: IngestionOutputs<IngestionWarningsOutput>,
-        private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>
+        private previousPipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>
     ) {}
 
     feed(elements: OkResultWithContext<TInput, CInput>[]): void {
         this.previousPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, R> | null> {
+    async next(): Promise<ChunkPipelineResultWithContext<TOutput, COutput, R> | null> {
         const results = await this.previousPipeline.next()
         if (results === null) {
             return null

@@ -1,6 +1,6 @@
 import pLimit from 'p-limit'
 
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, isOkResult } from './results'
@@ -30,7 +30,7 @@ export interface BeforeBatchOutput<TInput, CInput, CBatch> {
 }
 
 export interface AfterBatchInput<TOutput, COutput, CBatch, R extends string = never> {
-    elements: BatchPipelineResultWithContext<TOutput, COutput, R>
+    elements: ChunkPipelineResultWithContext<TOutput, COutput, R>
     batchContext: CBatch
     batchId: number
 }
@@ -123,7 +123,7 @@ export class BatchingPipeline<
     private feedEpoch = 0
     private batches = new Map<number, TrackedBatch<TOutput, CBatchOutput, COutput, R>>()
     private messageIdToBatchId = new Map<number, number>()
-    private completedResults: BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>>[] = []
+    private completedResults: BatchResult<ChunkPipelineResultWithContext<TOutput, COutput, R>>[] = []
 
     // With concurrentBatches > 1, callers (e.g. HTTP request handlers in the
     // ingestion API server) invoke feed()/next() concurrently, but the
@@ -140,7 +140,7 @@ export class BatchingPipeline<
     private options: BatchingPipelineOptions
 
     constructor(
-        private subPipeline: BatchPipeline<
+        private subPipeline: ChunkPipeline<
             TInput & CBatchOutput & { batchId: number },
             TOutput,
             CInput & BatchingContext,
@@ -259,7 +259,7 @@ export class BatchingPipeline<
         return { ok: true }
     }
 
-    next(): Promise<BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>> | null> {
+    next(): Promise<BatchResult<ChunkPipelineResultWithContext<TOutput, COutput, R>> | null> {
         // Serialize so exactly one caller pumps the sub-pipeline at a time,
         // restoring the single-caller assumption the stages were written under.
         // With one concurrent batch the caller is already sequential, so the
@@ -268,7 +268,7 @@ export class BatchingPipeline<
         return this.pumpLimit(() => this.pump())
     }
 
-    private async pump(): Promise<BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>> | null> {
+    private async pump(): Promise<BatchResult<ChunkPipelineResultWithContext<TOutput, COutput, R>> | null> {
         // Re-check after acquiring the pump: a previous pump iteration may have
         // completed additional batches while this caller was waiting.
         if (this.completedResults.length > 0) {

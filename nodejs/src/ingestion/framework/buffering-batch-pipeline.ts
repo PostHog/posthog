@@ -1,15 +1,15 @@
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 
 export class BufferingBatchPipeline<TInput, CInput, R extends string = never>
-    implements BatchPipeline<TInput, TInput, CInput, CInput, R>
+    implements ChunkPipeline<TInput, TInput, CInput, CInput, R>
 {
-    private buffer: BatchPipelineResultWithContext<TInput, CInput, R> = []
+    private buffer: ChunkPipelineResultWithContext<TInput, CInput, R> = []
 
     feed(elements: OkResultWithContext<TInput, CInput>[]): void {
         this.buffer.push(...elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TInput, CInput, R> | null> {
+    async next(): Promise<ChunkPipelineResultWithContext<TInput, CInput, R> | null> {
         if (this.buffer.length === 0) {
             return null
         }

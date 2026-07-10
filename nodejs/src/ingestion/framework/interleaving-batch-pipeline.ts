@@ -1,4 +1,4 @@
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { ResettableSignal } from './resettable-signal'
 
 /**
@@ -9,7 +9,7 @@ import { ResettableSignal } from './resettable-signal'
  * - `drained`: the upstream pipeline is currently empty
  */
 export type PullOutcome<TOutput, COutput, R extends string> =
-    | { kind: 'emit'; batch: BatchPipelineResultWithContext<TOutput, COutput, R> }
+    | { kind: 'emit'; batch: ChunkPipelineResultWithContext<TOutput, COutput, R> }
     | { kind: 'drain' }
     | { kind: 'drained' }
 
@@ -29,7 +29,7 @@ export interface InterleavingCallbacks<TInput, TOutput, CInput, COutput, R exten
      */
     onSourcePull: () => Promise<PullOutcome<TOutput, COutput, R>>
     /** Pull the next batch from the processing subpipeline — raced against feeds. */
-    onProcessPull: () => Promise<BatchPipelineResultWithContext<TOutput, COutput, R> | null>
+    onProcessPull: () => Promise<ChunkPipelineResultWithContext<TOutput, COutput, R> | null>
 }
 
 /**
@@ -56,13 +56,13 @@ export interface InterleavingCallbacks<TInput, TOutput, CInput, COutput, R exten
  * pump mutex); `feed()` is safe to call concurrently with `next()`.
  */
 export class InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, R extends string = never>
-    implements BatchPipeline<TInput, TOutput, CInput, COutput, R>
+    implements ChunkPipeline<TInput, TOutput, CInput, COutput, R>
 {
     private newInputSignal = new ResettableSignal()
     // Memoized across iterations and across next() calls: the subpipeline is not
     // safe for concurrent callers, so a feed waking us mid-drain must re-await
     // the same pending next() rather than issue a second one.
-    private subPending: Promise<BatchPipelineResultWithContext<TOutput, COutput, R> | null> | null = null
+    private subPending: Promise<ChunkPipelineResultWithContext<TOutput, COutput, R> | null> | null = null
     // The first error seen from either callback. Once set, the stage is poisoned:
     // no more source pulls, drain the sub dry, then reject with this forever.
     private failure: { error: unknown } | null = null
@@ -76,7 +76,7 @@ export class InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, R exten
         this.newInputSignal.resolve()
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, R> | null> {
+    async next(): Promise<ChunkPipelineResultWithContext<TOutput, COutput, R> | null> {
         // Once poisoned, stop pulling new input: drain what is still in flight in
         // the sub, then reject permanently with the original error.
         if (this.failure) {
@@ -147,7 +147,7 @@ export class InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, R exten
      * issue no new source pulls. When the sub is exhausted (null) or re-throws,
      * reject with the latched failure — permanently, since `failure` stays set.
      */
-    private async drainThenReject(): Promise<BatchPipelineResultWithContext<TOutput, COutput, R> | null> {
+    private async drainThenReject(): Promise<ChunkPipelineResultWithContext<TOutput, COutput, R> | null> {
         if (!this.subPending) {
             this.subPending = this.callbacks.onProcessPull()
         }

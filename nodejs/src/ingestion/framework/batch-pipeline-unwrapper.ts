@@ -1,6 +1,6 @@
 import { logger } from '~/common/utils/logger'
 
-import { BatchPipeline, OkResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, OkResultWithContext } from './chunk-pipeline.interface'
 import { isOkResult } from './results'
 
 /**
@@ -8,7 +8,7 @@ import { isOkResult } from './results'
  * This unwrapper filters out non-OK results and returns only the unwrapped values.
  */
 export class BatchPipelineUnwrapper<TInput, TOutput, C, R extends string = never> {
-    constructor(private batchPipeline: BatchPipeline<TInput, TOutput, C, C, R>) {}
+    constructor(private batchPipeline: ChunkPipeline<TInput, TOutput, C, C, R>) {}
 
     feed(elements: OkResultWithContext<TInput, C>[]): void {
         this.batchPipeline.feed(elements)

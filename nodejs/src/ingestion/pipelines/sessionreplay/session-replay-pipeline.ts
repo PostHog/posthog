@@ -6,8 +6,8 @@ import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { IngestionOverflowMode } from '~/ingestion/config'
-import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
@@ -77,7 +77,7 @@ export interface SessionReplayPipelineConfig {
  */
 export function createSessionReplayPipeline(
     config: SessionReplayPipelineConfig
-): BatchPipeline<
+): ChunkPipeline<
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
     MessageContext,
@@ -234,7 +234,7 @@ export function createSessionReplayPipeline(
  * yields exactly one terminal result here.
  */
 export async function runSessionReplayPipeline(
-    pipeline: BatchPipeline<
+    pipeline: ChunkPipeline<
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
         { message: Message },

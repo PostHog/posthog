@@ -1,6 +1,6 @@
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { pipelineStepDurationHistogram } from './metrics'
 import { PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, PipelineResultOk, isOkResult } from './results'
@@ -30,13 +30,13 @@ export class BaseBatchPipeline<
     COutput = CInput,
     RPrev extends string = never,
     RStep extends string = never,
-> implements BatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
+> implements ChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 {
     private stepName: string
 
     constructor(
         private currentStep: BatchProcessingStep<TIntermediate, TOutput, RStep>,
-        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput, RPrev>
+        private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, COutput, RPrev>
     ) {
         this.stepName = this.currentStep.name || 'anonymousBatchStep'
     }
@@ -45,7 +45,7 @@ export class BaseBatchPipeline<
         this.previousPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
+    async next(): Promise<ChunkPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
         const previousResults = await this.previousPipeline.next()
         if (previousResults === null) {
             return null
@@ -78,7 +78,7 @@ export class BaseBatchPipeline<
         let stepIndex = 0
 
         // Map results back, preserving context and non-successful results
-        const output: BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> = []
+        const output: ChunkPipelineResultWithContext<TOutput, COutput, RPrev | RStep> = []
         for (const resultWithContext of previousResults) {
             if (isOkResult(resultWithContext.result)) {
                 const stepResult = stepResults[stepIndex++]

@@ -32,7 +32,7 @@
  * feed(batch B) ─► beforeBatch(B) ─► [ sub-pipeline ] ─► afterBatch(B) ─► next()
  * ```
  *
- * Unlike a plain `BatchPipeline`, `feed()` is async and returns a `FeedResult`:
+ * Unlike a plain `ChunkPipeline`, `feed()` is async and returns a `FeedResult`:
  * `{ ok: true }` when accepted, or `{ ok: false, kind, reason }` when rejected.
  * `next()` returns a `BatchResult` (`{ elements, sideEffects }`) per completed
  * batch, or `null` when fully drained. Batches are returned in completion

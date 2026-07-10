@@ -1,4 +1,4 @@
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext } from './chunk-pipeline.interface'
 import { InterleavingBatchPipeline, PullOutcome } from './interleaving-batch-pipeline'
 import { OkResultWithContext, PipelineResultWithContext } from './pipeline.interface'
 import { isOkResult } from './results'
@@ -37,14 +37,14 @@ export class FilterMapBatchPipeline<
     COutput = CMapped,
     RPrev extends string = never,
     RSub extends string = never,
-> implements BatchPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>
+> implements ChunkPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>
 {
     private inner: InterleavingBatchPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>
 
     constructor(
-        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, CIntermediate, RPrev>,
+        private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, CIntermediate, RPrev>,
         private mappingFn: FilterMapMappingFunction<TIntermediate, TMapped, CIntermediate, CMapped>,
-        private subPipeline: BatchPipeline<TMapped, TOutput, CMapped, COutput, RSub>
+        private subPipeline: ChunkPipeline<TMapped, TOutput, CMapped, COutput, RSub>
     ) {
         this.inner = new InterleavingBatchPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>({
             onFeed: (elements) => this.previousPipeline.feed(elements),
@@ -57,7 +57,7 @@ export class FilterMapBatchPipeline<
         this.inner.feed(elements)
     }
 
-    next(): Promise<BatchPipelineResultWithContext<TOutput, COutput | CIntermediate, RPrev | RSub> | null> {
+    next(): Promise<ChunkPipelineResultWithContext<TOutput, COutput | CIntermediate, RPrev | RSub> | null> {
         return this.inner.next()
     }
 

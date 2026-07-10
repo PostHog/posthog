@@ -1,4 +1,4 @@
-import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
+import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 import { isOkResult } from '~/ingestion/framework/results'
 
 /**
@@ -14,7 +14,7 @@ import { isOkResult } from '~/ingestion/framework/results'
  * @param advanceTimeMs - How much time to advance (should be >= longest processing time)
  * @returns Array of OK result values
  */
-export async function consumeAll<T>(pipeline: BatchPipeline<unknown, T, unknown>, advanceTimeMs: number): Promise<T[]> {
+export async function consumeAll<T>(pipeline: ChunkPipeline<unknown, T, unknown>, advanceTimeMs: number): Promise<T[]> {
     const resultsPromise = (async () => {
         const allValues: T[] = []
         let results = await pipeline.next()
@@ -45,7 +45,7 @@ export async function consumeAll<T>(pipeline: BatchPipeline<unknown, T, unknown>
  * @param pipeline - The batch pipeline to consume from
  * @returns Promise of array of batches, each batch is an array of OK result values
  */
-export async function collectBatches<T>(pipeline: BatchPipeline<unknown, T, unknown>): Promise<T[][]> {
+export async function collectBatches<T>(pipeline: ChunkPipeline<unknown, T, unknown>): Promise<T[][]> {
     const batches: T[][] = []
     let results = await pipeline.next()
     while (results) {

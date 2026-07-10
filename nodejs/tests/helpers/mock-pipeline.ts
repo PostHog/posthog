@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchPipeline, BatchPipelineResultWithContext } from '~/ingestion/framework/batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext } from '~/ingestion/framework/chunk-pipeline.interface'
 
 /**
  * Creates a mock pipeline that returns pre-built results from next().
@@ -9,8 +9,8 @@ import { BatchPipeline, BatchPipelineResultWithContext } from '~/ingestion/frame
  * since feed() only accepts R = never (no redirects in input).
  */
 export function createMockPipeline<T, C extends { message: Message } = { message: Message }, R extends string = never>(
-    results: BatchPipelineResultWithContext<T, C, R>
-): BatchPipeline<T, T, C, C, R> {
+    results: ChunkPipelineResultWithContext<T, C, R>
+): ChunkPipeline<T, T, C, C, R> {
     let returned = false
     return {
         feed: jest.fn(),

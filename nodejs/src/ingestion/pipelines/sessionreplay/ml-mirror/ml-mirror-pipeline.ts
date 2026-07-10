@@ -1,8 +1,8 @@
 /** The primary session replay pipeline plus an AI-training opt-in filter and an anonymize step. */
 import { OverflowOutput } from '~/common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
-import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 import { createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import {
@@ -23,7 +23,7 @@ import { createValidateSessionReplayHeadersStep } from '~/ingestion/pipelines/se
 
 export function createMlMirrorReplayPipeline(
     config: SessionReplayPipelineConfig
-): BatchPipeline<
+): ChunkPipeline<
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
     MessageContext,

@@ -2,12 +2,12 @@
  * # Chapter 15: Consuming a Pipeline
  *
  * The earlier chapters build pipelines; this one shows how a built
- * `BatchPipeline` is actually driven in production, and how
+ * `ChunkPipeline` is actually driven in production, and how
  * `BatchPipelineUnwrapper` turns its results into plain values.
  *
  * ## The feed() / next() contract
  *
- * A `BatchPipeline` is a pull-based stream:
+ * A `ChunkPipeline` is a pull-based stream:
  *
  * - **`feed(elements)`** hands a batch of `OkResultWithContext` items to the
  *   pipeline. It buffers them; it does not process synchronously.

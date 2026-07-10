@@ -5,7 +5,7 @@ import { logger } from '~/common/utils/logger'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
 import { BatchPipelineUnwrapper } from './batch-pipeline-unwrapper'
-import { BatchPipeline } from './batch-pipeline.interface'
+import { ChunkPipeline } from './chunk-pipeline.interface'
 import { DefaultContext, createContext, createNewBatchPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok, redirect } from './results'
 
@@ -95,7 +95,7 @@ describe('BatchPipelineUnwrapper', () => {
                 createContext(dlq('failed item', new Error('processing error')), { message: message5 }),
             ]
 
-            const mockBatchPipeline: BatchPipeline<
+            const mockBatchPipeline: ChunkPipeline<
                 { message: Message },
                 { message: Message },
                 DefaultContext,

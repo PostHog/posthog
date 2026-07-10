@@ -1,9 +1,9 @@
-import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipelineResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
 import { InterleavingBatchPipeline, InterleavingCallbacks, PullOutcome } from './interleaving-batch-pipeline'
 
 type Ctx = Record<string, never>
-type Batch = BatchPipelineResultWithContext<string, Ctx>
+type Batch = ChunkPipelineResultWithContext<string, Ctx>
 
 function batch(value: string): Batch {
     return [createOkContext<string, Ctx>(value, {})]

@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 
-import { OkResultWithContext } from './batch-pipeline.interface'
 import { BatchingPipeline } from './batching-pipeline'
 import { newBatchingPipeline } from './builders/helpers'
+import { OkResultWithContext } from './chunk-pipeline.interface'
 import { PipelineResultWithContext } from './pipeline.interface'
 import { ok } from './results'
 

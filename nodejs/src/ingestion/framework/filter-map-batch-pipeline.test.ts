@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
-import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipelineResultWithContext } from './chunk-pipeline.interface'
 import { FilterMapBatchPipeline, FilterMapMappingFunction } from './filter-map-batch-pipeline'
 import { createContext, createNewBatchPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok } from './results'
@@ -277,10 +277,10 @@ describe('FilterMapBatchPipeline', () => {
         it('should drain subpipeline before fetching from previous pipeline', async () => {
             const previousPipeline = createNewBatchPipeline<string>().build()
             const subPipelineFeed = jest.fn()
-            const subBatches: BatchPipelineResultWithContext<string, { message: Message }>[] = []
+            const subBatches: ChunkPipelineResultWithContext<string, { message: Message }>[] = []
             let subIndex = 0
             const subPipeline = {
-                feed(elements: BatchPipelineResultWithContext<string, { message: Message }>) {
+                feed(elements: ChunkPipelineResultWithContext<string, { message: Message }>) {
                     subPipelineFeed(elements)
                     for (const el of elements) {
                         subBatches.push([el])

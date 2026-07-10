@@ -4,8 +4,8 @@ import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { BaseBatchPipeline, BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
-import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { BufferingBatchPipeline } from '~/ingestion/framework/buffering-batch-pipeline'
+import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 import { ConcurrentBatchProcessingPipeline } from '~/ingestion/framework/concurrent-batch-pipeline'
 import {
     ConcurrentlyGroupingBatchPipeline,
@@ -50,7 +50,7 @@ export class GroupProcessingBuilder<
     constructor(
         private readonly buildGroupedPipeline: <U, R2 extends string>(
             processor: Pipeline<TOutput, U, COutput, R2>
-        ) => BatchPipeline<TInput, U, CInput, COutput, R | R2>
+        ) => ChunkPipeline<TInput, U, CInput, COutput, R | R2>
     ) {}
 
     /**
@@ -67,7 +67,7 @@ export class GroupProcessingBuilder<
 }
 
 export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R extends string = never> {
-    constructor(protected pipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>) {}
+    constructor(protected pipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>) {}
 
     pipeBatch<U, R2 extends string = never>(
         step: BatchProcessingStep<TOutput, U, R2>,
@@ -202,7 +202,7 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
         return new TeamAwareBatchPipelineBuilder(builtPipeline.build())
     }
 
-    build(): BatchPipeline<TInput, TOutput, CInput, COutput, R> {
+    build(): ChunkPipeline<TInput, TOutput, CInput, COutput, R> {
         return this.pipeline
     }
 }
@@ -214,7 +214,7 @@ export class MessageAwareBatchPipelineBuilder<
     COutput extends { message: Message } = CInput,
     R extends string = never,
 > {
-    constructor(protected pipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>) {}
+    constructor(protected pipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>) {}
 
     handleResults<RConfig extends string = never>(
         config: PipelineConfig<R | RConfig>
@@ -234,7 +234,7 @@ export class ResultHandledBatchPipelineBuilder<
     COutput extends { message: Message } = CInput,
     R extends string = never,
 > {
-    constructor(protected pipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>) {}
+    constructor(protected pipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>) {}
 
     handleSideEffects(
         promiseScheduler: PromiseScheduler,
@@ -251,7 +251,7 @@ export class TeamAwareBatchPipelineBuilder<
     COutput extends TeamIdContext,
     R extends string = never,
 > extends BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
-    constructor(pipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>) {
+    constructor(pipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>) {
         super(pipeline)
     }
 
