@@ -1,5 +1,6 @@
 import { IconFilter } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { MetricCard } from '@posthog/quill-charts'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -42,13 +43,23 @@ export function StatCard({
                         active ? 'text-accent opacity-100' : 'text-tertiary opacity-0 group-hover:opacity-100'
                     )}
                 />
-                <div className={cn('text-xs', active ? 'font-medium text-accent' : 'text-secondary')}>{label}</div>
                 {loading ? (
-                    <LemonSkeleton className="h-8 w-20" />
+                    <>
+                        <div className={cn('text-sm font-medium', active ? 'text-accent' : 'text-secondary')}>
+                            {label}
+                        </div>
+                        <LemonSkeleton className="h-9 w-20" />
+                    </>
                 ) : (
-                    <div className="text-2xl font-bold leading-tight">{value}</div>
+                    <MetricCard
+                        title={<span className={active ? 'text-accent' : undefined}>{label}</span>}
+                        // Pre-formatted display string ('—' when no data yet) rides through the formatter.
+                        value={0}
+                        formatValue={() => value}
+                        change={null}
+                        subtitle={caption}
+                    />
                 )}
-                {caption && <div className="text-xs text-tertiary">{caption}</div>}
             </button>
         </Tooltip>
     )

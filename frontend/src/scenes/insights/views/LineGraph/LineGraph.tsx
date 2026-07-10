@@ -1,9 +1,10 @@
 import { Chart, ChartEvent, ChartType, DeepPartial, InteractionItem, LegendOptions } from 'lib/Chart'
-import { AnomalyPoint } from 'lib/components/Alerts/types'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
+
+import { AnomalyPoint } from 'products/alerts/frontend/types'
 
 export function onChartClick(
     event: ChartEvent,
