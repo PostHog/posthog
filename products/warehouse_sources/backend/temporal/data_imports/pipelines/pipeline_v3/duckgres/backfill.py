@@ -37,12 +37,14 @@ metadata at the pinned snapshot version (see backfill_queue.preapply_covered_bat
 
 from __future__ import annotations
 
+import random
 from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
 from django.db import close_old_connections
-from django.db.models import Count
+from django.db.models import Count, F, Min, Q, Value
+from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
 
 import psycopg
@@ -90,10 +92,34 @@ MAX_CONCURRENT_BACKFILLS_GLOBAL = 5
 # metadata-only (Delta log read + row inserts), so minutes of lease are ample.
 PLANNING_LEASE_SECONDS = 900
 
+# A schema with this many consecutive failed backfill attempts (and not primed)
+# is classified "failing": its blocked backlog moves off the pageable gauges
+# into the failing bucket, and the planner retries it with backoff instead of
+# every tick. 3 rides out a single transient blip without flapping the buckets.
+FAILING_THRESHOLD = 3
+# Planner retry backoff for failing schemas: BASE * 2**(failures-1), capped.
+# Never gives up — at the cap the schema retries every ~30min forever, so it
+# self-heals the moment the underlying issue clears.
+RETRY_BACKOFF_BASE_SECONDS = 30
+RETRY_BACKOFF_CAP_SECONDS = 30 * 60
+
 BACKFILL_SCHEMAS_GAUGE = Gauge(
     "duckgres_backfill_schemas",
     "Duckgres sink schemas per backfill lifecycle state",
     labelnames=["state"],
+    multiprocess_mode="livemax",
+)
+# Visibility-only (dashboards / future UI). Deliberately unalerted: a stuck
+# backfill is an operator-remediation queue, not a page — the pageable signal
+# is the healthy blocked backlog in the consumer's gauges.
+STUCK_BACKFILL_GAUGE = Gauge(
+    "duckgres_sink_stuck_backfill",
+    "Schemas whose backfill is persistently failing (failure streak at threshold, or parked in needs_resync)",
+    multiprocess_mode="livemax",
+)
+STUCK_BACKFILL_OLDEST_AGE_GAUGE = Gauge(
+    "duckgres_sink_stuck_oldest_age_seconds",
+    "Age of the oldest failing schema's failure streak (first_failed_at) — survives queue retention",
     multiprocess_mode="livemax",
 )
 
@@ -102,7 +128,9 @@ __all__ = [
     "BackfillUnsupportedError",
     "backfill_run_uuid",
     "blocked_schema_ids",
+    "failing_schema_ids",
     "mark_primed",
+    "mark_schema_diverged",
     "replan_backfill",
     "run_backfill_planner",
     "sink_eligible_schema_ids",
@@ -147,6 +175,30 @@ def blocked_schema_ids(team_ids: list[int] | None) -> list[str]:
         primed = primed.filter(team_id__in=team_ids)
     primed_ids = {str(s) for s in primed.values_list("schema_id", flat=True)}
     return [str(sid) for sid in schemas.values_list("id", flat=True) if str(sid) not in primed_ids]
+
+
+def _failing_q() -> Q:
+    """Hard-blocked classification: the failure streak reached threshold, or the
+    schema is parked in NEEDS_RESYNC (unbackfillable / awaiting a replace run) —
+    either way its backlog will not drain without intervention or healing."""
+    return Q(consecutive_failures__gte=FAILING_THRESHOLD) | Q(state=DuckgresSinkSchemaState.State.NEEDS_RESYNC)
+
+
+def failing_schema_ids(team_ids: list[int] | None) -> list[str]:
+    """Schemas whose blocked backlog is hard-blocked, not merely in-progress.
+
+    A subset of blocked_schema_ids: the consumer subtracts these batches from
+    the pageable blocked gauges so a wedged schema cannot mask (or trigger) a
+    genuine-throughput page, and reports them in the failing bucket instead.
+    """
+    close_old_connections()
+    if team_ids is not None and not team_ids:
+        return []
+
+    qs = DuckgresSinkSchemaState.objects.exclude(state=DuckgresSinkSchemaState.State.PRIMED).filter(_failing_q())
+    if team_ids is not None:
+        qs = qs.filter(team_id__in=team_ids)
+    return [str(sid) for sid in qs.values_list("schema_id", flat=True)]
 
 
 def sink_eligible_schema_ids(team_ids: list[int]) -> list[str]:
@@ -196,21 +248,64 @@ def sink_eligible_schema_ids(team_ids: list[int]) -> list[str]:
     return eligible
 
 
-def mark_primed(schema_id: str, *, chunks_applied: int | None = None) -> None:
+def mark_primed(schema_id: str, *, run_uuid: str, chunks_applied: int | None = None) -> None:
     """Fast path called by the processor right after the swap commits.
 
     CAS from BACKFILLING only — the reconciler is the authoritative healer,
-    and a late call must never clobber a state that has since moved on.
+    and a late call must never clobber a state that has since moved on. The
+    CAS is also pinned to the run generation: a replan can retire run R1 and
+    plan R2 while R1's final chunk is still mid-swap (its duckgres transaction
+    cannot be cancelled), and R1's late mark_primed must not flip R2's row —
+    that would unblock live batches over a table R2's own swap later replaces,
+    silently dropping them.
     """
     updates: dict[str, Any] = {
         "state": DuckgresSinkSchemaState.State.PRIMED,
+        "last_error": None,
         "updated_at": timezone.now(),
+        **_STREAK_RESET_UPDATES,
     }
     if chunks_applied is not None:
         updates["chunks_applied"] = chunks_applied
-    DuckgresSinkSchemaState.objects.filter(schema_id=schema_id, state=DuckgresSinkSchemaState.State.BACKFILLING).update(
-        **updates
+    DuckgresSinkSchemaState.objects.filter(
+        schema_id=schema_id,
+        state=DuckgresSinkSchemaState.State.BACKFILLING,
+        backfill_run_uuid=run_uuid,
+    ).update(**updates)
+
+
+def mark_schema_diverged(schema_id: str, *, run_uuid: str, error: str) -> None:
+    """A LIVE run hard-failed in the sink: some of its batches applied and the
+    rest never will, so the duckgres table is durably behind Delta. Park the
+    schema in NEEDS_RESYNC — that blocks further live batches from compounding
+    the gap, classifies the schema failing (streak jumped to threshold: a
+    terminally failed run has no retry loop to ride out), and routes healing
+    through the existing path: the next fully-applied replace-head run
+    (full-refresh resync, or the schema's own next full_refresh sync) flips it
+    back to PRIMED.
+
+    CAS from PRIMED only: a BACKFILLING schema's failures are the reconciler's
+    to escalate, and an already-parked schema must not have its streak anchor
+    or error overwritten.
+    """
+    close_old_connections()
+    now = timezone.now()
+    flipped = DuckgresSinkSchemaState.objects.filter(
+        schema_id=schema_id, state=DuckgresSinkSchemaState.State.PRIMED
+    ).update(
+        state=DuckgresSinkSchemaState.State.NEEDS_RESYNC,
+        last_error=f"live run {run_uuid} failed in the duckgres sink: {error}"[:2000],
+        updated_at=now,
+        consecutive_failures=Greatest(F("consecutive_failures"), Value(FAILING_THRESHOLD)),
+        first_failed_at=Coalesce(F("first_failed_at"), Value(now)),
     )
+    if flipped:
+        logger.warning(
+            "duckgres_sink_schema_diverged",
+            schema_id=schema_id,
+            run_uuid=run_uuid,
+            error=error[:500],
+        )
 
 
 def replan_backfill(schema_id: str) -> None:
@@ -242,6 +337,9 @@ def replan_backfill(schema_id: str) -> None:
         chunks_applied=0,
         last_error=None,
         updated_at=timezone.now(),
+        # Operator fresh start: the streak (and its backoff) must not outlive
+        # the run it was recorded against.
+        **_STREAK_RESET_UPDATES,
     )
 
 
@@ -325,6 +423,26 @@ def _bootstrap_state_rows(team_ids: list[int] | None) -> None:
         logger.info("duckgres_backfill_bootstrapped", created=created)
 
 
+def _failure_streak_updates(*, now: Any) -> dict[str, Any]:
+    """Update-dict fragment recording one failed attempt: bump the streak and
+    stamp first_failed_at once per streak. Merged into the site's own CAS so a
+    failure is never recorded over a state another pod already advanced."""
+    return {
+        "consecutive_failures": F("consecutive_failures") + 1,
+        "first_failed_at": Coalesce(F("first_failed_at"), Value(now)),
+    }
+
+
+_STREAK_RESET_UPDATES: dict[str, Any] = {"consecutive_failures": 0, "first_failed_at": None}
+
+
+def _retry_backoff_seconds(failures: int) -> float:
+    if failures <= 0:
+        return 0.0
+    base = min(RETRY_BACKOFF_BASE_SECONDS * 2 ** (failures - 1), RETRY_BACKOFF_CAP_SECONDS)
+    return base * random.uniform(0.8, 1.2)
+
+
 def _plan_pending(team_ids: list[int] | None) -> None:
     pending = DuckgresSinkSchemaState.objects.filter(state=DuckgresSinkSchemaState.State.PENDING_BACKFILL)
     if team_ids is not None:
@@ -338,6 +456,20 @@ def _plan_pending(team_ids: list[int] | None) -> None:
         # iterations may have claimed slots.
         if _global_at_capacity():
             break
+
+        # Failing schemas retry with backoff instead of hammering a broken
+        # Delta table every tick. updated_at is the last-attempt anchor (each
+        # recorded failure bumps it). Never gives up: at the cap this is one
+        # attempt per ~30min forever, so it self-heals when the table recovers.
+        # auto_now makes updated_at nullable to the type checker only; a missing
+        # anchor means no backoff to honour, so attempt rather than skip forever.
+        last_attempt_at = state.updated_at
+        if (
+            state.consecutive_failures > 0
+            and last_attempt_at is not None
+            and timezone.now() < last_attempt_at + timedelta(seconds=_retry_backoff_seconds(state.consecutive_failures))
+        ):
+            continue
 
         org_id = state.team.organization_id
         if _org_at_capacity(org_id):
@@ -361,16 +493,18 @@ def _plan_pending(team_ids: list[int] | None) -> None:
         try:
             _plan_one(state)
         except BackfillUnsupportedError as e:
+            now = timezone.now()
             DuckgresSinkSchemaState.objects.filter(id=state.id).update(
                 state=DuckgresSinkSchemaState.State.NEEDS_RESYNC,
                 last_error=str(e)[:2000],
-                updated_at=timezone.now(),
+                updated_at=now,
+                **_failure_streak_updates(now=now),
             )
             logger.warning("duckgres_backfill_unsupported", schema_id=str(state.schema_id), error=str(e))
         except Exception as e:
             logger.exception("duckgres_backfill_plan_failed", schema_id=str(state.schema_id))
             capture_exception(e)
-            _revert_to_pending(state.id, error=str(e)[:2000])
+            _revert_to_pending(state.id, error=str(e)[:2000], record_failure=True)
 
 
 def _org_at_capacity(org_id: Any, *, exclude_id: Any = None) -> bool:
@@ -394,16 +528,75 @@ def _global_at_capacity(*, exclude_id: Any = None) -> bool:
     return qs.count() >= MAX_CONCURRENT_BACKFILLS_GLOBAL
 
 
-def _revert_to_pending(state_id: Any, error: str | None = None) -> None:
+def _revert_to_pending(state_id: Any, error: str | None = None, *, record_failure: bool = False) -> None:
+    """record_failure distinguishes a failed attempt from a neutral revert
+    (capacity re-check lost the race) — capacity is pacing, not failure, and
+    must not start a streak."""
+    now = timezone.now()
     updates: dict[str, Any] = {
         "state": DuckgresSinkSchemaState.State.PENDING_BACKFILL,
-        "updated_at": timezone.now(),
+        "updated_at": now,
     }
     if error is not None:
         updates["last_error"] = error
+    if record_failure:
+        updates.update(_failure_streak_updates(now=now))
     DuckgresSinkSchemaState.objects.filter(
         id=state_id, state=DuckgresSinkSchemaState.State.BACKFILLING, backfill_run_uuid__isnull=True
     ).update(**updates)
+
+
+def _has_inflight_replace_run(conn: psycopg.Connection[Any], *, team_id: int, schema_id: str) -> bool:
+    """A replace-head live run that Delta accepted but duckgres has not finished.
+
+    Batch 0 replace-shaped and delta-succeeded, with no terminal Delta failure,
+    duckgres-succeeded final marker (completion), or duckgres-failed batch for
+    the run. Planning must wait these out: the snapshot would cover the run's
+    head and orphan its tail (see the guard in _plan_one).
+    """
+    row = conn.execute(
+        f"""
+        SELECT 1
+        FROM {BATCH_TABLE} h
+        JOIN v_latest_source_batch_status hds ON hds.batch_id = h.id
+        WHERE h.team_id = %(team_id)s
+            AND h.schema_id = %(schema_id)s
+            AND h.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            AND h.batch_index = 0
+            AND h.is_final_batch = false
+            AND h.is_resume = false
+            AND (h.sync_type = 'full_refresh' OR (h.sync_type = 'incremental' AND h.is_first_ever_sync))
+            AND hds.job_state = 'succeeded'
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {BATCH_TABLE} x
+                JOIN v_latest_source_batch_status xds ON xds.batch_id = x.id
+                WHERE x.run_uuid = h.run_uuid
+                    AND x.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND xds.job_state = 'failed'
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {BATCH_TABLE} f
+                JOIN v_latest_source_batch_duckgres_status fdgs ON fdgs.batch_id = f.id
+                WHERE f.run_uuid = h.run_uuid
+                    AND f.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND f.is_final_batch = true
+                    AND fdgs.job_state = 'succeeded'
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {BATCH_TABLE} x
+                JOIN v_latest_source_batch_duckgres_status xdgs ON xdgs.batch_id = x.id
+                WHERE x.run_uuid = h.run_uuid
+                    AND x.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND xdgs.job_state = 'failed'
+            )
+        LIMIT 1
+        """,
+        {"team_id": team_id, "schema_id": schema_id},
+    ).fetchone()
+    return row is not None
 
 
 def _plan_one(state: DuckgresSinkSchemaState) -> None:
@@ -437,13 +630,29 @@ def _plan_one(state: DuckgresSinkSchemaState) -> None:
         keepalives_interval=15,
         keepalives_count=4,
     ) as conn:
+        if _has_inflight_replace_run(conn, team_id=schema.team_id, schema_id=str(state.schema_id)):
+            # Planning now would pin a snapshot mid-run and pre-apply the
+            # replace run's head: its post-snapshot tail would then apply into
+            # the doomed pre-swap table (the replace-head gate bypass admits
+            # it), and the swap would silently drop those rows while their
+            # apply markers prevent any re-apply. Defer until the run reaches
+            # a terminal duckgres state; the planner retries every tick.
+            logger.info(
+                "duckgres_backfill_plan_deferred_for_inflight_replace",
+                schema_id=str(state.schema_id),
+                team_id=schema.team_id,
+            )
+            return
         plan = resolve_snapshot_plan(schema)
         snapshot_version = plan.snapshot_version
         chunks = plan.chunks
         if not chunks:
             # Empty Delta table: nothing to prime.
             DuckgresSinkSchemaState.objects.filter(id=state.id).update(
-                state=DuckgresSinkSchemaState.State.PRIMED, updated_at=timezone.now()
+                state=DuckgresSinkSchemaState.State.PRIMED,
+                last_error=None,
+                updated_at=timezone.now(),
+                **_STREAK_RESET_UPDATES,
             )
             return
 
@@ -462,6 +671,7 @@ def _plan_one(state: DuckgresSinkSchemaState) -> None:
             chunks_applied=0,
             last_error=None,
             updated_at=timezone.now(),
+            **_STREAK_RESET_UPDATES,
         )
         if not planned:
             return
@@ -590,11 +800,19 @@ def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState
     if state.chunk_count and applied >= state.chunk_count:
         # Full application proves the swap committed (the last chunk's apply
         # marker shares the swap's transaction). CAS so a stale pass can never
-        # resurrect a state another pod already advanced.
-        DuckgresSinkSchemaState.objects.filter(id=state.id, state=DuckgresSinkSchemaState.State.BACKFILLING).update(
+        # resurrect a state another pod already advanced — pinned to the run
+        # the applied-count evidence was gathered for, so a replan that swapped
+        # generations mid-pass cannot be promoted on the old run's counts.
+        DuckgresSinkSchemaState.objects.filter(
+            id=state.id,
+            state=DuckgresSinkSchemaState.State.BACKFILLING,
+            backfill_run_uuid=run_uuid,
+        ).update(
             state=DuckgresSinkSchemaState.State.PRIMED,
             chunks_applied=applied,
+            last_error=None,
             updated_at=timezone.now(),
+            **_STREAK_RESET_UPDATES,
         )
         return
 
@@ -628,9 +846,23 @@ def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState
                 schema_id=str(state.schema_id),
                 run_uuid=run_uuid,
             )
-        elif state.last_error != reason:
+        elif (
+            state.last_error != reason
+            or state.consecutive_failures < FAILING_THRESHOLD
+            or state.first_failed_at is None
+        ):
+            # Mid-backfill wedge: a duckgres 'failed' status is terminal, so this
+            # run will never progress on its own — classify the schema failing
+            # immediately (jump the streak to threshold rather than drip one per
+            # tick), else its backlog sits in the pageable healthy bucket forever.
+            # The condition gates re-writes so a steady wedge stops churning the row.
+            now = timezone.now()
             DuckgresSinkSchemaState.objects.filter(id=state.id).update(
-                last_error=reason[:2000], chunks_applied=applied, updated_at=timezone.now()
+                last_error=reason[:2000],
+                chunks_applied=applied,
+                consecutive_failures=Greatest(F("consecutive_failures"), Value(FAILING_THRESHOLD)),
+                first_failed_at=Coalesce(F("first_failed_at"), Value(now)),
+                updated_at=now,
             )
         return
 
@@ -665,7 +897,11 @@ def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState
             )
 
     if applied != state.chunks_applied:
-        DuckgresSinkSchemaState.objects.filter(id=state.id).update(chunks_applied=applied, updated_at=timezone.now())
+        updates: dict[str, Any] = {"chunks_applied": applied, "updated_at": timezone.now()}
+        if applied > state.chunks_applied:
+            # Chunks are landing again — forward progress ends the failure streak.
+            updates.update(_STREAK_RESET_UPDATES)
+        DuckgresSinkSchemaState.objects.filter(id=state.id).update(**updates)
 
 
 def _reconcile_needs_resync(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState) -> None:
@@ -708,7 +944,12 @@ def _reconcile_needs_resync(conn: psycopg.Connection[Any], state: DuckgresSinkSc
 
     flipped = DuckgresSinkSchemaState.objects.filter(
         id=state.id, state=DuckgresSinkSchemaState.State.NEEDS_RESYNC
-    ).update(state=DuckgresSinkSchemaState.State.PRIMED, last_error=None, updated_at=timezone.now())
+    ).update(
+        state=DuckgresSinkSchemaState.State.PRIMED,
+        last_error=None,
+        updated_at=timezone.now(),
+        **_STREAK_RESET_UPDATES,
+    )
     if flipped:
         logger.info("duckgres_backfill_resync_completed", schema_id=str(state.schema_id))
 
@@ -717,3 +958,11 @@ def _emit_state_gauge() -> None:
     counts = dict(DuckgresSinkSchemaState.objects.values_list("state").annotate(n=Count("id")))
     for state_value, _label in DuckgresSinkSchemaState.State.choices:
         BACKFILL_SCHEMAS_GAUGE.labels(state=state_value).set(counts.get(state_value, 0))
+
+    # Derived from the state table, not batches, so a stuck schema stays visible
+    # past queue retention — the durable "backfill owed since" high-watermark.
+    failing = DuckgresSinkSchemaState.objects.exclude(state=DuckgresSinkSchemaState.State.PRIMED).filter(_failing_q())
+    stats = failing.aggregate(n=Count("id"), oldest=Min("first_failed_at"))
+    STUCK_BACKFILL_GAUGE.set(stats["n"] or 0)
+    oldest = stats["oldest"]
+    STUCK_BACKFILL_OLDEST_AGE_GAUGE.set((timezone.now() - oldest).total_seconds() if oldest else 0.0)
