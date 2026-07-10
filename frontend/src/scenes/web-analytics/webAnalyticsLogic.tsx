@@ -2343,7 +2343,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal
+                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REMOVE_REPLAY_TILE] !== 'test'
                         ? {
                               kind: 'replay',
                               tileId: TileId.REPLAY,
