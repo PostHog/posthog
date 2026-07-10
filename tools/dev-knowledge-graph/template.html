@@ -168,7 +168,7 @@ function draw() {
 
 function loop() { tick(); draw(); requestAnimationFrame(loop); }
 
-let dragNode = null, panning = false, lastX = 0, lastY = 0, selected = null;
+let dragNode = null, panning = false, lastX = 0, lastY = 0, startX = 0, startY = 0, selected = null;
 function pick(mx, my) {
   const x = (mx - panX) / zoom, y = (my - panY) / zoom;
   let best = null, bestD = 1e9;
@@ -180,7 +180,7 @@ function pick(mx, my) {
   return best;
 }
 canvas.addEventListener("mousedown", (ev) => {
-  lastX = ev.clientX; lastY = ev.clientY;
+  startX = lastX = ev.clientX; startY = lastY = ev.clientY;
   dragNode = pick(ev.clientX, ev.clientY);
   panning = !dragNode;
   canvas.classList.add("dragging");
@@ -193,8 +193,9 @@ window.addEventListener("mousemove", (ev) => {
   else if (panning) { panX += dx; panY += dy; }
 });
 window.addEventListener("mouseup", (ev) => {
-  if (dragNode && Math.hypot(ev.clientX - lastX, ev.clientY - lastY) < 3) select(dragNode);
-  else if (panning) { const n = pick(ev.clientX, ev.clientY); if (n) select(n); }
+  const moved = Math.hypot(ev.clientX - startX, ev.clientY - startY);
+  if (dragNode && moved < 3) select(dragNode);
+  else if (panning && moved < 3) { const n = pick(ev.clientX, ev.clientY); if (n) select(n); }
   dragNode = null; panning = false;
   canvas.classList.remove("dragging");
 });

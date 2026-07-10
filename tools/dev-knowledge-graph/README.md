@@ -6,14 +6,14 @@ The graph is **knowledge-first**: learning nodes carry markdown you can inspect 
 
 ## Node types
 
-| Kind | Meaning |
-| --- | --- |
+| Kind       | Meaning                                                                                              |
+| ---------- | ---------------------------------------------------------------------------------------------------- |
 | `learning` | Something we learned that should outlive the conversation it came from; carries inspectable markdown |
-| `module` | A software module the learning is about (e.g. `frontend/src/lib/components/TaxonomicFilter`) |
-| `product` | A product or system area (e.g. `session replay`, `CI`, `PostHog Code`) |
-| `property` | A user/event property the learning concerns (e.g. `$current_url`) |
-| `skill` | A skill that encodes (`existing`) or should encode (`proposed`) the learning |
-| `task` | A conversation cited as evidence — only with `--include-conversations` |
+| `module`   | A software module the learning is about (e.g. `frontend/src/lib/components/TaxonomicFilter`)         |
+| `product`  | A product or system area (e.g. `session replay`, `CI`, `PostHog Code`)                               |
+| `property` | A user/event property the learning concerns (e.g. `$current_url`)                                    |
+| `skill`    | A skill that encodes (`existing`) or should encode (`proposed`) the learning                         |
+| `task`     | A conversation cited as evidence — only with `--include-conversations`                               |
 
 Edges: `learning→module/product/property` (about), `module→product` (part-of, inferred from `products/<name>/` paths), `learning→skill` (encoded-in), `learning→task` (evidenced-by).
 
@@ -56,7 +56,7 @@ Add a learning to `learnings.json` when work taught something worth keeping:
 ```
 
 - `markdown` is the knowledge itself — PRs, issues, and docs belong here as links, not as graph nodes.
-- `modules` / `products` / `properties` are what the learning is *about*; reuse existing node labels where they fit so knowledge clusters.
+- `modules` / `products` / `properties` are what the learning is _about_; reuse existing node labels where they fit so knowledge clusters.
 - `skills[].status` is `existing` or `proposed` — proposed skills render dashed, so the graph doubles as a backlog of skills worth writing.
 - `author` powers the viewer's user filter; match the local part of your email so conversations and learnings share one identity.
 

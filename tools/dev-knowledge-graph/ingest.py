@@ -31,15 +31,19 @@ OUT_DIR = HERE / "out"
 def fetch_tasks(
     host: str, key: str, project: int, repository: str, since: datetime, all_users: bool
 ) -> list[dict[str, Any]]:
+    if not host.startswith(("https://", "http://")):
+        sys.exit(f"--host must be an http(s) URL, got {host!r}")
     params = urllib.parse.urlencode({"limit": 100, "repository": repository, "internal": "all", "archived": "all"})
     url: str | None = f"{host.rstrip('/')}/api/projects/{project}/tasks/?{params}"
     me_req = urllib.request.Request(f"{host.rstrip('/')}/api/users/@me/", headers={"Authorization": f"Bearer {key}"})
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected — developer-run CLI; host is the operator's own API base, scheme-validated above
     with urllib.request.urlopen(me_req) as resp:
         my_id = json.load(resp)["id"]
     tasks: list[dict[str, Any]] = []
     since_iso = since.isoformat()
     while url:
         req = urllib.request.Request(url, headers={"Authorization": f"Bearer {key}"})
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected — pagination URL returned by the same scheme-validated API host
         with urllib.request.urlopen(req) as resp:
             page = json.load(resp)
         results = page["results"]
