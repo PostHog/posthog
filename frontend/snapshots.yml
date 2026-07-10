@@ -7306,6 +7306,10 @@ snapshots:
         hash: v1.k794b7964.36cf7228ba594332bed453ada313646e689878696d65f2e732ef4f20b9942b27.f5PtRTQsoB2LQF0JI-0_pmtiH7Lkd8HH3BnE6uSLoGU
     scenes-other-onboarding-shared-installation-progress--completed-local-handoff--light:
         hash: v1.k794b7964.0f40b7a983cb6f76ca10f79e72e7dfba4f974171a9e0ae670d6beae5ca6a5804.8x3ZMHjKx92IRRDfpRdipq0OEhUp0EmRlhjz9ZwrCsc
+    scenes-other-onboarding-shared-installation-progress--completed-merged--dark:
+        hash: v1.k794b7964.48c882f0b7d703503d0be6d629acdf785f7b7e2073b8ec0dfb99d8fb0baefee9.Ag4zdI8qORUkoAxyrbVQO0wja3mRQVhbKwMAyt6mr9k
+    scenes-other-onboarding-shared-installation-progress--completed-merged--light:
+        hash: v1.k794b7964.00d7ba883b7a9f23dec598f0e3beb5e708173d9637d37411969d52d8955151bb.a4WgCV7mt614PYHhNdoS9IM2OYiUGfYbVltyfeJrKiE
     scenes-other-onboarding-shared-installation-progress--connecting--dark:
         hash: v1.k794b7964.c979fc93fe8ea9d6a8d7ecfc667cba31879bfcafce56b1f09ae143d43e77efce.cHHBvXk9MnAaTdks6cwqJLv_--qKj8AwUXIv6FZRV3U
     scenes-other-onboarding-shared-installation-progress--connecting--light:
@@ -7338,6 +7342,10 @@ snapshots:
         hash: v1.k794b7964.73dd3b1ca302d1d915814fb1c93516188ee3a6c010a9deedc21aba892b0c4eaa.TED9G6l7yoWOiiXzoG27nGeTlcy4E02tWrI0-iEqOBM
     scenes-other-onboarding-shared-installation-progress--playground--light:
         hash: v1.k794b7964.136fe9ea63b8e3301642e87d677f6e9d46f1796683a666a3ab18ee23fbbf5539.4sb2JpWGGJR3UBjBelT0C_Y2JvuppqCQCzwvFT5RptI
+    scenes-other-onboarding-shared-installation-progress--pull-request-merged--dark:
+        hash: v1.k794b7964.ed63a038b7850e6fca64b61fddc7d786b95612b0cb313d1a8fec7e1e300cf7a7.KpidhTaObETHkR2JsrXbAl9Cgh7vqmF12CGN2DZYejI
+    scenes-other-onboarding-shared-installation-progress--pull-request-merged--light:
+        hash: v1.k794b7964.46a6ac2335f607534242f15615f19b9f75cb81c2d48099cfa9772f57df091d76.3Na2Ka58ITzwK3nfOXc8iuwudjObb8rH6LUoDAahiw0
     scenes-other-onboarding-shared-installation-progress--pull-request-ready--dark:
         hash: v1.k794b7964.c0dd7977c4b4e125098401eb4643e2896f600b116c04bf0ff56f09de25579835.x7qV5sJxPaxI27L4YuzDnvP5qLdsHcFQtGRM1cQE23c
     scenes-other-onboarding-shared-installation-progress--pull-request-ready--light:
