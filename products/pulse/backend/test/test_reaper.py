@@ -1,6 +1,7 @@
 import datetime as dt
 
 from posthog.test.base import BaseTest
+from unittest import mock
 
 from django.utils import timezone
 
@@ -33,3 +34,13 @@ class TestStaleBriefReaper(BaseTest):
         assert stale.error
         assert fresh.status == ProductBrief.Status.GENERATING
         assert old_ready.status == ProductBrief.Status.READY
+
+    def test_batch_cap_reaps_up_to_the_cap_and_a_later_run_drains_the_rest(self) -> None:
+        for _ in range(3):
+            self._brief(ProductBrief.Status.GENERATING, STALE_AFTER + dt.timedelta(minutes=5))
+        with mock.patch("products.pulse.backend.reaper.BATCH_SIZE", 2):
+            first = mark_stale_briefs_failed()
+            second = mark_stale_briefs_failed()
+        assert first == 2  # capped
+        assert second == 1  # drained on the next run
+        assert not ProductBrief.all_teams.filter(status=ProductBrief.Status.GENERATING).exists()

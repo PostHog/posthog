@@ -134,6 +134,13 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
+                "indexes": [
+                    models.Index(
+                        condition=models.Q(("status", "generating")),
+                        fields=["updated_at"],
+                        name="pulse_brief_generating_idx",
+                    )
+                ],
                 "abstract": False,
                 "default_manager_name": "all_teams",
             },

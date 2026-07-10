@@ -60,6 +60,17 @@ class ProductBrief(PulseModel):
     error = models.TextField(null=True, blank=True)
     feedback = models.JSONField(default=dict)
 
+    class Meta(PulseModel.Meta):
+        # The stale-brief reaper sweeps GENERATING rows cross-team every few minutes on an
+        # append-only table; a partial index keeps that O(stranded rows), not O(all briefs ever).
+        indexes = [
+            models.Index(
+                fields=["updated_at"],
+                name="pulse_brief_generating_idx",
+                condition=models.Q(status="generating"),
+            )
+        ]
+
 
 class Opportunity(PulseModel):
     class Kind(models.TextChoices):
