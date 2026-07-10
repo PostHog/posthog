@@ -102,28 +102,48 @@
        `variant="pressable"`. Each sets a tint (pastel surface) + accent
        (readable foreground) pair, applied via shared rules below. */
     .quill-item--tone-info {
-        --quill-item-tint: color-mix(in oklab, var(--info) 12%, var(--card));
+        --quill-item-tint: color-mix(in oklab, var(--info) 50%, var(--card));
         --quill-item-accent: var(--info-foreground);
     }
 
+    :is(.dark, [theme='dark']) .quill-item--tone-info {
+        --quill-item-tint: color-mix(in oklab, var(--info) 60%, var(--card));
+    }
+
     .quill-item--tone-success {
-        --quill-item-tint: color-mix(in oklab, var(--success) 12%, var(--card));
+        --quill-item-tint: color-mix(in oklab, var(--success) 50%, var(--card));
         --quill-item-accent: var(--success-foreground);
     }
 
+    :is(.dark, [theme='dark']) .quill-item--tone-success {
+        --quill-item-tint: color-mix(in oklab, var(--success) 60%, var(--card));
+    }
+
     .quill-item--tone-warning {
-        --quill-item-tint: color-mix(in oklab, var(--warning) 12%, var(--card));
+        --quill-item-tint: color-mix(in oklab, var(--warning) 50%, var(--card));
         --quill-item-accent: var(--warning-foreground);
     }
 
+    :is(.dark, [theme='dark']) .quill-item--tone-warning {
+        --quill-item-tint: color-mix(in oklab, var(--warning) 60%, var(--card));
+    }
+
     .quill-item--tone-completed {
-        --quill-item-tint: color-mix(in oklab, var(--completed) 12%, var(--card));
+        --quill-item-tint: color-mix(in oklab, var(--completed) 50%, var(--card));
         --quill-item-accent: var(--completed-foreground);
     }
 
+    :is(.dark, [theme='dark']) .quill-item--tone-completed {
+        --quill-item-tint: color-mix(in oklab, var(--completed) 60%, var(--card));
+    }
+
     .quill-item--tone-destructive {
-        --quill-item-tint: color-mix(in oklab, var(--destructive) 12%, var(--card));
+        --quill-item-tint: color-mix(in oklab, var(--destructive) 50%, var(--card));
         --quill-item-accent: var(--destructive-foreground);
+    }
+
+    :is(.dark, [theme='dark']) .quill-item--tone-destructive {
+        --quill-item-tint: color-mix(in oklab, var(--destructive) 60%, var(--card));
     }
 
     .quill-item[data-tone] {
