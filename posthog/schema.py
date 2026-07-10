@@ -71,6 +71,7 @@ from posthog.schema_enums import (
     DataTableNodeViewPropsContextType as DataTableNodeViewPropsContextType,
     DataWarehouseSavedQueryOrigin as DataWarehouseSavedQueryOrigin,
     DataWarehouseSourceCategory as DataWarehouseSourceCategory,
+    DaysOfWeekEnum as DaysOfWeekEnum,
     DeepResearchType as DeepResearchType,
     DefaultChannelTypes as DefaultChannelTypes,
     DetailedResultsAggregationType as DetailedResultsAggregationType,
@@ -1000,6 +1001,14 @@ class DateRange(BaseModel):
     date_to: str | None = Field(
         default=None,
         description=('End of the date range. Same format as date_from. Omit or null for "now".'),
+    )
+    daysOfWeek: list[DaysOfWeekEnum] | None = Field(
+        default=None,
+        description=(
+            "Restrict the query to events occurring on these ISO days of week (1=Monday"
+            " to 7=Sunday), evaluated in the project timezone. Omit or empty for all"
+            " days. Only applied by insight queries."
+        ),
     )
     explicitDate: bool | None = Field(
         default=False,
