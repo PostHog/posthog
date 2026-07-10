@@ -190,6 +190,23 @@ class TestSubscriptionTemporal(APILicensedTest):
         # A delivery already in flight must not fail the update or fan out a second send
         assert response.status_code == status.HTTP_200_OK, response.content
 
+    def test_update_inferred_deliveries_get_unique_workflow_ids(self):
+        # Only explicit send_test_now dedupes: two legitimate consecutive recipient edits must
+        # both deliver, each under a fresh workflow ID, instead of the second silently deduping.
+        sub_id = self._create_subscription().json()["id"]
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        for recipient in ("first@posthog.com", "second@posthog.com"):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"target_value": recipient}
+            )
+            assert response.status_code == status.HTTP_200_OK, response.content
+
+        assert self.mock_temporal_client.start_workflow.call_count == 2
+        workflow_ids = [call.kwargs["id"] for call in self.mock_temporal_client.start_workflow.call_args_list]
+        assert all(wf_id.startswith(f"handle-subscription-value-change-{sub_id}-") for wf_id in workflow_ids)
+        assert len(set(workflow_ids)) == 2
+
     @patch("posthog.rate_limit.SubscriptionTestDeliveryThrottle.rate", new="2/minute")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_update_send_test_now_shares_test_delivery_throttle(self, _rate_limit_enabled_mock):
