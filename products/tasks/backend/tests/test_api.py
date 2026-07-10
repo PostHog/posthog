@@ -1240,24 +1240,28 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [])
         self.assertFalse(SignalReportTask.objects.filter(report=report, task_id=data["id"]).exists())
 
-    def test_create_task_with_signal_report_research_rejected(self):
-        from products.signals.backend.models import SignalReport
+    def test_create_task_with_signal_report_accepts_free_form_relationship(self):
+        from products.signals.backend.models import SignalReport, SignalReportTask
+        from products.signals.backend.task_run_artefacts import signals_task_ids
 
+        # The relationship is a free-form task_run label — no value is reserved. A non-implementation
+        # relationship records only the work-log artefact (no SignalReportTask gate row).
         report = SignalReport.objects.create(team=self.team)
         response = self.client.post(
             "/api/projects/@current/tasks/",
             {
                 "title": "Research",
-                "description": "Should be rejected",
+                "description": "From a signal report",
                 "origin_product": "signal_report",
                 "signal_report": str(report.id),
-                # `research` is reserved for the server-side research pipeline; clients can't spoof it.
                 "signal_report_task_relationship": "research",
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "signal_report_task_relationship")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(signals_task_ids(report_id=str(report.id), type="research"), [data["id"]])
+        self.assertFalse(SignalReportTask.objects.filter(report=report, task_id=data["id"]).exists())
 
     def test_create_task_with_signal_report_different_team_rejected(self):
         from products.signals.backend.models import SignalReport

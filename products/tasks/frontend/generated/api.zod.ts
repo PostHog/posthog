@@ -381,7 +381,7 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .max(tasksCreateBodySignalReportTaskRelationshipMax)
             .optional()
             .describe(
-                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. 'research' is reserved for server-side flows and is rejected. Any other routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
             ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
@@ -518,7 +518,7 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .max(tasksUpdateBodySignalReportTaskRelationshipMax)
             .optional()
             .describe(
-                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. 'research' is reserved for server-side flows and is rejected. Any other routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
             ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
@@ -655,7 +655,7 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .max(tasksPartialUpdateBodySignalReportTaskRelationshipMax)
             .optional()
             .describe(
-                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. 'research' is reserved for server-side flows and is rejected. Any other routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
             ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod

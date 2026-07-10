@@ -303,14 +303,14 @@ class TaskRunDetailSerializer(DataclassSerializer):
         ]
 
 
-# Relationships a client may assert between a task and a signal report when creating a task from the
-# report (e.g. PostHog Code inbox), recorded as a signals `task_run` work-log entry. `implementation`
-# additionally opens the auto-start spend gate. `research` is reserved for the server-side research
-# pipeline — clients must not spoof it — so it (and any other reserved type) is rejected. Any other
-# routing-safe identifier (e.g. `discussion`) is accepted, mirroring the free-form signals `task_run`
-# type contract. Kept inline so presentation never imports the other product's internals.
-SIGNAL_REPORT_TASK_RELATIONSHIP_RESERVED = frozenset({"research"})
-# Mirrors the routing-safe identifier rule in `signals` `artefact_schemas` (_IDENTIFIER_PART_RE).
+# The relationship a client asserts between a task and a signal report when creating a task from the
+# report (e.g. PostHog Code inbox), recorded as a signals `task_run` work-log entry. This is a
+# free-form label — the same as the `task_run` artefact `(product, type)` values, which have never
+# been access-controlled — so no relationship is reserved here either. `implementation` additionally
+# opens the auto-start spend gate (recorded server-side via `record_report_task`). Only the routing-
+# safe format is enforced, so a malformed value returns 400 rather than 500 from the artefact schema.
+# Mirrors the routing-safe identifier rule in `signals` `artefact_schemas` (_IDENTIFIER_PART_RE),
+# kept inline so presentation never imports the other product's internals.
 _SIGNAL_REPORT_TASK_RELATIONSHIP_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
@@ -415,10 +415,10 @@ class TaskWriteSerializer(serializers.Serializer):
         write_only=True,
         max_length=200,
         help_text=(
-            "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). "
-            "Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start "
-            "spend gate. 'research' is reserved for server-side flows and is rejected. Any other "
-            "routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+            "How the created task relates to the signal report (e.g. 'implementation', 'discussion', "
+            "'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens "
+            "the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, "
+            "'_', '-') is accepted."
         ),
     )
     json_schema = serializers.JSONField(
@@ -586,8 +586,6 @@ class TaskWriteSerializer(serializers.Serializer):
 
     def validate_signal_report_task_relationship(self, value: str) -> str:
         normalized = value.strip()
-        if normalized in SIGNAL_REPORT_TASK_RELATIONSHIP_RESERVED:
-            raise serializers.ValidationError(f"'{normalized}' is reserved for server-side flows.")
         if not _SIGNAL_REPORT_TASK_RELATIONSHIP_RE.fullmatch(normalized):
             raise serializers.ValidationError(
                 "Must contain only lowercase letters, numbers, underscores, or hyphens, "
