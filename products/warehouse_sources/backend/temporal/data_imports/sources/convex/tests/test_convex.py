@@ -269,7 +269,9 @@ class TestConvexChunkedEncodingRetry:
             _make_response({"values": [{"_id": "a"}], "cursor": 30, "hasMore": False}),
         ]
 
-        with patch.object(_convex_get.retry, "sleep"):
+        # tenacity attaches the Retrying controller as `.retry`; stub its sleep so the backoff
+        # between attempts doesn't actually block the test.
+        with patch.object(_convex_get.retry, "sleep"):  # type: ignore[attr-defined]
             batches = list(document_deltas("https://x.convex.cloud", "key", "t", 10, manager))
 
         assert batches == [[{"_id": "a"}]]
