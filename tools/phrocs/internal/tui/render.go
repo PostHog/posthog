@@ -316,9 +316,10 @@ func (m Model) viewportWithIndicator() string {
 
 	lines := strings.Split(view, "\n")
 
-	// Show a cursor after the last line when the process is waiting for input.
+	// Show a cursor after the last line when keystrokes are being forwarded to
+	// the process (auto-detected prompt or explicit input mode).
 	if p := m.activeProc(); p != nil {
-		showCursor := m.focusedPane == focusOutput && p.HasPrompt()
+		showCursor := m.isForwardingInput()
 		if showCursor {
 			lastLine := len(lines) - 1
 			lines[lastLine] = strings.TrimRight(lines[lastLine], " ") + " " + m.inputBuffer + "▌"
@@ -352,6 +353,11 @@ func (m Model) renderFooter() string {
 		}
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorBlue).Render(hint),
+		)
+	} else if p := m.activeProc(); m.inputMode && m.focusedPane == focusOutput && p != nil && p.IsRunning() {
+		hint := "-- INPUT --  type to send to the process  ↵: send  ⌫: delete  ^g: leave"
+		return footerStyle.Width(m.width - 2).Render(
+			lipgloss.NewStyle().Foreground(colorGreen).Render(hint),
 		)
 	} else if m.infoMode {
 		hint := "-- INFO --  i/esc: close"

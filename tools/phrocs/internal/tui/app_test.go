@@ -198,6 +198,75 @@ func TestFocus_mouseClickOutput(t *testing.T) {
 	}
 }
 
+// ── Input mode ──────────────────────────────────────────────────────────────
+
+// startedModel returns a ready model with a single running process, skipping
+// the test if the subprocess can't be spawned in this environment.
+func startedModel(t *testing.T, shell string) (Model, *process.Process) {
+	t.Helper()
+	f := false
+	cfg := &config.Config{
+		Procs:            map[string]config.ProcConfig{"proc": {Shell: shell, Autostart: &f}},
+		MouseScrollSpeed: 3,
+		Scrollback:       1000,
+	}
+	mgr := process.NewManager(cfg)
+	mgr.SetSend(func(tea.Msg) {}) // drain status/output so Start doesn't block
+	m := New(mgr, cfg, "", nil)
+	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	p := m.activeProc()
+	if err := p.Start(mgr.Send()); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+	if !p.IsRunning() {
+		t.Skip("proc did not reach running state")
+	}
+	return m, p
+}
+
+func TestInputMode_enterAndExit(t *testing.T) {
+	m, p := startedModel(t, "sleep 30")
+	defer p.Stop()
+
+	m = update(m, specialKey(tea.KeyTab)) // focus output pane
+	if m.focusedPane != focusOutput {
+		t.Fatal("expected output focus after tab")
+	}
+	m = update(m, specialKey(tea.KeyEnter))
+	if !m.inputMode {
+		t.Error("enter should activate input mode on a running proc")
+	}
+	m = update(m, tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
+	if m.inputMode {
+		t.Error("ctrl+g should leave input mode")
+	}
+}
+
+func TestInputMode_ignoredWhenProcNotRunning(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, specialKey(tea.KeyTab))
+	if m.focusedPane != focusOutput {
+		t.Fatal("expected output focus after tab")
+	}
+	m = update(m, specialKey(tea.KeyEnter))
+	if m.inputMode {
+		t.Error("enter should not activate input mode when the proc is not running")
+	}
+}
+
+func TestInputMode_resetWhenLeavingOutputPane(t *testing.T) {
+	m := readyModel(t, "backend")
+	m.focusedPane = focusOutput
+	m.inputMode = true
+	m = update(m, specialKey(tea.KeyTab)) // back to sidebar
+	if m.focusedPane != focusServices {
+		t.Fatal("expected sidebar focus after tab")
+	}
+	if m.inputMode {
+		t.Error("leaving the output pane should reset input mode")
+	}
+}
+
 // ── Help ──────────────────────────────────────────────────────────────────────
 
 func TestHelp_toggle(t *testing.T) {

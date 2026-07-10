@@ -92,6 +92,9 @@ type Model struct {
 
 	// Buffered text for PTY input when the output pane is focused
 	inputBuffer string
+	// Explicit input mode: forward keystrokes to the proc's PTY regardless of
+	// the HasPrompt() heuristic. Toggled on with enter, off with ctrl+g.
+	inputMode bool
 
 	// Show-all mode: display registry processes not in the current intent config
 	showAllRegProcs bool
@@ -505,6 +508,7 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 	m.copyMode = false
 	m.searchMode = false
 	m.filterMode = false
+	m.inputMode = false
 	m.inputBuffer = ""
 	m.viewport.StyleLineFunc = nil
 

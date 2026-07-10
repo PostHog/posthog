@@ -79,6 +79,8 @@ You typically run phrocs via `hogli start` rather than directly.
 | `g`    | Cycle process grouping (from config `groups` field)     |
 | `a`    | Toggle show all registry processes                      |
 | `/`    | Enter search mode (then `tab` to switch to filter mode) |
+| `↵`    | Send keystrokes to the process (output pane)            |
+| `^g`   | Leave input mode                                         |
 | `esc`  | Exit copy, search, and filter modes                     |
 | `?`    | Toggle full help                                        |
 | `q`    | Quit                                                    |
@@ -90,6 +92,18 @@ Mouse clicks switch focus; mouse wheel scrolls the output pane.
 Press `c` to enter copy mode in the output pane.
 Navigate with `↑`/`↓`, press `c` again to mark the selection start, then extend with `↑`/`↓` and press `c` to copy to clipboard.
 Press `esc` to exit without copying.
+
+### Sending input to a process
+
+Some processes wait for input on stdin — a `(y/n)` confirmation, a REPL, an interactive CLI.
+Focus the output pane (`tab`), then type to send keystrokes to the process's PTY.
+
+phrocs auto-detects a prompt when the last output didn't end in a newline, and starts forwarding
+keystrokes right away. That heuristic misses prompts that print a trailing newline, so you can also
+press `↵` to enter **input mode** explicitly: every key then goes to the process until you press
+`^g` to leave. A cursor after the last output line and an `-- INPUT --` footer show when input is
+being forwarded. `↵` sends the current line, `⌫` deletes a character, and the arrow keys are passed
+through. Pane switching (`tab`) and scrolling (`pgup`/`pgdn`/`home`/`end`) still work while forwarding.
 
 ### Search and filter modes
 

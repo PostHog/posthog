@@ -87,6 +87,11 @@ func (m *Model) cyclePane(dir int) {
 	for i, p := range panes {
 		if p == m.focusedPane {
 			m.focusedPane = panes[(i+dir+len(panes))%len(panes)]
+			// Leaving the output pane drops explicit input mode.
+			if m.focusedPane != focusOutput {
+				m.inputMode = false
+				m.inputBuffer = ""
+			}
 			m.dbg("focus: → %d", m.focusedPane)
 			return
 		}
@@ -361,11 +366,21 @@ func (m *Model) restartAllFailed() int {
 	return count
 }
 
+// isForwardingInput reports whether keystrokes should go to the active proc's
+// PTY rather than the TUI. True when the output pane is focused, the proc is
+// running, and either the user explicitly entered input mode or the proc looks
+// like it's waiting for input (HasPrompt heuristic).
+func (m Model) isForwardingInput() bool {
+	p := m.activeProc()
+	return p != nil && m.focusedPane == focusOutput && p.IsRunning() &&
+		(m.inputMode || p.HasPrompt())
+}
+
 func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 	// When the active process is waiting for input, buffer keystrokes and send them on Enter.
 	p := m.activeProc()
-	procHasPrompt := p != nil && m.focusedPane == focusOutput && p.HasPrompt()
-	// Control keys are excluded so navigation still works.
+	// Control keys are excluded so navigation (pane switching, scrolling) still
+	// works even while keystrokes are being forwarded to the proc.
 	isControlKey := key.Matches(msg, m.keys.NextPane) ||
 		key.Matches(msg, m.keys.PrevPane) ||
 		key.Matches(msg, m.keys.GotoTop) ||
@@ -373,7 +388,15 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		key.Matches(msg, m.keys.ScrollDown) ||
 		key.Matches(msg, m.keys.ScrollUp)
 
-	if procHasPrompt && !isControlKey {
+	if m.isForwardingInput() && !isControlKey {
+		// ctrl+g always leaves explicit input mode without touching the proc.
+		if m.inputMode && key.Matches(msg, m.keys.ExitInput) {
+			m.inputMode = false
+			m.inputBuffer = ""
+			m.dbg("input mode: exit")
+			return m, tea.Batch(cmds...)
+		}
+
 		var input []byte
 
 		switch msg.Code {
@@ -585,6 +608,15 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.refreshInfoContent()
 		m.viewport.GotoTop()
 		m.dbg("info mode: enter")
+
+	case key.Matches(msg, m.keys.InputMode):
+		// Enter explicit input mode so keystrokes reach a proc that's waiting on
+		// stdin even when the HasPrompt heuristic didn't catch it.
+		if p != nil && m.focusedPane == focusOutput && p.IsRunning() {
+			m.inputMode = true
+			m.inputBuffer = ""
+			m.dbg("input mode: enter")
+		}
 
 	case key.Matches(msg, m.keys.SetupMode):
 		m = m.enterSetupMode()
