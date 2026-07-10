@@ -24,7 +24,7 @@ import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processi
 import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
 import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
-import { processPersonlessDistinctIdsBatchStep } from '~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep'
+import { processPersonlessDistinctIdsChunkStep } from '~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsChunkStep'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
 
@@ -113,7 +113,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             // This step awaits its DB write, so retry transient persons-Postgres failures
             // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
             .pipeChunk(
-                processPersonlessDistinctIdsBatchStep(personsPrefetchEnabled, flagCalledPersonlessDefaultTeams),
+                processPersonlessDistinctIdsChunkStep(personsPrefetchEnabled, flagCalledPersonlessDefaultTeams),
                 {
                     retry: {
                         tries: 5,
