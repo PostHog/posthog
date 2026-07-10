@@ -185,13 +185,17 @@ export function InsightMeta({
     const isSqlInsight = isDataVisualizationNode(insight.query)
     const showCompactHeading = !showCompactTile || !isSqlInsight
 
+    const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).length > 0
+    // A non-empty tile override replaces the dashboard override wholesale (see apply_dashboard_filters
+    // on the backend), so don't fall back to the dashboard's dates when the tile override has none —
+    // the insight's own date range is what actually applies then.
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
-        hasTileOverrides: Object.keys(tileFiltersOverride ?? {}).length > 0,
+        hasTileOverrides,
         resolvedDateRange: insightData?.resolved_date_range,
-        dateFromOverride: tileFiltersOverride?.date_from ?? filtersOverride?.date_from,
-        dateToOverride: tileFiltersOverride?.date_to ?? filtersOverride?.date_to,
+        dateFromOverride: hasTileOverrides ? tileFiltersOverride?.date_from : filtersOverride?.date_from,
+        dateToOverride: hasTileOverrides ? tileFiltersOverride?.date_to : filtersOverride?.date_to,
     }
 
     const summary = useSummarizeInsight()(insight.query)
