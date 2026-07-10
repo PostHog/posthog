@@ -57,6 +57,7 @@ def build_query(table_name: str) -> str:
             closed_at,
             head_sha,
             head_branch,
+            base_branch,
             if(merged_at IS NOT NULL, dateDiff('second', created_at, merged_at), NULL) AS open_to_merge_seconds
         FROM (
             SELECT
@@ -74,6 +75,9 @@ def build_query(table_name: str) -> str:
                 JSONExtractString(head, 'sha') AS head_sha,
                 -- head.ref is the PR's source branch — the key a branch → PR resolution matches on.
                 JSONExtractString(head, 'ref') AS head_branch,
+                -- base.ref is the branch the PR merges into (usually the default branch); the LLM-spend
+                -- session join treats it as neutral, since agents stamp pre-branch exploration with it.
+                JSONExtractString(base, 'ref') AS base_branch,
                 parseDateTimeBestEffort(created_at) AS created_at,
                 parseDateTimeBestEffort(updated_at) AS updated_at,
                 parseDateTimeBestEffort(merged_at) AS merged_at,

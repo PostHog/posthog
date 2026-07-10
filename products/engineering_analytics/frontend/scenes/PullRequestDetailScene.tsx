@@ -761,7 +761,7 @@ export function PullRequestDetailScene(): JSX.Element {
                         {prCost?.llm_spend && (
                             <MetricTile
                                 label="LLM spend"
-                                tooltip="Token spend from AI coding/review sessions on this PR's branch (matched via $ai_git_branch)."
+                                tooltip="Token spend from AI coding/review sessions on this PR's branch, including spend from the same session before the branch was created."
                                 value={compactUsd(prCost.llm_spend.cost_usd)}
                                 sub={`${compactCount(
                                     prCost.llm_spend.input_tokens + prCost.llm_spend.output_tokens

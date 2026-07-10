@@ -1400,22 +1400,31 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
     def _generation(
         self,
         *,
-        branch: str,
+        branch: str | None,
         days_ago: float,
         cost: float,
         input_tokens: int = 0,
         output_tokens: int = 0,
         repo: str | None = None,
+        session: str | None = None,
+        trace: str | None = None,
         event: str = "$ai_generation",
     ) -> None:
+        # branch=None seeds an unstamped generation (no $ai_git_branch), the transient state the
+        # carry-forward and prefix rules attribute; session/trace set the grouping key.
         props: dict[str, Any] = {
-            "$ai_git_branch": branch,
             "$ai_total_cost_usd": cost,
             "$ai_input_tokens": input_tokens,
             "$ai_output_tokens": output_tokens,
         }
+        if branch is not None:
+            props["$ai_git_branch"] = branch
         if repo is not None:
             props["$ai_git_repo"] = repo
+        if session is not None:
+            props["$ai_session_id"] = session
+        if trace is not None:
+            props["$ai_trace_id"] = trace
         _create_event(
             event=event,
             team=self.team,
@@ -1424,20 +1433,35 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
             timestamp=timezone.now() - timedelta(days=days_ago),
         )
 
-    def test_llm_spend_attributes_by_branch_within_window(self) -> None:
-        branch = "feat/tokens"
-        # Merged PR: window = [created_at - 14d, merged_at] = [_ago(19), _ago(1)].
+    def _seed_pr(self, number: int, head_ref: str, *, base_ref: str = "master") -> None:
+        # A merged PR fixes the window to [created - 14d, merged] = [_ago(19), _ago(1)]. The runs table
+        # must exist for the source to resolve even though LLM spend never reads it (mixin gotcha).
         self._create_table(
             "github_pull_requests",
             _PULL_REQUESTS_COLUMNS,
-            [_pr_row(80, "alice", "closed", 0, _ago(5), merged_at=_ago(1), head_sha="sha80", head_ref=branch)],
+            [
+                _pr_row(
+                    number,
+                    "alice",
+                    "closed",
+                    0,
+                    _ago(5),
+                    merged_at=_ago(1),
+                    head_sha=f"sha{number}",
+                    head_ref=head_ref,
+                    base_ref=base_ref,
+                )
+            ],
         )
-        # A workflow_runs table must exist for the source to resolve, even though LLM spend never reads it.
         self._create_table(
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
-            [_run_row(8000, "CI", "sha80", "completed", "success", _ago(4), _ago(4), pr_number=80)],
+            [_run_row(number * 100, "CI", f"sha{number}", "completed", "success", _ago(4), _ago(4), pr_number=number)],
         )
+
+    def test_llm_spend_attributes_by_branch_within_window(self) -> None:
+        branch = "feat/tokens"
+        self._seed_pr(80, branch)
         # Matches: on-branch, in-window; one with no repo stamped, one with the repo stamped equal.
         self._generation(branch=branch, days_ago=4, cost=1.0, input_tokens=100, output_tokens=50)
         self._generation(
@@ -1471,4 +1495,84 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
             [_run_row(8100, "CI", "sha81", "completed", "success", _ago(1), _ago(1), pr_number=81)],
         )
         cost = api.get_pr_cost(team=self.team, pr_number=81, repo="PostHog/posthog")
+        assert cost.llm_spend is None
+
+    @parameterized.expand(
+        [
+            # first feature stamp == H: the base-stamped prefix and the H events all credit H.
+            ("first_feature_is_head", "feat/tokens", 4, pytest.approx(14.0)),
+            # first feature stamp == a different branch: the prefix belongs to that branch, so only
+            # the later direct-H stamp credits H (guards against prefix-stealing).
+            ("first_feature_is_other", "feat/other", 1, pytest.approx(8.0)),
+        ]
+    )
+    def test_prefix_credits_head_only_when_first_feature_branch_is_head(
+        self, _name: str, first_feature: str, expected_generations: int, expected_cost: Any
+    ) -> None:
+        head = "feat/tokens"
+        self._seed_pr(82, head, base_ref="master")
+        # Same session: base-stamped exploration, then the first feature stamp, then a direct H stamp.
+        self._generation(branch="master", days_ago=10, cost=1.0, session="s1")
+        self._generation(branch="master", days_ago=9, cost=1.0, session="s1")
+        self._generation(branch=first_feature, days_ago=8, cost=4.0, session="s1")
+        self._generation(branch=head, days_ago=6, cost=8.0, session="s1")
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=82, repo="PostHog/posthog")
+        assert cost.llm_spend is not None
+        assert cost.llm_spend.generations == expected_generations
+        assert cost.llm_spend.cost_usd == expected_cost
+
+    def test_carry_forward_follows_latest_stamp_until_a_branch_switch(self) -> None:
+        self._seed_pr(83, "feat/tokens", base_ref="master")
+        # H stamp, then an unstamped event that carries H forward, then a switch to another branch whose
+        # later unstamped event must NOT credit H.
+        self._generation(branch="feat/tokens", days_ago=10, cost=1.0, session="s2")
+        self._generation(branch=None, days_ago=9, cost=2.0, session="s2")
+        self._generation(branch="feat/other", days_ago=8, cost=99.0, session="s2")
+        self._generation(branch=None, days_ago=7, cost=99.0, session="s2")
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=83, repo="PostHog/posthog")
+        assert cost.llm_spend is not None
+        assert cost.llm_spend.generations == 2
+        assert cost.llm_spend.cost_usd == pytest.approx(3.0)
+
+    def test_out_of_window_events_excluded_even_in_an_eligible_session(self) -> None:
+        self._seed_pr(84, "feat/tokens", base_ref="master")
+        # In-window H stamp makes the session eligible; an unstamped event after the merge would carry H
+        # forward if the window were dropped from the group scan, so it guards that outer-window filter.
+        self._generation(branch="feat/tokens", days_ago=4, cost=1.0, session="s3")
+        self._generation(branch=None, days_ago=0, cost=99.0, session="s3")
+        self._generation(branch="feat/tokens", days_ago=25, cost=99.0, session="s3")
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=84, repo="PostHog/posthog")
+        assert cost.llm_spend is not None
+        assert cost.llm_spend.generations == 1
+        assert cost.llm_spend.cost_usd == pytest.approx(1.0)
+
+    def test_ungrouped_events_count_only_via_a_direct_head_stamp(self) -> None:
+        self._seed_pr(85, "feat/tokens", base_ref="master")
+        # No session and no trace id: no group, so neither prefix nor carry-forward applies — only the
+        # event stamped H directly counts.
+        self._generation(branch="feat/tokens", days_ago=8, cost=5.0)
+        self._generation(branch="master", days_ago=9, cost=99.0)
+        self._generation(branch=None, days_ago=7, cost=99.0)
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=85, repo="PostHog/posthog")
+        assert cost.llm_spend is not None
+        assert cost.llm_spend.generations == 1
+        assert cost.llm_spend.cost_usd == pytest.approx(5.0)
+
+    def test_session_with_only_base_stamps_is_not_eligible(self) -> None:
+        self._seed_pr(86, "feat/tokens", base_ref="master")
+        # A session that never stamps the head ref is not eligible, so its base-stamped exploration
+        # credits nothing and spend stays null.
+        self._generation(branch="master", days_ago=10, cost=99.0, session="s4")
+        self._generation(branch=None, days_ago=9, cost=99.0, session="s4")
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=86, repo="PostHog/posthog")
         assert cost.llm_spend is None
