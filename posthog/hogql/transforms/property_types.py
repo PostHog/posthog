@@ -518,8 +518,7 @@ class PropertySwapper(CloningVisitor):
         if isinstance(inner, ast.Constant):
             if isinstance(inner.value, datetime) and inner.value.tzinfo is not None:
                 return expr
-            # A zoned ISO string (trailing 'Z' or numeric offset) would make toDateTime64's strict
-            # reader throw, so parse it here and take the aware-datetime path above instead.
+            # ClickHouse's toDateTime64 can't parse 'Z'/offset strings, so parse them in Python instead.
             if (zoned := parse_zoned_datetime_string(inner.value)) is not None:
                 inner.value = zoned
                 return expr

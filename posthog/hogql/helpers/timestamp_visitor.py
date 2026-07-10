@@ -11,16 +11,7 @@ from posthog.hogql.visitor import Visitor
 
 
 def parse_zoned_datetime_string(value: object) -> Optional[datetime]:
-    """Parse an ISO 8601 datetime string carrying a zone designator (trailing 'Z' or a numeric offset)
-    into an aware datetime; return None for anything else, including naive datetime strings.
-
-    ClickHouse's strict DateTime64 reader (the implicit String cast and toDateTime64) rejects zone
-    designators, which is exactly what Python's ``datetime.isoformat`` / ``orjson.OPT_UTC_Z`` produce
-    when a server-side value round-trips back into a query. Callers replace such a string constant
-    with the parsed datetime, which the printer inlines as a strict toDateTime64 literal with the
-    instant already converted, so nothing has to be parsed at query time. Strings that only look like
-    zoned datetimes (month 13, impossible offsets) return None and keep the strict path's clear error.
-    """
+    """Parse a datetime string that has an explicit timezone ('Z' or an offset); None if naive or invalid."""
     if not isinstance(value, str):
         return None
     try:
@@ -30,8 +21,7 @@ def parse_zoned_datetime_string(value: object) -> Optional[datetime]:
     if parsed.tzinfo is None:
         return None
     try:
-        # Instants within an offset of datetime.min/max overflow on conversion; the printer would
-        # hit the same overflow when converting to the team timezone, so treat them as unparseable.
+        # Dates too close to datetime.min/max overflow when converted to another timezone.
         parsed.astimezone(UTC)
     except (OverflowError, ValueError):
         return None

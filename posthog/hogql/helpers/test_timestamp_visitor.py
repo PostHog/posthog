@@ -592,7 +592,7 @@ class TestIsSimpleTimestampFieldExpression(unittest.TestCase):
 class TestParseZonedDatetimeString(unittest.TestCase):
     @parameterized.expand(
         [
-            # Zone designator present and valid -> parsed to the exact aware instant.
+            # Valid with an explicit timezone -> parsed to the exact instant.
             (
                 "iso_utc_micros",
                 "2026-06-30T09:59:12.988000Z",
@@ -620,12 +620,12 @@ class TestParseZonedDatetimeString(unittest.TestCase):
                 "2026-06-30T09:59:12.988000123Z",
                 datetime(2026, 6, 30, 9, 59, 12, 988000, tzinfo=UTC),
             ),
-            # No zone designator -> ClickHouse parses these in the field timezone, must stay untouched.
+            # No timezone -> left for ClickHouse to interpret in the field timezone.
             ("mysql_style", "2026-06-30 09:59:12", None),
             ("iso_no_zone", "2026-06-30T09:59:12", None),
             ("date_only", "2026-06-30", None),
             ("with_micros_no_zone", "2026-06-30 09:59:12.988000", None),
-            # Shaped like a zoned datetime but not a real instant -> None keeps the strict path's clear error.
+            # Looks zoned but is not a real datetime -> None, so the old clear error still surfaces.
             ("month_out_of_range", "2026-13-45T99:99:99Z", None),
             ("day_month_swapped", "2026-30-06T00:00:00Z", None),
             ("impossible_offset", "2026-06-30T09:59:12+99:00", None),

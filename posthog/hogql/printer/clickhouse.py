@@ -84,8 +84,7 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
 # never be turned into an unparameterized read of arbitrary (e.g. user-supplied) text.
 INLINE_SENTINEL_LITERALS = frozenset({"", "null", "true", "false", '^"|"$'})
 
-# Comparison ops where a zoned datetime string constant against a DateTime field is coerced to a
-# datetime literal. Pattern and set-membership ops keep their string operand untouched.
+# Comparison ops where a datetime string with a timezone may be replaced by a datetime literal.
 ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
     {
         ast.CompareOperationOp.Eq,
@@ -645,12 +644,7 @@ class ClickHousePrinter(BasePrinter):
         if any(col in left or col in right for col in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING):
             not_nullable = True
 
-        # A zoned ISO 8601 datetime string (trailing 'Z' or numeric offset) compared against a
-        # DateTime field can't be cast by ClickHouse's strict reader, so inline it as a datetime
-        # literal with the instant already converted, the same way visit_constant prints datetime
-        # values. Range comparisons inside WHERE are normally rewritten earlier by PropertySwapper;
-        # this catches equality and any comparison the transform doesn't reach. Pattern ops need the
-        # string operand, and Date fields keep the strict error rather than a time-of-day comparison.
+        # ClickHouse can't parse datetime strings ending in 'Z' or an offset, so print those as datetime literals.
         if node.op in ZONED_DATETIME_COERCIBLE_COMPARE_OPS:
             if (
                 zoned_left := self._parse_zoned_datetime_constant(node.left)

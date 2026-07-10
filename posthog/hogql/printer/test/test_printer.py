@@ -2252,14 +2252,13 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand([("=",), ("!=",), (">",), ("<",), (">=",), ("<=",)])
     def test_zoned_datetime_string_compared_to_timestamp_is_inlined_as_datetime(self, op: str):
-        # ClickHouse's strict DateTime64 reader rejects 'Z'/offset suffixes, so zoned ISO strings are
-        # parsed in Python and inlined (equality via the printer, range ops via PropertySwapper).
+        # ClickHouse can't parse 'Z'/offset datetime strings, so they are parsed in Python and inlined.
         printed = self._select(f"SELECT count() FROM events WHERE timestamp {op} '2026-06-30T09:59:12.988000Z'")
         assert "toDateTime64('2026-06-30 09:59:12.988000', 6, 'UTC')" in printed, printed
         assert "BestEffort" not in printed, printed
 
     def test_zoned_datetime_string_instant_converted_to_team_timezone(self):
-        # The literal must express the string's instant in the team timezone, not echo its digits.
+        # The inlined literal must be the same instant converted to the team timezone.
         self.team.timezone = "US/Pacific"
         self.team.save()
         printed = self._select("SELECT count() FROM events WHERE timestamp > '2026-06-30T09:59:12.988000Z'")
@@ -2267,16 +2266,15 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("events", "timestamp = '2026-06-30 09:59:12'"),  # no zone designator: CH casts it in the field tz
+            ("events", "timestamp = '2026-06-30 09:59:12'"),  # no timezone, ClickHouse handles it
             ("events", "timestamp = '2026-06-30'"),
-            ("events", "event = '2026-06-30T09:59:12.988000Z'"),  # String column: not a datetime comparison
-            ("events", "timestamp = '2026-30-06T00:00:00Z'"),  # zoned shape but invalid: keep the strict error
-            ("exchange_rate", "date = '2026-06-30T09:59:12.988000Z'"),  # Date column: no time-of-day comparison
+            ("events", "event = '2026-06-30T09:59:12.988000Z'"),  # String column
+            ("events", "timestamp = '2026-30-06T00:00:00Z'"),  # looks zoned but invalid, still errors loudly
+            ("exchange_rate", "date = '2026-06-30T09:59:12.988000Z'"),  # Date column, left alone
         ]
     )
     def test_datetime_string_comparison_stays_bare(self, table: str, where: str):
-        # Only valid zoned strings against a DateTime-typed field get inlined; everything else keeps
-        # its parameterized constant (field-timezone interpretation, loud errors on invalid input).
+        # Only valid timezone-carrying strings compared to DateTime fields get inlined.
         printed = self._select(f"SELECT count() FROM {table} WHERE {where}")
         assert "2026" not in printed, printed
         assert "BestEffort" not in printed, printed
