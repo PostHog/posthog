@@ -717,7 +717,9 @@ class ReplayObservationViewSet(
             # to the cascade) instead of leaving the recording looking unscanned.
             observation.pk = original_pk
             observation.save(force_insert=True)
-            ReplayObservation.objects.filter(pk=original_pk).update(created_at=original_created_at)
+            ReplayObservation.objects.filter(pk=original_pk, team_id=observation.team_id).update(
+                created_at=original_created_at
+            )
         if outcome is WorkflowStartOutcome.ALREADY_RUNNING:
             # The prior run is still closing, so its deterministic id blocks the restart and no new row will appear.
             return Response(
