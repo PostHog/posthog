@@ -208,7 +208,6 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                     .pipe(
                                                         topHogWrapper(
                                                             createRecordSessionEventStep({
-                                                                sessionBatchManager,
                                                                 isDebugLoggingEnabled,
                                                             }),
                                                             [

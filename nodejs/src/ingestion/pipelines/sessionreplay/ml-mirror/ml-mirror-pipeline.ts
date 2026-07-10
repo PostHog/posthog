@@ -126,7 +126,6 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
                                                 const recorded = parsed.pipe(
                                                     topHogWrapper(
                                                         createRecordSessionEventStep({
-                                                            sessionBatchManager,
                                                             isDebugLoggingEnabled,
                                                         }),
                                                         [
