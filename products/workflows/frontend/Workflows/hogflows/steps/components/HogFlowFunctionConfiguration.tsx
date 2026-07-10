@@ -54,7 +54,9 @@ export function HogFlowFunctionConfiguration({
                 setInputs({ ...defaults, ...currentInputs })
             }
         }
-    }, [templateId])
+        // Re-run once the template resolves: it loads asynchronously, so on first render it can still be
+        // undefined and the defaults would otherwise never be applied.
+    }, [templateId, !!template])
 
     if (hogFunctionTemplatesByIdLoading) {
         return (
