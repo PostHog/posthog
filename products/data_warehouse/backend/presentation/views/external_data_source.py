@@ -4423,6 +4423,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if isinstance(entry, dict) and "value" in entry:
                 preserved_inputs[name] = entry["value"]
 
+        was_enabled = hog_function.enabled
+
         # Re-sync inputs_schema + template linkage from the current template and merge
         # schema_mapping for the eligible schemas (both idempotent in the existing helper).
         hog_fn_result = get_or_create_webhook_hog_function(
@@ -4438,6 +4440,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": hog_fn_result.error or "Failed to refresh webhook function"},
             )
+
+        # The shared helper defaults enabled=True (create/schema-enable semantics). This repair
+        # action fixes configuration only; a deliberately paused function must stay paused.
+        if not was_enabled and hog_fn_result.hog_function.enabled:
+            hog_fn_result.hog_function.enabled = False
+            hog_fn_result.hog_function.save(update_fields=["enabled"])
 
         sync_result = reconcile_webhook_events(source, config, hog_fn_result, self.team_id, eligible_schema_names)
 

@@ -8515,7 +8515,7 @@ class TestSyncWebhookEvents(APIBaseTest):
             category=[],
         )
 
-    def _create_hog_function(self, source: ExternalDataSource, code: str = "// old code"):
+    def _create_hog_function(self, source: ExternalDataSource, code: str = "// old code", enabled: bool = True):
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         hog_function = HogFunction.objects.create(
@@ -8524,7 +8524,7 @@ class TestSyncWebhookEvents(APIBaseTest):
             type="warehouse_source_webhook",
             hog=code,
             template_id="template-warehouse-source-stripe",
-            enabled=True,
+            enabled=enabled,
             inputs_schema=[
                 {"type": "string", "key": "signing_secret", "label": "Signing secret", "secret": True},
                 {"type": "json", "key": "schema_mapping", "label": "Schema mapping", "secret": False},
@@ -8608,6 +8608,32 @@ class TestSyncWebhookEvents(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Create a webhook first" in response.json()["message"]
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info",
+        return_value=None,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.sync_webhook_events"
+    )
+    def test_sync_keeps_disabled_function_disabled(self, mock_sync, _mock_info):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookSyncResult
+
+        mock_sync.return_value = WebhookSyncResult(success=True)
+
+        self._create_template(code="// code")
+        source = self._create_stripe_source()
+        hog_function = self._create_hog_function(source, enabled=False)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/sync_webhook_events/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["hog_function"]["enabled"] is False
+
+        hog_function.refresh_from_db()
+        assert hog_function.enabled is False
 
 
 class TestDeleteWebhook(APIBaseTest):
