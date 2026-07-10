@@ -211,6 +211,15 @@ export const DataCatalogMetricsRunCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const DataCatalogMetricsRunCreateQueryParams = /* @__PURE__ */ zod.object({
+    refresh: zod
+        .enum(['blocking', 'async', 'lazy_async', 'force_blocking', 'force_async', 'force_cache'])
+        .optional()
+        .describe(
+            'Cache/execution behavior, same semantics as /query/. Omit to serve a fresh cache hit and calculate blocking when stale.\n\n* `blocking` - blocking\n* `async` - async\n* `lazy_async` - lazy_async\n* `force_blocking` - force_blocking\n* `force_async` - force_async\n* `force_cache` - force_cache'
+        ),
+})
+
 export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
     .object({
         date_from: zod
@@ -220,7 +229,15 @@ export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
                 "Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL."
             ),
         date_to: zod.string().optional().describe('Override the end of the query window.'),
-        interval: zod.string().optional().describe("Override the bucket interval (e.g. 'day', 'week')."),
+        interval: zod
+            .enum(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'])
+            .describe(
+                '* `second` - second\n* `minute` - minute\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `month` - month\n* `quarter` - quarter\n* `year` - year'
+            )
+            .optional()
+            .describe(
+                'Override the bucket interval. Rejected for HogQLQuery metrics.\n\n* `second` - second\n* `minute` - minute\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `month` - month\n* `quarter` - quarter\n* `year` - year'
+            ),
         query_id: zod.string().optional().describe('Client-supplied id to correlate or cancel the run.'),
     })
     .describe('Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.')
@@ -246,6 +263,9 @@ export const dataCatalogRelationshipProposalsCreateBodyJoiningTableKeyMax = 400
 
 export const dataCatalogRelationshipProposalsCreateBodyFieldNameMax = 400
 
+export const dataCatalogRelationshipProposalsCreateBodyConfidenceMin = 0
+export const dataCatalogRelationshipProposalsCreateBodyConfidenceMax = 1
+
 export const DataCatalogRelationshipProposalsCreateBody = /* @__PURE__ */ zod.object({
     source_table_name: zod
         .string()
@@ -268,7 +288,12 @@ export const DataCatalogRelationshipProposalsCreateBody = /* @__PURE__ */ zod.ob
         .max(dataCatalogRelationshipProposalsCreateBodyFieldNameMax)
         .describe('Accessor the join adds to the source table.'),
     configuration: zod.unknown().optional().describe('Extra join configuration, e.g. a field mapping.'),
-    confidence: zod.number().nullish().describe('Discovery confidence in this join, 0-1.'),
+    confidence: zod
+        .number()
+        .min(dataCatalogRelationshipProposalsCreateBodyConfidenceMin)
+        .max(dataCatalogRelationshipProposalsCreateBodyConfidenceMax)
+        .nullish()
+        .describe('Discovery confidence in this join, 0-1.'),
     reasoning: zod.string().optional().describe('Why this join is proposed.'),
     evidence: zod.unknown().optional().describe('Sampling evidence: match rates, sample values.'),
 })
