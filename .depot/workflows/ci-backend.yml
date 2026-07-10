@@ -16,10 +16,11 @@
 #   auto-commit (handle-snapshots), posthog-github-action telemetry,
 #   --store-durations write, test-selection verdict, Trunk flaky-test quarantine
 #   gate (canonical runs per-shard analytics-uploader steps that post to the
-#   external Trunk service and gate the job on the quarantine list; the shadow
-#   strips them — no Trunk posting from a non-blocking timing trial — and so also
-#   omits the test steps' continue-on-error and the fork/no-gate failure
-#   fallbacks that exist only to hand the pass/fail verdict to that gate)
+#   external Trunk service; the upload is best-effort and a local "Fail on test
+#   failure" step owns the pass/fail verdict. The shadow strips all of it — no
+#   Trunk posting from a non-blocking timing trial — and so also omits the test
+#   steps' continue-on-error and that verdict step, letting each shard's test
+#   exit code be the verdict directly)
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - actions/cache reads/writes route to Depot Cache, not GitHub Actions Cache,
@@ -166,7 +167,7 @@ jobs:
                       echo "::notice::Optional Backend CI: PR sampled OUT (bucket $bucket >= ${PERCENT}%) — skipped."
                   fi
     # Job to decide if we should run backend ci
-    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    # See .github/actions/paths-filter/README.md for filter semantics
     changes:
         # Root of the `needs` graph: skipped when `sample` says skip (or is itself skipped
         # at percent 0/unset), which cascades the whole workflow off.
@@ -795,7 +796,17 @@ jobs:
                       --reuse-db
                       --durations-path ../../.test_durations
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
-              run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
+              run: |
+                  set +e
+                  pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
+                  exit_code=$?
+                  set -e
+                  if [ $exit_code -eq 5 ]; then
+                      echo "No tests collected for this shard, this is expected when splitting tests"
+                      exit 0
+                  else
+                      exit $exit_code
+                  fi
     # Lightweight repo-wide checks that only need Python + uv (no Docker/DB).
     # Consolidates checks that previously each spun up their own runner.
     repo-checks:

@@ -1,7 +1,8 @@
-import type { AnomalyPoint } from 'lib/components/Alerts/types'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { EntityTypes } from '~/types'
+
+import type { AnomalyPoint } from 'products/alerts/frontend/types'
 
 import { buildAnomalyMarkers } from './anomalyPointsAdapter'
 

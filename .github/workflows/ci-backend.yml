@@ -72,7 +72,7 @@ permissions:
 
 jobs:
     # Job to decide if we should run backend ci
-    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    # See .github/actions/paths-filter/README.md for filter semantics
     changes:
         runs-on: depot-ubuntu-latest
         timeout-minutes: 5
@@ -789,7 +789,17 @@ jobs:
                       --junitxml=junit-product.xml
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations' || '' }}
-              run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
+              run: |
+                  set +e
+                  pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
+                  exit_code=$?
+                  set -e
+                  if [ $exit_code -eq 5 ]; then
+                      echo "No tests collected for this shard, this is expected when splitting tests"
+                      exit 0
+                  else
+                      exit $exit_code
+                  fi
 
             # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
             # so a Trunk outage never fails the job. Runs the token only on internal PRs,
@@ -1008,7 +1018,7 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   CHANGED_FILES: ${{ needs.changes.outputs.product_yamls_files }}
               run: |
-                  # CHANGED_FILES is space-separated (dorny list-files: escape).
+                  # CHANGED_FILES is space-separated (paths-filter list-files: escape).
                   # Each entry is products/<name>/product.yaml — strip to <name>.
                   names=$(echo "$CHANGED_FILES" | tr ' ' '\n' | sed -n 's|^products/\([^/]*\)/product.yaml$|\1|p' | xargs)
                   # Drop products whose product.yaml was deleted in this PR (e.g. the
@@ -2660,33 +2670,37 @@ jobs:
                   name: junit-results-backend-${{ matrix.artifact_key }}
                   path: junit-*.xml
 
-            # Quarantine gate: uploads junit to Trunk and gates the job. Exit 0 when every
-            # failure is an already-quarantined flake, non-zero otherwise (falls back to the
-            # raw test outcome if Trunk is unreachable). Runs the token only on internal PRs,
-            # master, and the merge queue — never on fork PRs or Dependabot, which have no
-            # secret.
+            # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
+            # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
+            # secret); cli-version pinned, not 'latest' (skips the release redirect).
             - name: Quarantine gate (Core)
+              id: quarantine_gate_core
+              continue-on-error: true
               if: ${{ !cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-core.xml
                   org-slug: posthog-inc
+                  cli-version: '0.13.7'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             - name: Quarantine gate (Temporal)
+              id: quarantine_gate_temporal
+              continue-on-error: true
               if: ${{ !cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-temporal.xml
                   org-slug: posthog-inc
+                  cli-version: '0.13.7'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-temporal-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
-            # No Trunk secret on fork PRs and Dependabot; fall back to the raw test outcome so
-            # a genuine failure still goes red exactly as before.
-            - name: Fail on test failure (no quarantine gate)
-              if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' && (steps.run-core-tests.outcome == 'failure' || steps.run-temporal-tests.outcome == 'failure') && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
+            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
+            # also covers the skipped gate on fork/Dependabot. Passing shards never red here.
+            - name: Fail on test failure
+              if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && steps.quarantine_gate_core.outcome != 'success') || (steps.run-temporal-tests.outcome == 'failure' && steps.quarantine_gate_temporal.outcome != 'success')) }}
               shell: bash
               run: exit 1
 
