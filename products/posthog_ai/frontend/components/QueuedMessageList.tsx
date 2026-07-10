@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { IconCheck, IconPencil, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import type { QueuedMessage } from '../logics/runInteractionLogic'
+import { AutosizeTextArea } from './AutosizeTextArea'
 
 export interface QueuedMessageListProps {
     messages: QueuedMessage[]
@@ -48,7 +49,7 @@ function QueuedMessageItem({
     if (isEditing) {
         return (
             <div className="space-y-2">
-                <LemonTextArea
+                <AutosizeTextArea
                     ref={textAreaRef}
                     value={draft}
                     onChange={setDraft}

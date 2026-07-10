@@ -32,6 +32,7 @@ env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
+    # ci-e2e-playwright.yml restores by the same key — keep its copy in sync when bumping.
     SCHEMA_CACHE_EPOCH: v1
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -71,14 +72,14 @@ permissions:
 
 jobs:
     # Job to decide if we should run backend ci
-    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    # See .github/actions/paths-filter/README.md for filter semantics
     changes:
         runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
-            backend: ${{ steps.backend_docs.outputs.backend || 'true' }}
+            backend: ${{ steps.filter.outputs.backend || 'true' }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
@@ -109,7 +110,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -121,11 +122,8 @@ jobs:
                         # NOTE: we are at risk of missing a dependency here. We could make
                         # the dependencies more clear if we separated the backend/frontend
                         # code completely
-                        # really we should ignore ee/frontend/** but dorny doesn't support that
-                        # - '!ee/frontend/**'
-                        # including the negated rule appears to work
-                        # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
+                        - '!ee/frontend/**' # frontend code under ee/ must not trigger backend
                         - 'common/__init__.py'
                         - 'common/hogql_parser/**'
                         - 'common/hogvm/**'
@@ -192,12 +190,22 @@ jobs:
                         - bin/ci-wait-for-docker
                         - frontend/public/email/*
                         - 'docker/clickhouse/**'
+                        # Markdown-only changes (e.g. a README under posthog/) match the
+                        # broad globs above but exercise no backend code — exclude them so
+                        # a docs-only PR doesn't run the whole backend suite.
+                        # These excludes are load-bearing: an over-broad exclude silently
+                        # skips the suite rather than over-running it, so only exclude
+                        # patterns that truly never affect backend. They also drop matched
+                        # files from `backend_files`.
+                        - '!**/*.md'
+                        - '!**/*.mdx'
                       legacy:
                         # Non-product backend code — when only products/ change,
                         # turbo-discover uses Turbo query affectedness to detect changed
                         # products and decide whether Django runs.
                         # Everything from backend: EXCEPT products/**/backend/**/*
                         - 'ee/**/*'
+                        - '!ee/frontend/**' # frontend code under ee/ must not trigger backend
                         - 'common/__init__.py'
                         - 'common/hogql_parser/**'
                         - 'common/hogvm/**'
@@ -231,6 +239,11 @@ jobs:
                         - bin/ci-wait-for-docker
                         - frontend/public/email/*
                         - 'docker/clickhouse/**'
+                        # Same rationale as the backend filter's excludes above: docs-only
+                        # changes match the broad globs but exercise no legacy backend code,
+                        # so they shouldn't trigger the Django/turbo-discover path either.
+                        - '!**/*.md'
+                        - '!**/*.mdx'
                       schema:
                         # Tracked separately from `legacy` so turbo-discover can
                         # diff schema.json and narrow the product matrix to
@@ -282,38 +295,6 @@ jobs:
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
                         - 'services/mcp/schema/tool-definitions-all.json'
-
-            # A change that only touches Markdown docs (e.g. a README under
-            # posthog/) still matches the broad backend globs above, needlessly
-            # running the whole backend suite. Drop the backend signal when
-            # every backend-matched file is Markdown.
-            # PR/merge_group events only; push keeps the default full run.
-            - name: Ignore Markdown-only changes for backend
-              id: backend_docs
-              if: github.event_name != 'push'
-              # If this step ever errors, the job output falls back to
-              # backend='true', so a failure here can only over-run the
-              # backend suite, never wrongly skip it.
-              continue-on-error: true
-              env:
-                  BACKEND: ${{ steps.filter.outputs.backend }}
-                  BACKEND_FILES: ${{ steps.filter.outputs.backend_files }}
-              run: |
-                  backend="$BACKEND"
-                  if [ "$backend" = "true" ] && [ -n "$BACKEND_FILES" ]; then
-                      # backend_files is in dorny/paths-filter's "escape" format
-                      # (space-delimited, backslash-escaped). Decode it with xargs
-                      # so paths containing whitespace stay intact and a very long
-                      # list can't overflow the argument list, then skip the backend
-                      # suite only when every changed file is Markdown.
-                      if files=$(printf '%s' "$BACKEND_FILES" | xargs -n1); then
-                          if ! printf '%s\n' "$files" | grep -qvE '\.(md|mdx)$'; then
-                              backend=false
-                          fi
-                      fi
-                  fi
-                  echo "backend=$backend" >> "$GITHUB_OUTPUT"
-                  echo "Backend tests needed: $backend"
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -674,7 +655,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.10.60
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.6.1.1193
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   bin/ci-wait-for-docker launch --background --down \
@@ -740,7 +721,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.10.60
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.6.1.1193
               run: bin/ci-wait-for-docker wait
 
             - name: Restore schema cache from master
@@ -799,13 +780,38 @@ jobs:
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
                   # --durations-path: turbo runs products from products/<name>/, so pytest-split
                   # needs an explicit path back to the repo-root durations file for balanced sharding.
+                  # --junitxml: written relative to each product's dir (turbo's cwd), so every
+                  # product in the group gets its own products/<name>/junit-product.xml.
                   # On master, also collect timing data for pytest-split sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
                       --durations-path ../../.test_durations
+                      --junitxml=junit-product.xml
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations' || '' }}
-              run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
+              run: |
+                  set +e
+                  pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
+                  exit_code=$?
+                  set -e
+                  if [ $exit_code -eq 5 ]; then
+                      echo "No tests collected for this shard, this is expected when splitting tests"
+                      exit 0
+                  else
+                      exit $exit_code
+                  fi
+
+            # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
+            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            - name: Upload test results to Trunk
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: products/*/junit-product.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
 
             - name: Upload timing data
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -1012,7 +1018,7 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   CHANGED_FILES: ${{ needs.changes.outputs.product_yamls_files }}
               run: |
-                  # CHANGED_FILES is space-separated (dorny list-files: escape).
+                  # CHANGED_FILES is space-separated (paths-filter list-files: escape).
                   # Each entry is products/<name>/product.yaml — strip to <name>.
                   names=$(echo "$CHANGED_FILES" | tr ' ' '\n' | sed -n 's|^products/\([^/]*\)/product.yaml$|\1|p' | xargs)
                   # Drop products whose product.yaml was deleted in this PR (e.g. the

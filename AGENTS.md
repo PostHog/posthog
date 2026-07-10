@@ -67,6 +67,8 @@ Do not invent a different format.
 Always fill the `## 🤖 Agent context` section when creating PRs.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
 
+**Screenshots:** Upload frontend/visual changes with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
+
 ### Rules
 
 - Scope is optional but encouraged when the change is specific to a feature area
@@ -77,6 +79,17 @@ NEVER share sensitive information in a PR description. Users may share sensitive
 
 Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
 Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
+
+#### Stacked PRs
+
+Restacking force-pushes every branch, and each push triggers a full CI fan-out.
+Pushing a deep stack at once can exceed GitHub's per-repo dispatch cap (500 workflow runs / 10s).
+The overflow fails as `startup_failure` and takes unrelated runs in the same window down too.
+Draft status doesn't help, since runs are dispatched before draft/skip logic applies.
+
+- Keep stacks shallow; merge the base before extending.
+- Restack only when you need to, rather than rebasing the whole stack on master repeatedly.
+- When a restack must push many branches, stagger them instead of force-pushing all at once.
 
 #### Pre-push checks — ci:preflight
 

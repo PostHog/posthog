@@ -69,6 +69,7 @@ class Product(StrEnum):
     MCP_ANALYTICS = "mcp_analytics"  # queries from the MCP analytics product (insights, dashboards, sessions)
     MESSAGING = "messaging"
     MOBILE_REPLAY = "mobile_replay"
+    NOTEBOOKS = "notebooks"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
     POSTHOG_CODE = "posthog_code"
@@ -104,6 +105,7 @@ class Feature(StrEnum):
     DATA_MODELING = "data_modeling"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
+    INGESTION_WARNINGS = "ingestion_warnings"
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
@@ -210,6 +212,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             return {"product": Product.ERROR_TRACKING}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
             return {"product": Product.LOGS}
+        case NodeKind.METRICS_QUERY:
+            return {"product": Product.METRICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}
         case (
@@ -232,6 +236,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         case (
             NodeKind.TRACE_QUERY
             | NodeKind.TRACES_QUERY
+            | NodeKind.SESSION_QUERY
             | NodeKind.TRACE_NEIGHBORS_QUERY
             | NodeKind.TRACE_SPANS_QUERY
             | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
@@ -421,6 +426,9 @@ class QueryTags(BaseModel):
     # Generic across products (experiments, marketing, web analytics) since they share the executor.
     precompute_window_start: Optional[str] = None
     precompute_window_end: Optional[str] = None
+    # True on precompute READ queries served from expired-within-grace jobs (serve-stale path),
+    # so query_log can compare stale-served vs fresh reads without joining Prometheus.
+    precompute_stale: Optional[bool] = None
     entity_math: Optional[list[str]] = None
 
     # replays
@@ -573,9 +581,16 @@ def get_query_tag_value(key: str) -> Optional[Any]:
         return None
 
 
+# Tag snapshots are isolated copy-on-write: every mutation goes through a top-level attribute
+# assignment on a fresh shallow copy (see update/with_temporal/with_dagster), and nested tag
+# objects are only ever replaced, never mutated in place. That makes shallow model_copy()
+# sufficient for isolation — deep copies here were the dominant cost of tag_queries, which runs
+# on every request and every ClickHouse query. Keep that invariant when adding new tag helpers.
+
+
 def update_tags(new_query_tags: QueryTags):
     current_tags = get_query_tags()
-    updated_tags = current_tags.model_copy(deep=True)
+    updated_tags = current_tags.model_copy()
     updated_tags.update(**new_query_tags.model_dump(exclude_none=True))
     query_tags.set(updated_tags)
 
@@ -588,7 +603,7 @@ def tag_queries(**kwargs) -> None:
     :param kwargs: Key->value pairs of tags to be set.
     """
     current_tags = get_query_tags()
-    updated_tags = current_tags.model_copy(deep=True)
+    updated_tags = current_tags.model_copy()
     updated_tags.update(**kwargs)
     query_tags.set(updated_tags)
 
@@ -639,7 +654,7 @@ def get_team_query_tags(team: "Team") -> dict[str, Any]:
 def clear_tag(key):
     with suppress(LookupError):
         current_tags = query_tags.get()
-        updated_tags = current_tags.model_copy(deep=True)
+        updated_tags = current_tags.model_copy()
         setattr(updated_tags, key, None)
         query_tags.set(updated_tags)
 
@@ -800,7 +815,7 @@ def tags_context(**tags_to_set: Any) -> Generator[None]:
     """
     tags_copy: Optional[QueryTags] = None
     try:
-        tags_copy = get_query_tags().model_copy(deep=True)
+        tags_copy = get_query_tags().model_copy()
         if tags_to_set:
             tag_queries(**tags_to_set)
         yield

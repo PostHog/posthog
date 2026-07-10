@@ -92,6 +92,7 @@ jobs:
             shouldRun: ${{ steps.decide.outputs.shouldRun }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
+            schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
         steps:
             # fetch-depth=1000 + blob:none mirrors ci-backend / ci-dagster so HEAD^2
             # (PR branch tip) is reachable for the merge-base step below without the
@@ -101,14 +102,18 @@ jobs:
             # blob:none, the post-fetch `git checkout` lazy-fetches every blob in HEAD
             # and the per-blob credential lookup intermittently fails with "could not
             # read Username for github.com" (e.g. #59779 on 2026-05-23, blocked merge
-            # until the job was retried). Materializing only the one file this job
-            # reads collapses the lazy fetch to a single blob.
+            # until the job was retried). Materializing only the files this job reads
+            # (plus the local paths-filter action, which must exist on disk to run)
+            # collapses the lazy fetch to a handful of blobs.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
                   clean: false
-                  sparse-checkout: .github/clickhouse-versions.json
+                  sparse-checkout: |
+                      .github/actions/paths-filter
+                      .github/clickhouse-versions.json
+                      docker-compose.base.yml
                   sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -118,7 +123,7 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: changes
               if: github.event_name == 'pull_request'
               with:
@@ -143,7 +148,7 @@ jobs:
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the ~25-min E2E stack for that bot push is pure waste;
             # the `playwright_tests` aggregator treats the resulting skip as success. Key
-            # off the push delta (this push's commits), not the whole-PR diff dorny reports,
+            # off the push delta (this push's commits), not the whole-PR diff the filter reports,
             # so it fires even when the PR also carries real code changes.
             - name: Detect Visual Review baseline-only push
               id: baseline_push
@@ -210,19 +215,44 @@ jobs:
               # remote.origin.fetch and pull every branch.
               run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
-            - name: Compute schema cache key from merge-base
+            - name: Compute schema cache keys
               id: schema-key
+              # PRs only: master pushes deliberately skip the schema cache and run the
+              # full migration history, so the canonical run never relies on this
+              # optimization.
               if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  # Manual cache-bust knob — keep in sync with SCHEMA_CACHE_EPOCH in
+                  # ci-backend.yml, which saves these caches on master pushes.
+                  SCHEMA_CACHE_EPOCH: v1
               run: |
                   # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
                   MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
-                  if [ -n "$MERGE_BASE" ]; then
-                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
-                  else
+                  if [ -z "$MERGE_BASE" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                      exit 0
+                  fi
+                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Shared migration-set key: mirrors the save-side computation in
+                  # ci-backend.yml (same inputs, hash, and prefix) so it hits whenever
+                  # the merge-base's migration files match a saved master schema — far
+                  # more stable than the per-SHA key, which needs the exact merge-base
+                  # commit's cache to still be alive.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
+                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
+                  else
+                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
     playwright:
@@ -457,29 +487,42 @@ jobs:
               uses: ./.github/actions/setup-sqlx-cli
 
             - name: Restore schema cache from master
-              # Cache key is the merge-base SHA — produced by ci-backend on master push.
-              # Cache miss falls through to a full migrate below.
-              if: github.event_name == 'pull_request' && needs.changes.outputs.schema_cache_key != ''
+              # PRs only — master pushes run the full migration history on purpose.
+              # Both keys are produced by ci-backend on master push. Prefer the shared
+              # migration-set key (stable while master's migration files are unchanged);
+              # fall back to the exact merge-base SHA key. Cache miss falls through to
+              # a full migrate below.
+              if: github.event_name == 'pull_request' && (needs.changes.outputs.schema_migrations_key != '' || needs.changes.outputs.schema_cache_key != '')
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
               with:
                   path: schema.sql.gz
-                  key: ${{ needs.changes.outputs.schema_cache_key }}
+                  key: ${{ needs.changes.outputs.schema_migrations_key || needs.changes.outputs.schema_cache_key }}
+                  restore-keys: |
+                      ${{ needs.changes.outputs.schema_cache_key }}
 
             - name: Prime posthog_e2e_test from cached schema
               # Schema dump is from master's `posthog` db but schemas are db-name agnostic.
               # Hogli's db:restore-schema-fresh DROPs+CREATEs the target db, restores the
               # schema, and runs ensure_migration_defaults to seed RunPython data that's
               # missing from a schema-only dump. The migrate step below still runs and
-              # layers any PR-added migrations on top — the cache just skips the bulk of
-              # the historical migration work.
-              if: steps.schema-cache.outputs.cache-hit == 'true'
+              # layers any newer migrations on top — the cache just skips the bulk of
+              # the historical migration work. Treat cache/restore problems as misses:
+              # restore-schema-fresh leaves a fresh empty db on failure, so the migrate
+              # step below runs the full history.
+              if: github.event_name == 'pull_request'
               env:
                   TARGET_DB: posthog_e2e_test
               run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Schema cache miss — the migrate step below runs the full history"
+                      exit 0
+                  fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-schema-fresh
+                  if ! ./bin/hogli db:restore-schema-fresh; then
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — the migrate step below runs the full history"
+                  fi
 
             - name: Apply postgres and clickhouse migrations and setup dev
               run: |

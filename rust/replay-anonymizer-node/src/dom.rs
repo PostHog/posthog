@@ -1,6 +1,6 @@
 //! Walks parsed rrweb serialized nodes, scrubbing text content and attributes in place.
-//! Mirrors `anonymize/dom.ts`, operating on `simd_json::BorrowedValue` (generic objects) so unknown
-//! fields survive the round-trip exactly, matching the TS in-place mutation.
+//! Operates on `simd_json::BorrowedValue` (generic objects) so unknown fields survive the
+//! round-trip exactly.
 
 use simd_json::borrowed::{Object, Value};
 
@@ -9,7 +9,7 @@ use crate::assets::{
     INLINE_IMAGE_ATTR,
 };
 use crate::context::Ctx;
-use crate::css::scrub_css_images;
+use crate::css::{scrub_css_images, INLINED_STYLESHEET_ATTR};
 use crate::json::{
     as_array_mut, as_object_mut, as_small_uint, as_str, is_object, is_true, key, string_value,
 };
@@ -210,7 +210,7 @@ fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object<'_>, kind: TagKind) -> bool {
             continue;
         }
         // Inlined rendered pixels (`rr_dataURL`): blur the image, on any tag.
-        if name == INLINE_IMAGE_ATTR || name == "style" {
+        if name == INLINE_IMAGE_ATTR || name == "style" || name == INLINED_STYLESHEET_ATTR {
             deferred.push(name.to_string());
             continue;
         }
@@ -219,7 +219,7 @@ fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object<'_>, kind: TagKind) -> bool {
             continue;
         };
         let result = if is_url_attr(name) {
-            scrub_url(ctx.allow, current)
+            scrub_url(ctx, current)
         } else if is_user_text_attr(name) {
             scrub_text(ctx.allow, current)
         } else if is_data_attr(name) {
@@ -283,6 +283,7 @@ pub(crate) fn is_url_attr(name: &str) -> bool {
         name,
         "href"
             | "src"
+            | "rr_src"
             | "srcset"
             | "action"
             | "formaction"
@@ -329,20 +330,25 @@ mod tests {
 
     #[test]
     fn css_data_image_background_is_neutralized() {
-        let uri = png_data_uri(8, 8, [200, 200, 10, 255]);
-        let style = serde_json::to_string(&format!("background:url({uri})")).unwrap();
-        let data = format!(
-            r#"{{"node":{{"type":0,"childNodes":[{{"type":2,"tagName":"div","attributes":{{"style":{style}}},"childNodes":[]}}]}},"initialOffset":{{"top":0,"left":0}}}}"#
-        );
-        let out = scrub_snapshot(&data);
-        let scrubbed = out["node"]["childNodes"][0]["attributes"]["style"]
-            .as_str()
-            .unwrap();
-        assert!(!scrubbed.contains(&uri), "the original image must be gone");
-        assert!(
-            scrubbed.contains("url(data:image/png"),
-            "replaced with a data image: {scrubbed}"
-        );
+        for attr in ["style", INLINED_STYLESHEET_ATTR] {
+            let uri = png_data_uri(8, 8, [200, 200, 10, 255]);
+            let css = serde_json::to_string(&format!("background:url({uri})")).unwrap();
+            let data = format!(
+                r#"{{"node":{{"type":0,"childNodes":[{{"type":2,"tagName":"div","attributes":{{"{attr}":{css}}},"childNodes":[]}}]}},"initialOffset":{{"top":0,"left":0}}}}"#
+            );
+            let out = scrub_snapshot(&data);
+            let scrubbed = out["node"]["childNodes"][0]["attributes"][attr]
+                .as_str()
+                .unwrap();
+            assert!(
+                !scrubbed.contains(&uri),
+                "the original image must be gone from {attr}"
+            );
+            assert!(
+                scrubbed.contains("url(data:image/png"),
+                "replaced with a data image in {attr}: {scrubbed}"
+            );
+        }
     }
 
     #[test]

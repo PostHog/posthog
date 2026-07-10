@@ -6,6 +6,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 
 
 class TestQueryLogTable(ClickhouseTestMixin, APIBaseTest):
@@ -44,6 +45,7 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
             workload=ANY,
             team_id=self.team.pk,
             readonly=True,
+            ch_user=ClickHouseUser.DEFAULT,
             external_tables=None,
         )
         assert response.results is not None
