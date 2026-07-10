@@ -113,6 +113,9 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
     except Exception as e:
         raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")
 
+    if ctx.detector_config is not None and is_non_time_series_trend(trends_query):
+        raise ValueError("Anomaly detection isn't supported for non time series trends")
+
     if ctx.parsed_condition.type in (
         AlertConditionType.RELATIVE_INCREASE,
         AlertConditionType.RELATIVE_DECREASE,

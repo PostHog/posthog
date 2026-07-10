@@ -78,6 +78,20 @@ DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
 # replica writes immediately but ClickHouse still blocks on the quorum protocol).
 PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else "auto"
 
+# How long a quorum INSERT waits for replica acknowledgements before failing.
+# ClickHouse's default is 600s, which turns any quorum breakage (dead replica,
+# stale registration, ZK trouble) into ten-minute request hangs; the executor is
+# built to treat failed inserts as retryable and callers fall back to the live
+# query, so failing fast is strictly better. Part replication between two healthy
+# colocated replicas is sub-second; 2s keeps a spurious-timeout margin while making
+# a broken quorum cost two seconds instead of ten minutes. A false positive is
+# cheap: the part is already written, the retry re-insert is idempotent under
+# ReplacingMergeTree, and the caller falls back to the live query meanwhile.
+# A quorum-wait expiry raises code 319 UNKNOWN_STATUS_OF_INSERT ("client must
+# retry"), which is deliberately absent from NON_RETRYABLE_CLICKHOUSE_ERROR_CODES —
+# distinct from 159 TIMEOUT_EXCEEDED (max_execution_time), which stays non-retryable.
+PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS = 2 * 1000
+
 
 # Mirrors the `lazy_computation.executed` structured log so the same outcomes
 # (`success` / `timeout` / `non_retryable_error` / `max_retries_exceeded`) are
@@ -148,6 +162,7 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
         {
             "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
             "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
+            "insert_quorum_timeout": PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
             # The executor marks a job READY as soon as the INSERT returns, so rows must be on the
             # shards by then — not sitting in the initiator's async distribution queue, where they
             # become visible to readers only minutes later. We set this per-insert rather than
