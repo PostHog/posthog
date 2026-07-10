@@ -4,39 +4,29 @@ Facade API for mcp_store.
 This is the ONLY module other apps are allowed to import.
 """
 
-from django.db.models import Q
+from typing import Any
 
 import structlog
 
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from posthog.models import Team, User
+
+from products.mcp_store.backend.analytics import installation_display_name
+from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo, GatewayCallResult, GatewayToolInfo
+from products.mcp_store.backend.gateway import (
+    call_gateway_tool as _call_gateway_tool,
+    is_credential_ready,
+    list_gateway_tools as _list_gateway_tools,
+    resolve_active_installations,
+)
 from products.mcp_store.backend.models import MCPServerInstallation
 
 logger = structlog.get_logger(__name__)
 
 
-def _resolve_name(installation: MCPServerInstallation) -> str:
-    if installation.display_name:
-        return installation.display_name
-    if installation.template and installation.template.name:
-        return installation.template.name
-    return installation.url
-
-
-def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
-    if installation.auth_type != "oauth":
-        return True
-    sensitive = installation.sensitive_configuration or {}
-    if sensitive.get("needs_reauth"):
-        return False
-    if not sensitive.get("access_token"):
-        return False
-    return True
-
-
 def _to_info(installation: MCPServerInstallation, team_id: int) -> ActiveInstallationInfo:
     return ActiveInstallationInfo(
         id=str(installation.id),
-        name=_resolve_name(installation),
+        name=installation_display_name(installation),
         proxy_path=f"/api/environments/{team_id}/mcp_server_installations/{installation.id}/proxy/",
         scope=installation.scope,
     )
@@ -61,7 +51,7 @@ def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallat
 
     results: list[ActiveInstallationInfo] = []
     for installation in installations:
-        if not _is_oauth_ready(installation):
+        if not is_credential_ready(installation):
             logger.debug(
                 "Skipping MCP installation not ready",
                 installation_id=str(installation.id),
@@ -89,28 +79,10 @@ def get_installations_for_sandbox(
     credential.
     """
     try:
-        scope_filter = Q(scope="shared")
-        if include_personal and user_id is not None:
-            scope_filter = scope_filter | Q(scope="personal", user_id=user_id)
-
-        # list() evaluates the lazy queryset here so DB errors hit this handler.
-        installations = list(
-            MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True)
-            .filter(scope_filter)
-            .select_related("template")
-        )
+        ready = resolve_active_installations(team_id, user_id=user_id, include_personal=include_personal)
     except Exception as e:
         logger.warning("Error fetching MCP installations for sandbox", error=str(e), team_id=team_id)
         return []
-
-    ready = [installation for installation in installations if _is_oauth_ready(installation)]
-    if include_personal and user_id is not None:
-        personal_urls = {installation.url for installation in ready if installation.scope == "personal"}
-        ready = [
-            installation
-            for installation in ready
-            if installation.scope == "personal" or installation.url not in personal_urls
-        ]
 
     results = [_to_info(installation, team_id) for installation in ready]
 
@@ -121,3 +93,33 @@ def get_installations_for_sandbox(
         include_personal=include_personal,
     )
     return results
+
+
+def list_gateway_tools(
+    team_id: int,
+    user_id: int,
+    query: str | None = None,
+    name: str | None = None,
+) -> list[GatewayToolInfo]:
+    """List the namespaced tools available to a user through the aggregated MCP gateway.
+
+    ``query`` is a substring search over tool name and description;
+    ``name`` filters to an exact namespaced tool name.
+    """
+    return _list_gateway_tools(team_id, user_id, search=query, name=name)
+
+
+def call_gateway_tool(
+    team_id: int,
+    user_id: int,
+    tool: str,
+    arguments: dict[str, Any],
+    consumer: str | None = None,
+) -> GatewayCallResult:
+    """Execute a namespaced gateway tool (``{server_slug}/{tool_name}``) as a user.
+
+    Raises the ``Gateway*Error`` types from ``facade.contracts`` on failure.
+    """
+    team = Team.objects.get(id=team_id)
+    user = User.objects.get(id=user_id)
+    return _call_gateway_tool(team=team, user=user, tool=tool, arguments=arguments, consumer=consumer)
