@@ -1936,6 +1936,7 @@ class ExternalDataSourceType(StrEnum):
     VULTR = "Vultr"
     WINDMILL = "Windmill"
     ZEP = "Zep"
+    HEX = "Hex"
 
 
 class ExternalQueryErrorCode(StrEnum):
