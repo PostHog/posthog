@@ -107,6 +107,29 @@ class TestGitHubPRWebhook(TestCase):
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_publishes_stream_events(self, mock_capture, mock_get_secret):
+        # A live installation-progress view only learns about the merge through the stream;
+        # recording output.pr_merged without publishing leaves the UI stuck on "opened".
+        mock_get_secret.return_value = self.webhook_secret
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": True,
+            },
+        }
+
+        with patch.object(TaskRun, "publish_stream_event") as mock_publish:
+            response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        published = [c.args[0] for c in mock_publish.call_args_list if c.args]
+        progress = [e for e in published if e.get("notification", {}).get("method") == "_posthog/progress"]
+        self.assertEqual(len(progress), 1)
+        self.assertEqual(progress[0]["notification"]["params"]["label"], "Pull request merged")
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_merged_from_fork_does_not_record_pr_merged(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         run = TaskRun.objects.create(
