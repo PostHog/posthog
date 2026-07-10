@@ -8,9 +8,8 @@ itself and looping ``cohorts-add-persons-to-static-cohort-partial-update`` over
 the UUIDs. The query path runs server-side with no row limit; the batching path
 caps out and is the failure mode this eval guards against.
 
-All scorers build a single ``LogParser`` from ``output["raw_log"]`` so they work
-identically in ``mcp_mode=tools`` (per-tool MCP) and ``mcp_mode=cli`` (single
-``exec`` wrapper) — the parser handles exec-unwrapping.
+All scorers build a single ``LogParser`` from ``output["raw_log"]``; the parser
+handles unwrapping the ``posthog:exec`` cli wrapper the MCP server serves.
 """
 
 from __future__ import annotations

@@ -23,10 +23,11 @@ from ee.hogai.eval.sandboxed.experiments.scorers import (
     validate_retention_metric,
 )
 from ee.hogai.eval.sandboxed.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, RequiredToolCall
 
 
-async def eval_metric_schema_discovery(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_metric_schema_discovery(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
             name="ratio_metric_uses_math_sum",
@@ -51,14 +52,12 @@ async def eval_metric_schema_discovery(sandboxed_demo_data, pytestconfig, postho
     ]
 
     await SandboxedPrivateEval(
-        experiment_name=f"sandboxed-experiments-metric-schema-discovery-{mcp_mode}",
+        experiment_name="sandboxed-experiments-metric-schema-discovery-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
             RequiredToolCall(required={"experiment-update"}, name="called_experiment_update"),
             FirstUpdateMetricShape(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

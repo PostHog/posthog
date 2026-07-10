@@ -4,9 +4,9 @@ Exercises ``FirstUpdateMetricShape`` and the metric-shape validators from
 ``sandboxed/experiments/scorers.py`` directly, lightweight as it's given
 hand-built metric dicts and synthetic ACP log lines, no sandboxed stack.
 
-Lives one level above ``sandboxed/`` on purpose: a test under that package
-inherits its ``conftest.py``, whose autouse fixtures boot the full eval harness
-(Temporal, MCP, gateway, Django). Up here it stays a fast unit test.
+Lives one level above ``sandboxed/`` on purpose: that package is excluded from
+pytest collection (its evals run through the standalone harness), so a test
+placed under it would never run.
 """
 
 from __future__ import annotations

@@ -1,28 +1,26 @@
 from __future__ import annotations
 
-import os
+import time
 import uuid
 import asyncio
 import logging
 from collections.abc import Sequence
 from functools import partial
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import pytest
-
 from braintrust import EvalAsync, EvalCase, EvalHooks
-from posthoganalytics import Posthog
+from braintrust.framework import EvalResultWithSummary
 
+from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, SandboxedEvalCase
+from .harness.reporting import QUIET_REPORTER
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .runner import run_eval_case
-
-if TYPE_CHECKING:
-    from .conftest import SandboxedDemoData
-from .acp_log import ParsedLog, parse_log
 from .scorers import wrap_scorers
 from .trace_events import emit_evaluation_events, emit_trace_events, emit_trace_root
+
+if TYPE_CHECKING:
+    from .harness.context import EvalContext
 
 logger = logging.getLogger(__name__)
 
@@ -104,24 +102,28 @@ async def SandboxedEval(
     experiment_name: str,
     cases: Sequence[SandboxedEvalCase],
     scorers: Sequence[Any],
-    pytestconfig: pytest.Config,
-    sandboxed_demo_data: SandboxedDemoData,
+    ctx: EvalContext,
     is_public: bool = False,
     no_send_logs: bool = True,
-    posthog_client: Posthog | None = None,
-):
+) -> EvalResultWithSummary:
     """Run a sandboxed agent evaluation suite via Braintrust.
 
     For each ``SandboxedEvalCase``, creates a Task, triggers the temporal workflow
     (sandbox provisioning, agent-server, prompt delivery, cleanup), polls S3 logs
     for results, and feeds parsed artifacts to the scorers.
 
-    ``sandboxed_demo_data.make_context(case_name)`` is invoked once per case and
+    ``ctx.demo_data.make_context(case_name)`` is invoked once per case and
     returns a freshly isolated ``CustomPromptSandboxContext`` (own org/team/user)
     so cases can't pollute each other's state.
+
+    Everything the suite needs (demo data, analytics client, case filter,
+    concurrency limits, reporter) comes off ``ctx``; suites run concurrently on
+    one event loop, so total sandbox load is bounded by ``ctx.sandbox_slots``.
     """
     # Generate a unique experiment ID per eval run
     experiment_id = str(uuid.uuid4())
+
+    posthog_client = ctx.posthog_client
 
     # Shared lookups populated by task(), read after EvalAsync completes.
     agent_trace_id_lookup: dict[str, str] = {}
@@ -131,9 +133,7 @@ async def SandboxedEval(
     # Local disk sink for raw agent logs — lets an agent iterating on the
     # harness read back what happened without round-tripping through Braintrust.
     run_log_dir = build_case_dir(experiment_name, experiment_id)
-    log_dirs: set[Path] = getattr(pytestconfig, "_sandboxed_eval_log_dirs", set())
-    log_dirs.add(run_log_dir)
-    pytestconfig._sandboxed_eval_log_dirs = log_dirs  # type: ignore[attr-defined]
+    ctx.log_dirs.add(run_log_dir)
 
     # Wrap scorers with tracing if PostHog client is available
     scorer_traces: dict[tuple[str, str], str] = {}
@@ -144,8 +144,7 @@ async def SandboxedEval(
     else:
         active_scorers = list(scorers)
 
-    # Filter cases by --eval flag if provided
-    case_filter = pytestconfig.option.eval if hasattr(pytestconfig.option, "eval") else None
+    case_filter = ctx.case_filter
 
     # Closure-scoped lookup so callable hooks on SandboxedEvalCase (e.g. `setup`)
     # can be re-bound inside `task()` — they don't survive Braintrust's JSON
@@ -169,30 +168,42 @@ async def SandboxedEval(
         )
 
     async def task(input: dict[str, Any], hooks: EvalHooks) -> dict[str, Any] | None:
+        case_started = time.monotonic()
         eval_case = SandboxedEvalCase(
             name=input["name"],
             prompt=input["prompt"],
             repo_fixture=input.get("repo_fixture", ""),
         )
         original_case = cases_by_name.get(input["name"])
+        seed_result: dict[str, Any] = {}
 
         try:
-            # The factory does Django ORM work. Django's async-safety guard
-            # rejects sync ORM calls from async contexts, so run it in a worker
-            # thread.
-            sandbox_context = await asyncio.to_thread(
-                sandboxed_demo_data.make_context,
-                eval_case.name,
-            )
-            seed_result: dict[str, Any] = {}
-            if original_case is not None and original_case.setup is not None:
-                try:
-                    seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)
-                except Exception:
-                    logger.exception("Setup hook failed for '%s'", eval_case.name)
-                    raise
-
-            result = await run_eval_case(eval_case, sandbox_context)
+            # Hold a global sandbox slot for only the sandbox-owning window:
+            # demo-data copy, setup hook, and the agent run. Everything after —
+            # log parsing, span building, trace emission, scoring — runs once the
+            # slot is freed, so a live sandbox never waits on post-processing.
+            async with ctx.sandbox_slots:
+                # ``ctx.demo_slots`` is a separate, smaller semaphore bounding
+                # concurrent ClickHouse demo-data copies. With Modal the sandbox
+                # semaphore is effectively unbounded, so it can no longer double
+                # as that protection.
+                async with ctx.demo_slots:
+                    # The factory does Django ORM work. Django's async-safety
+                    # guard rejects sync ORM calls from async contexts, so run it
+                    # in a worker thread.
+                    sandbox_context = await asyncio.to_thread(ctx.demo_data.make_context, eval_case.name)
+                if original_case is not None and original_case.setup is not None:
+                    try:
+                        seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)
+                    except Exception:
+                        logger.exception("Setup hook failed for '%s'", eval_case.name)
+                        raise
+                # Budget the agent run from slot acquisition, so time spent queued
+                # on the sandbox semaphore can never eat into a case's timeout.
+                result = await asyncio.wait_for(
+                    run_eval_case(eval_case, sandbox_context),
+                    timeout=ctx.per_case_timeout_seconds,
+                )
 
             # Store trace_id in metadata so evaluation events can link to the trace
             if result.trace_id:
@@ -242,7 +253,7 @@ async def SandboxedEval(
                     last_message=last_message,
                     token_usage=case_trace_meta.get(eval_case.name, {}).get("token_usage"),
                 )
-                print(f"[eval-logs] {eval_case.name}: {paths.case_dir}")  # noqa: T201
+                await ctx.reporter.case_log_path(eval_case.name, paths.case_dir)
             except Exception:
                 logger.exception("Failed to write local eval logs for '%s'", eval_case.name)
 
@@ -259,20 +270,33 @@ async def SandboxedEval(
                 exit_code=-1,
                 stderr=f"Eval runner error: {e}",
             ).model_dump()
+        finally:
+            # Report on both paths so the reporter's live case counter never stalls.
+            await ctx.reporter.case_done(
+                experiment_name,
+                eval_case.name,
+                duration_seconds=time.monotonic() - case_started,
+            )
 
     project_name = f"sandboxed-agent-{experiment_name}" if is_public else experiment_name
-
-    timeout = 60 * 15  # 15 minutes per case
-    if os.getenv("EVAL_MODE") == "offline":
-        timeout = 60 * 60
 
     result = await EvalAsync(
         project_name,
         data=eval_cases,
         task=task,
         scores=active_scorers,
-        timeout=timeout,
-        max_concurrency=2,
+        # Our global ``ctx.sandbox_slots`` semaphore is the only limiter that
+        # should bind. Braintrust's own per-suite limiter must never gate, so
+        # let it admit every case at once.
+        max_concurrency=max(len(eval_cases), 1),
+        # Braintrust's timeout wraps the whole task invocation, including any time
+        # a case spends queued on our sandbox semaphore — so a queued case would
+        # be killed before it ever acquired a sandbox. The real budget is the
+        # ``asyncio.wait_for`` above, which starts only after slot acquisition.
+        timeout=None,
+        # Suites share one stdout; the quiet reporter stops each experiment from
+        # dumping its own score table into the interleaved stream.
+        reporter=QUIET_REPORTER,
         update=True,
         is_public=is_public,
         no_send_logs=no_send_logs,
@@ -314,17 +338,14 @@ async def SandboxedEval(
                         token_usage=meta.get("token_usage"),
                     )
             posthog_client.flush()
-            print(  # noqa: T201
-                f"\nPostHog evaluations: "
-                f"https://us.posthog.com/project/2/ai-evals/evaluations/offline/experiments/"
-                f"{experiment_id}?offline_date_from=-1d\n"
-            )
+            await ctx.reporter.posthog_evaluations_url(experiment_id)
         except Exception:
             logger.exception("Failed to emit evaluation events for '%s'", experiment_name)
 
-    if os.getenv("EXPORT_EVAL_RESULTS"):
-        with open("eval_results.jsonl", "a") as f:
-            f.write(result.summary.as_json() + "\n")
+    # Hand the summary to the reporter: suites don't return their Braintrust
+    # result up to the orchestrator, so this is the only place the final table
+    # and the EXPORT_EVAL_RESULTS jsonl can read per-scorer scores from.
+    await ctx.reporter.record_summary(experiment_name, result.summary)
 
     return result
 

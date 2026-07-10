@@ -22,14 +22,12 @@ final message references the per-case UUID.
 
 To run::
 
-    pytest ee/hogai/eval/sandboxed/error_tracking/eval_issues_list.py
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_issues_list"
 """
 
 from __future__ import annotations
 
 from typing import Any
-
-import pytest
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
@@ -39,6 +37,7 @@ from ee.hogai.eval.sandboxed.error_tracking.scorers import (
     IssuesListToolUsed,
 )
 from ee.hogai.eval.sandboxed.error_tracking.seeders import seed_error_tracking_issues
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
 
 
@@ -56,8 +55,7 @@ def _list_case(
     )
 
 
-@pytest.mark.django_db
-async def eval_issues_list(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_issues_list(ctx: EvalContext) -> None:
     cases = [
         _list_case(
             name="issues_list_active_default",
@@ -87,7 +85,7 @@ async def eval_issues_list(sandboxed_demo_data, pytestconfig, posthog_client, mc
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-error-tracking-issues-list-{mcp_mode}",
+        experiment_name="sandboxed-error-tracking-issues-list-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -95,7 +93,5 @@ async def eval_issues_list(sandboxed_demo_data, pytestconfig, posthog_client, mc
             IssuesListToolUsed(),
             IssuesListInputAlignment(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

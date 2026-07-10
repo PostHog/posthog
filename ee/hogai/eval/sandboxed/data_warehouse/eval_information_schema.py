@@ -24,7 +24,7 @@ Prompts read like real user questions and never mention ``information_schema``.
 
 To run a single eval::
 
-    pytest ee/hogai/eval/sandboxed/data_warehouse/eval_information_schema.py::eval_dw_discovery
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_dw_discovery"
 """
 
 from __future__ import annotations
@@ -57,10 +57,11 @@ from ee.hogai.eval.sandboxed.data_warehouse.synthesizer import (
     TYPE_NEEDLE_TABLE,
     VIEW_NEEDLE_NAME,
 )
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
-async def eval_dw_discovery(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_dw_discovery(ctx: EvalContext) -> None:
     """Find the right table/model among hundreds via agentic search over the catalog."""
     cases: list[SandboxedEvalCase] = [
         # Discover a specific data model (view) among hundreds of tables. Graded on
@@ -109,7 +110,7 @@ async def eval_dw_discovery(sandboxed_demo_data, pytestconfig, posthog_client, m
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-warehouse-discovery-{mcp_mode}",
+        experiment_name="sandboxed-warehouse-discovery-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -117,13 +118,11 @@ async def eval_dw_discovery(sandboxed_demo_data, pytestconfig, posthog_client, m
             AgenticSearchUsed(),
             NeedleTableIdentified(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )
 
 
-async def eval_dw_value_retrieval(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_dw_value_retrieval(ctx: EvalContext) -> None:
     """Retrieve a lookup needle with a real SQL query, including duck-typed columns."""
     cases: list[SandboxedEvalCase] = [
         # Value lookup against the queryable needle: discover via information_schema,
@@ -174,7 +173,7 @@ async def eval_dw_value_retrieval(sandboxed_demo_data, pytestconfig, posthog_cli
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-warehouse-retrieval-{mcp_mode}",
+        experiment_name="sandboxed-warehouse-retrieval-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -184,13 +183,11 @@ async def eval_dw_value_retrieval(sandboxed_demo_data, pytestconfig, posthog_cli
             AnswerQueryRanWhenExpected(name="answer_query_ran"),
             WarehouseAnswerCorrectness(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )
 
 
-async def eval_dw_relationships(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_dw_relationships(ctx: EvalContext) -> None:
     """Follow joins surfaced in information_schema.relationships, single- and multi-hop."""
     cases: list[SandboxedEvalCase] = [
         # Single-hop relationship traversal. Graded deterministically by
@@ -233,7 +230,7 @@ async def eval_dw_relationships(sandboxed_demo_data, pytestconfig, posthog_clien
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-warehouse-relationships-{mcp_mode}",
+        experiment_name="sandboxed-warehouse-relationships-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -242,13 +239,11 @@ async def eval_dw_relationships(sandboxed_demo_data, pytestconfig, posthog_clien
             JoinPathTraversed(),
             WarehouseAnswerCorrectness(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )
 
 
-async def eval_dw_table_relevancy(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_dw_table_relevancy(ctx: EvalContext) -> None:
     """Pick the live table over a near-identical frozen/superseded decoy."""
     cases: list[SandboxedEvalCase] = [
         # Two near-identical accounts dimensions, one live and one frozen/superseded.
@@ -279,7 +274,7 @@ async def eval_dw_table_relevancy(sandboxed_demo_data, pytestconfig, posthog_cli
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-warehouse-relevancy-{mcp_mode}",
+        experiment_name="sandboxed-warehouse-relevancy-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -289,7 +284,5 @@ async def eval_dw_table_relevancy(sandboxed_demo_data, pytestconfig, posthog_cli
             StaleTableAvoided(),
             WarehouseAnswerCorrectness(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

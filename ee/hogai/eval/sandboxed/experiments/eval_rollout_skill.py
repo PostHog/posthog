@@ -12,10 +12,7 @@ the variant-split rows (2.5, 5.3, 5.4, 5.5) in STEP_1_HARNESS.md. Uses
 local logs and PostHog ``$ai_trace`` events still emit.
 
 To run:
-    flox activate -- bash -c "set -a; source .env; set +a; \\
-        pytest -c ee/hogai/eval/pytest.ini \\
-        ee/hogai/eval/sandboxed/experiments/eval_rollout_skill.py \\
-        -v --mcp-mode tools --eval rollout"
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_rollout_skill"
 """
 
 from __future__ import annotations
@@ -23,13 +20,14 @@ from __future__ import annotations
 from ee.hogai.eval.sandboxed.base import SandboxedPrivateEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.retrieval.scorers import SkillLoaded
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 SKILL_NAME = "configuring-experiment-rollout"
 
 
-async def eval_rollout_skill(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_rollout_skill(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
             name="rollout_change_split_70_30",
@@ -41,13 +39,11 @@ async def eval_rollout_skill(sandboxed_demo_data, pytestconfig, posthog_client, 
     ]
 
     await SandboxedPrivateEval(
-        experiment_name=f"sandboxed-experiments-rollout-{mcp_mode}",
+        experiment_name="sandboxed-experiments-rollout-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
             SkillLoaded(skill_name=SKILL_NAME),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

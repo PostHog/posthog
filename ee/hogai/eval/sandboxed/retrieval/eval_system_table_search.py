@@ -25,19 +25,20 @@ Metrics:
 
 To run::
 
-    pytest ee/hogai/eval/sandboxed/retrieval/eval_system_table_search.py
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_system_table_search"
 """
 
 from __future__ import annotations
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.retrieval.scorers import InfoCalledBeforeTool, InformationSchemaBeforeSql
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 from ee.hogai.eval.sandboxed.seeders.insight import seed_insight_noise
 
 
-async def eval_system_table_search(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_system_table_search(ctx: EvalContext) -> None:
     # ``seed_insight_noise`` adds ~1000 plausible-looking noise insights plus a
     # handful of deterministic lookup insights (incl. "Monthly Active Users
     # (Hedgebox)") to the per-case team. The noise volume makes `insights-list`
@@ -72,14 +73,12 @@ async def eval_system_table_search(sandboxed_demo_data, pytestconfig, posthog_cl
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-system-table-search-{mcp_mode}",
+        experiment_name="sandboxed-system-table-search-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
             InformationSchemaBeforeSql(),
             InfoCalledBeforeTool("execute-sql"),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

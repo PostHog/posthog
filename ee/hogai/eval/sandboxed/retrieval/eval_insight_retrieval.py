@@ -14,13 +14,14 @@ Two metrics:
   hallucinating a plausible-looking ID.
 
 To run:
-    pytest ee/hogai/eval/sandboxed/retrieval/eval_insight_retrieval.py
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_insight_retrieval"
 """
 
 from __future__ import annotations
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.retrieval.scorers import LookupIdInOutput, SkillLoaded
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 from ee.hogai.eval.sandboxed.seeders.insight import seed_insight_noise
@@ -28,7 +29,7 @@ from ee.hogai.eval.sandboxed.seeders.insight import seed_insight_noise
 SKILL_NAME = "querying-posthog-data"
 
 
-async def eval_insight_retrieval(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_insight_retrieval(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
             name="retrieval_insight_northern_lights",
@@ -71,14 +72,12 @@ async def eval_insight_retrieval(sandboxed_demo_data, pytestconfig, posthog_clie
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-retrieval-{mcp_mode}",
+        experiment_name="sandboxed-retrieval-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
             SkillLoaded(skill_name=SKILL_NAME),
             LookupIdInOutput(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

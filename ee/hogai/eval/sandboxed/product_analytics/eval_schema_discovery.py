@@ -12,7 +12,7 @@ is ``ee/hogai/eval/ci/eval_trends.py``'s job. This eval grades ordering
 and discovery hygiene.
 
 To run:
-    pytest ee/hogai/eval/sandboxed/product_analytics/eval_schema_discovery.py
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_schema_discovery"
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from typing import Any
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.product_analytics.scorers import INSIGHT_WRITE_TOOLS, SchemaDiscoveryOrder
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, LastToolCallNot, NoToolCall
 
@@ -43,7 +44,7 @@ def _discovery_case(
     return SandboxedEvalCase(name=name, prompt=prompt, expected=expected)
 
 
-async def eval_schema_discovery(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_schema_discovery(ctx: EvalContext) -> None:
     cases = [
         _discovery_case(
             name="schema_discovery_pageview_7d",
@@ -83,7 +84,7 @@ async def eval_schema_discovery(sandboxed_demo_data, pytestconfig, posthog_clien
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-schema-discovery-{mcp_mode}",
+        experiment_name="sandboxed-schema-discovery-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -91,7 +92,5 @@ async def eval_schema_discovery(sandboxed_demo_data, pytestconfig, posthog_clien
             LastToolCallNot(forbidden="execute-sql", name="last_call_not_execute_sql"),
             SchemaDiscoveryOrder(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

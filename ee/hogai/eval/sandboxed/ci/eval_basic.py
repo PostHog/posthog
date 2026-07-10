@@ -1,7 +1,7 @@
 """Placeholder eval cases for the sandboxed coding agent.
 
 To run:
-    pytest ee/hogai/eval/sandboxed/ci/eval_basic.py
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_basic"
 
 Example eval case pattern:
 
@@ -14,10 +14,11 @@ from __future__ import annotations
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.cli_mcp.scorers import CalledTargetTool, SurfacedGeneratedAppUrl
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
-async def eval_bugfix(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_bugfix(ctx: EvalContext) -> None:
     cases = [
         SandboxedEvalCase(
             name="fix_divide_bug",
@@ -36,18 +37,16 @@ async def eval_bugfix(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mod
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-bugfix-{mcp_mode}",
+        experiment_name="sandboxed-bugfix-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )
 
 
-async def eval_app_link_generation(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_app_link_generation(ctx: EvalContext) -> None:
     """Entity links must be resolved via ``generate-app-url``, not hand-built.
 
     Reproduces the reported failure where the MCP confidently returned 404 links — a person
@@ -89,10 +88,8 @@ async def eval_app_link_generation(sandboxed_demo_data, pytestconfig, posthog_cl
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-app-link-generation-{mcp_mode}",
+        experiment_name="sandboxed-app-link-generation-cli",
         cases=cases,
         scorers=[ExitCodeZero(), CalledTargetTool(), SurfacedGeneratedAppUrl()],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

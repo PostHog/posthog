@@ -29,10 +29,7 @@ Pass criteria for the case below:
 
 To run:
 
-    flox activate -- bash -c "set -a; source .env; set +a; \\
-        pytest -c ee/hogai/eval/pytest.ini \\
-        ee/hogai/eval/sandboxed/experiments/eval_unknown_events_confirmation.py \\
-        -v --mcp-mode tools"
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_unknown_events_confirmation"
 """
 
 from __future__ import annotations
@@ -41,6 +38,7 @@ from ee.hogai.eval.sandboxed.base import SandboxedPrivateEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.experiments.scorers import AskedForConfirmation
 from ee.hogai.eval.sandboxed.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall, RequiredToolCall
 
 # Event name chosen to be obviously fictional so the agent can't plausibly
@@ -48,7 +46,7 @@ from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall, RequiredTo
 UNKNOWN_EVENT_NAME = "totally_made_up_event_qzx"
 
 
-async def eval_unknown_events_confirmation(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_unknown_events_confirmation(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
         # The agent is asked to wire up a metric on an event the project
         # has never ingested. The first experiment-update attempt will hit
@@ -67,7 +65,7 @@ async def eval_unknown_events_confirmation(sandboxed_demo_data, pytestconfig, po
     ]
 
     await SandboxedPrivateEval(
-        experiment_name=f"sandboxed-experiments-unknown-events-{mcp_mode}",
+        experiment_name="sandboxed-experiments-unknown-events-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -91,7 +89,5 @@ async def eval_unknown_events_confirmation(sandboxed_demo_data, pytestconfig, po
                 ),
             ),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

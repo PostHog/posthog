@@ -25,10 +25,7 @@ metric becomes a noisy signal for it. We measure outcomes instead.
 Skill-load coverage belongs in a focused, single-purpose eval.
 
 To run:
-    flox activate -- bash -c "set -a; source .env; set +a; \\
-        pytest -c ee/hogai/eval/pytest.ini \\
-        ee/hogai/eval/sandboxed/experiments/eval_lifecycle_skills.py \\
-        -v --mcp-mode tools"
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_lifecycle_skills"
 """
 
 from __future__ import annotations
@@ -41,18 +38,19 @@ from ee.hogai.eval.sandboxed.experiments.scorers import (
     RecommendsShipVariant,
 )
 from ee.hogai.eval.sandboxed.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall, RequiredToolCall
 
 
-# Cases are bundled into one test function rather than @pytest.mark.parametrize
-# because the sandboxed harness wraps a list of cases in a single
-# SandboxedPrivateEval call: one Braintrust experiment, parallel execution via
-# max_concurrency=2, per-case filtering via --eval at the runner level. Pytest-
-# level parametrize would create N separate Braintrust experiments, lose the
-# parallelism, and break cross-case comparison. Every existing sandboxed eval
-# (eval_funnel, eval_retention, eval_insight_retrieval, eval_rollout_skill)
-# follows this same single-function-multiple-cases shape.
-async def eval_lifecycle_skills(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+# Cases are bundled into one suite function rather than one function per case
+# because the harness wraps a list of cases in a single SandboxedPrivateEval
+# call: one Braintrust experiment, with concurrency bounded by the harness's
+# global sandbox semaphore and per-case filtering via --eval. Splitting into
+# one function per case would create N separate Braintrust experiments and break
+# cross-case comparison. Every existing sandboxed eval (eval_funnel,
+# eval_retention, eval_insight_retrieval, eval_rollout_skill) follows this same
+# single-function-multiple-cases shape.
+async def eval_lifecycle_skills(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
         # Case 1: Ship variant must require confirmation.
         # Tests name resolution + the "Always confirm before shipping"
@@ -92,7 +90,7 @@ async def eval_lifecycle_skills(sandboxed_demo_data, pytestconfig, posthog_clien
     ]
 
     await SandboxedPrivateEval(
-        experiment_name=f"sandboxed-experiments-lifecycle-{mcp_mode}",
+        experiment_name="sandboxed-experiments-lifecycle-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -109,7 +107,5 @@ async def eval_lifecycle_skills(sandboxed_demo_data, pytestconfig, posthog_clien
             DuplicateUniqueFlagKey(),
             RecommendsShipVariant(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

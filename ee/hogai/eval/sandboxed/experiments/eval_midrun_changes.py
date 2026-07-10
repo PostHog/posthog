@@ -34,15 +34,10 @@ final diagnosis and the no-edit recommendation are.
 
 To run:
 
-    flox activate -- bash -c "set -a; source .env; set +a; \\
-        pytest -c ee/hogai/eval/pytest.ini \\
-        ee/hogai/eval/sandboxed/experiments/eval_midrun_changes.py \\
-        -v --mcp-mode tools"
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_midrun_changes"
 """
 
 from __future__ import annotations
-
-import pytest
 
 from ee.hogai.eval.sandboxed.base import SandboxedPrivateEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
@@ -57,11 +52,11 @@ from ee.hogai.eval.sandboxed.experiments.seeders import (
     seed_ended_experiment_with_flag_flip,
     seed_running_experiment,
 )
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
-@pytest.mark.django_db
-async def eval_midrun_changes(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_midrun_changes(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
             name="ship_variant_flag_flip_on_stopped_experiment",
@@ -125,7 +120,7 @@ async def eval_midrun_changes(sandboxed_demo_data, pytestconfig, posthog_client,
     ]
 
     await SandboxedPrivateEval(
-        experiment_name=f"sandboxed-experiments-diagnose-midrun-changes-{mcp_mode}",
+        experiment_name="sandboxed-experiments-diagnose-midrun-changes-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -133,7 +128,5 @@ async def eval_midrun_changes(sandboxed_demo_data, pytestconfig, posthog_client,
             DoesNotRecommendEdit(),
             AdvisesAgainstShipping(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

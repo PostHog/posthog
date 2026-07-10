@@ -25,20 +25,18 @@ in any layer that prevents the agent from ever producing a successful
 create call will flip this scorer to 0.0.
 
 To run:
-    flox activate -- bash -c "set -a; source .env; set +a; \\
-        pytest -c ee/hogai/eval/pytest.ini \\
-        ee/hogai/eval/sandboxed/experiments/eval_create_control_variant.py \\
-        -v --mcp-mode tools"
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_create_control_variant"
 """
 
 from __future__ import annotations
 
 from ee.hogai.eval.sandboxed.base import SandboxedPrivateEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, RequiredToolCall
 
 
-async def eval_create_control_variant(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_create_control_variant(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
         # Single high-coverage case. The "A (existing) vs B (new)" framing
         # is the highest-yield trigger of the production "Feature flag
@@ -57,7 +55,7 @@ async def eval_create_control_variant(sandboxed_demo_data, pytestconfig, posthog
     ]
 
     await SandboxedPrivateEval(
-        experiment_name=f"sandboxed-experiments-create-control-{mcp_mode}",
+        experiment_name="sandboxed-experiments-create-control-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -70,7 +68,5 @@ async def eval_create_control_variant(sandboxed_demo_data, pytestconfig, posthog
                 name="experiment_created_successfully",
             ),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

@@ -13,7 +13,7 @@ resulting cohort size.
 
 To run::
 
-    pytest ee/hogai/eval/sandboxed/cohorts/eval_cohort_from_query.py
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_cohort_from_query"
 """
 
 from __future__ import annotations
@@ -25,10 +25,11 @@ from ee.hogai.eval.sandboxed.cohorts.scorers import (
     QueryTargetsActorColumn,
 )
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
 
 
-async def eval_cohort_from_query(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_cohort_from_query(ctx: EvalContext) -> None:
     cases = [
         SandboxedEvalCase(
             name="cohort_from_sql_query",
@@ -57,7 +58,7 @@ async def eval_cohort_from_query(sandboxed_demo_data, pytestconfig, posthog_clie
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-cohorts-from-query-{mcp_mode}",
+        experiment_name="sandboxed-cohorts-from-query-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -65,7 +66,5 @@ async def eval_cohort_from_query(sandboxed_demo_data, pytestconfig, posthog_clie
             QueryTargetsActorColumn(),
             NoToolCall(forbidden={COHORTS_ADD_PERSONS_TOOL}, name="no_uuid_batching"),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

@@ -8,36 +8,15 @@ from _pytest.terminal import TerminalReporter
 # We want the PostHog django_db_setup fixture here
 from posthog.conftest import _django_db_setup  # noqa: F401
 
+# Sandboxed evals run through the standalone harness (python -m
+# ee.hogai.eval.sandboxed.harness), not pytest. Keep pytest out of that tree so
+# only ci/ and offline/ collect here.
+collect_ignore = ["sandboxed"]
+
 
 def pytest_addoption(parser):
     # Example: pytest ee/hogai/eval/ci/eval_sql.py --eval churn - to only run cases containing "churn" in input
     parser.addoption("--eval", action="store")
-    parser.addoption(
-        "--keep-sandbox-containers",
-        action="store_true",
-        default=False,
-        help="Skip the sandboxed eval harness Docker container cleanup at session end (for debugging).",
-    )
-    parser.addoption(
-        "--mcp-mode",
-        action="store",
-        default="both",
-        choices=("tools", "cli", "both"),
-        help=(
-            "Which PostHog MCP execution mode to exercise in sandboxed evals. "
-            "'tools' registers each tool individually; 'cli' wraps them in a single "
-            "`exec` tool; 'both' (default) parametrizes each test across both modes."
-        ),
-    )
-    parser.addoption(
-        "--agent-model",
-        action="store",
-        default="anthropic/claude-opus-4-8",
-        help=(
-            "Model the sandboxed agent runs against. Pinned for stable cross-run "
-            "comparisons. Defaults to anthropic/claude-opus-4-8."
-        ),
-    )
 
 
 _nodeid_to_results_url_map: dict[str, str] = {}

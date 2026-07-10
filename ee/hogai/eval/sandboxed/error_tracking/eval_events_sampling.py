@@ -15,14 +15,12 @@ case's expected shape.
 
 To run::
 
-    pytest ee/hogai/eval/sandboxed/error_tracking/eval_events_sampling.py
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_events_sampling"
 """
 
 from __future__ import annotations
 
 from typing import Any
-
-import pytest
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
@@ -33,6 +31,7 @@ from ee.hogai.eval.sandboxed.error_tracking.scorers import (
     IssueIdMatchesTarget,
 )
 from ee.hogai.eval.sandboxed.error_tracking.seeders import seed_error_tracking_issues
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
 
 
@@ -54,8 +53,7 @@ def _events_case(
     )
 
 
-@pytest.mark.django_db
-async def eval_events_sampling(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_events_sampling(ctx: EvalContext) -> None:
     cases = [
         # One example, modest verbosity — the prompt only asks for "an example",
         # so cranking limit > 3 or asking for raw is wasteful. Issue described
@@ -108,7 +106,7 @@ async def eval_events_sampling(sandboxed_demo_data, pytestconfig, posthog_client
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-error-tracking-events-sampling-{mcp_mode}",
+        experiment_name="sandboxed-error-tracking-events-sampling-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -117,7 +115,5 @@ async def eval_events_sampling(sandboxed_demo_data, pytestconfig, posthog_client
             EventsArgsAlignment(),
             IssueIdMatchesTarget(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )
