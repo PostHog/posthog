@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
 
 from products.growth.backend.enrichment.fields import EnrichmentFields
-from products.growth.backend.enrichment.writer import write_organization_enrichment
+from products.growth.backend.enrichment.writer import record_signup_work_email, write_organization_enrichment
 from products.growth.backend.models import OrganizationEnrichment
 
 
@@ -45,6 +45,21 @@ class TestEnrichmentWriter(BaseTest):
             str(self.organization.id),
             properties={"enrichment_company_type": "STARTUP", "enrichment_founded_year": 2019},
         )
+
+    def test_record_signup_work_email_merges_without_clobbering_provider_data(self):
+        record_signup_work_email(organization_id=str(self.organization.id), work_email=False)
+        assert OrganizationEnrichment.objects.get(organization=self.organization).data == {"work_email": False}
+
+        write_organization_enrichment(
+            organization_id=str(self.organization.id),
+            fields=EnrichmentFields(headcount=9),
+            pha_client=MagicMock(),
+        )
+        record_signup_work_email(organization_id=str(self.organization.id), work_email=True)
+        assert OrganizationEnrichment.objects.get(organization=self.organization).data == {
+            "work_email": True,
+            "headcount": 9,
+        }
 
     def test_no_op_when_no_fields_set(self):
         pha_client = MagicMock()

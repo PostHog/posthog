@@ -11,11 +11,13 @@ def test_to_dict_keeps_falsey_but_set_values():
     assert fields.to_dict() == {"founded_year": 0, "is_yc_company": False}
 
 
-def test_to_group_properties_prefixes_every_key():
-    fields = EnrichmentFields(company_type="startup", industry="Fintech")
+def test_to_group_properties_writes_takeover_fields_on_icp_keys_and_the_rest_prefixed():
+    fields = EnrichmentFields(company_type="startup", industry="Fintech", headcount=42, country="US")
     assert fields.to_group_properties() == {
         "enrichment_company_type": "startup",
         "enrichment_industry": "Fintech",
+        "icp_employees": 42,
+        "icp_country": "US",
     }
 
 

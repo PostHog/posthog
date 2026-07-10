@@ -14,6 +14,15 @@ from typing import Any, Optional
 # Prefix for the `enrichment_*` ClickHouse group properties written via group_identify.
 ENRICHMENT_PROPERTY_PREFIX = "enrichment_"
 
+# Fields whose provider source matches what already populates the icp_* group properties
+# (Harmonic-first in the incumbent waterfall), so we write the same keys and consumers
+# never migrate. Source-changing fields stay on the parallel `enrichment_*` namespace
+# until they pass their own comparison.
+SAME_KEY_GROUP_PROPERTIES: dict[str, str] = {
+    "headcount": "icp_employees",
+    "country": "icp_country",
+}
+
 
 @dataclasses.dataclass
 class EnrichmentFields:
@@ -27,6 +36,7 @@ class EnrichmentFields:
     founded_year: Optional[int] = None
     funding_stage: Optional[str] = None
     is_yc_company: Optional[bool] = None
+    work_email: Optional[bool] = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return set (non-None) fields keyed by registry name."""
@@ -35,5 +45,8 @@ class EnrichmentFields:
         }
 
     def to_group_properties(self) -> dict[str, Any]:
-        """Return the `enrichment_*` group properties for the ClickHouse projection."""
-        return {f"{ENRICHMENT_PROPERTY_PREFIX}{name}": value for name, value in self.to_dict().items()}
+        """Return the ClickHouse group properties: takeover fields on their icp_* keys, the rest as `enrichment_*`."""
+        return {
+            SAME_KEY_GROUP_PROPERTIES.get(name, f"{ENRICHMENT_PROPERTY_PREFIX}{name}"): value
+            for name, value in self.to_dict().items()
+        }
