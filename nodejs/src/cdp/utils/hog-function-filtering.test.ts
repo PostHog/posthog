@@ -1,7 +1,5 @@
-import { parseJSON } from '~/common/utils/json-parse'
-
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
-import type { FilterShadowCapturedInvocation, FilterShadowCapturer } from '../services/rust-vm-filter-shadow'
+import type { FilterShadowCapturer } from '../services/rust-vm-filter-shadow'
 import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import {
     convertClickhouseRawEventToFilterGlobals,
@@ -362,16 +360,10 @@ describe('hog-function-filtering', () => {
         })
     })
 
-    describe('Rust HogVM shadow capture', () => {
-        const makeShadow = (): { shadow: FilterShadowCapturer; captured: FilterShadowCapturedInvocation[] } => {
-            const captured: FilterShadowCapturedInvocation[] = []
-            return {
-                captured,
-                shadow: {
-                    shouldCapture: jest.fn().mockReturnValue(true),
-                    capture: (item) => captured.push(item),
-                },
-            }
+    describe('Rust HogVM shadow', () => {
+        const makeShadow = (): { shadow: FilterShadowCapturer; compare: jest.Mock } => {
+            const compare = jest.fn()
+            return { shadow: { compare }, compare }
         }
 
         const fn = {
@@ -386,27 +378,27 @@ describe('hog-function-filtering', () => {
             timestamp: '2025-01-01T00:00:00.000Z',
         } as HogFunctionFilterGlobals
 
-        it('captures the executed filter with the node match result, bytecode and globals snapshot', async () => {
-            const { shadow, captured } = makeShadow()
+        it('compares the executed filter with the real node match, bytecode and globals', async () => {
+            const { shadow, compare } = makeShadow()
             const filters = {
                 events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
                 properties: [{ key: '$browser', type: 'event', value: 'is_set', operator: 'is_set' }],
-                bytecode: ['_H', 1, 30], // FALSE — the shadow must record the real boolean, not assume true
+                bytecode: ['_H', 1, 30], // FALSE — the shadow must be handed the real boolean, not assume true
             } as HogFunctionType['filters']
 
             const result = await filterFunctionInstrumented({ fn, filters, filterGlobals, shadow })
 
             expect(result.match).toBe(false)
-            expect(captured).toHaveLength(1)
-            expect(captured[0].functionId).toBe('shadow-fn')
-            expect(captured[0].teamId).toBe(7)
-            expect(captured[0].bytecode).toBe(filters!.bytecode)
-            expect(captured[0].node.match).toBe(false)
-            expect(parseJSON(captured[0].globalsJson).event).toBe('$pageview')
+            expect(compare).toHaveBeenCalledTimes(1)
+            const [bytecode, globals, nodeMatch, nodeDurationMs] = compare.mock.calls[0]
+            expect(bytecode).toBe(filters!.bytecode)
+            expect(globals).toBe(filterGlobals)
+            expect(nodeMatch).toBe(false)
+            expect(typeof nodeDurationMs).toBe('number')
         })
 
-        it('does not capture when the pre-filter short-circuits before running bytecode', async () => {
-            const { shadow, captured } = makeShadow()
+        it('does not compare when the pre-filter short-circuits before running bytecode', async () => {
+            const { shadow, compare } = makeShadow()
             const filters = {
                 events: [{ id: 'other_event', name: 'other_event', type: 'events', order: 0 }],
                 bytecode: ['_H', 1, 29],
@@ -415,30 +407,17 @@ describe('hog-function-filtering', () => {
             const result = await filterFunctionInstrumented({ fn, filters, filterGlobals, shadow })
 
             expect(result.match).toBe(false)
-            expect(captured).toHaveLength(0)
+            expect(compare).not.toHaveBeenCalled()
         })
 
-        it('does not capture when there are no filters and bytecode execution is skipped', async () => {
-            const { shadow, captured } = makeShadow()
+        it('does not compare when there are no filters and bytecode execution is skipped', async () => {
+            const { shadow, compare } = makeShadow()
             const filters = { bytecode: ['_H', 1, 29] } as HogFunctionType['filters']
 
             const result = await filterFunctionInstrumented({ fn, filters, filterGlobals, shadow })
 
             expect(result.match).toBe(true)
-            expect(captured).toHaveLength(0)
-        })
-
-        it('does not capture when sampling declines the invocation', async () => {
-            const { shadow, captured } = makeShadow()
-            ;(shadow.shouldCapture as jest.Mock).mockReturnValue(false)
-            const filters = {
-                properties: [{ key: '$browser', type: 'event', value: 'is_set', operator: 'is_set' }],
-                bytecode: ['_H', 1, 29],
-            } as HogFunctionType['filters']
-
-            await filterFunctionInstrumented({ fn, filters, filterGlobals, shadow })
-
-            expect(captured).toHaveLength(0)
+            expect(compare).not.toHaveBeenCalled()
         })
     })
 })

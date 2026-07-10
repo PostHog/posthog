@@ -20,7 +20,6 @@ const config = {
     CDP_RATE_LIMITER_TTL: 60,
     CDP_OVERFLOW_QUEUE_ENABLED: true,
     CDP_HOG_RUST_VM_SHADOW_FILTER_SAMPLE_RATE: 0,
-    MMDB_FILE_LOCATION: '../share/GeoLite2-City.mmdb',
 }
 
 function makeHogFunction(overrides: Partial<HogFunctionType> = {}): HogFunctionType {

@@ -29,7 +29,6 @@ export interface HogFunctionInvocationPipelineConfig {
     CDP_RATE_LIMITER_TTL: number
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
     CDP_HOG_RUST_VM_SHADOW_FILTER_SAMPLE_RATE: number
-    MMDB_FILE_LOCATION: string
 }
 
 export interface HogFunctionInvocationPipelineDeps {
@@ -76,7 +75,6 @@ export class HogFunctionInvocationPipeline {
             : null
         this.rustVmFilterShadow = new RustVmFilterShadow({
             sampleRate: config.CDP_HOG_RUST_VM_SHADOW_FILTER_SAMPLE_RATE,
-            mmdbPath: config.MMDB_FILE_LOCATION,
         })
     }
 
@@ -237,11 +235,6 @@ export class HogFunctionInvocationPipeline {
         })
 
         this.deps.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_function')
-
-        // Off the hot path: shadow-execute this batch's sampled filters on the Rust HogVM and
-        // compare. Fire-and-forget via mirrorCall so it can never throw into or delay the primary
-        // pipeline; the shadow guards against overlapping flushes internally.
-        void mirrorCall('hogvm.rust-filter-shadow-flush', () => this.rustVmFilterShadow.flush(), 5000)
 
         return notMaskedInvocations
     }

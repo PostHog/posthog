@@ -349,8 +349,8 @@ export async function filterFunctionInstrumented(options: {
     filterGlobals: HogFunctionFilterGlobals
     /** Optional filters to use instead of those on the function */
     filters: HogFunctionType['filters']
-    /** Optional Rust HogVM shadow. When provided and sampling, the filter bytecode + globals are
-     * captured for out-of-band comparison. Never affects the returned result. */
+    /** Optional Rust HogVM shadow. When provided, sampled bytecode executions are re-run on the
+     * Rust VM off the hot path to compare timing and result. Never affects the returned result. */
     shadow?: FilterShadowCapturer
 }): Promise<HogFilterResult> {
     const { fn, filters, filterGlobals, shadow } = options
@@ -368,11 +368,9 @@ export async function filterFunctionInstrumented(options: {
 
     let preFilterMatch = null
 
-    // Rust HogVM shadow bookkeeping (outer scope so the post-execution capture below can read the
-    // final match/error regardless of whether the Node VM threw).
-    let shadowCapture = false
-    let shadowGlobalsJson: string | null = null
-    let shadowDurationMs: number | null = null
+    // Node filter duration, captured only when bytecode actually ran, so the Rust HogVM shadow at
+    // the bottom fires for exactly the executions it can compare.
+    let nodeFilterDurationMs: number | null = null
 
     try {
         // If there are no filters (only bytecode exists then on the filter object)
@@ -405,20 +403,11 @@ export async function filterFunctionInstrumented(options: {
             throw new Error('Filters were not compiled correctly and so could not be executed')
         }
 
-        // Decide once, before running, whether to shadow this execution. Snapshot the globals now:
-        // although the Node VM doesn't mutate them, this keeps the compared input pinned to what
-        // Node actually saw. Only the bytecode-executing path is sampled, so the pre-filtered and
-        // no-filter short-circuits above are never counted.
-        if (shadow?.shouldCapture()) {
-            shadowCapture = true
-            shadowGlobalsJson = JSON.stringify(filterGlobals)
-        }
-
         const execHogOutcome = await execHog(filters.bytecode, { globals: filterGlobals })
 
         if (execHogOutcome) {
             hogFunctionFilterDuration.observe({ type }, execHogOutcome.durationMs)
-            shadowDurationMs = execHogOutcome.durationMs
+            nodeFilterDurationMs = execHogOutcome.durationMs
         }
 
         if (execHogOutcome.durationMs > HOG_FILTERING_TIMEOUT_MS) {
@@ -483,20 +472,11 @@ export async function filterFunctionInstrumented(options: {
         result.error = error.message
     }
 
-    // Off the primary path: buffer this filter's bytecode, globals snapshot and Node outcome for
-    // out-of-band comparison against the Rust HogVM. Only fires for sampled bytecode executions.
-    if (shadowCapture && shadowGlobalsJson !== null && shadowDurationMs !== null && filters?.bytecode) {
-        shadow?.capture({
-            functionId: fn.id,
-            teamId: fn.team_id,
-            bytecode: filters.bytecode,
-            globalsJson: shadowGlobalsJson,
-            node: {
-                match: result.match,
-                error: result.error !== undefined ? String(result.error) : undefined,
-                durationMs: shadowDurationMs,
-            },
-        })
+    // Off the primary path: re-run the same bytecode + globals on the Rust HogVM and compare. Only
+    // fires for sampled bytecode executions (the pre-filtered and no-filter short-circuits above
+    // return early and are never compared). Fire-and-forget — it can't affect `result`.
+    if (shadow && filters?.bytecode && nodeFilterDurationMs !== null) {
+        void shadow.compare(filters.bytecode, filterGlobals, result.match, nodeFilterDurationMs)
     }
 
     return result
