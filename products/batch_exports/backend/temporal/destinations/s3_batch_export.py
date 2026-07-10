@@ -391,10 +391,8 @@ async def get_credentials_using_user_aws_role(
             permissions required for batch exports.
         external_id: An additional ID provided to users for security.
         session_name: The name used for both AWS sessions.
-        bucket_name: The bucket we are batch exporting to. Used to narrow down
-            permissions.
-        key_prefix: The key prefix we are batch exporting to. Used to narrow
-            down permissions.
+        policy_statements: Policy statements to request narrower permissions on
+            final assumed role.
         duration: Maximum session duration, in seconds (1 hour limit).
         max_attempts: How many times to attempt to connect. Useful for tests as
             roles and/or policies may not be immediately available.
@@ -425,7 +423,7 @@ async def get_credentials_using_user_aws_role(
 
         except botocore.exceptions.ClientError as e:
             code = e.response["Error"]["Code"]
-            if code != "AccessDenied" or attempt == max_attempts:
+            if code not in ("AccessDenied", "InvalidClientTokenId") or attempt == max_attempts:
                 raise
 
             await asyncio.sleep(min(delay * (2**attempt), 32))
@@ -455,7 +453,6 @@ async def get_credentials_using_user_aws_role(
                     raise InvalidCredentialsError(
                         "The provided role '{aws_role_arn}' allows access without a required external id condition. Update the role's policy with a condition to match '{external_id}' as a external id."
                     )
-
                 second_response = await sts.assume_role(
                     RoleArn=aws_role_arn,
                     RoleSessionName=session_name,
@@ -472,7 +469,7 @@ async def get_credentials_using_user_aws_role(
 
         except botocore.exceptions.ClientError as e:
             code = e.response["Error"]["Code"]
-            if code != "AccessDenied" or attempt == max_attempts:
+            if code not in ("AccessDenied", "InvalidClientTokenId") or attempt == max_attempts:
                 raise
 
             await asyncio.sleep(min(delay * (2**attempt), 32))

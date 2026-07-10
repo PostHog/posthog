@@ -27,9 +27,6 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 LOGGER = structlog.get_logger()
 TEST_ROOT_BUCKET = "test-batch-exports"
-TOKEN = secrets.token_hex(6)
-TEST_AWS_EXTERNAL_ROLE = os.getenv("TEST_AWS_EXTERNAL_ROLE", f"test-aws-external-role-{TOKEN}")
-TEST_AWS_DESTINATION_ROLE = os.getenv("TEST_AWS_DESTINATION_ROLE", f"test-aws-destination-role-{TOKEN}")
 ARN = str
 TEST_REGION = os.getenv("TEST_S3_BUCKET_REGION", "us-east-1")
 
@@ -162,7 +159,57 @@ async def s3_compatible_batch_export(
 @pytest_asyncio.fixture(scope="module")
 async def session() -> aioboto3.Session:
     session = aioboto3.Session()
+
+    try:
+        async with session.client("sts") as sts:
+            await sts.get_caller_identity()
+    except (
+        botocore.exceptions.NoCredentialsError,
+        botocore.exceptions.PartialCredentialsError,
+        botocore.exceptions.ClientError,
+        botocore.exceptions.NoRegionError,
+    ):
+        raise pytest.skip("Missing AWS credentials")
+
     return session
+
+
+@pytest_asyncio.fixture(scope="module")
+async def kms_key(session: aioboto3.Session) -> collections.abc.AsyncIterator[dict]:
+    async with session.client("kms") as kms:
+        try:
+            resp = await kms.create_key(
+                Description="PostHog batch exports test key",
+                KeyUsage="ENCRYPT_DECRYPT",
+                KeySpec="SYMMETRIC_DEFAULT",
+            )
+
+        except (
+            botocore.exceptions.NoCredentialsError,
+            botocore.exceptions.PartialCredentialsError,
+            botocore.exceptions.ClientError,
+            botocore.exceptions.NoRegionError,
+        ):
+            raise pytest.skip("Could not create KMS key")
+
+        key_id = resp["KeyMetadata"]["KeyId"]
+        try:
+            yield resp["KeyMetadata"]
+        finally:
+            await kms.schedule_key_deletion(
+                KeyId=key_id,
+                PendingWindowInDays=7,  # Minimum
+            )
+
+
+@pytest.fixture(scope="module")
+def kms_key_id(kms_key: dict) -> str:
+    return kms_key["KeyId"]
+
+
+@pytest.fixture(scope="module")
+def kms_key_arn(kms_key: dict) -> str:
+    return kms_key["Arn"]
 
 
 @pytest_asyncio.fixture(scope="module")
@@ -230,9 +277,28 @@ async def identity_role(session) -> str:
     return identity_role_name
 
 
+@pytest.fixture
+def token() -> str:
+    return secrets.token_hex(6)
+
+
+@pytest.fixture
+def external_aws_role_name(token: str) -> str:
+    return f"test-aws-external-role-{token}"
+
+
+@pytest.fixture
+def destination_aws_role_name(token: str) -> str:
+    return f"test-aws-destination-role-{token}"
+
+
 @pytest_asyncio.fixture
 async def external_aws_role_arn(
-    session: aioboto3.Session, account_id: str, identity_role: str
+    session: aioboto3.Session,
+    account_id: str,
+    identity_role: str,
+    external_aws_role_name: str,
+    destination_aws_role_name: str,
 ) -> collections.abc.AsyncIterator[str]:
     """Role used to assume a destination AWS role.
 
@@ -264,20 +330,28 @@ async def external_aws_role_arn(
                 "Sid": "AllowAssumeDestinationRole",
                 "Effect": "Allow",
                 "Action": "sts:AssumeRole",
-                "Resource": f"arn:aws:iam::{account_id}:role/",
+                "Resource": f"arn:aws:iam::{account_id}:role/{destination_aws_role_name}",
             }
         ],
     }
 
     async with aws_role(
         session,
-        TEST_AWS_EXTERNAL_ROLE,
+        external_aws_role_name,
         description="External role used to assume a user's role",
         trust_policy=current_role_trust_policy,
         role_policy=external_role_policy,
         policy_name="AssumeDestinationRole",
     ) as arn:
         yield arn
+
+
+@pytest.fixture
+def external_id(request, aorganization) -> str | None:
+    try:
+        return request.param
+    except Exception:
+        return str(aorganization.id)
 
 
 @pytest_asyncio.fixture
@@ -288,6 +362,9 @@ async def destination_aws_role_arn(
     aorganization,
     account_id: str,
     identity_role: str,
+    destination_aws_role_name: str,
+    external_id: str | None,
+    kms_key_arn: str,
 ) -> collections.abc.AsyncIterator[str]:
     """Role with S3 permissions in a destination.
 
@@ -303,14 +380,15 @@ async def destination_aws_role_arn(
                     "AWS": external_aws_role_arn,
                 },
                 "Action": "sts:AssumeRole",
-                "Condition": {
-                    "StringEquals": {
-                        "sts:ExternalId": str(aorganization.id),
-                    },
-                },
             }
         ],
     }
+    if external_id is not None:
+        external_trust_policy["Statement"][0]["Condition"] = {  # type: ignore
+            "StringEquals": {
+                "sts:ExternalId": external_id,
+            },
+        }
 
     s3_policy = {
         "Version": "2012-10-17",
@@ -327,12 +405,18 @@ async def destination_aws_role_arn(
                 "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
                 "Resource": f"arn:aws:s3:::{bucket_name}/*",
             },
+            {
+                "Sid": "KMSKeyAccess",
+                "Effect": "Allow",
+                "Action": ["kms:GenerateDataKey", "kms:Decrypt"],
+                "Resource": kms_key_arn,
+            },
         ],
     }
 
     async with aws_role(
         session,
-        TEST_AWS_DESTINATION_ROLE,
+        destination_aws_role_name,
         trust_policy=external_trust_policy,
         description="A user's role with access to S3",
         role_policy=s3_policy,
@@ -354,7 +438,6 @@ async def aws_role(
     max_attempts: int = 5,
     delay: int | float = 3.0,
 ) -> collections.abc.AsyncIterator[ARN]:
-
     async with session.client("iam") as iam:
         attempt = 0
 
@@ -371,8 +454,8 @@ async def aws_role(
                 if (
                     exc.response["Error"]["Code"] != "MalformedPolicyDocument"
                     or "Invalid principal" not in exc.response["Error"]["Message"]
-                ):
-                    raise pytest.skip("Failed with an unknown error when creating role")
+                ) and exc.response["Error"]["Code"] != "EntityAlreadyExists":
+                    raise pytest.skip(f"Failed with an unknown error when creating role: {type(exc)} {exc}")
 
                 if attempt >= max_attempts:
                     raise pytest.skip("Failed multiple times to create role")
