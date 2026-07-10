@@ -1041,7 +1041,6 @@ async def upload_manifest_file(
     credentials: AWSCredentials,
     files_uploaded: list[str],
     manifest_key: str,
-    endpoint_url: str | None = None,
 ):
     """Upload manifest file used by Redshift COPY.
 
@@ -1115,15 +1114,11 @@ async def upload_manifest_file(
 
         manifest = {"entries": entries}
 
-        optional_kwargs = {}
-        if endpoint_url is None:
-            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
-
         await client.put_object(
             Bucket=bucket,
             Key=manifest_key,
             Body=json.dumps(manifest),
-            **optional_kwargs,  # type: ignore
+            ChecksumAlgorithm="CRC64NVME",
         )
 
 
