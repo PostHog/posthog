@@ -201,6 +201,26 @@ export const EmbeddedDayGranular: Story = {
     },
 }
 
+export const InstantPresetsWithRailFooter: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<DateTimeValue>({
+            start: startOfMonth(new Date()),
+            end: new Date(),
+            range: calendarRanges[0],
+        })
+        return (
+            <DateTimePicker
+                value={value}
+                onApply={setValue}
+                ranges={calendarRanges}
+                applyOnRangeSelect
+                rangesFooter={<span className="text-xs text-muted-foreground">Host content, e.g. a rolling input</span>}
+            />
+        )
+    },
+}
+
 export const WeekStartsThursday: Story = {
     args: baseArgs,
     render: () => {
