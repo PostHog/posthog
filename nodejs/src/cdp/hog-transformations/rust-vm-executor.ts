@@ -36,6 +36,28 @@ export class RustVmExecutor {
     }
 
     /**
+     * Count and log a fallback so every node-vm handoff is attributable to a function. Returns
+     * null for the caller to pass through.
+     */
+    private fallback(
+        outcome: 'fallback_unsupported' | 'fallback_exception' | 'fallback_empty_result',
+        invocation: CyclotronJobInvocationHogFunction,
+        sensitiveValues: string[],
+        error: unknown
+    ): null {
+        rustVmExecution.inc({ outcome })
+        logger.warn('🦀', 'Rust HogVM invocation fell back to the node vm', {
+            outcome,
+            functionId: invocation.functionId,
+            teamId: invocation.teamId,
+            // Same redaction as hog print logs: marshalling errors and panic messages can embed
+            // values from the invocation globals, which include secret inputs.
+            error: error !== undefined ? sanitizeLogMessage([String(error)], sensitiveValues) : undefined,
+        })
+        return null
+    }
+
+    /**
      * Execute one transformation invocation on the Rust VM. Returns null when the Node VM must
      * run it instead.
      *
@@ -45,25 +67,6 @@ export class RustVmExecutor {
      * event-loop yielding the Node path has. Concurrent events therefore execute in parallel on
      * worker threads; batching many events into one call (rayon fan-out) is a possible follow-up.
      */
-    /**
-     * Count and log a fallback so every node-vm handoff is attributable to a function. Returns
-     * null for the caller to pass through.
-     */
-    private fallback(
-        outcome: 'fallback_unsupported' | 'fallback_exception' | 'fallback_empty_result',
-        invocation: CyclotronJobInvocationHogFunction,
-        error: unknown
-    ): null {
-        rustVmExecution.inc({ outcome })
-        logger.warn('🦀', 'Rust HogVM invocation fell back to the node vm', {
-            outcome,
-            functionId: invocation.functionId,
-            teamId: invocation.teamId,
-            error: error !== undefined ? String(error) : undefined,
-        })
-        return null
-    }
-
     public async execute(
         invocation: CyclotronJobInvocationHogFunction,
         sensitiveValues: string[]
@@ -88,14 +91,14 @@ export class RustVmExecutor {
             // all of these, so correctness wins and the invocation falls back — while the warn log
             // and the fallback_exception outcome carry the error so native faults stay visible
             // rather than being silently healed.
-            return this.fallback('fallback_exception', invocation, error)
+            return this.fallback('fallback_exception', invocation, sensitiveValues, error)
         }
         if (!rust) {
-            return this.fallback('fallback_empty_result', invocation, undefined)
+            return this.fallback('fallback_empty_result', invocation, sensitiveValues, undefined)
         }
 
         if (rust.error && isUnsupportedByRustVm(rust.error)) {
-            return this.fallback('fallback_unsupported', invocation, rust.error)
+            return this.fallback('fallback_unsupported', invocation, sensitiveValues, rust.error)
         }
 
         const durationMs = rust.durationUs / 1000
