@@ -16,6 +16,20 @@ logger = logging.getLogger(__name__)
 
 SandboxProvider = Literal["docker", "modal"]
 
+SANDBOX_PROVIDER_SETTING: dict[SandboxProvider, str] = {
+    "docker": "docker",
+    "modal": "MODAL_DOCKER",
+}
+"""Value each provider writes to ``settings.SANDBOX_PROVIDER``, which selects the
+sandbox class in ``products.tasks``. ``modal`` maps to ``MODAL_DOCKER``: a
+``ModalSandbox`` subclass pinned to a dedicated Modal app.
+
+``__main__`` sets this in the environment before ``django.setup()``. It must be
+correct before the *first* ``Sandbox`` access, because ``products.tasks`` resolves
+that class once and caches it in module globals; a later ``override_settings`` can
+no longer change it. ``.env`` ships ``SANDBOX_PROVIDER=docker``, so without the
+early set a modal run would cache ``DockerSandbox`` and silently execute locally."""
+
 EVAL_CONTAINER_PREFIX = "task-sandbox-"
 """Container name prefix the sandbox harness stamps on every eval container
 (see ``SandboxConfig.name`` / ``get_sandbox_name_for_task``)."""
@@ -98,7 +112,7 @@ class DockerProviderStrategy(SandboxProviderStrategy):
     def settings_overrides(self) -> dict[str, Any]:
         # Docker containers reach the host via host.docker.internal.
         return {
-            "SANDBOX_PROVIDER": "docker",
+            "SANDBOX_PROVIDER": SANDBOX_PROVIDER_SETTING[self.name],
             "SANDBOX_API_URL": f"http://host.docker.internal:{DJANGO_LIVE_PORT}",
             "SANDBOX_LLM_GATEWAY_URL": f"http://host.docker.internal:{LLM_GATEWAY_PORT}",
             "SANDBOX_MCP_URL": f"http://host.docker.internal:{MCP_PORT}/mcp",
@@ -169,7 +183,7 @@ class ModalProviderStrategy(SandboxProviderStrategy):
         if self._tunnels is None:
             raise RuntimeError("ModalProviderStrategy.start() must run before settings_overrides()")
         return {
-            "SANDBOX_PROVIDER": "MODAL_DOCKER",
+            "SANDBOX_PROVIDER": SANDBOX_PROVIDER_SETTING[self.name],
             "SANDBOX_API_URL": self._tunnels.url_for("django"),
             "SANDBOX_LLM_GATEWAY_URL": self._tunnels.url_for("gateway"),
             "SANDBOX_MCP_URL": f"{self._tunnels.url_for('mcp')}/mcp",

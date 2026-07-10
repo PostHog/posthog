@@ -56,6 +56,11 @@ Add a `SandboxProviderStrategy` method rather than a conditional.
 `preflight()` must catch a missing prerequisite before any infrastructure boots, and its message must say how to fix it.
 A missing ngrok authtoken, for instance, otherwise surfaces only as a 60-second tunnel timeout.
 
+The chosen provider must reach `settings.SANDBOX_PROVIDER` **before `django.setup()`**, which is why `__main__` sets it in the environment (from `SANDBOX_PROVIDER_SETTING`) rather than relying only on the async-phase `override_settings`.
+`products.tasks` resolves the sandbox class from that setting exactly once and caches it in module globals, so the first `Sandbox` access wins for the whole process.
+`.env` ships `SANDBOX_PROVIDER=docker`, so setting it late let a `--provider modal` run cache `DockerSandbox` and execute the agent in a local container while still pointing it at the ngrok URLs.
+Docker mode hid this because the cached value already matched.
+
 ## pytest
 
 This tree is excluded from pytest collection by `collect_ignore` in `ee/hogai/eval/conftest.py`.
