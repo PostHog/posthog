@@ -432,13 +432,3 @@ def early_access_features(request: Request):
     ).data
 
     return cors_response(request, JsonResponse({"earlyAccessFeatures": early_access_features}))
-
-
-# devex: coverage reporter demo touch — remove before merge
-# The body lines below are never exercised by a test, so diff-cover should flag them
-# as uncovered changed lines (the def line runs at import and stays covered).
-def _devex_coverage_demo(value: int) -> int:
-    doubled = value * 2
-    if doubled > 1000:
-        return 1000
-    return doubled
