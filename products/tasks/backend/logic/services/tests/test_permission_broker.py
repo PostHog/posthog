@@ -201,6 +201,22 @@ class TestTryAutoRespondPermissionRequest(APIBaseTest):
         assert handled is expected
         assert mock_send.called is expected
 
+    def test_full_auto_approves_destructive_command(self) -> None:
+        self._set_state(slack_permission_mode="full_auto")
+
+        handled, mock_send = self._auto_respond(self._permission_request(command="rm -rf report.xlsx"))
+
+        assert handled is True
+        mock_send.assert_called_once()
+
+    def test_full_auto_customer_facing_still_escalates(self) -> None:
+        self._set_state(slack_permission_mode="full_auto", slack_customer_facing_approval_required=True)
+
+        handled, mock_send = self._auto_respond(self._permission_request(command="rm -rf report.xlsx"))
+
+        assert handled is False
+        mock_send.assert_not_called()
+
     def test_run_without_permission_mode_is_never_auto_answered(self) -> None:
         self._set_state()
 

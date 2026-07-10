@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
 TOPHOG_QUERY = """
 WITH filtered AS (
@@ -60,7 +61,8 @@ def query_tophog_metrics(
         params["lane"] = lane
 
     query = TOPHOG_QUERY.format(filters=" ".join(filters))
-    rows = sync_execute(query, params)
+    with tags_context(product=Product.INGESTION, feature=Feature.DEBUG_QUERY):
+        rows = sync_execute(query, params)
 
     return [
         {
@@ -81,7 +83,8 @@ def query_tophog_filter_options(
     date_to: datetime,
 ) -> tuple[list[str], list[str]]:
     params: dict[str, datetime] = {"date_from": date_from, "date_to": date_to}
-    rows = sync_execute(FILTER_OPTIONS_QUERY, params)
+    with tags_context(product=Product.INGESTION, feature=Feature.DEBUG_QUERY):
+        rows = sync_execute(FILTER_OPTIONS_QUERY, params)
 
     pipelines = sorted({row[0] for row in rows})
     lanes = sorted({row[1] for row in rows})

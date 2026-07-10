@@ -872,6 +872,18 @@
     pointer-events: none;
 }
 
+// Holding Cmd/Ctrl (MarkdownNotebook--link-modifier-held, toggled in MarkdownNotebook.tsx)
+// makes links clickable again so modifier-click can open them while editing
+.MarkdownNotebook--link-modifier-held .MarkdownNotebook__text-block[contenteditable='true'] a,
+.MarkdownNotebook--link-modifier-held
+    .MarkdownNotebook__list-block[contenteditable='true']
+    .MarkdownNotebook__list-item-content
+    a,
+.MarkdownNotebook--link-modifier-held .MarkdownNotebook__table-cell-content[contenteditable='true'] a {
+    pointer-events: auto;
+    cursor: pointer;
+}
+
 .MarkdownNotebook__text-block--invalid-insert-filter {
     color: inherit;
     text-decoration: underline wavy var(--danger);
