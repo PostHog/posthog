@@ -1,5 +1,4 @@
 import os
-import re
 import time
 import subprocess
 from collections.abc import Callable
@@ -161,23 +160,23 @@ def reset_clickhouse_tables():
 
     # Skip truncating tables ClickHouse reports as empty: each truncate costs a keeper
     # round-trip on replicated engines, and pure-Postgres sessions never write to these
-    # tables at all. Fail-safe filter — anything unparseable or with unknown total_rows
-    # (NULL for non-MergeTree engines) is still truncated.
-    known_empty = {
-        row[0]
-        for row in sync_execute(
+    # tables at all. Rather than parsing table names out of the statements, construct the
+    # expected statement from each empty table's name (the two forms our TRUNCATE_*_SQL
+    # constants produce) and exact-match. Fail-safe: any statement that doesn't match —
+    # ON CLUSTER clause, unexpected quoting, unknown total_rows (NULL for non-MergeTree
+    # engines) — is kept and truncated as before.
+    empty_table_truncates = {
+        form
+        for (name,) in sync_execute(
             "SELECT name FROM system.tables WHERE database = %(database)s AND total_rows = 0",
             {"database": settings.CLICKHOUSE_DATABASE},
         )
+        for form in (
+            f"TRUNCATE TABLE IF EXISTS {name}",
+            f"TRUNCATE TABLE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`.`{name}`",
+        )
     }
-
-    def _truncate_target(statement: str) -> str | None:
-        match = re.search(r"TRUNCATE TABLE IF EXISTS\s+(\S+)", statement)
-        if not match:
-            return None
-        return match.group(1).strip("`").rsplit("`.`", 1)[-1].rsplit(".", 1)[-1].strip("`")
-
-    TABLES_TO_CREATE_DROP = [q for q in TABLES_TO_CREATE_DROP if _truncate_target(q) not in known_empty]
+    TABLES_TO_CREATE_DROP = [q for q in TABLES_TO_CREATE_DROP if q.strip() not in empty_table_truncates]
 
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)
 
