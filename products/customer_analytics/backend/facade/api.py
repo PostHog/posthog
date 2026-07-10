@@ -23,7 +23,7 @@ from uuid import UUID
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch, Q
+from django.db.models import Exists, OuterRef, Prefetch, Q
 
 from celery import current_app
 from pydantic import ValidationError as PydanticValidationError
@@ -329,26 +329,22 @@ def list_external_accounts(
 
     Account ids are time-ordered UUIDs, so ``id__gt`` is a stable cursor.
     Accounts without an external id are excluded — external consumers key on
-    it. With ``assigned_only``, only accounts holding at least one role
-    assignment are returned; a consumer reconciling by absence still sees the
-    complete assigned set. Each assignment carries the user's current display
-    name, resolved in bulk (None when the user no longer exists or no
-    longer belongs to the team's organization).
+    it. With ``assigned_only``, only accounts holding at least one active
+    relationship assignment are returned; a consumer reconciling by absence
+    still sees the complete assigned set. Assignments mirror the
+    single-account endpoint's ``relationships`` shape (keyed by definition
+    name), with the user's current display name added.
     """
     queryset = (
-        Account.objects.for_team(team_id)
-        .select_related("team")
-        .filter(external_id__isnull=False)
-        .exclude(external_id="")
-        .order_by("id")
+        Account.objects.for_team(team_id).filter(external_id__isnull=False).exclude(external_id="").order_by("id")
     )
     if assigned_only:
-        # The nested ``__id`` path extracts SQL NULL for both a JSON null role
-        # and a missing key, so this matches exactly "some role is assigned".
         queryset = queryset.filter(
-            Q(_properties__csm__id__isnull=False)
-            | Q(_properties__account_executive__id__isnull=False)
-            | Q(_properties__account_owner__id__isnull=False)
+            Exists(
+                AccountRelationship.objects.for_team(team_id).filter(
+                    account=OuterRef("pk"), ended_at__isnull=True, user__isnull=False
+                )
+            )
         )
     if cursor:
         queryset = queryset.filter(id__gt=cursor)
@@ -356,37 +352,30 @@ def list_external_accounts(
     page_accounts = list(queryset[: limit + 1])
     accounts = page_accounts[:limit]
 
-    user_ids = {
-        assignment.id
-        for account in accounts
-        for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS
-        if (assignment := getattr(account.properties, field)) is not None
-    }
-    names_by_user_id: dict[int, str | None] = {}
-    if user_ids:
-        memberships = OrganizationMembership.objects.filter(
-            organization_id=accounts[0].team.organization_id,
-            user_id__in=user_ids,
-        ).select_related("user")
-        for membership in memberships:
-            names_by_user_id[membership.user_id] = (
-                f"{membership.user.first_name} {membership.user.last_name}".strip() or None
+    relationships_by_account: dict[UUID, dict[str, list[contracts.ExternalAccountAssignment]]] = {}
+    for relationship in (
+        AccountRelationship.objects.for_team(team_id)
+        .filter(account__in=accounts, ended_at__isnull=True, user__isnull=False)
+        .select_related("definition", "user")
+        .order_by("definition__name", "user__email")
+    ):
+        user = relationship.user
+        assert user is not None
+        relationships_by_account.setdefault(relationship.account_id, {}).setdefault(
+            relationship.definition.name, []
+        ).append(
+            contracts.ExternalAccountAssignment(
+                user_id=user.id,
+                email=user.email,
+                name=f"{user.first_name} {user.last_name}".strip() or None,
             )
-
-    def _to_list_assignment(assignment) -> contracts.ExternalAccountAssignment | None:
-        if assignment is None:
-            return None
-        return contracts.ExternalAccountAssignment(
-            id=assignment.id, email=assignment.email, name=names_by_user_id.get(assignment.id)
         )
 
     results = [
         contracts.ExternalAccountListItem(
             external_id=cast(str, account.external_id),
             name=account.name,
-            csm=_to_list_assignment(account.properties.csm),
-            account_executive=_to_list_assignment(account.properties.account_executive),
-            account_owner=_to_list_assignment(account.properties.account_owner),
+            relationships=relationships_by_account.get(account.id, {}),
         )
         for account in accounts
     ]

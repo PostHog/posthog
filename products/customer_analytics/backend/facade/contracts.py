@@ -153,28 +153,27 @@ class ExternalAccount:
 
 @dataclass(frozen=True)
 class ExternalAccountAssignment:
-    """A role assignment on the external list wire shape.
+    """An active relationship assignment on the external list wire shape.
 
-    Carries the stored ``{id, email}`` plus the user's current display name so
+    Carries the assigned user's id and current email plus their display name so
     external consumers (the billing service's ownership sync) don't need a
-    second lookup. ``name`` is None when the user has been deleted or has no
-    name set.
+    second lookup. ``name`` is None when the user has no name set.
     """
 
-    id: int
+    user_id: int
     email: str
     name: str | None = None
 
 
 @dataclass(frozen=True)
 class ExternalAccountListItem:
-    """One account row on the external list wire shape — identity plus role assignments."""
+    """One account row on the external list wire shape — identity plus active
+    relationship assignments keyed by definition name, matching the
+    ``relationships`` shape of the single-account external endpoint."""
 
     external_id: str
     name: str
-    csm: ExternalAccountAssignment | None = None
-    account_executive: ExternalAccountAssignment | None = None
-    account_owner: ExternalAccountAssignment | None = None
+    relationships: dict[str, list[ExternalAccountAssignment]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

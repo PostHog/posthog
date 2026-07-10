@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -9,8 +11,10 @@ from posthog.models import Organization, Team, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
 
-from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
+from products.customer_analytics.backend.models import AccountRelationship, AccountRelationshipDefinition
 from products.customer_analytics.backend.test.factories import create_account
+
+ENDED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 class TestExternalAccountListAPI(APIBaseTest):
@@ -20,6 +24,7 @@ class TestExternalAccountListAPI(APIBaseTest):
         # Fresh client so requests are unauthenticated unless they carry the Bearer token.
         self.client = APIClient()
         self.url = "/api/customer_analytics/external/accounts"
+        self.csm_definition = self._create_definition("CSM")
         csp_enabled = patch(
             "products.customer_analytics.backend.presentation.views.external.posthoganalytics.feature_enabled",
             return_value=True,
@@ -38,17 +43,25 @@ class TestExternalAccountListAPI(APIBaseTest):
         )
         return token
 
+    def _create_definition(self, name, **kwargs):
+        return AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name=name, **kwargs
+        )
+
+    def _assign(self, account, user, definition=None, ended_at=None):
+        return AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            account=account,
+            definition=definition or self.csm_definition,
+            user=user,
+            ended_at=ended_at,
+        )
+
     def _auth_headers(self, token=None):
         return {"HTTP_AUTHORIZATION": f"Bearer {token or self.psak_token}"}
 
     def _get(self, params=None, token=None):
         return self.client.get(self.url, data=params or {}, **self._auth_headers(token))
-
-    def _assign(self, account, **roles):
-        account.properties = AccountProperties(
-            **{field: AccountAssignment(id=user.id, email=user.email) for field, user in roles.items()}
-        )
-        account.save(update_fields=["_properties"])
 
     # -- Authentication ---------------------------------------------------
 
@@ -84,12 +97,16 @@ class TestExternalAccountListAPI(APIBaseTest):
 
     # -- Listing ----------------------------------------------------------
 
-    def test_lists_accounts_with_resolved_assignment_names(self):
+    def test_lists_accounts_with_relationship_assignments(self):
         self.user.first_name = "Anna"
         self.user.last_name = "Exec"
         self.user.save(update_fields=["first_name", "last_name"])
+        colleague = User.objects.create_and_join(self.organization, "aaa@x.com", None)
+        ae_definition = self._create_definition("Account executive", is_single_holder=False)
         account = create_account(team_id=self.team.id, name="Acme", external_id="org-1")
-        self._assign(account, account_executive=self.user, csm=self.user)
+        self._assign(account, self.user)
+        self._assign(account, self.user, definition=ae_definition)
+        self._assign(account, colleague, definition=ae_definition)
 
         response = self._get()
 
@@ -100,44 +117,35 @@ class TestExternalAccountListAPI(APIBaseTest):
         row = data["results"][0]
         self.assertEqual(row["external_id"], "org-1")
         self.assertEqual(row["name"], "Acme")
-        self.assertEqual(row["account_executive"], {"id": self.user.id, "email": self.user.email, "name": "Anna Exec"})
-        self.assertEqual(row["csm"], {"id": self.user.id, "email": self.user.email, "name": "Anna Exec"})
-        self.assertIsNone(row["account_owner"])
+        self.assertEqual(
+            row["relationships"],
+            {
+                "Account executive": [
+                    {"user_id": colleague.id, "email": "aaa@x.com", "name": None},
+                    {"user_id": self.user.id, "email": self.user.email, "name": "Anna Exec"},
+                ],
+                "CSM": [{"user_id": self.user.id, "email": self.user.email, "name": "Anna Exec"}],
+            },
+        )
 
-    def test_deleted_user_yields_stored_email_and_null_name(self):
+    def test_omits_ended_and_userless_assignments(self):
         account = create_account(team_id=self.team.id, name="Acme", external_id="org-1")
+        self._assign(account, self.user, ended_at=ENDED_AT)
         ghost = User.objects.create_user(email="ghost@x.com", password=None, first_name="Ghost")
-        self._assign(account, account_executive=ghost)
-        ghost_id = ghost.id
+        self._assign(account, ghost, definition=self._create_definition("Account executive"))
+        # Deleting the user SET_NULLs the relationship's user; the row must not surface.
         ghost.delete()
 
         response = self._get()
 
         row = response.json()["results"][0]
-        self.assertEqual(row["account_executive"], {"id": ghost_id, "email": "ghost@x.com", "name": None})
-
-    def test_assignment_name_must_resolve_through_team_organization_membership(self):
-        other_org = Organization.objects.create(name="Other Org")
-        other_user = User.objects.create_and_join(
-            organization=other_org,
-            email="other@x.com",
-            password=None,
-            first_name="Other",
-            last_name="User",
-        )
-        account = create_account(team_id=self.team.id, name="Acme", external_id="org-1")
-        self._assign(account, account_executive=other_user)
-
-        response = self._get()
-
-        row = response.json()["results"][0]
-        self.assertEqual(row["account_executive"], {"id": other_user.id, "email": "other@x.com", "name": None})
+        self.assertEqual(row["relationships"], {})
 
     def test_excludes_accounts_without_external_id(self):
         no_external = create_account(team_id=self.team.id, name="No external id")
-        self._assign(no_external, csm=self.user)
+        self._assign(no_external, self.user)
         blank_external = create_account(team_id=self.team.id, name="Blank external id", external_id="")
-        self._assign(blank_external, csm=self.user)
+        self._assign(blank_external, self.user)
         create_account(team_id=self.team.id, name="Listed", external_id="org-1")
 
         response = self._get()
@@ -145,14 +153,12 @@ class TestExternalAccountListAPI(APIBaseTest):
         names = [row["name"] for row in response.json()["results"]]
         self.assertEqual(names, ["Listed"])
 
-    def test_assigned_only_filters_to_accounts_with_any_role(self):
+    def test_assigned_only_filters_to_accounts_with_an_active_assignment(self):
         assigned = create_account(team_id=self.team.id, name="Assigned", external_id="org-1")
-        self._assign(assigned, csm=self.user)
-        # JSON-null roles and empty properties both count as unassigned.
-        null_roles = create_account(team_id=self.team.id, name="Null roles", external_id="org-2")
-        null_roles._properties = {"csm": None, "account_executive": None}
-        null_roles.save(update_fields=["_properties"])
-        create_account(team_id=self.team.id, name="Empty", external_id="org-3")
+        self._assign(assigned, self.user)
+        ended = create_account(team_id=self.team.id, name="Ended", external_id="org-2")
+        self._assign(ended, self.user, ended_at=ENDED_AT)
+        create_account(team_id=self.team.id, name="Never assigned", external_id="org-3")
 
         response = self._get({"assigned_only": "true"})
 
@@ -165,7 +171,7 @@ class TestExternalAccountListAPI(APIBaseTest):
     def test_paginates_with_cursor(self):
         for i in range(3):
             account = create_account(team_id=self.team.id, name=f"Account {i}", external_id=f"org-{i}")
-            self._assign(account, csm=self.user)
+            self._assign(account, self.user)
 
         page_one = self._get({"limit": 2}).json()
         self.assertEqual(len(page_one["results"]), 2)
@@ -204,8 +210,7 @@ class TestExternalAccountListAPI(APIBaseTest):
 
     def test_clamps_limit(self):
         for i in range(2):
-            account = create_account(team_id=self.team.id, name=f"Account {i}", external_id=f"org-{i}")
-            self._assign(account, csm=self.user)
+            create_account(team_id=self.team.id, name=f"Account {i}", external_id=f"org-{i}")
 
         response = self._get({"limit": "1000"})
         self.assertEqual(len(response.json()["results"]), 2)

@@ -289,19 +289,17 @@ class ExternalAccountView(APIView):
         return Response(_external_account_body(result.account))
 
 
-def _external_assignment_body(assignment: contracts.ExternalAccountAssignment | None) -> dict[str, Any] | None:
-    if assignment is None:
-        return None
-    return {"id": assignment.id, "email": assignment.email, "name": assignment.name}
-
-
 def _external_account_list_item_body(item: contracts.ExternalAccountListItem) -> dict[str, Any]:
     return {
         "external_id": item.external_id,
         "name": item.name,
-        "csm": _external_assignment_body(item.csm),
-        "account_executive": _external_assignment_body(item.account_executive),
-        "account_owner": _external_assignment_body(item.account_owner),
+        "relationships": {
+            definition_name: [
+                {"user_id": assignment.user_id, "email": assignment.email, "name": assignment.name}
+                for assignment in assignments
+            ]
+            for definition_name, assignments in item.relationships.items()
+        },
     }
 
 
@@ -322,7 +320,7 @@ class ExternalAccountListQuerySerializer(serializers.Serializer):
     assigned_only = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="When true, return only accounts with at least one assigned owner role.",
+        help_text="When true, return only accounts with at least one active relationship assignment.",
     )
 
     def validate_limit(self, value: int) -> int:
@@ -339,28 +337,23 @@ class ExternalAccountListQuerySerializer(serializers.Serializer):
 
 
 class ExternalAccountListAssignmentSerializer(serializers.Serializer):
-    id = serializers.IntegerField(help_text="PostHog user id stored for this account role.")
-    email = serializers.CharField(help_text="Email address stored for this account role.")
+    user_id = serializers.IntegerField(help_text="PostHog user id of the assigned user.")
+    email = serializers.CharField(help_text="Current email address of the assigned user.")
     name = serializers.CharField(
         allow_null=True,
-        help_text="Current display name for the assigned user, or null when the user is unavailable.",
+        help_text="Current display name of the assigned user, or null when the user has no name set.",
     )
 
 
 class ExternalAccountListItemSerializer(serializers.Serializer):
     external_id = serializers.CharField(help_text="External account key used by downstream systems.")
     name = serializers.CharField(help_text="Human-readable account name.")
-    csm = ExternalAccountListAssignmentSerializer(
-        allow_null=True,
-        help_text="Assigned customer success manager, or null when unassigned.",
-    )
-    account_executive = ExternalAccountListAssignmentSerializer(
-        allow_null=True,
-        help_text="Assigned account executive, or null when unassigned.",
-    )
-    account_owner = ExternalAccountListAssignmentSerializer(
-        allow_null=True,
-        help_text="Assigned account owner, or null when unassigned.",
+    relationships = serializers.DictField(
+        child=ExternalAccountListAssignmentSerializer(many=True),
+        help_text=(
+            "Active relationship assignments keyed by relationship definition name "
+            "(e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted."
+        ),
     )
 
 
@@ -381,11 +374,11 @@ class ExternalAccountErrorSerializer(serializers.Serializer):
 
 class ExternalAccountListView(APIView):
     """
-    GET /api/customer_analytics/external/accounts — List accounts with their role assignments
+    GET /api/customer_analytics/external/accounts — List accounts with their relationship assignments
 
     Cursor-paginated by account id. ``assigned_only=true`` restricts the listing
-    to accounts with at least one of csm / account_executive / account_owner set,
-    which is what the billing service's ownership sync consumes.
+    to accounts with at least one active relationship assignment, which is what
+    the billing service's ownership sync consumes.
 
     Authenticated via a project secret API key (Bearer ``phs_...``) carrying the
     ``account:read`` scope, not the team secret_api_token the sibling views
@@ -411,7 +404,7 @@ class ExternalAccountListView(APIView):
         },
         summary="List external customer analytics accounts",
         description=(
-            "List accounts with external IDs and their account ownership assignments. "
+            "List accounts with external IDs and their active relationship assignments. "
             "Requires a project secret API key with the `account:read` scope."
         ),
     )
