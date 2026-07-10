@@ -90,36 +90,24 @@
         "packages/quill/packages/*/src/**/*.{ts,tsx,css}": "sh -c 'git diff --cached --name-only | grep -q \"^packages/quill/.*AGENTS\\\\.md$\" || printf \"\\n\\033[33mWarning: quill component sources changed without an AGENTS.md update.\\nIf variants, composition, or spacing changed, update the consumer guide (packages/quill/packages/<pkg>/AGENTS.md) in the same PR.\\033[0m\\n\\n\"'",
         "frontend/public/services/*.{png,jpg,jpeg,gif}": "node frontend/bin/check-service-icon-size.mjs",
         "products/**/manifest.tsx": [
-            "node .github/scripts/lint-em-dashes.mjs",
             "bin/hogli format:js",
             "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/products.json'"
         ],
         "!(**/.sqlx/**)*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
         "frontend/src/lib/constants.tsx": [
-            "node .github/scripts/lint-em-dashes.mjs",
             "bin/hogli lint:feature-flags:fix",
             "bin/hogli format:js"
         ],
-        "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,mts,ts,tsx}": [
-            "node .github/scripts/lint-em-dashes.mjs",
-            "bin/hogli format:js"
-        ],
-        "nodejs/**/*.{js,jsx,mjs,mts,ts,tsx}": [
-            "node .github/scripts/lint-em-dashes.mjs",
-            "bin/hogli format:nodejs"
-        ],
+        "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:js",
+        "nodejs/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*|products/*/skills/*/scripts/*)*.{py,pyi}": [
-            "node .github/scripts/lint-em-dashes.mjs",
             "bin/hogli lint:python:fix",
             "bin/hogli format:python",
             "uv run ty check"
         ],
-        "*.{md,mdx}": [
-            "node .github/scripts/lint-em-dashes.mjs",
-            "bin/hogli format:markdown"
-        ]
+        "*.{md,mdx}": "bin/hogli format:markdown"
     },
     "browserslist": {
         "development": [
