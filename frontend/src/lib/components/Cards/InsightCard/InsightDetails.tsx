@@ -451,9 +451,16 @@ export function PropertiesSummary({
     dashboardFilterConflicts?: DashboardFilterConflict[] | null
 }): JSX.Element {
     const { base, overrideFound } = splitOutOverrideProperties(properties, override?.properties ?? [])
+    // A replaced filter is rendered in the list itself, so don't show "None" alongside it.
+    const hasBaseFilters = convertPropertiesToPropertyGroup(base).values.length > 0
     return (
         <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
-            <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(base)} />
+            {(hasBaseFilters || !dashboardFilterConflicts?.length) && (
+                <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(base)} />
+            )}
+            {dashboardFilterConflicts?.map((conflict, index) => (
+                <ReplacedInsightFilter key={index} conflict={conflict} />
+            ))}
             {/* overrideFound means we removed the override from the list above, so show it once here. */}
             {override && overrideFound && (
                 <>
@@ -463,38 +470,37 @@ export function PropertiesSummary({
                     />
                 </>
             )}
-            {dashboardFilterConflicts?.length ? (
-                <DashboardFilterConflictsNotice conflicts={dashboardFilterConflicts} />
-            ) : null}
         </InsightDetailSectionDisplay>
     )
 }
 
-export function DashboardFilterConflictsNotice({ conflicts }: { conflicts: DashboardFilterConflict[] }): JSX.Element {
+// The backend dropped this insight filter from the merged query, so re-render it from the recorded
+// conflict pair, struck through, with the reason beside it.
+function ReplacedInsightFilter({ conflict }: { conflict: DashboardFilterConflict }): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const formatFilter = (item: AnyPropertyFilter): string =>
-        formatPropertyLabel(
-            item,
-            cohortsById,
-            (s) => formatPropertyValueForDisplay(item.key, s)?.toString() || '?'
-        ).trim()
+    const dashboardFilterLabel = formatPropertyLabel(
+        conflict.dashboard_filter,
+        cohortsById,
+        (s) => formatPropertyValueForDisplay(conflict.dashboard_filter.key, s)?.toString() || '?'
+    ).trim()
 
     return (
-        <Tooltip title="Filters that contradict the dashboard's filters are ignored, and the dashboard's filters are used instead.">
-            <div className="text-warning italic">
-                {conflicts.map((conflict, index) => (
-                    <div key={index} className="flex items-center gap-1">
-                        <IconWarning className="shrink-0" />
-                        <span>
-                            "{formatFilter(conflict.insight_filter)}" replaced by the dashboard's "
-                            {formatFilter(conflict.dashboard_filter)}"
-                        </span>
-                    </div>
-                ))}
-            </div>
-        </Tooltip>
+        <div className="flex items-center gap-2 flex-wrap">
+            <span className="line-through opacity-60">
+                <CompactUniversalFiltersDisplay
+                    groupFilter={convertPropertiesToPropertyGroup([conflict.insight_filter])}
+                />
+            </span>
+            <Tooltip
+                title={`This filter contradicts the dashboard's "${dashboardFilterLabel}" filter, so the dashboard's filter is used instead.`}
+            >
+                <LemonTag type="warning" size="small">
+                    Replaced by contradictory dashboard filter
+                </LemonTag>
+            </Tooltip>
+        </div>
     )
 }
 
