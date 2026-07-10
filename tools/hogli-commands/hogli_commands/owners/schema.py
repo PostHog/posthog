@@ -12,6 +12,8 @@ from pathlib import Path
 
 import yaml
 
+from .matcher import compile_pattern
+
 VALID_STATUSES = ("active", "deprecated", "generated", "vendored")
 CHANGEME_SLUG = "team-CHANGEME"
 
@@ -133,6 +135,13 @@ def _parse_rule(raw: object, index: int, errors: list[str]) -> OwnersRule | None
     match = raw.get("match")
     if not isinstance(match, str) or not match:
         errors.append(f"{where}: 'match' is required and must be a non-empty string")
+        return None
+    try:
+        compile_pattern(match)
+    except ValueError as exc:
+        # Reject uncompilable globs at parse time so lint reports a normal schema
+        # error and the resolver never sees a rule that would crash mid-resolve.
+        errors.append(f"{where}: invalid match pattern '{match}': {exc}")
         return None
 
     rule = OwnersRule(match=match)

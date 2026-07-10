@@ -12,6 +12,7 @@ from hogli_commands.owners.fmt import CanonicalPlacer, CanonicalPlan
 from hogli_commands.owners.legacy_diff import DiffClass, LegacyOwners, classify
 from hogli_commands.owners.matcher import path_matches_pattern
 from hogli_commands.owners.resolver import OwnersResolver
+from hogli_commands.owners.schema import parse_owners_file
 
 
 @pytest.mark.parametrize(
@@ -85,6 +86,37 @@ def test_resolver_precedence(resolver_repo: Path, path: str, owners: list[str] |
     r = OwnersResolver(repo_root=resolver_repo).resolve(path)
     assert r.owners == owners
     assert r.unowned_by_design is unowned_by_design
+
+
+def test_rule_level_inherit_false_cuts_ancestors_for_matching_paths_only(tmp_path: Path) -> None:
+    _write(tmp_path, "a/owners.yaml", "version: 1\nowners: [team-a]\ncontact:\n  slack: '#custom'\n")
+    _write(
+        tmp_path,
+        "a/b/owners.yaml",
+        "version: 1\nowners: []\nrules:\n  - match: '/cut/'\n    owners: [team-b]\n    inherit: false\n",
+    )
+    resolver = OwnersResolver(repo_root=tmp_path)
+    cut = resolver.resolve("a/b/cut/x.py")
+    assert cut.owners == ["team-b"]
+    assert cut.slack == "#team-b"  # ancestor contact.slack cut, falls back to derived
+    other = resolver.resolve("a/b/other.py")
+    assert other.owners == ["team-a"]
+    assert other.slack == "#custom"
+
+
+def test_invalid_rule_glob_is_a_schema_error_not_a_crash(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "a/owners.yaml",
+        "version: 1\nowners: [team-a]\nrules:\n  - match: 'a***b'\n    owners: [team-b]\n",
+    )
+    parsed, errors = parse_owners_file(
+        (tmp_path / "a/owners.yaml").read_text(), path=tmp_path / "a/owners.yaml", directory="a"
+    )
+    assert any("invalid match pattern" in e for e in errors)
+    assert parsed is not None and parsed.rules == []  # rule dropped, file still usable
+    # The resolver never sees the uncompilable rule, so resolution doesn't raise.
+    assert OwnersResolver(repo_root=tmp_path).resolve("a/x.py").owners == ["team-a"]
 
 
 def test_resolver_no_contribution_is_unowned_not_exempt(tmp_path: Path) -> None:

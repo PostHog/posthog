@@ -183,6 +183,8 @@ class OwnersResolver:
             contrib.oncall = matched.oncall
         if not isinstance(matched.status, _Unset):
             contrib.status = matched.status
+        if not isinstance(matched.inherit, _Unset):
+            contrib.inherit = matched.inherit
         return contrib
 
     def resolve(self, path: str) -> Resolution:
@@ -192,6 +194,12 @@ class OwnersResolver:
         for f in self._collect_files(norm):
             contrib = self._file_contribution(f, norm)
             assert contrib is not None
+
+            # A matched rule's `inherit: false` cuts everything merged from
+            # ancestors for this path — the per-path form of a file-level
+            # `set noparent` (which `_collect_files` already applies structurally).
+            if not contrib.inherit:
+                merged = _Merged()
 
             # Owners: an explicit list (non-empty) or explicit null overrides; an
             # empty list is "no contribution here" and falls through.
