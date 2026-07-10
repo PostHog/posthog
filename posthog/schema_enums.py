@@ -1936,6 +1936,7 @@ class ExternalDataSourceType(StrEnum):
     VULTR = "Vultr"
     WINDMILL = "Windmill"
     ZEP = "Zep"
+    HEX = "Hex"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2567,6 +2568,14 @@ class MetricsFilterOp(StrEnum):
     NEQ = "neq"
     REGEX = "regex"
     NOT_REGEX = "not_regex"
+
+
+class MetricsOtelType(StrEnum):
+    GAUGE = "gauge"
+    SUM = "sum"
+    HISTOGRAM = "histogram"
+    EXPONENTIAL_HISTOGRAM = "exponential_histogram"
+    SUMMARY = "summary"
 
 
 class MultiQuestionFormFieldType(StrEnum):

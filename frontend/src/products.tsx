@@ -4,7 +4,6 @@
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils/url'
 import type { Params } from 'scenes/sceneTypes'
@@ -30,6 +29,8 @@ import {
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ActivityScope } from '~/types'
 
+import { AlertType } from 'products/alerts/frontend/types'
+
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from '../../products/ai_observability/frontend/clusters/constants'
 import type {
     SchemaConfigurationSection,
@@ -49,133 +50,6 @@ import {
     ReplayTabs,
     UniversalFiltersGroup,
 } from './types'
-
-/** This const is auto-generated, as is the whole file */
-export const productScenes: Record<string, () => Promise<any>> = {
-    Actions: () => import('../../products/actions/frontend/pages/Actions'),
-    Action: () => import('../../products/actions/frontend/pages/Action'),
-    NewAction: () => import('../../products/actions/frontend/pages/Action'),
-    AIGateway: () => import('../../products/ai_gateway/frontend/AIGatewayScene'),
-    AIObservability: () => import('../../products/ai_observability/frontend/AIObservabilityScene'),
-    AIObservabilityTrace: () => import('../../products/ai_observability/frontend/AIObservabilityTraceScene'),
-    AIObservabilitySession: () => import('../../products/ai_observability/frontend/AIObservabilitySessionScene'),
-    AIObservabilityUsers: () => import('../../products/ai_observability/frontend/AIObservabilityUsers'),
-    AIObservabilityPlayground: () =>
-        import('../../products/ai_observability/frontend/playground/AIObservabilityPlaygroundScene'),
-    AIObservabilityDatasets: () =>
-        import('../../products/ai_observability/frontend/datasets/AIObservabilityDatasetsScene'),
-    AIObservabilityDataset: () =>
-        import('../../products/ai_observability/frontend/datasets/AIObservabilityDatasetScene'),
-    AIObservabilityEvaluations: () =>
-        import('../../products/ai_observability/frontend/evaluations/AIObservabilityEvaluationsScene'),
-    AIObservabilityEvaluation: () =>
-        import('../../products/ai_observability/frontend/evaluations/AIObservabilityEvaluation'),
-    AIObservabilityEvaluationTemplates: () =>
-        import('../../products/ai_observability/frontend/evaluations/EvaluationTemplates'),
-    AIObservabilityTags: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTagsScene'),
-    AIObservabilityTag: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTag'),
-    AIObservabilityPrompts: () => import('../../products/ai_observability/frontend/prompts/LLMPromptsScene'),
-    AIObservabilityPrompt: () => import('../../products/ai_observability/frontend/prompts/LLMPromptScene'),
-    AIObservabilityClusters: () =>
-        import('../../products/ai_observability/frontend/clusters/AIObservabilityClustersScene'),
-    AIObservabilityCluster: () =>
-        import('../../products/ai_observability/frontend/clusters/AIObservabilityClusterScene'),
-    BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeScene'),
-    Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
-    EventFiltering: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),
-    SupportTickets: () => import('../../products/conversations/frontend/scenes/tickets/SupportTicketsScene'),
-    SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
-    SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
-    CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
-    CustomerAnalyticsConfiguration: () =>
-        import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
-    CustomerJourneyBuilder: () =>
-        import('../../products/customer_analytics/frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
-    CustomerJourneyTemplates: () =>
-        import('../../products/customer_analytics/frontend/scenes/CustomerJourneyTemplatesScene/CustomerJourneyTemplatesScene'),
-    DataOps: () => import('../../products/data_warehouse/DataWarehouseScene'),
-    Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
-    NodeDetail: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
-    Sources: () => import('../../products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene'),
-    DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
-    DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
-    DataWarehouseSourceConnect: () =>
-        import('../../products/data_warehouse/frontend/scenes/SourceConnectScene/SourceConnectScene'),
-    DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
-    EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
-    EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
-    EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
-    EndpointScene: () => import('../../products/endpoints/frontend/EndpointScene'),
-    EngineeringAnalytics: () =>
-        import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsScene'),
-    EngineeringAnalyticsPullRequest: () =>
-        import('../../products/engineering_analytics/frontend/scenes/PullRequestDetailScene'),
-    EngineeringAnalyticsWorkflowRun: () =>
-        import('../../products/engineering_analytics/frontend/scenes/WorkflowRunDetailScene'),
-    EngineeringAnalyticsWorkflowRuns: () =>
-        import('../../products/engineering_analytics/frontend/scenes/WorkflowRunsScene'),
-    EngineeringAnalyticsAuthor: () =>
-        import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsAuthorScene'),
-    ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
-    ErrorTrackingIssue: () =>
-        import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
-    ErrorTrackingIssueFingerprints: () =>
-        import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
-    FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
-    FeatureFlagsStaffTools: () => import('../../products/feature_flags/frontend/staff/FeatureFlagsStaffToolsScene'),
-    Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
-    FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
-    IdentityMatching: () => import('../../products/growth/frontend/IdentityMatchingScene'),
-    LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
-    LegalDocumentNew: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentNewScene'),
-    Links: () => import('../../products/links/frontend/LinksScene'),
-    Link: () => import('../../products/links/frontend/LinkScene'),
-    LiveDebugger: () => import('../../products/live_debugger/frontend/LiveDebugger'),
-    Logs: () => import('../../products/logs/frontend/LogsScene'),
-    LogsAlertDetail: () => import('../../products/logs/frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
-    LogsAlertNotificationDetail: () =>
-        import('../../products/logs/frontend/scenes/LogsAlertNotificationDetailScene/LogsAlertNotificationDetailScene'),
-    LogsSamplingNew: () => import('../../products/logs/frontend/scenes/LogsSamplingNewScene/LogsSamplingNewScene'),
-    LogsSamplingDetail: () =>
-        import('../../products/logs/frontend/scenes/LogsSamplingDetailScene/LogsSamplingDetailScene'),
-    ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
-    ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
-    MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
-    MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
-    Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
-    TaskTracker: () => import('../../products/posthog_ai/frontend/scenes/TaskTracker/TaskTracker'),
-    ReplayVision: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),
-    ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),
-    ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
-    ReplayVisionObservation: () => import('../../products/replay_vision/frontend/observations/ReplayObservation'),
-    ReplayVisionAction: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionScene'),
-    ReplayVisionActionEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ActionEditorScene'),
-    ReplayVisionActionRun: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionRunScene'),
-    RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
-    SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
-    SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
-    Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
-    Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
-    Subscriptions: () => import('../../products/subscriptions/frontend/scenes/SubscriptionsScene'),
-    Subscription: () => import('../../products/subscriptions/frontend/scenes/SubscriptionScene'),
-    SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
-    Tracing: () => import('../../products/tracing/frontend/TracingScene'),
-    TracingOperation: () => import('../../products/tracing/frontend/TracingOperationScene'),
-    UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
-    UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
-    UserInterviewResponse: () => import('../../products/user_interviews/frontend/UserInterviewResponse'),
-    VisualReviewIndex: () => import('../../products/visual_review/frontend/scenes/VisualReviewIndexScene'),
-    VisualReviewRuns: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
-    VisualReviewRun: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunScene'),
-    VisualReviewSettings: () => import('../../products/visual_review/frontend/scenes/VisualReviewSettingsScene'),
-    VisualReviewSnapshotHistory: () =>
-        import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotHistoryScene'),
-    VisualReviewSnapshotOverview: () =>
-        import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotOverviewScene'),
-    Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
-    Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
-    WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
-}
 
 /** This const is auto-generated, as is the whole file */
 export const productRoutes: Record<string, [string, string]> = {
@@ -250,23 +124,23 @@ export const productRoutes: Record<string, [string, string]> = {
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
-    '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
-    '/engineering-analytics/pulls': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
+    '/engineering-analytics/overview': ['EngineeringAnalytics', 'engineeringAnalytics'],
+    '/engineering-analytics/pull-requests': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
     '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
-    '/engineering-analytics/:repoOwner/:repoName/pull/:number': [
+    '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
         'EngineeringAnalyticsPullRequest',
         'engineeringAnalyticsPullRequest',
     ],
-    '/engineering-analytics/:repoOwner/:repoName/actions/runs/:runId': [
+    '/engineering-analytics/repos/:repoOwner/:repoName/actions/runs/:runId': [
         'EngineeringAnalyticsWorkflowRun',
         'engineeringAnalyticsWorkflowRun',
     ],
-    '/engineering-analytics/:repoOwner/:repoName/actions/workflows/:workflowName': [
+    '/engineering-analytics/repos/:repoOwner/:repoName/actions/workflows/:workflowName': [
         'EngineeringAnalyticsWorkflowRuns',
         'engineeringAnalyticsWorkflowRuns',
     ],
-    '/engineering-analytics/author/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
+    '/engineering-analytics/authors/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
@@ -472,7 +346,8 @@ export const productRedirects: Record<
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
-    '/engineering-analytics/authors': '/engineering-analytics',
+    '/engineering-analytics': '/engineering-analytics/overview',
+    '/engineering-analytics/authors': '/engineering-analytics/overview',
     '/error_tracking/configuration': (_params, searchParams, hashParams) => {
         const { tab, ...restSearchParams } = searchParams
         return combineUrl(
@@ -1134,18 +1009,18 @@ export const productUrls = {
         }
         return combineUrl('/endpoints', { tab: 'usage', ...searchParams }).url
     },
-    engineeringAnalytics: (): string => '/engineering-analytics',
-    engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pulls',
+    engineeringAnalytics: (): string => '/engineering-analytics/overview',
+    engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pull-requests',
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
     engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
-        `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull/${number}`,
+        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
     engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>
-        `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
+        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
     engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
-        `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
+        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
     engineeringAnalyticsAuthor: (handle: string): string =>
-        `/engineering-analytics/author/${encodeURIComponent(handle)}`,
+        `/engineering-analytics/authors/${encodeURIComponent(handle)}`,
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string =>
         combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,

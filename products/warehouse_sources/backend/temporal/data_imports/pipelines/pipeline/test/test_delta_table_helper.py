@@ -7,6 +7,8 @@ from typing import Any, cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
@@ -132,6 +134,36 @@ _COMMIT_LAYOUT_CASES: list[tuple[str, list[dict], dict, bool]] = [
 ]
 
 
+class TestStorageOptionsCommitSafety:
+    # Re-adding AWS_S3_ALLOW_UNSAFE_RENAME unconditionally would silently restore
+    # the legacy rename backend, which has no commit-conflict detection.
+    @parameterized.expand(
+        [
+            ("production_default_safe", False, False),
+            ("production_rollback_escape_hatch", False, True),
+            ("local_default_safe", True, False),
+        ]
+    )
+    def test_conditional_put_on_unsafe_rename_gated(
+        self, _case: str, use_local_setup: bool, allow_unsafe: bool
+    ) -> None:
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+
+        with (
+            override_settings(
+                USE_LOCAL_SETUP=use_local_setup,
+                DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME=allow_unsafe,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper.ensure_bucket_exists"
+            ),
+        ):
+            options = helper.get_storage_options()
+
+        assert options["conditional_put"] == "etag"
+        assert ("AWS_S3_ALLOW_UNSAFE_RENAME" in options) is allow_unsafe
+
+
 class TestHasCommitWithMetadata:
     @pytest.mark.asyncio
     async def test_returns_false_when_no_delta_table(self, helper: DeltaTableHelper):
@@ -236,6 +268,52 @@ class TestCompactIfFragmented:
             mock_compact.assert_called_once()
         else:
             mock_compact.assert_not_called()
+
+
+class TestGetDeltaTableUnrecoverableErrors:
+    # (case_name, error_message, expect_heal) — heal = wipe the table and fall back to first-sync mode
+    _ERROR_CASES: list[tuple[str, str, bool]] = [
+        (
+            "orphaned_delta_log",
+            "Kernel error: No table metadata or protocol found in delta log.",
+            True,
+        ),
+        ("bugged_decimal_data", "parse decimal overflow at column x", True),
+        ("other_errors_reraise", "Generic DeltaTable error: something else went wrong", False),
+    ]
+
+    @parameterized.expand(_ERROR_CASES)
+    @pytest.mark.asyncio
+    async def test_open_failure_handling(self, _name: str, error_message: str, expect_heal: bool):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        s3 = MagicMock()
+        s3._rm = AsyncMock()
+        s3_cm = MagicMock()
+        s3_cm.__aenter__ = AsyncMock(return_value=s3)
+        s3_cm.__aexit__ = AsyncMock(return_value=False)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+        with (
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.aget_s3_client", MagicMock(return_value=s3_cm)),
+            patch(f"{module}.capture_exception"),
+        ):
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = Exception(error_message)
+
+            if expect_heal:
+                result = await helper.get_delta_table()
+                assert result is None
+                assert helper.is_first_sync is True
+                s3._rm.assert_awaited_once_with(delta_uri, recursive=True)
+            else:
+                with pytest.raises(Exception, match="something else went wrong"):
+                    await helper.get_delta_table()
+                s3._rm.assert_not_awaited()
+                assert helper.is_first_sync is False
 
 
 class TestWriteToDeltalakeCommitMetadataPassThrough:
