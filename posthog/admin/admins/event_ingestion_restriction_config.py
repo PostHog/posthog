@@ -145,8 +145,9 @@ class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
         initial = super().get_changeform_initial_data(request)
         # Allow prefilling the pipelines checkboxes from a comma-separated GET param
         # (used by the tophog restrictions page)
-        if isinstance(initial.get("pipelines"), str):
-            initial["pipelines"] = [p for p in initial["pipelines"].split(",") if p]
+        pipelines = initial.get("pipelines")
+        if isinstance(pipelines, str):
+            initial["pipelines"] = [p for p in pipelines.split(",") if p]
         return initial
 
     def get_form(self, request, obj=None, change=False, **kwargs):

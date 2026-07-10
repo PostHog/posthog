@@ -259,7 +259,8 @@ def tophog_restrictions_view(request):
                 )
             else:
                 messages.info(request, "Nothing to add — restriction unchanged.")
-        return HttpResponseRedirect(f"{request.path}?{request.GET.urlencode()}")
+        # Rebuild the URL from parsed values instead of echoing request data (open-redirect hygiene)
+        return HttpResponseRedirect(_restrictions_page_url(token, key, tophog_pipelines))
 
     restrictions = (
         EventIngestionRestrictionConfig.objects.filter(token=token).order_by("restriction_type") if token else []
