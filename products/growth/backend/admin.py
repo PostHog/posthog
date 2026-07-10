@@ -195,12 +195,10 @@ class ProductPushCampaignInlineForm(ProductPushCampaignForm):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # The extra "add" row must be able to submit an empty product. Without a blank
-        # choice its <select> defaults to the first ProductKey, so merely saving the
-        # Organization inserts a phantom campaign - and 500s on
-        # uniq_pending_product_push_per_org_product once that product is already queued.
+        # Without a blank choice the add row's <select> submits the first ProductKey,
+        # so every org save inserted a phantom campaign and 500ed once one was queued.
         product_key_field = self.fields["product_key"]
-        assert isinstance(product_key_field, forms.ChoiceField)  # replaced in ProductPushCampaignForm.__init__
+        assert isinstance(product_key_field, forms.ChoiceField)  # built in ProductPushCampaignForm.__init__
         product_key_field.choices = BLANK_CHOICE_DASH + list(product_key_field.choices)
 
 

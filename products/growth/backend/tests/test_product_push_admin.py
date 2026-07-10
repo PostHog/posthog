@@ -2,6 +2,7 @@ from typing import Any
 
 from posthog.test.base import BaseTest
 
+from django import forms
 from django.contrib.admin import AdminSite
 from django.test import RequestFactory
 from django.urls import reverse
@@ -103,9 +104,8 @@ class TestProductPushCampaignAdmin(BaseTest):
         assert campaign.created_by == self.user
 
     def test_untouched_inline_add_row_saves_nothing(self) -> None:
-        # The extra add row's <select> needs a blank first choice: browsers otherwise submit
-        # the first ProductKey, so every Organization save inserted a phantom campaign and
-        # 500ed on the pending-per-product constraint once that product was already queued.
+        # Without a blank first choice, an untouched add row submits the first ProductKey
+        # and inserts a phantom campaign - a 500 once that product is already queued.
         ProductPushCampaign.objects.create(
             organization=self.organization, product_key="actions", status=ProductPushCampaign.Status.SCHEDULED
         )
@@ -115,7 +115,9 @@ class TestProductPushCampaignAdmin(BaseTest):
         formset_class = inline.get_formset(request, self.organization)
         prefix = formset_class.get_default_prefix()
 
-        assert formset_class.form(instance=None).fields["product_key"].choices[0] == ("", "---------")
+        product_key_field = formset_class.form(instance=None).fields["product_key"]
+        assert isinstance(product_key_field, forms.ChoiceField)
+        assert next(iter(product_key_field.choices)) == ("", "---------")
 
         formset = formset_class(
             instance=self.organization,
