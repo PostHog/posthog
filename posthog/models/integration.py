@@ -291,6 +291,10 @@ class Integration(models.Model):
 
     @property
     def display_name(self) -> str:
+        if self.kind == "reddit-ads":
+            # The OAuth id is a JWT user id (t2_...); prefer the human-readable username fetched
+            # from ads-api /me at connect time, falling back to that id.
+            return self.config.get("reddit_username") or self.config.get("reddit_user_id") or self.integration_id
         if self.kind in OauthIntegration.supported_kinds:
             oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
             return dot_get(self.config, oauth_config.name_path, self.integration_id)
@@ -647,6 +651,11 @@ class OauthIntegration:
                 scope="read adsread adsconversions history adsedit",
                 id_path="reddit_user_id",  # We'll extract this from JWT
                 name_path="reddit_user_id",  # Same as ID for Reddit
+                # ads-api /me returns the human-readable username under the granted ads scopes
+                # (oauth.reddit.com/api/v1/me would need the extra `identity` scope). Handled
+                # specially below because the profile is wrapped in a `data` object.
+                token_info_url="https://ads-api.reddit.com/api/v3/me",
+                token_info_config_fields=[],
                 additional_authorize_params={"duration": "permanent"},
             )
         elif kind == "tiktok-ads":
@@ -921,6 +930,10 @@ class OauthIntegration:
                         raise ValidationError(
                             "No accessible Jira sites found. Please ensure your Atlassian account has access to at least one Jira site."
                         )
+                elif kind == "reddit-ads" and isinstance(data, dict):
+                    # ads-api /me wraps the profile in a `data` object; store the human-readable
+                    # username so the connected integration shows it instead of the JWT user id.
+                    config["reddit_username"] = dot_get(data, "data.reddit_username")
                 elif oauth_config.token_info_config_fields:
                     for field in oauth_config.token_info_config_fields:
                         config[field] = dot_get(data, field)
