@@ -186,6 +186,12 @@ function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG)
 
     for (const file of relevantFiles) {
         const resolution = resolutionByPath[file.filename]
+        // status: generated/vendored is the structured form of the excluded
+        // patterns above — such trees have owners for lookup, but shouldn't
+        // pull reviewers in or count toward substantive thresholds.
+        if (resolution && (resolution.status === 'generated' || resolution.status === 'vendored')) {
+            continue
+        }
         const owners = (resolution && resolution.owners) || []
         if (owners.length === 0) {
             continue

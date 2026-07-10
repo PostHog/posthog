@@ -1032,6 +1032,11 @@ jobs:
                     ./bin/hogli product:lint:owners $names
                   fi
 
+            - name: Validate owners.yaml identities against GitHub
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: ./bin/hogli owners:lint --live
+
     # Lints the distributed owners.yaml tree: schema, product.yaml/owners.yaml
     # conflicts, dead rule globs, and coverage (warn-only). Runs without --live so
     # it needs no GitHub API or secrets — which is why it is NOT fork-gated like
