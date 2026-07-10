@@ -5,6 +5,7 @@ members = [
   "property-defs-rs",
   "batch-import-worker",
   "capture",
+  "capture-load-gen",
   "capture-logs",
   "cohort-event-shuffler",
   "cohort-stream-processor",
@@ -37,6 +38,7 @@ members = [
   "cyclotron-core",
   "cyclotron-node",
   "cyclotron-janitor",
+  "replay-anonymizer-node",
   "cymbal",
   "cymbal-proto",
   "embedding-worker",
@@ -54,6 +56,7 @@ members = [
   "personhog-proto",
   "personhog-replica",
   "personhog-router",
+  "personhog-stateright",
   "affected-services",
   "property-vals-rs",
 ]
@@ -72,6 +75,9 @@ unit_bindings = "deny"
 [workspace.lints.clippy]
 # See https://rust-lang.github.io/rust-clippy/, we might want to add more
 enum_glob_use = "deny"
+# Inert for every crate that ships no `clippy.toml` `disallowed-methods` list (all of them but
+# `cohort-stream-processor`, whose list confines async code to the `StoreHandle` facade).
+disallowed_methods = "deny"
 
 # this is needed until getsentry/symbolic update the js-source-scopes to >0.6.0
 # I made a PR for the upstream fix here https://github.com/getsentry/symbolic/pull/945
@@ -87,6 +93,19 @@ js-source-scopes = { git = "https://github.com/getsentry/js-source-scopes", rev 
 # (no split-debuginfo) since backtrace-rs reads it at runtime.
 [profile.release]
 debug = "line-tables-only"
+
+# The stateright model checker exhaustively explores millions of protocol
+# states; its hot loop (state hashing, BTreeMap clones) is ~11x slower
+# unoptimized, which would put the exhaustive tests at ~25 minutes in
+# debug-profile CI runs instead of ~2. Compile the checker and the model
+# crate with release-grade codegen even in dev builds — this changes
+# nothing about behavior (debug assertions and overflow checks stay on),
+# only how hard LLVM optimizes these two packages.
+[profile.dev.package.personhog-stateright]
+opt-level = 3
+
+[profile.dev.package.stateright]
+opt-level = 3
 
 [workspace.dependencies]
 aho-corasick = "1.1"
@@ -118,7 +137,9 @@ futures = { version = "0.3.29" }
 futures-timer = "3.0"
 futures-util = { version = "0.3.31" }
 governor = { version = "0.5.1", features = ["dashmap"] }
+hdrhistogram = "7.5"
 http = { version = "1.1.0" }
+humantime = "2.1"
 http-body = "1.0"
 http-body-util = "0.1"
 httpmock = "0.7.0"
@@ -126,6 +147,7 @@ mockito = "1"
 hyper = { version = "1.9.0", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1.20", features = ["server", "server-graceful", "tokio", "http1", "http2"] }
 itoa = "1.0.15"
+libdeflater = "1"
 metrics = "0.22.0"
 metrics-exporter-prometheus = "0.14.0"
 metrics-util = "0.16.0"
@@ -168,6 +190,7 @@ tracing-opentelemetry = "0.23.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 url = "2.5.0"
 uuid = { version = "1.23.0", features = ["v4", "v5", "v7", "serde"] }
+zstd = "0.13"
 neon = "1"
 quick_cache = "0.6.21"
 ahash = "0.8.11"
@@ -177,7 +200,7 @@ aws-smithy-runtime-api = { version = "1.11.5", features = ["client"] }
 aws-smithy-http-client = { version = "1.1.11", features = ["rustls-aws-lc"] }
 mockall = "0.13.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
-posthog-rs = { version = "0.13.3", features = ["async-client", "capture-v1"] }
+posthog-rs = { version = "0.18.0", features = ["async-client", "capture-v1"] }
 redis = { version = "0.32.7", features = [
   "tokio-comp",
   "cluster",
@@ -191,7 +214,13 @@ fancy-regex = "0.17"
 lz-str = "0.2.1"
 lz4 = "1.28"
 opentelemetry-proto = { version = "0.29.0", features = ["with-serde"] }
-tonic = { version = "0.12.3", features = ["zstd"] }
+# gzip enables request decompression via accept_compressed. Response
+# compression stays with personhog-common's AsyncGzipLayer — never call
+# send_compressed: tonic's response-encoding negotiation matches any
+# compiled-in feature once the send set is non-empty, so a single
+# send_compressed(x) server would silently compress with whatever encoding
+# feature unification drags in.
+tonic = { version = "0.12.3", features = ["gzip"] }
 tonic-build = "0.12"
 clickhouse = { version = "0.13.2", features = [
   "uuid",

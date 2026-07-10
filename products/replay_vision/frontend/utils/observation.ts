@@ -10,11 +10,21 @@ export function readScore(obs: ReplayObservationApi): number | null {
     return typeof raw === 'number' ? raw : null
 }
 
+export function readConfidence(obs: ReplayObservationApi): number | null {
+    const raw = readModelOutput(obs)?.confidence
+    return typeof raw === 'number' ? raw : null
+}
+
 export type MonitorVerdict = 'yes' | 'no' | 'inconclusive'
 
 export function readVerdict(obs: ReplayObservationApi): MonitorVerdict | null {
     const raw = readModelOutput(obs)?.verdict
     return raw === 'yes' || raw === 'no' || raw === 'inconclusive' ? raw : null
+}
+
+export function readReasoning(obs: ReplayObservationApi): string | null {
+    const raw = readModelOutput(obs)?.reasoning
+    return typeof raw === 'string' && raw ? raw : null
 }
 
 function readStringArray(value: unknown): string[] {

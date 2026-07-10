@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
@@ -7,8 +8,9 @@ from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 import pydantic
@@ -18,25 +20,42 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.schema import EventsNode, ExperimentMetric
 
-from posthog.models import Team, User
+from posthog.constants import AvailableFeature
+from posthog.event_usage import EventSource
+from posthog.exceptions import (
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.experiment_service import (
+    ExperimentService,
+    _deprecated_fields_in_request,
+    _deprecated_parameters_keys_in_request,
+)
 from products.experiments.backend.models.experiment import (
+    EXPOSURE_FROZEN_COHORT_KEY,
+    EXPOSURE_FROZEN_GROUP_KEY,
+    EXPOSURE_FROZEN_GROUP_MARKER,
     Experiment,
     ExperimentHoldout,
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
-    get_excluded_variants,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+from ee.models.rbac.access_control import AccessControl
 
 
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it
@@ -101,6 +120,45 @@ class TestExperimentService(APIBaseTest):
         assert experiment.stats_config is not None
         assert experiment.stats_config["method"] == "bayesian"
         assert experiment.exposure_criteria == {"filterTestAccounts": True}
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_create_experiment_defers_analytics_until_after_commit(self, mock_report_user_action):
+        # The capture must be deferred to on_commit, not run inside the transaction.
+        service = self._service()
+
+        registered_callbacks: list[Any] = []
+        with patch("django.db.transaction.on_commit", side_effect=registered_callbacks.append):
+            service.create_experiment(
+                name="Deferred Analytics",
+                feature_flag_key="deferred-flag",
+                event_source=EventSource.API,
+            )
+
+        # Nothing captured yet — it's deferred, not run inside the transaction.
+        mock_report_user_action.assert_not_called()
+        assert registered_callbacks, "expected create_experiment to register an on_commit callback"
+
+        for callback in registered_callbacks:
+            callback()
+
+        mock_report_user_action.assert_called_once()
+        assert mock_report_user_action.call_args.args[1] == "experiment created"
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_create_experiment_survives_post_commit_analytics_failure(self, mock_report_user_action):
+        # A post-commit capture failure must not roll back or fail the create — experiment still exists.
+        mock_report_user_action.side_effect = RuntimeError("analytics down")
+        service = self._service()
+
+        with patch("django.db.transaction.on_commit", side_effect=lambda func: func()):
+            experiment = service.create_experiment(
+                name="Resilient Analytics",
+                feature_flag_key="resilient-flag",
+                event_source=EventSource.API,
+            )
+
+        mock_report_user_action.assert_called_once()
+        assert Experiment.objects.filter(pk=experiment.pk).exists()
 
     def test_create_experiment_creates_new_flag(self):
         service = self._service()
@@ -952,13 +1010,19 @@ class TestExperimentService(APIBaseTest):
             description="All optional fields set",
             type="web",
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "name": "Control", "rollout_percentage": 34},
-                    {"key": "variant-a", "name": "Variant A", "rollout_percentage": 33},
-                    {"key": "variant-b", "name": "Variant B", "rollout_percentage": 33},
-                ],
-                "rollout_percentage": 80,
                 "minimum_detectable_effect": 20,
+            },
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 34},
+                            {"key": "variant-a", "name": "Variant A", "rollout_percentage": 33},
+                            {"key": "variant-b", "name": "Variant B", "rollout_percentage": 33},
+                        ]
+                    },
+                    "groups": [{"properties": [], "rollout_percentage": 80}],
+                },
             },
             metrics=[
                 {
@@ -1218,13 +1282,16 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError) as ctx:
             service.update_experiment(
                 experiment,
-                {
-                    "parameters": {
-                        "feature_flag_variants": [
-                            {"key": "control", "name": "Control", "rollout_percentage": 34},
-                            {"key": "test", "name": "Test", "rollout_percentage": 33},
-                            {"key": "new_variant", "name": "New", "rollout_percentage": 33},
-                        ]
+                {},
+                feature_flag_config={
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "name": "Control", "rollout_percentage": 34},
+                                {"key": "test", "name": "Test", "rollout_percentage": 33},
+                                {"key": "new_variant", "name": "New", "rollout_percentage": 33},
+                            ]
+                        }
                     }
                 },
             )
@@ -1268,12 +1335,15 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
         service.update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ],
+            {},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 50},
+                            {"key": "test", "name": "Test", "rollout_percentage": 50},
+                        ]
+                    },
                 },
             },
         )
@@ -1288,13 +1358,16 @@ class TestExperimentService(APIBaseTest):
 
         service.update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 34},
-                        {"key": "test", "name": "Test", "rollout_percentage": 33},
-                        {"key": "variant-b", "name": "Variant B", "rollout_percentage": 33},
-                    ],
+            {},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 34},
+                            {"key": "test", "name": "Test", "rollout_percentage": 33},
+                            {"key": "variant-b", "name": "Variant B", "rollout_percentage": 33},
+                        ]
+                    },
                 }
             },
         )
@@ -1311,15 +1384,17 @@ class TestExperimentService(APIBaseTest):
 
         self._service().update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 75},
-                        {"key": "test", "name": "Test", "rollout_percentage": 25},
-                    ],
-                    "rollout_percentage": 50,
+            {"update_feature_flag_params": True},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 75},
+                            {"key": "test", "name": "Test", "rollout_percentage": 25},
+                        ]
+                    },
+                    "groups": [{"properties": [], "rollout_percentage": 50}],
                 },
-                "update_feature_flag_params": True,
             },
         )
 
@@ -1341,14 +1416,16 @@ class TestExperimentService(APIBaseTest):
 
         self._service().update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 75},
-                        {"key": "test", "name": "Test", "rollout_percentage": 25},
-                    ],
+            {**extra},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 75},
+                            {"key": "test", "name": "Test", "rollout_percentage": 25},
+                        ]
+                    },
                 },
-                **extra,
             },
         )
 
@@ -1371,14 +1448,16 @@ class TestExperimentService(APIBaseTest):
 
         self._service().update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 70},
-                        {"key": "test", "name": "Test", "rollout_percentage": 30},
-                    ],
+            {"update_feature_flag_params": True},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 70},
+                            {"key": "test", "name": "Test", "rollout_percentage": 30},
+                        ]
+                    },
                 },
-                "update_feature_flag_params": True,
             },
         )
 
@@ -1408,14 +1487,16 @@ class TestExperimentService(APIBaseTest):
 
         self._service().update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 70},
-                        {"key": "test", "name": "Test", "rollout_percentage": 30},
-                    ],
+            {"update_feature_flag_params": True},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 70},
+                            {"key": "test", "name": "Test", "rollout_percentage": 30},
+                        ]
+                    },
                 },
-                "update_feature_flag_params": True,
             },
         )
 
@@ -1434,15 +1515,17 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError) as ctx:
             self._service().update_experiment(
                 experiment,
-                {
-                    "parameters": {
-                        "feature_flag_variants": [
-                            {"key": "control", "name": "Control", "rollout_percentage": 34},
-                            {"key": "test", "name": "Test", "rollout_percentage": 33},
-                            {"key": "new_variant", "name": "New", "rollout_percentage": 33},
-                        ]
+                {"update_feature_flag_params": True},
+                feature_flag_config={
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "name": "Control", "rollout_percentage": 34},
+                                {"key": "test", "name": "Test", "rollout_percentage": 33},
+                                {"key": "new_variant", "name": "New", "rollout_percentage": 33},
+                            ]
+                        }
                     },
-                    "update_feature_flag_params": True,
                 },
             )
 
@@ -1700,6 +1783,193 @@ class TestExperimentService(APIBaseTest):
         assert second_link is not None
         assert second_link.saved_metric_id == sm2.id
 
+    def _updated_events(self, mock_report_user_action):
+        return [c for c in mock_report_user_action.call_args_list if c.args[1] == "experiment updated"]
+
+    def _changed_fields(self, mock_report_user_action):
+        events = self._updated_events(mock_report_user_action)
+        assert len(events) == 1, f"expected exactly one 'experiment updated' event, got {len(events)}"
+        return events[0].args[2]["changed_fields"]
+
+    def _make_saved_metric(self, name: str, event: str = "$pageview") -> ExperimentSavedMetric:
+        return ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name=name,
+            query={"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": event}},
+        )
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_reports_updated_with_metric_composition(self, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        saved_metric = self._make_saved_metric("Shared SM")
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": "primary"}}]},
+            serializer_context=service._build_serializer_context(),
+        )
+
+        metadata = self._updated_events(mock_report_user_action)[0].args[2]
+        assert metadata["saved_metrics_count"] == 1
+        # _create_draft_experiment seeds one inline primary metric and no secondary
+        assert metadata["metrics_count"] == 1
+        assert metadata["secondary_metrics_count"] == 0
+        assert "saved_metrics" in metadata["changed_fields"]
+        assert mock_report_user_action.call_args_list[-1].kwargs["team"] == self.team
+        assert mock_report_user_action.call_args_list[-1].kwargs["request"] is not None
+
+    @parameterized.expand(
+        [
+            ("name", {"name": "Renamed experiment"}, "name"),
+            ("description", {"description": "A brand new hypothesis"}, "description"),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_changed_fields_scalar_edit(self, _name, update_data, expected_field, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
+
+        changed = self._changed_fields(mock_report_user_action)
+        assert expected_field in changed
+        # A scalar edit must not falsely report metric (re)configuration even though the
+        # update pipeline internally re-touches existing inline metrics.
+        assert "metrics" not in changed
+        assert "saved_metrics" not in changed
+
+    @parameterized.expand(
+        [
+            (
+                "primary",
+                {
+                    "metrics": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "mean",
+                            "uuid": "m-new",
+                            "source": {"kind": "EventsNode", "event": "checkout_completed"},
+                        }
+                    ]
+                },
+                "metrics",
+            ),
+            (
+                "secondary",
+                {
+                    "metrics_secondary": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "funnel",
+                            "uuid": "s-new",
+                            "series": [
+                                {"kind": "EventsNode", "event": "$pageview"},
+                                {"kind": "EventsNode", "event": "signed_up"},
+                            ],
+                        }
+                    ]
+                },
+                "metrics_secondary",
+            ),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_changed_fields_inline_metric(self, _name, update_data, expected_field, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(
+            experiment, update_data, serializer_context=service._build_serializer_context(), allow_unknown_events=True
+        )
+
+        changed = self._changed_fields(mock_report_user_action)
+        assert expected_field in changed
+        assert "saved_metrics" not in changed
+
+    @parameterized.expand(
+        [
+            # (initial role attached, role sent in the measured update, expect a real change)
+            ("attach", None, "primary", True),
+            ("detach", "primary", None, True),
+            ("retype", "primary", "secondary", True),
+            ("resend_identical", "primary", "primary", False),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_saved_metric_change_detection(self, _name, initial_type, new_type, expect_change, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        saved_metric = self._make_saved_metric("Reusable conversion")
+        service = self._service()
+        ctx = service._build_serializer_context()
+
+        # fresh payload per call — update_experiment mutates update_data in place
+        def attach(metric_type: str) -> dict:
+            return {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": metric_type}}]}
+
+        if initial_type is not None:
+            service.update_experiment(experiment, attach(initial_type), serializer_context=ctx)
+        mock_report_user_action.reset_mock()
+
+        update_data = {"saved_metrics_ids": []} if new_type is None else attach(new_type)
+        service.update_experiment(experiment, update_data, serializer_context=ctx)
+
+        if expect_change:
+            changed = self._changed_fields(mock_report_user_action)
+            assert "saved_metrics" in changed
+            # the write-side payload key must not leak; inline metrics were untouched
+            assert "saved_metrics_ids" not in changed
+            assert "metrics" not in changed
+        else:
+            assert self._updated_events(mock_report_user_action) == []
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_with_no_real_change_does_not_report(self, mock_report_user_action):
+        experiment = self._create_draft_experiment(name="Stable name")
+        service = self._service()
+        service.update_experiment(
+            experiment, {"name": "Stable name"}, serializer_context=service._build_serializer_context()
+        )
+
+        assert self._updated_events(mock_report_user_action) == []
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_changed_fields_multiple_at_once(self, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        saved_metric = self._make_saved_metric("Reusable conversion")
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {
+                "name": "Renamed and remetered",
+                "saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+            },
+            serializer_context=service._build_serializer_context(),
+        )
+
+        changed = self._changed_fields(mock_report_user_action)
+        assert "name" in changed
+        assert "saved_metrics" in changed
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_with_event_source_and_no_request_reports_with_source(self, mock_report_user_action):
+        # Parity with create_experiment: a non-HTTP caller (e.g. an AI/Max tool) that passes
+        # event_source must still emit, attributed to that channel, even without a request.
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(experiment, {"name": "Renamed by AI"}, event_source=EventSource.POSTHOG_AI)
+
+        event = self._updated_events(mock_report_user_action)[0]
+        assert event.args[2]["source"] == EventSource.POSTHOG_AI
+        assert "name" in event.args[2]["changed_fields"]
+        assert event.kwargs["request"] is None
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_without_request_or_event_source_is_silent(self, mock_report_user_action):
+        # Internal callers that supply neither a request nor an event_source stay invisible.
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(experiment, {"name": "Renamed internally"})
+
+        assert self._updated_events(mock_report_user_action) == []
+
     def test_update_experiment_rolls_back_saved_metric_changes_on_validation_error(self):
         self._create_flag(key="rollback-update")
         sm1 = ExperimentSavedMetric.objects.create(
@@ -1935,6 +2205,55 @@ class TestExperimentService(APIBaseTest):
         links = list(dup.experimenttosavedmetric_set.all())
         assert len(links) == 1
         assert links[0].saved_metric_id == sm.id
+
+    # index 0 is the truthiness edge case: a `if index:` guard would wrongly drop it.
+    @parameterized.expand([("index_zero", 0), ("index_one", 1)])
+    def test_duplicate_experiment_preserves_group_aggregation(self, _name: str, group_index: int):
+        flag = self._create_flag(key="dup-group-source")
+        flag.filters = {**flag.filters, "aggregation_group_type_index": group_index}
+        flag.save()
+        service = self._service()
+        source = service.create_experiment(name="Group Source", feature_flag_key="dup-group-source")
+
+        # New key forces a fresh flag through _ensure_feature_flag rather than reusing the source.
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-group-target")
+
+        assert dup.feature_flag.id != source.feature_flag.id
+        assert dup.feature_flag.aggregation_group_type_index == group_index
+
+    # Only groups[0]'s rollout percentage clones; property targeting and extra groups do not, matching
+    # the experiment input surface that restricts groups to a single empty-properties entry.
+    @parameterized.expand(
+        [
+            ("single_group", [{"properties": [], "rollout_percentage": 20}]),
+            (
+                "targeting_and_extra_groups_dropped",
+                [
+                    {
+                        "properties": [{"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"}],
+                        "rollout_percentage": 20,
+                    },
+                    {"properties": [], "rollout_percentage": 55},
+                ],
+            ),
+        ]
+    )
+    def test_duplicate_experiment_inherits_rollout_percentage(self, _name: str, source_groups: list[dict]):
+        flag = self._create_flag(key="dup-rollout-source")
+        flag.filters = {**flag.filters, "groups": source_groups}
+        flag.save()
+        service = self._service()
+        source = service.create_experiment(name="Rollout Source", feature_flag_key="dup-rollout-source")
+
+        # New key forces a fresh flag through _ensure_feature_flag rather than reusing the source.
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-rollout-target")
+
+        assert dup.feature_flag.id != source.feature_flag.id
+        clone_groups = dup.feature_flag.filters["groups"]
+        # Inherits groups[0]'s percentage but nothing else: one group, no property targeting.
+        assert len(clone_groups) == 1
+        assert clone_groups[0]["rollout_percentage"] == 20
+        assert clone_groups[0]["properties"] == []
 
     # ------------------------------------------------------------------
     # Launch experiment
@@ -2818,6 +3137,703 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError):
             service.resume_experiment(experiment)
 
+    @parameterized.expand(
+        [
+            (
+                "launched",
+                "experiment launched",
+                lambda self: self._create_launchable_experiment(name="Ev L", feature_flag_key="ev-launched-flag"),
+                lambda service, experiment, request: service.launch_experiment(experiment, request=request),
+            ),
+            (
+                "paused",
+                "experiment paused",
+                lambda self: self._create_running_experiment(name="Ev P", feature_flag_key="ev-paused-flag"),
+                lambda service, experiment, request: service.pause_experiment(experiment, request=request),
+            ),
+            (
+                "resumed",
+                "experiment resumed",
+                lambda self: self._create_running_experiment(name="Ev R", feature_flag_key="ev-resumed-flag"),
+                # pause first (no request -> no report), then resume with the request under assertion
+                lambda service, experiment, request: (
+                    service.pause_experiment(experiment),
+                    service.resume_experiment(experiment, request=request),
+                ),
+            ),
+            (
+                "archived",
+                "experiment archived",
+                lambda self: self._create_ended_experiment(name="Ev A", feature_flag_key="ev-archived-flag"),
+                lambda service, experiment, request: service.archive_experiment(experiment, request=request),
+            ),
+            (
+                "unarchived",
+                "experiment unarchived",
+                lambda self: self._create_ended_experiment(name="Ev U", feature_flag_key="ev-unarchived-flag"),
+                # archive first (no request -> no report), then unarchive with the request under assertion
+                lambda service, experiment, request: (
+                    service.archive_experiment(experiment),
+                    service.unarchive_experiment(experiment, request=request),
+                ),
+            ),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_lifecycle_action_emits_exact_event_name(self, _name, event_name, build, act, mock_report_user_action):
+        # These five event strings are asserted nowhere else. After the per-action report methods were
+        # collapsed into one _report_lifecycle_event(event_name) call, a typo'd string at any call site
+        # would silently break the analytics event without this guard.
+        experiment = build(self)
+        mock_report_user_action.reset_mock()
+
+        act(self._service(), experiment, self._make_request())
+
+        mock_report_user_action.assert_called_once()
+        assert mock_report_user_action.call_args.args[1] == event_name
+
+    # ------------------------------------------------------------------
+    # Freeze exposure
+    # ------------------------------------------------------------------
+
+    def _stamp_exposure_frozen_marker(self, flag: FeatureFlag) -> None:
+        filters = deepcopy(flag.filters)
+        for group in filters.get("groups", []):
+            group[EXPOSURE_FROZEN_GROUP_KEY] = True
+            group["description"] = EXPOSURE_FROZEN_GROUP_MARKER
+        flag.filters = filters
+        flag.save()
+
+    def _update_flag_filters(self, flag: FeatureFlag, filters: dict) -> None:
+        serializer = FeatureFlagSerializer(
+            flag,
+            data={"filters": filters},
+            partial=True,
+            context={"request": self._make_request(), "team_id": self.team.id, "project_id": self.team.project_id},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        flag.refresh_from_db()
+
+    @contextmanager
+    def _stub_freeze_population(self, exposed_uuids: list[str] | None = None):
+        uuids = exposed_uuids if exposed_uuids is not None else ["00000000-0000-0000-0000-000000000001"]
+        with (
+            patch.object(ExperimentService, "_fetch_exposed_person_uuids", return_value=uuids),
+            # The stubbed uuids have no real persons behind them; treat them all as resolvable so
+            # the personless guard doesn't reject these unrelated scenarios.
+            patch(
+                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+                new=lambda team_id, uuids: uuids,
+            ),
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0
+            ) as mock_insert,
+        ):
+            yield mock_insert
+
+    @parameterized.expand(
+        [
+            ("running_with_marker", "running", True, True),
+            ("running_without_marker", "running", False, False),
+            ("draft_with_marker", "draft", True, False),
+            ("stopped_with_marker", "stopped", True, False),
+            # Paused takes precedence: a deactivated flag serves no one, so "frozen" would
+            # misdescribe the experiment and hide the pause/resume lifecycle in the UI.
+            ("paused_with_marker", "paused", True, False),
+        ]
+    )
+    def test_is_exposure_frozen_property(self, _name: str, state: str, marker: bool, expected: bool) -> None:
+        if state == "draft":
+            experiment = self._create_launchable_experiment(name="Exp Frozen Draft", feature_flag_key=f"ef-{_name}")
+        elif state == "stopped":
+            experiment = self._create_ended_experiment(name="Exp Frozen Stopped", feature_flag_key=f"ef-{_name}")
+        else:
+            experiment = self._create_running_experiment(name="Exp Frozen Running", feature_flag_key=f"ef-{_name}")
+
+        if state == "paused":
+            flag = experiment.feature_flag
+            flag.active = False
+            flag.save()
+
+        if marker:
+            self._stamp_exposure_frozen_marker(experiment.feature_flag)
+
+        experiment.refresh_from_db()
+        assert experiment.is_exposure_frozen is expected
+
+    def test_freeze_exposure_success(self):
+        experiment = self._create_running_experiment(name="Freeze Exposure", feature_flag_key="freeze-exposure-flag")
+        original_variants = deepcopy(experiment.feature_flag.filters["multivariate"])
+
+        with self._stub_freeze_population() as mock_insert:
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+
+        frozen.feature_flag.refresh_from_db()
+
+        # A static snapshot cohort was created and populated synchronously from the exposed set.
+        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Freeze Exposure"')
+        assert cohort.is_static is True
+        mock_insert.assert_called_once()
+
+        # The cohort condition + freeze key + marker note were AND'd into every release group.
+        groups = frozen.feature_flag.filters["groups"]
+        assert len(groups) >= 1
+        for group in groups:
+            assert {"key": "id", "type": "cohort", "value": cohort.id, "operator": "in"} in group["properties"]
+            assert group[EXPOSURE_FROZEN_GROUP_KEY] is True
+            assert group[EXPOSURE_FROZEN_COHORT_KEY] == cohort.id
+            assert EXPOSURE_FROZEN_GROUP_MARKER in group["description"]
+
+        # Variants left byte-for-byte unchanged so enrolled users keep their variant.
+        assert frozen.feature_flag.filters["multivariate"] == original_variants
+
+        # Metrics keep flowing — not ended.
+        assert frozen.end_date is None
+        assert frozen.is_running is True
+        assert frozen.is_exposure_frozen is True
+
+    def test_freeze_exposure_multi_group_flag(self):
+        experiment = self._create_running_experiment(name="Freeze Multi", feature_flag_key="freeze-multi-flag")
+        flag = experiment.feature_flag
+
+        # A catch-all group plus an internal test-user group (heterogeneous, like real experiment flags).
+        catch_all = {"properties": [], "rollout_percentage": 100}
+        internal_group = {
+            "properties": [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}],
+            "rollout_percentage": 100,
+            "description": "Internal test users",
+        }
+        self._update_flag_filters(flag, {**flag.filters, "groups": [catch_all, internal_group]})
+
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        frozen.feature_flag.refresh_from_db()
+        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Freeze Multi"')
+
+        groups = frozen.feature_flag.filters["groups"]
+        assert len(groups) == 2
+        cohort_condition = {"key": "id", "type": "cohort", "value": cohort.id, "operator": "in"}
+
+        # Catch-all group: only the cohort condition added; description is just the marker note.
+        assert groups[0]["properties"] == [cohort_condition]
+        assert groups[0]["rollout_percentage"] == 100
+        assert groups[0][EXPOSURE_FROZEN_GROUP_KEY] is True
+        assert groups[0]["description"] == EXPOSURE_FROZEN_GROUP_MARKER
+
+        # Internal group: original property preserved, cohort condition appended last, and the
+        # user-authored description survives with the marker note prepended.
+        assert len(groups[1]["properties"]) == 2
+        assert groups[1]["properties"][-1] == cohort_condition
+        assert groups[1]["properties"][0]["key"] == "email"
+        assert groups[1]["rollout_percentage"] == 100
+        assert groups[1][EXPOSURE_FROZEN_GROUP_KEY] is True
+        assert groups[1]["description"] == f"{EXPOSURE_FROZEN_GROUP_MARKER} Internal test users"
+
+    @parameterized.expand(
+        [
+            ("draft", "not been launched"),
+            ("stopped", "already ended"),
+            ("paused", "freeze a paused"),
+            ("already_frozen", "already frozen"),
+            ("group_aggregated", "Group-aggregated"),
+            ("deleted_flag", "has been deleted"),
+            ("no_groups", "no release conditions"),
+            # Holdout assignment and early-access enrollment (super_groups) are evaluated by the
+            # flag matcher before release conditions, so narrowing the release groups to a cohort
+            # cannot stop enrollment through them — freezing must be rejected, not silently partial.
+            ("holdout_linked", "holdout"),
+            ("flag_holdout", "holdout"),
+            ("flag_holdout_groups_legacy", "holdout"),
+            ("flag_super_groups", "early access"),
+        ]
+    )
+    def test_freeze_exposure_guards_raise(self, state: str, expected_error: str):
+        service = self._service()
+        if state == "draft":
+            experiment = self._create_launchable_experiment(name="FE Draft", feature_flag_key=f"fe-{state}-flag")
+        elif state == "stopped":
+            experiment = self._create_ended_experiment(name="FE Stopped", feature_flag_key=f"fe-{state}-flag")
+        else:
+            experiment = self._create_running_experiment(name="FE Running", feature_flag_key=f"fe-{state}-flag")
+
+        if state == "paused":
+            # Paused = running with the flag deactivated; freezing must be rejected.
+            flag = experiment.feature_flag
+            flag.active = False
+            flag.save()
+            experiment.refresh_from_db()
+        elif state == "already_frozen":
+            self._stamp_exposure_frozen_marker(experiment.feature_flag)
+            experiment.refresh_from_db()
+        elif state == "group_aggregated":
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, "aggregation_group_type_index": 0}
+            flag.save()
+            experiment.refresh_from_db()
+        elif state == "deleted_flag":
+            flag = experiment.feature_flag
+            flag.deleted = True
+            flag.save()
+            experiment.refresh_from_db()
+        elif state == "no_groups":
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, "groups": []}
+            flag.save()
+            experiment.refresh_from_db()
+        elif state == "holdout_linked":
+            holdout = ExperimentHoldout.objects.create(
+                team=self.team,
+                name="FE Holdout",
+                filters=[{"properties": [], "rollout_percentage": 10, "variant": "holdout"}],
+                created_by=self.user,
+            )
+            experiment.holdout = holdout
+            experiment.save()
+        elif state == "flag_holdout":
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, "holdout": {"id": 123, "exclusion_percentage": 10}}
+            flag.save()
+            experiment.refresh_from_db()
+        elif state == "flag_holdout_groups_legacy":
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, "holdout_groups": [{"properties": [], "rollout_percentage": 10}]}
+            flag.save()
+            experiment.refresh_from_db()
+        elif state == "flag_super_groups":
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, "super_groups": [{"properties": [], "rollout_percentage": 100}]}
+            flag.save()
+            experiment.refresh_from_db()
+
+        # Population stubbed so any state that (wrongly) passes the guards would freeze successfully
+        # instead of failing later for an unrelated reason like an empty exposed set.
+        with self._stub_freeze_population():
+            with self.assertRaises(ValidationError) as ctx:
+                service.freeze_exposure(experiment, request=self._make_request())
+        assert expected_error.lower() in str(ctx.exception).lower()
+
+    def test_flag_update_after_freeze_preserves_frozen_state(self):
+        experiment = self._create_running_experiment(name="Freeze Then Edit", feature_flag_key="freeze-edit-flag")
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        flag = frozen.feature_flag
+        flag.refresh_from_db()
+
+        # The frozen state rides on a non-schema group key, so it only survives as long as flag
+        # validation keeps passing unknown group keys through. Pin that contract: an unrelated
+        # flag edit sent the way the flag UI sends it — full filters payload included — must not
+        # strip the freeze key. If this fails, someone added group-key whitelisting to
+        # FeatureFlagSerializer and freezing needs a schema-level home for its state.
+        edited_filters = deepcopy(flag.filters)
+        edited_filters["groups"][0]["rollout_percentage"] = 50
+        self._update_flag_filters(flag, edited_filters)
+
+        frozen.refresh_from_db()
+        assert flag.filters["groups"][0][EXPOSURE_FROZEN_GROUP_KEY] is True
+        assert frozen.is_exposure_frozen is True
+
+    def test_flag_update_adding_unstamped_group_reopens_exposure(self):
+        experiment = self._create_running_experiment(name="Freeze Then Add Group", feature_flag_key="freeze-add-flag")
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        flag = frozen.feature_flag
+        flag.refresh_from_db()
+
+        # Release groups are OR'd, so a manually-added group without the freeze stamp (and without the
+        # snapshot-cohort condition) lets new users enroll again. Freezing stamps every group, so the
+        # experiment must report unfrozen the moment one unstamped group exists — otherwise the badge
+        # keeps saying "exposure frozen" while enrollment is actually open.
+        edited_filters = deepcopy(flag.filters)
+        edited_filters["groups"].append({"properties": [], "rollout_percentage": 100})
+        self._update_flag_filters(flag, edited_filters)
+
+        frozen.refresh_from_db()
+        # The original group keeps its stamp — only the freshly added group is unstamped.
+        assert flag.filters["groups"][0][EXPOSURE_FROZEN_GROUP_KEY] is True
+        assert EXPOSURE_FROZEN_GROUP_KEY not in flag.filters["groups"][1]
+        assert frozen.is_exposure_frozen is False
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut),
+            ("memory_limit", ClickHouseQueryMemoryLimitExceeded),
+            ("estimated_too_long", ClickHouseEstimatedQueryExecutionTimeTooLong),
+        ]
+    )
+    def test_freeze_exposure_rejects_when_scan_is_too_big(self, _name: str, exception_class: type[Exception]):
+        experiment = self._create_running_experiment(
+            name=f"Freeze {_name}", feature_flag_key=f"freeze-{_name}-flag".replace("_", "-")
+        )
+        original_filters = deepcopy(experiment.feature_flag.filters)
+
+        # All three "scan too big" ClickHouse errors must map to a friendly 400, not a 500.
+        with patch(
+            "products.experiments.backend.experiment_service.execute_hogql_query",
+            side_effect=exception_class(),
+        ):
+            with self.assertRaises(ValidationError) as ctx:
+                self._service().freeze_exposure(experiment, request=self._make_request())
+        assert "too much exposure data" in str(ctx.exception)
+
+        # Nothing was created or changed when the exposed-set scan times out.
+        assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters == original_filters
+        assert experiment.is_exposure_frozen is False
+
+    @patch("products.experiments.backend.experiment_service.FREEZE_EXPOSURE_MAX_EXPOSED_USERS", 2)
+    def test_freeze_exposure_rejects_when_too_many_exposed_users(self):
+        experiment = self._create_running_experiment(name="Freeze Toobig", feature_flag_key="freeze-toobig-flag")
+        original_filters = deepcopy(experiment.feature_flag.filters)
+
+        # Cap patched to 2; the scan returns 3 distinct persons → rejected before any cohort is created.
+        with patch(
+            "products.experiments.backend.experiment_service.execute_hogql_query",
+            return_value=MagicMock(results=[["a"], ["b"], ["c"]]),
+        ):
+            with self.assertRaises(ValidationError) as ctx:
+                self._service().freeze_exposure(experiment, request=self._make_request())
+        assert "too many exposed users" in str(ctx.exception)
+
+        assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters == original_filters
+        assert experiment.is_exposure_frozen is False
+
+    def test_freeze_exposure_deletes_orphan_cohort_on_flag_save_failure(self):
+        experiment = self._create_running_experiment(name="Freeze Failure", feature_flag_key="freeze-failure-flag")
+        original_filters = deepcopy(experiment.feature_flag.filters)
+        static_cohorts_before = Cohort.objects.filter(team=self.team, is_static=True).count()
+
+        # Any failure persisting the narrowed flag must not leave the snapshot cohort behind.
+        with self._stub_freeze_population():
+            with patch.object(FeatureFlagSerializer, "save", side_effect=ValidationError("boom")):
+                with self.assertRaises(ValidationError):
+                    self._service().freeze_exposure(experiment, request=self._make_request())
+
+        # The orphaned snapshot cohort was cleaned up; the flag and experiment are untouched.
+        assert Cohort.objects.filter(team=self.team, is_static=True).count() == static_cohorts_before
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters == original_filters
+        assert experiment.is_exposure_frozen is False
+
+    def test_freeze_exposure_rejects_when_no_users_exposed(self):
+        experiment = self._create_running_experiment(name="Freeze Empty", feature_flag_key="freeze-empty-flag")
+        original_filters = deepcopy(experiment.feature_flag.filters)
+
+        # An empty snapshot cohort ANDed into every release group would un-enroll every user with a
+        # 200 response — the freeze must reject instead.
+        with patch.object(ExperimentService, "_fetch_exposed_person_uuids", return_value=[]):
+            with self.assertRaises(ValidationError) as ctx:
+                self._service().freeze_exposure(experiment, request=self._make_request())
+        assert "no users have been exposed" in str(ctx.exception).lower()
+
+        assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters == original_filters
+        assert experiment.is_exposure_frozen is False
+
+    @parameterized.expand(
+        [
+            # 4 of 100 unresolvable: within the deletion-noise tolerance, the freeze proceeds.
+            ("under_threshold", 4, False),
+            # 6 of 100 unresolvable: a material personless share, the freeze must fail closed.
+            ("over_threshold", 6, True),
+        ]
+    )
+    def test_freeze_exposure_personless_share_guard(self, _name: str, unresolved: int, expect_rejection: bool):
+        experiment = self._create_running_experiment(
+            name=f"Freeze Personless {_name}", feature_flag_key=f"freeze-personless-{_name}"
+        )
+        uuids = [f"00000000-0000-0000-0000-{i:012d}" for i in range(100)]
+
+        # Anonymous (personless) users have exposure events with a person_id but no person row, so
+        # they can never match the snapshot cohort: a freeze whose exposed set is materially
+        # personless would silently drop those users' variants and must be rejected instead.
+        with (
+            patch.object(ExperimentService, "_fetch_exposed_person_uuids", return_value=uuids),
+            patch(
+                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+                new=lambda team_id, batch: batch[unresolved:],
+            ),
+            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0),
+        ):
+            if expect_rejection:
+                with self.assertRaises(ValidationError) as ctx:
+                    self._service().freeze_exposure(experiment, request=self._make_request())
+                assert "anonymous or deleted" in str(ctx.exception)
+                # Rejected before any snapshot was built: no cohort to clean up, flag untouched.
+                assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
+                experiment.feature_flag.refresh_from_db()
+                assert experiment.is_exposure_frozen is False
+            else:
+                frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+                assert frozen.is_exposure_frozen is True
+
+    def test_freeze_exposure_fails_and_cleans_up_when_cohort_population_fails(self):
+        experiment = self._create_running_experiment(name="Freeze Insert Fail", feature_flag_key="freeze-insert-flag")
+        original_filters = deepcopy(experiment.feature_flag.filters)
+
+        # A transient store failure mid-insert is swallowed by the cohort batching helper unless the
+        # caller opts into raise_on_error. Fail the innermost batch write (not the public method) so
+        # the real swallow path runs: the freeze must surface the failure and leave nothing behind,
+        # never narrow the flag to a partially populated snapshot.
+        with (
+            patch.object(
+                ExperimentService,
+                "_fetch_exposed_person_uuids",
+                return_value=["00000000-0000-0000-0000-000000000001"],
+            ),
+            patch(
+                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+                new=lambda team_id, uuids: uuids,
+            ),
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort._insert_batch_via_personhog",
+                side_effect=RuntimeError("clickhouse insert failed"),
+            ),
+        ):
+            with self.assertRaises(RuntimeError):
+                self._service().freeze_exposure(experiment, request=self._make_request())
+
+        # The partially populated snapshot cohort was cleaned up; the flag and experiment are untouched.
+        assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters == original_filters
+        assert experiment.is_exposure_frozen is False
+
+    def test_freeze_exposure_not_blocked_by_flag_approval_policy(self):
+        experiment = self._create_running_experiment(name="Freeze Policy", feature_flag_key="freeze-policy-flag")
+
+        # Flag approval policies are intentionally scoped to active/rollout_percentage changes.
+        # Freezing exposure only edits group properties, so a flag-update approval policy must NOT
+        # gate it — the freeze applies directly and no change request is raised.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+
+        assert ChangeRequest.objects.filter(team=self.team).count() == 0
+        frozen.feature_flag.refresh_from_db()
+        assert frozen.is_exposure_frozen is True
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_freeze_exposure_reports_analytics(self, mock_report: MagicMock):
+        experiment = self._create_running_experiment(name="Freeze Analytics", feature_flag_key="freeze-analytics-flag")
+
+        with self._stub_freeze_population():
+            self._service().freeze_exposure(experiment, request=self._make_request())
+
+        assert any(call.args[1] == "experiment exposure frozen" for call in mock_report.call_args_list)
+
+    def test_pause_and_resume_frozen_experiment(self):
+        experiment = self._create_running_experiment(name="Freeze Pause", feature_flag_key="freeze-pause-flag")
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        assert frozen.status_label == "exposure_frozen"
+
+        # Pausing a frozen experiment must not wedge it: with the flag deactivated nothing is
+        # served, so "paused" (with a working Resume) is the truthful state — a sticky "frozen"
+        # label would hide the Resume action and leave Pause 400-ing with "already paused".
+        paused = self._service().pause_experiment(frozen, request=self._make_request())
+        assert paused.is_exposure_frozen is False
+        assert paused.status_label == "paused"
+
+        # The freeze stamps survive the roundtrip: resuming lands back in frozen, not running.
+        resumed = self._service().resume_experiment(paused, request=self._make_request())
+        assert resumed.is_exposure_frozen is True
+        assert resumed.status_label == "exposure_frozen"
+
+    def test_freeze_exposure_retains_cohort_and_second_freeze_raises(self):
+        experiment = self._create_running_experiment(name="Freeze Retain", feature_flag_key="freeze-retain-flag")
+
+        with self._stub_freeze_population():
+            self._service().freeze_exposure(experiment, request=self._make_request())
+            experiment.refresh_from_db()
+
+            cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Freeze Retain"')
+            filters_after_first = deepcopy(experiment.feature_flag.filters)
+
+            with self.assertRaises(ValidationError) as ctx:
+                self._service().freeze_exposure(experiment, request=self._make_request())
+            assert "already frozen" in str(ctx.exception)
+
+        # The snapshot cohort and frozen flag state are left intact (non-destructive).
+        assert Cohort.objects.filter(pk=cohort.pk).exists()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters == filters_after_first
+
+    @parameterized.expand(
+        [
+            ("concurrently_frozen", "already frozen"),
+            ("flag_deleted", "has been deleted"),
+            ("experiment_ended", "already ended"),
+        ]
+    )
+    def test_freeze_exposure_rechecks_state_under_lock_and_cleans_up(self, race: str, expected_error: str):
+        experiment = self._create_running_experiment(name=f"Freeze Race {race}", feature_flag_key=f"fr-{race}-flag")
+        flag_id = experiment.feature_flag_id
+
+        # The exposure scan + cohort build take long enough for another request to land in between.
+        # Simulate that writer committing mid-scan: the guards must be re-run against the fresh rows
+        # under the flag lock, and a failed freeze must clean up its own snapshot cohort.
+        def concurrent_change_then_return(_experiment: Experiment) -> list[str]:
+            if race == "concurrently_frozen":
+                self._stamp_exposure_frozen_marker(FeatureFlag.objects.get(pk=flag_id))
+            elif race == "flag_deleted":
+                FeatureFlag.objects.filter(pk=flag_id).update(deleted=True)
+            else:
+                Experiment.objects.filter(pk=experiment.pk).update(end_date=timezone.now())
+            return ["00000000-0000-0000-0000-000000000001"]
+
+        with (
+            patch.object(ExperimentService, "_fetch_exposed_person_uuids", side_effect=concurrent_change_then_return),
+            patch(
+                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+                new=lambda team_id, uuids: uuids,
+            ),
+            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0),
+        ):
+            with self.assertRaises(ValidationError) as ctx:
+                self._service().freeze_exposure(experiment, request=self._make_request())
+        assert expected_error in str(ctx.exception)
+
+        # The orphaned snapshot cohort was cleaned up and the flag was never narrowed to it.
+        assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
+        flag = FeatureFlag.objects_including_soft_deleted.get(pk=flag_id)
+        for group in flag.filters.get("groups", []):
+            assert EXPOSURE_FROZEN_COHORT_KEY not in group
+
+    def test_freeze_exposure_applies_to_filters_edited_during_snapshot_build(self):
+        experiment = self._create_running_experiment(name="Freeze Race Edit", feature_flag_key="freeze-race-edit-flag")
+        flag = experiment.feature_flag
+        edited_filters = deepcopy(flag.filters)
+        edited_filters["groups"] = [
+            {
+                "properties": [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}],
+                "rollout_percentage": 50,
+            }
+        ]
+
+        # A flag edit committing while the (slow) exposure scan runs must not be clobbered by a
+        # transform computed from the pre-scan filters — the freeze must narrow the fresh groups.
+        def concurrent_edit_then_return(_experiment: Experiment) -> list[str]:
+            FeatureFlag.objects.filter(pk=flag.pk).update(filters=edited_filters)
+            return ["00000000-0000-0000-0000-000000000001"]
+
+        with (
+            patch.object(ExperimentService, "_fetch_exposed_person_uuids", side_effect=concurrent_edit_then_return),
+            patch(
+                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+                new=lambda team_id, uuids: uuids,
+            ),
+            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0),
+        ):
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+
+        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Freeze Race Edit"')
+        frozen.feature_flag.refresh_from_db()
+        groups = frozen.feature_flag.filters["groups"]
+        assert len(groups) == 1
+        # The concurrent edit's condition and rollout survive, with the freeze ANDed on top.
+        assert groups[0]["rollout_percentage"] == 50
+        assert {"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"} in groups[0][
+            "properties"
+        ]
+        assert {"key": "id", "type": "cohort", "value": cohort.id, "operator": "in"} in groups[0]["properties"]
+        assert groups[0][EXPOSURE_FROZEN_GROUP_KEY] is True
+
+    # ------------------------------------------------------------------
+    # Unfreeze exposure
+    # ------------------------------------------------------------------
+
+    def test_unfreeze_exposure_restores_original_filters(self) -> None:
+        experiment = self._create_running_experiment(name="Unfreeze Test", feature_flag_key="unfreeze-flag")
+        flag = experiment.feature_flag
+
+        # Heterogeneous groups: one with a user-authored description, one bare.
+        catch_all = {"properties": [], "rollout_percentage": 100}
+        internal_group = {
+            "properties": [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}],
+            "rollout_percentage": 100,
+            "description": "Internal test users",
+        }
+        self._update_flag_filters(flag, {**flag.filters, "groups": [catch_all, internal_group]})
+        original_filters = deepcopy(flag.filters)
+
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        frozen.feature_flag.refresh_from_db()
+        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Unfreeze Test"')
+
+        unfrozen = self._service().unfreeze_exposure(frozen, request=self._make_request())
+        unfrozen.feature_flag.refresh_from_db()
+
+        # The flag is byte-for-byte back to its pre-freeze state: cohort condition, freeze keys,
+        # and marker note all removed; the user-authored description restored exactly.
+        assert unfrozen.feature_flag.filters == original_filters
+        assert unfrozen.is_exposure_frozen is False
+        assert unfrozen.is_running is True
+        assert unfrozen.end_date is None
+
+        # The snapshot cohort is soft-deleted, not left as clutter.
+        cohort.refresh_from_db()
+        assert cohort.deleted is True
+
+    def test_unfreeze_exposure_keeps_user_edits_made_while_frozen(self) -> None:
+        experiment = self._create_running_experiment(name="Unfreeze Edits", feature_flag_key="unfreeze-edits-flag")
+
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        flag = frozen.feature_flag
+        flag.refresh_from_db()
+
+        # While frozen, a user adds their own condition to the frozen group. The group keeps its
+        # freeze stamp, so the experiment stays frozen and can still be unfrozen. (Adding a brand-new
+        # unstamped group instead reopens enrollment and reverts the experiment to "running" — see
+        # test_flag_update_adding_unstamped_group_reopens_exposure.)
+        edited = deepcopy(flag.filters)
+        user_condition = {"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}
+        edited["groups"][0]["properties"].append(user_condition)
+        self._update_flag_filters(flag, edited)
+
+        unfrozen = self._service().unfreeze_exposure(frozen, request=self._make_request())
+        unfrozen.feature_flag.refresh_from_db()
+
+        groups = unfrozen.feature_flag.filters["groups"]
+        assert len(groups) == 1
+        # Only the snapshot-cohort condition was removed from the frozen group — the user's stays.
+        assert groups[0]["properties"] == [user_condition]
+        assert EXPOSURE_FROZEN_GROUP_KEY not in groups[0]
+
+    def test_unfreeze_exposure_when_not_frozen_raises(self) -> None:
+        experiment = self._create_running_experiment(name="UF Not Frozen", feature_flag_key="uf-not-frozen-flag")
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().unfreeze_exposure(experiment, request=self._make_request())
+        assert "not frozen" in str(ctx.exception)
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_unfreeze_exposure_reports_analytics(self, mock_report: MagicMock) -> None:
+        experiment = self._create_running_experiment(name="Unfreeze Analytics", feature_flag_key="uf-analytics-flag")
+
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        self._service().unfreeze_exposure(frozen, request=self._make_request())
+
+        assert any(call.args[1] == "experiment exposure unfrozen" for call in mock_report.call_args_list)
+
     # ------------------------------------------------------------------
     # Reset
     # ------------------------------------------------------------------
@@ -2855,6 +3871,75 @@ class TestExperimentService(APIBaseTest):
 
         reset.feature_flag.refresh_from_db()
         assert reset.feature_flag.active is True
+
+    @parameterized.expand(
+        [
+            ("running_frozen",),
+            ("stopped_frozen",),
+        ]
+    )
+    def test_reset_experiment_clears_freeze(self, state: str):
+        experiment = self._create_running_experiment(name=f"Reset {state}", feature_flag_key=f"reset-{state}-flag")
+        original_groups = deepcopy(experiment.feature_flag.filters["groups"])
+
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        cohort = Cohort.objects.get(team=self.team, name=f'Exposure snapshot for experiment "Reset {state}"')
+        if state == "stopped_frozen":
+            # Ending intentionally leaves the flag untouched, so the stamps are still on the
+            # groups even though the stopped experiment no longer reports exposure_frozen —
+            # reset must strip them regardless, or the relaunch is born frozen.
+            self._service().end_experiment(frozen, request=self._make_request())
+
+        reset = self._service().reset_experiment(frozen, request=self._make_request())
+
+        # A re-launched experiment must start fresh: left frozen against the stale snapshot,
+        # it could never enroll anyone.
+        assert reset.is_draft
+        reset.feature_flag.refresh_from_db()
+        assert reset.feature_flag.filters["groups"] == original_groups
+        cohort.refresh_from_db()
+        assert cohort.deleted is True
+
+    @parameterized.expand(
+        [
+            ("referenced_by_another_flag", 'Exposure snapshot for experiment "Victim"'),
+            ("not_a_snapshot_name", "Payment-tier customers"),
+        ]
+    )
+    def test_reset_does_not_delete_stamped_foreign_cohorts(self, case: str, victim_name: str):
+        experiment = self._create_running_experiment(name=f"Reset Stamp {case}", feature_flag_key=f"rs-{case}-flag")
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+
+        # The freeze stamps round-trip through the flag API, so a flag editor can point them at
+        # any cohort. Cleanup must verify ownership instead of deleting whatever id is stamped.
+        victim = Cohort.objects.create(team=self.team, name=victim_name, is_static=True, created_by=self.user)
+        if case == "referenced_by_another_flag":
+            FeatureFlag.objects.create(
+                team=self.team,
+                key=f"other-flag-{case}",
+                created_by=self.user,
+                active=True,
+                filters={
+                    "groups": [
+                        {
+                            "properties": [{"key": "id", "type": "cohort", "value": victim.pk, "operator": "in"}],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+            )
+        flag = frozen.feature_flag
+        tampered = deepcopy(flag.filters)
+        tampered["groups"][0][EXPOSURE_FROZEN_COHORT_KEY] = victim.pk
+        flag.filters = tampered
+        flag.save()
+
+        self._service().reset_experiment(frozen, request=self._make_request())
+
+        victim.refresh_from_db()
+        assert victim.deleted is False
 
     def test_reset_draft_experiment_raises(self):
         experiment = self._create_launchable_experiment(name="Reset Draft", feature_flag_key="reset-draft-flag")
@@ -2938,6 +4023,76 @@ class TestExperimentService(APIBaseTest):
         assert groups[0]["rollout_percentage"] == 100
         assert "Added automatically" in groups[0].get("description", "")
         assert groups[1:] == original_groups
+
+    @parameterized.expand(
+        [
+            ("preserve_targeting", False),
+            ("release_to_everyone", True),
+        ]
+    )
+    def test_ship_variant_on_frozen_experiment_strips_freeze(self, _name: str, release_to_everyone: bool):
+        experiment = self._create_running_experiment(
+            name=f"Ship Frozen {_name}", feature_flag_key=f"ship-frozen-{_name}-flag"
+        )
+        flag = experiment.feature_flag
+
+        # Heterogeneous groups (like real experiment flags) so the round-trip below proves the
+        # freeze's cohort condition, structured keys, and description marker are all stripped
+        # while user-authored properties and descriptions survive.
+        catch_all = {"properties": [], "rollout_percentage": 100}
+        internal_group = {
+            "properties": [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}],
+            "rollout_percentage": 100,
+            "description": "Internal test users",
+        }
+        self._update_flag_filters(flag, {**flag.filters, "groups": [catch_all, internal_group]})
+        original_groups = deepcopy(flag.filters["groups"])
+
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        cohort = Cohort.objects.get(team=self.team, name=f'Exposure snapshot for experiment "Ship Frozen {_name}"')
+
+        shipped = self._service().ship_variant(
+            frozen,
+            variant_key="test",
+            release_to_everyone=release_to_everyone,
+            request=self._make_request(),
+        )
+        shipped.feature_flag.refresh_from_db()
+
+        groups = shipped.feature_flag.filters["groups"]
+        if release_to_everyone:
+            assert groups[0]["properties"] == []
+            assert groups[0]["rollout_percentage"] == 100
+            # The frozen snapshot condition below the catch-all is stripped, not left as dead weight.
+            assert groups[1:] == original_groups
+        else:
+            # Shipping ends the enrollment freeze: the winner reaches the original audience, not
+            # just the stale snapshot cohort.
+            assert groups == original_groups
+
+        # The snapshot cohort is no longer referenced by anything the freeze created — cleaned up.
+        cohort.refresh_from_db()
+        assert cohort.deleted is True
+
+    def test_ship_variant_on_frozen_experiment_keeps_cohort_when_flag_save_fails(self):
+        experiment = self._create_running_experiment(name="Ship Frozen Fail", feature_flag_key="ship-frozen-fail-flag")
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Ship Frozen Fail"')
+        filters_when_frozen = deepcopy(frozen.feature_flag.filters)
+
+        # If persisting the shipped flag fails (e.g. ApprovalRequired surfacing as a 409), the flag
+        # is still frozen and serving from the snapshot — the cohort must not be deleted from under it.
+        with patch.object(FeatureFlagSerializer, "save", side_effect=ValidationError("boom")):
+            with self.assertRaises(ValidationError):
+                self._service().ship_variant(frozen, variant_key="test", request=self._make_request())
+
+        cohort.refresh_from_db()
+        assert cohort.deleted is not True
+        frozen.feature_flag.refresh_from_db()
+        assert frozen.feature_flag.filters == filters_when_frozen
+        assert frozen.is_exposure_frozen is True
 
     def test_ship_variant_default_preserves_scoped_release_condition(self):
         experiment = self._create_running_experiment(name="Ship Scoped", feature_flag_key="ship-scoped-flag")
@@ -4066,61 +5221,24 @@ class TestExperimentService(APIBaseTest):
     # Validation hardening
     # ------------------------------------------------------------------
 
-    def test_variant_missing_key_raises_validation_error(self):
-        """Variant without 'key' should return 400, not 500 KeyError."""
-        service = self._service()
-        with self.assertRaises(ValidationError):
-            service.create_experiment(
-                name="Bad Variants",
-                feature_flag_key="bad-variant-flag",
-                parameters={
-                    "feature_flag_variants": [
-                        {"name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ]
-                },
-            )
-
-    def test_variant_not_a_dict_raises_validation_error(self):
-        """Variant that is not a dict should return 400."""
-        service = self._service()
-        with self.assertRaises(ValidationError):
-            service.create_experiment(
-                name="Bad Variants",
-                feature_flag_key="bad-variant-flag-2",
-                parameters={"feature_flag_variants": ["control", "test"]},
-            )
-
-    def test_variant_missing_both_percentages_raises_validation_error(self):
-        """Variant without split_percent or rollout_percentage should be rejected."""
-        service = self._service()
-        with self.assertRaises(ValidationError) as ctx:
-            service.create_experiment(
-                name="Missing Percentages",
-                feature_flag_key="missing-pct-flag",
-                parameters={
-                    "feature_flag_variants": [
-                        {"key": "control"},
-                        {"key": "test", "rollout_percentage": 50},
-                    ]
-                },
-            )
-        assert "split_percent" in str(ctx.exception)
-
-    def test_variant_with_only_rollout_percentage_succeeds(self):
-        """Legacy clients sending only rollout_percentage must still work (deprecated but accepted)."""
+    def test_create_with_rollout_only_variants_succeeds(self):
+        """Variants carrying rollout_percentage (the flag's native shape) build the flag as-is."""
         service = self._service()
         experiment = service.create_experiment(
-            name="Legacy rollout only",
-            feature_flag_key="legacy-rollout-flag",
-            parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ]
+            name="Rollout only",
+            feature_flag_key="rollout-only-flag",
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    }
+                }
             },
         )
-        assert experiment.id is not None
+        assert [v["key"] for v in experiment.feature_flag.variants] == ["control", "test"]
 
     def test_duplicate_metric_uuids_within_list_are_regenerated(self):
         """Duplicate metric UUIDs within one list should be silently regenerated.
@@ -5342,79 +6460,47 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError):
             service.update_experiment(
                 experiment,
-                {
-                    "parameters": {
-                        "feature_flag_variants": [
-                            {"key": "control", "rollout_percentage": 50},
-                            {"key": "variant-b", "rollout_percentage": 50},
-                        ]
+                {},
+                feature_flag_config={
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 50},
+                                {"key": "variant-b", "rollout_percentage": 50},
+                            ]
+                        }
                     }
                 },
             )
 
 
-class TestValidateExperimentParametersExcludedVariants:
-    def _base_params(self) -> dict[str, Any]:
-        return {
-            "feature_flag_variants": [
-                {"key": "control", "rollout_percentage": 50},
-                {"key": "test-1", "rollout_percentage": 25},
-                {"key": "test-2", "rollout_percentage": 25},
-            ]
-        }
+class TestValidateExcludedVariantKeys:
+    _VARIANT_KEYS = {"control", "test-1", "test-2"}
 
     @pytest.mark.parametrize(
-        "extra_params",
+        "excluded_variants,baseline_key",
         [
-            {},
-            {"excluded_variants": []},
-            {"excluded_variants": ["test-2"]},
-            {"excluded_variants": ["test-2", "test-2"]},
+            ([], "control"),
+            (["test-2"], "control"),
+            (["test-2", "test-2"], "control"),
         ],
     )
-    def test_valid_excluded_variants(self, extra_params: dict[str, Any]):
-        ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
+    def test_valid_excluded_variants(self, excluded_variants: list[str], baseline_key: str):
+        ExperimentService._validate_excluded_variant_keys(excluded_variants, self._VARIANT_KEYS, baseline_key)
 
     @pytest.mark.parametrize(
-        "extra_params,match",
+        "excluded_variants,baseline_key,match",
         [
-            ({"excluded_variants": ["does-not-exist"]}, "unknown variants"),
-            ({"excluded_variants": ["control"]}, "baseline variant cannot be excluded"),
-            ({"excluded_variants": ["holdout-42"]}, "cannot exclude holdout"),
-            ({"excluded_variants": ["test-1", "test-2"]}, "at least one test variant"),
-            ({"excluded_variants": "test-2"}, "must be a list of strings"),
-            ({"excluded_variants": [123]}, "must be a list of strings"),
-            (
-                {"stats_config": {"baseline_variant_key": "test-1"}, "excluded_variants": ["test-1"]},
-                "baseline variant cannot be excluded",
-            ),
+            (["does-not-exist"], "control", "unknown variants"),
+            (["control"], "control", "baseline variant cannot be excluded"),
+            (["holdout-42"], "control", "cannot exclude holdout"),
+            (["test-1", "test-2"], "control", "at least one test variant"),
+            (["test-1"], "test-1", "baseline variant cannot be excluded"),
         ],
     )
-    def test_invalid_excluded_variants_raises(self, extra_params: dict[str, Any], match: str):
+    def test_invalid_excluded_variants_raises(self, excluded_variants: list[str], baseline_key: str, match: str):
         with pytest.raises(ValidationError, match=match):
-            ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
-
-    def test_excluded_variants_without_feature_flag_variants_raises(self):
-        with pytest.raises(ValidationError, match="requires feature_flag_variants in the same request"):
-            ExperimentService.validate_experiment_parameters({"excluded_variants": ["test-1"]})
-
-
-class TestGetExcludedVariants:
-    @pytest.mark.parametrize(
-        "column,parameters,expected",
-        [
-            (None, None, []),
-            (None, {}, []),
-            # the column is canonical, including an explicit empty list
-            (["test-2"], {"excluded_variants": ["legacy"]}, ["test-2"]),
-            ([], {"excluded_variants": ["legacy"]}, []),
-            # falls back to legacy parameters only when the column is None (never set)
-            (None, {"excluded_variants": ["legacy"]}, ["legacy"]),
-        ],
-    )
-    def test_precedence(self, column, parameters, expected):
-        experiment = Experiment(excluded_variants=column, parameters=parameters)
-        assert get_excluded_variants(experiment) == expected
+            ExperimentService._validate_excluded_variant_keys(excluded_variants, self._VARIANT_KEYS, baseline_key)
 
 
 class TestValidateExcludedVariants:
@@ -5440,3 +6526,172 @@ class TestValidateExcludedVariants:
     def test_invalid_raises(self, value):
         with pytest.raises(ValidationError, match="must be a list of strings"):
             ExperimentService.validate_excluded_variants(value)
+
+
+@patch("posthoganalytics.feature_enabled", new=MagicMock(return_value=True))
+class TestExperimentServiceWarehouseMetricAccess(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.membership.level = OrganizationMembership.Level.MEMBER
+        self.membership.save()
+
+        credential = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
+        self.table = DataWarehouseTable.objects.create(
+            name="restricted_revenue",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            url_pattern="s3://bucket/restricted/*",
+            columns={"id": "String"},
+        )
+        # Deny this member every warehouse object (warehouse_table inherits the warehouse_objects resource).
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+
+    def _dw_metric(self) -> dict:
+        return {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {
+                "kind": "ExperimentDataWarehouseNode",
+                "table_name": self.table.name,
+                "events_join_key": "distinct_id",
+                "data_warehouse_join_key": "id",
+                "timestamp_field": "ds",
+                "math": "total",
+            },
+        }
+
+    def test_create_experiment_with_restricted_warehouse_metric_is_denied(self):
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.create_experiment(
+                name="DW experiment",
+                feature_flag_key="dw-create",
+                metrics=[self._dw_metric()],
+                allow_unknown_events=True,
+            )
+
+    def test_update_experiment_with_restricted_warehouse_metric_is_denied(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="dw-update",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        experiment = Experiment.objects.create(team=self.team, created_by=self.user, name="E", feature_flag=flag)
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.update_experiment(experiment, {"metrics": [self._dw_metric()]})
+
+    def test_org_admin_can_author_restricted_warehouse_metric(self):
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        service = ExperimentService(team=self.team, user=self.user)
+        experiment = service.create_experiment(
+            name="DW experiment allowed",
+            feature_flag_key="dw-allowed",
+            metrics=[self._dw_metric()],
+            allow_unknown_events=True,
+        )
+        assert experiment.metrics is not None
+        assert len(experiment.metrics) == 1
+
+    def test_attaching_saved_metric_on_restricted_table_is_denied(self):
+        # A saved metric on the denied table (authored by someone with access) can't be smuggled in
+        # by attaching it via saved_metrics_ids.
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="DW saved metric",
+            query=self._dw_metric(),
+        )
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.create_experiment(
+                name="DW via saved metric",
+                feature_flag_key="dw-saved",
+                saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+            )
+
+
+class TestDeprecatedFieldsInRequest(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "deprecated_parameters_and_secondary_metrics",
+                {
+                    "parameters": {"feature_flag_variants": [{"key": "control"}], "rollout_percentage": 100},
+                    "secondary_metrics": [{"kind": "x"}],
+                },
+                {
+                    "experiment_create_deprecated_fields": ["parameters", "secondary_metrics"],
+                    "experiment_create_deprecated_parameters_keys": ["feature_flag_variants", "rollout_percentage"],
+                },
+            ),
+            (
+                "new_feature_flag_object_is_not_deprecated",
+                {"feature_flag": {"filters": {"multivariate": {}}}, "metrics": [{"kind": "x"}]},
+                {"experiment_create_deprecated_fields": []},
+            ),
+            (
+                "legacy_filters",
+                {"filters": {"events": []}},
+                {"experiment_create_deprecated_fields": ["filters"]},
+            ),
+            (
+                "empty_parameters_not_counted",
+                {"parameters": {}},
+                {"experiment_create_deprecated_fields": []},
+            ),
+            (
+                "parameters_with_only_non_deprecated_keys",
+                {"parameters": {"variant_notes": {"control": "n"}}},
+                {"experiment_create_deprecated_fields": ["parameters"]},
+            ),
+            (
+                "non_dict_body",
+                [1, 2, 3],
+                {},
+            ),
+        ]
+    )
+    def test_detects_deprecated_fields(self, _name: str, body: Any, expected: dict[str, Any]) -> None:
+        request = MagicMock()
+        request.data = body
+        assert _deprecated_fields_in_request(request) == expected
+
+    def test_returns_empty_when_reading_body_raises(self) -> None:
+        request = MagicMock()
+        type(request).data = PropertyMock(side_effect=RuntimeError("stream consumed"))
+        assert _deprecated_fields_in_request(request) == {}
+
+
+class TestDeprecatedParametersKeysInRequest(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "deprecated_subset_sorted",
+                {"parameters": {"rollout_percentage": 50, "feature_flag_variants": [], "variant_notes": {}}},
+                ["feature_flag_variants", "rollout_percentage"],
+            ),
+            ("only_non_deprecated_keys", {"parameters": {"variant_notes": {"control": "n"}}}, []),
+            ("parameters_not_a_dict", {"parameters": [1, 2]}, []),
+            ("non_dict_body", [1, 2, 3], []),
+        ]
+    )
+    def test_detects_deprecated_parameters_keys(self, _name: str, body: Any, expected: list[str]) -> None:
+        request = MagicMock()
+        request.data = body
+        assert _deprecated_parameters_keys_in_request(request) == expected
+
+    def test_returns_empty_when_reading_body_raises(self) -> None:
+        request = MagicMock()
+        type(request).data = PropertyMock(side_effect=RuntimeError("stream consumed"))
+        assert _deprecated_parameters_keys_in_request(request) == []

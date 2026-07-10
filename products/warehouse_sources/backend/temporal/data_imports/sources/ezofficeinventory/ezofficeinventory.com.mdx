@@ -1,0 +1,73 @@
+---
+title: Linking EZOfficeInventory as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: EZOfficeInventory
+---
+
+<!--
+This is the user-facing source doc. It belongs in the posthog.com repo at
+contents/docs/cdp/sources/ezofficeinventory.md (served at /docs/cdp/sources/ezofficeinventory).
+It is staged here because no posthog.com checkout was available when the source was implemented —
+move it into posthog.com and delete it from this repo. See the /documenting-warehouse-sources skill.
+-->
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+[EZOfficeInventory](https://ezo.io/ezofficeinventory/) (now branded EZO) is a cloud asset and
+inventory management platform. Linking it as a source syncs your assets, inventory, members,
+locations, and related records into PostHog so you can join asset and inventory data with the rest of
+your warehouse.
+
+## Prerequisites
+
+Before connecting, you need:
+
+- An EZOfficeInventory account with **API access enabled**. API access is off by default — the account
+  owner enables it in **Settings → Integrations → API Integration**.
+- A company **access token**, generated on that same settings page. The token is sent in the `token`
+  HTTP header over HTTPS on every request, so keep it secret and regenerate it if it is compromised.
+- Your account **subdomain** — the `<subdomain>` in `https://<subdomain>.ezofficeinventory.com`.
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+You'll need to provide:
+
+- **Subdomain**: your EZOfficeInventory subdomain (the part before `.ezofficeinventory.com`).
+- **Access token**: the company access token from **Settings → Integrations → API Integration**.
+
+## Sync modes
+
+<SyncModes />
+
+EZOfficeInventory's API does not expose a general server-side `updated_after`/`created_after` cursor on
+its listing endpoints, so every table syncs via **full refresh** — each sync re-reads the full table and
+replaces the warehouse copy. The connector paginates politely within EZOfficeInventory's fair-use rate
+limit (~60 requests/minute) and backs off automatically on rate-limit responses.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+## Troubleshooting
+
+- **Invalid credentials on connect**: confirm API access is enabled in **Settings → Integrations → API
+  Integration**, that the access token is current, and that the subdomain is correct (no
+  `https://` prefix or `.ezofficeinventory.com` suffix).
+- **Syncs are slow on large accounts**: EZOfficeInventory enforces a fair-use limit of roughly 60
+  requests per minute (lower on trial accounts). The connector throttles to stay within it, so large
+  asset or inventory tables can take a while on the first sync.
+
+<TroubleshootingLink />

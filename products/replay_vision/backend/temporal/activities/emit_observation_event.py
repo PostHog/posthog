@@ -43,6 +43,9 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         )
 
     snapshot = ScannerSnapshot.load_for(inputs.observation_id, observation.scanner_snapshot)
+    # The recorded subject (distinct from the user who triggered the scan), persisted at scan time.
+    recording_distinct_id = observation.distinct_id
+    recording_subject_email = observation.recording_subject_email
     properties: dict = {
         # Deterministic id so a worker crash mid-flush doesn't produce a duplicate event row.
         "$insert_id": str(observation.id),
@@ -54,17 +57,20 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         "scanner_type": snapshot.scanner_type.value,
         "scanner_version": snapshot.scanner_version,
         "session_id": observation.session_id,
+        "recording_distinct_id": recording_distinct_id,
+        "recording_subject_email": recording_subject_email,
         "triggered_by": str(observation.triggered_by),
         "triggered_by_user_id": observation.triggered_by_user_id,
-        "model_used": snapshot.model.value,
-        "provider_used": snapshot.provider.value,
+        "model_used": snapshot.model,
+        "provider_used": snapshot.provider,
         "emits_signals": snapshot.emits_signals,
         # Flatten scanner output so HogQL can query individual fields without a JSON extract.
         **inputs.model_output.to_event_properties(),
     }
     distinct_id = (
         str(observation.triggered_by_user_id)
-        if observation.triggered_by_user_id is not None and observation.triggered_by == ObservationTrigger.ON_DEMAND
+        if observation.triggered_by_user_id is not None
+        and observation.triggered_by in (ObservationTrigger.ON_DEMAND, ObservationTrigger.RETRY)
         else replay_vision_distinct_id(observation.team_id)
     )
 

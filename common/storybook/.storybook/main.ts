@@ -1,9 +1,12 @@
-import type { StorybookConfig } from '@storybook/react-webpack5'
+import type { StorybookConfig } from '@storybook/react-vite'
+import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
 import * as path from 'path'
+import { mergeConfig, type Rollup } from 'vite'
 
-import { createEntry } from '../webpack.config.js'
-import { ModuleGraphPlugin } from './plugins/module-graph-plugin'
+import { frontendResolvePlugin } from './plugins/vite-frontend-resolve-plugin.ts'
+import { moduleGraphPlugin } from './plugins/vite-module-graph-plugin.ts'
+import { sqlRawPlugin } from './plugins/vite-sql-raw-plugin.ts'
 
 // Storybook 10 loads the config as a native ES module, where `__dirname` is
 // not defined — derive it from the module URL instead.
@@ -11,8 +14,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // Repo root = three levels up from this file (common/storybook/.storybook/main.ts).
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
+const FRONTEND = path.resolve(REPO_ROOT, 'frontend')
 
-const createStoriesPathFor = (path: string): string => `../../../${path}/**/*.stories.@(js|jsx|ts|tsx)`
+// Keep a single copy of these in the monorepo — duplicate react/kea instances
+// break hooks and kea's context. Aliased to the app's copy and deduped.
+const SINGLETON_PACKAGES = [
+    'react',
+    'react-dom',
+    '@base-ui/react',
+    'kea',
+    'kea-router',
+    'kea-forms',
+    'kea-loaders',
+    'kea-localstorage',
+    'kea-subscriptions',
+    'kea-waitfor',
+    'kea-window-values',
+]
+
+const createStoriesPathFor = (storyPath: string): string => `../../../${storyPath}/**/*.stories.@(js|jsx|ts|tsx)`
 
 const config: StorybookConfig = {
     stories: [
@@ -31,47 +51,78 @@ const config: StorybookConfig = {
         { from: '../../../frontend/node_modules/@posthog/hedgehog-mode/assets', to: '/static/hedgehog-mode' },
     ],
 
-    webpackFinal: (config, { configType }) => {
-        const mainConfig = createEntry('main')
-        return {
-            ...config,
-            // Disable filesystem cache in CI to avoid heap OOM during cache shutdown
-            // (especially on memory-constrained environments like Cloudflare Pages)
-            cache: process.env.CI ? false : { type: 'filesystem' },
-            // The hosted build doesn't need source maps, and generating them is what
-            // tips Terser over the heap limit during minification (webpack 5 ties
-            // Terser's source maps to `devtool`). Keep them for local `storybook dev`.
-            devtool: configType === 'PRODUCTION' ? false : config.devtool,
-            plugins: [...(config.plugins ?? []), new ModuleGraphPlugin(REPO_ROOT)],
-            resolve: {
-                ...config.resolve,
-                extensions: [...config.resolve!.extensions!, ...mainConfig.resolve.extensions],
-                alias: { ...config.resolve!.alias, ...mainConfig.resolve.alias },
-            },
-            module: {
-                ...config.module,
-                rules: [
-                    ...mainConfig.module.rules,
-                    ...(config.module?.rules?.filter(
-                        (rule: any) => 'test' in rule && rule.test.toString().includes('.mdx')
-                    ) ?? []),
-                ],
-            },
-        }
-    },
-
     framework: {
-        name: '@storybook/react-webpack5',
-        options: { builder: { useSWC: true } },
+        name: '@storybook/react-vite',
+        options: {},
     },
 
-    build: {
-        test: {
-            disableSourcemaps: !!process.env.CI,
-            // esbuild minifier: the default swc one rejects `extractComments` and breaks prod builds
-            esbuildMinify: true,
-        },
-    },
+    viteFinal: (viteConfig) =>
+        mergeConfig(viteConfig, {
+            plugins: [frontendResolvePlugin(REPO_ROOT), tailwindcss(), sqlRawPlugin(), moduleGraphPlugin(REPO_ROOT)],
+            resolve: {
+                dedupe: SINGLETON_PACKAGES,
+                alias: {
+                    // react-shadow (the toolbar's shadow-DOM renderer) imports react-dom/server.
+                    // The `react-dom` singleton alias below is a prefix match, so it would rewrite
+                    // this subpath to a bare path and resolve the `default` (node) export —
+                    // server.node.js extends stream.Readable, which is undefined in the browser
+                    // build and throws at module eval. Pin the browser build, ahead of that alias.
+                    'react-dom/server': path.resolve(FRONTEND, 'node_modules', 'react-dom', 'server.browser.js'),
+                    // The app's runtime deps live in frontend/node_modules, not under
+                    // common/storybook. Webpack reached them via resolve.modules; Vite has no
+                    // equivalent, so point the ones imported by bundled app/quill code there.
+                    ...Object.fromEntries(
+                        SINGLETON_PACKAGES.map((pkg) => [pkg, path.resolve(FRONTEND, 'node_modules', pkg)])
+                    ),
+                    '~': path.resolve(FRONTEND, 'src'),
+                    lib: path.resolve(FRONTEND, 'src', 'lib'),
+                    scenes: path.resolve(FRONTEND, 'src', 'scenes'),
+                    queries: path.resolve(FRONTEND, 'src', 'queries'),
+                    layout: path.resolve(FRONTEND, 'src', 'layout'),
+                    taxonomy: path.resolve(FRONTEND, 'src', 'taxonomy'),
+                    models: path.resolve(FRONTEND, 'src', 'models'),
+                    mocks: path.resolve(FRONTEND, 'src', 'mocks'),
+                    exporter: path.resolve(FRONTEND, 'src', 'exporter'),
+                    types: path.resolve(FRONTEND, 'src', 'types.ts'),
+                    public: path.resolve(FRONTEND, 'public'),
+                    products: path.resolve(REPO_ROOT, 'products'),
+                    '@common': path.resolve(REPO_ROOT, 'common'),
+                    '@posthog/lemon-ui': path.resolve(FRONTEND, '@posthog', 'lemon-ui', 'src'),
+                    '@posthog/mcp-ui': path.resolve(REPO_ROOT, 'services', 'mcp', 'src', 'ui-apps', 'lib'),
+                    '@posthog/shared-onboarding': path.resolve(REPO_ROOT, 'docs', 'onboarding'),
+                    '@posthog/quill': path.resolve(REPO_ROOT, 'packages', 'quill', 'packages', 'quill', 'src'),
+                    '@posthog/quill-charts': path.resolve(REPO_ROOT, 'packages', 'quill', 'packages', 'charts', 'src'),
+                },
+            },
+            define: {
+                global: 'globalThis',
+            },
+            optimizeDeps: {
+                include: ['buffer'],
+                // @posthog/brand's png stubs locate their image via new URL(..., import.meta.url);
+                // prebundling into .vite/deps would break that relative resolution. The package is
+                // pure ESM, so serving it unbundled is safe, and Vite's build handles the URL
+                // pattern natively.
+                exclude: ['@posthog/brand'],
+            },
+            build: {
+                rollupOptions: {
+                    onwarn(warning: Rollup.RollupLog, defaultHandler: (warning: Rollup.RollupLog) => void) {
+                        // "use client" directives from RSC-oriented deps (framer-motion, radix)
+                        // are meaningless here, and barrel-file re-export cycles are endemic to
+                        // the app's index.ts files. Together they bury real warnings in ~1000
+                        // lines of noise per CI build.
+                        if (
+                            warning.code === 'MODULE_LEVEL_DIRECTIVE' ||
+                            warning.code === 'CYCLIC_CROSS_CHUNK_REEXPORT'
+                        ) {
+                            return
+                        }
+                        defaultHandler(warning)
+                    },
+                },
+            },
+        }),
 
     docs: {
         autodocs: 'tag',

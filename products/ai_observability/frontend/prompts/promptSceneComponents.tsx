@@ -1,11 +1,21 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { lazy, Suspense, useRef } from 'react'
+import { Suspense, useRef } from 'react'
 
 import { IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonModal,
+    LemonSelect,
+    LemonTabs,
+    LemonTag,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -13,6 +23,9 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -24,10 +37,11 @@ import { useTracesQueryContext } from '../AIObservabilityTracesScene'
 import { MarkdownOutline } from '../components/MarkdownOutline'
 import { CreatePromptExperimentModal } from './CreatePromptExperimentModal'
 import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
-import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
+import { PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import { promptExperimentsLogic } from './promptExperimentsLogic'
+import { PROMPT_NAME_MAX_LENGTH } from './utils'
 
-const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
+const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
 
 function PromptOutline({
     promptText,
@@ -91,6 +105,12 @@ export function PromptViewDetails(): JSX.Element {
                 </span>
             </div>
 
+            {prompt.version_description ? (
+                <p className="text-secondary m-0 text-sm italic" data-attr="llma-prompt-version-description">
+                    {prompt.version_description}
+                </p>
+            ) : null}
+
             <div>
                 <label className="text-xs font-semibold uppercase text-secondary">Name</label>
                 <p className="font-mono">{prompt.name}</p>
@@ -151,7 +171,14 @@ export function PromptViewDetails(): JSX.Element {
             </div>
 
             <div className="grid max-w-3xl gap-3 text-sm text-secondary sm:grid-cols-2">
-                <div>Published {dayjs(prompt.created_at).format('MMM D, YYYY h:mm A')}</div>
+                <div className="flex flex-wrap items-center gap-1">
+                    Published {dayjs(prompt.created_at).format('MMM D, YYYY h:mm A')}
+                    {prompt.created_by ? (
+                        <span className="flex items-center gap-1">
+                            by <ProfilePicture user={prompt.created_by} showName size="sm" />
+                        </span>
+                    ) : null}
+                </div>
                 <div>First version created {dayjs(prompt.first_version_created_at).format('MMM D, YYYY h:mm A')}</div>
             </div>
 
@@ -166,6 +193,89 @@ export function PromptViewDetails(): JSX.Element {
                 </div>
             )}
         </div>
+    )
+}
+
+export function PublishReviewModal(): JSX.Element | null {
+    const { isPublishReviewOpen, prompt, promptForm, nextVersion, isPromptFormSubmitting, versionDescription } =
+        useValues(llmPromptLogic)
+    const { closePublishReview, submitPromptForm, setVersionDescription } = useActions(llmPromptLogic)
+
+    if (!isPrompt(prompt)) {
+        return null
+    }
+
+    const publishLabel = nextVersion ? `Publish v${nextVersion}` : 'Publish version'
+
+    return (
+        <LemonModal
+            isOpen={isPublishReviewOpen}
+            onClose={closePublishReview}
+            title="Review changes"
+            description={`Comparing v${prompt.version} with your edits. Publishing creates ${
+                nextVersion ? `v${nextVersion}` : 'a new version'
+            } — previous versions stay unchanged.`}
+            width={880}
+            footer={
+                <>
+                    <LemonButton
+                        type="secondary"
+                        onClick={closePublishReview}
+                        disabledReason={isPromptFormSubmitting ? 'Publishing…' : undefined}
+                        data-attr="llma-prompt-review-back-button"
+                    >
+                        Back to editing
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={submitPromptForm}
+                        loading={isPromptFormSubmitting}
+                        data-attr="llma-prompt-review-publish-button"
+                    >
+                        {publishLabel}
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="space-y-3">
+                <div className="overflow-hidden rounded border" data-attr="llma-prompt-publish-review-diff">
+                    <Suspense
+                        fallback={
+                            <div className="space-y-2 p-4">
+                                <LemonSkeleton active className="h-4 w-full" />
+                                <LemonSkeleton active className="h-4 w-3/4" />
+                            </div>
+                        }
+                    >
+                        <MonacoDiffEditor
+                            original={prompt.prompt}
+                            value={promptForm.prompt}
+                            modified={promptForm.prompt}
+                            language="markdown"
+                            options={{
+                                readOnly: true,
+                                renderSideBySide: true,
+                                minimap: { enabled: false },
+                                scrollBeyondLastLine: false,
+                                wordWrap: 'on',
+                                lineNumbers: 'off',
+                                folding: false,
+                                hideUnchangedRegions: { enabled: true },
+                            }}
+                        />
+                    </Suspense>
+                </div>
+                <LemonField.Pure label="What changed?" help="Optional — shown in the version history.">
+                    <LemonInput
+                        value={versionDescription}
+                        onChange={setVersionDescription}
+                        placeholder="e.g. Tightened the refusal criteria"
+                        maxLength={400}
+                        data-attr="llma-prompt-version-description-input"
+                    />
+                </LemonField.Pure>
+            </div>
+        </LemonModal>
     )
 }
 
@@ -296,12 +406,111 @@ export function PromptRelatedTraces(): JSX.Element {
     )
 }
 
+function extractPromptVariables(promptText: string): string[] {
+    const matches = promptText.match(/\{\{([^}]+)\}\}/g)
+    return matches ? [...new Set(matches.map((match) => match.slice(2, -2).trim()))] : []
+}
+
+function buildPythonSnippet(promptName: string, host: string, projectApiKey: string, variables: string[]): string {
+    const compileLines = variables.length
+        ? `\nsystem_prompt = prompts.compile(result.prompt, {${variables.map((v) => `${JSON.stringify(v)}: '...'`).join(', ')}})`
+        : ''
+    return `from posthog import Posthog
+from posthog.ai.prompts import Prompts
+
+posthog = Posthog(
+    '${projectApiKey}',
+    host='${host}',
+    personal_api_key='<personal_api_key>',  # scope: llm_prompt:read
+)
+prompts = Prompts(posthog)
+
+result = prompts.get(${JSON.stringify(promptName)}, with_metadata=True, fallback='You are a helpful assistant.')${compileLines}
+# result.name / result.version -> send as $ai_prompt_name / $ai_prompt_version on your LLM events`
+}
+
+function buildNodeSnippet(promptName: string, host: string, projectApiKey: string, variables: string[]): string {
+    const compileLines = variables.length
+        ? `\nconst systemPrompt = prompts.compile(result.prompt, {${variables.map((v) => ` ${JSON.stringify(v)}: '...'`).join(',')} })`
+        : ''
+    return `import { Prompts } from '@posthog/ai'
+import { PostHog } from 'posthog-node'
+
+const posthog = new PostHog('${projectApiKey}', {
+    host: '${host}',
+    personalApiKey: '<personal_api_key>', // scope: llm_prompt:read
+})
+const prompts = new Prompts({ posthog })
+
+const result = await prompts.get(${JSON.stringify(promptName)}, { fallback: 'You are a helpful assistant.' })${compileLines}
+// result.name / result.version -> send as $ai_prompt_name / $ai_prompt_version on your LLM events`
+}
+
+export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Element {
+    const { snippetLanguage } = useValues(llmPromptLogic)
+    const { setSnippetLanguage } = useActions(llmPromptLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    const host = window.location.origin
+    const projectApiKey = currentTeam?.api_token ?? '<project_api_key>'
+    const variables = extractPromptVariables(prompt.prompt)
+
+    return (
+        <div className="mb-6" data-attr="llma-prompt-code-snippets">
+            <div className="mb-2 flex items-center justify-between gap-2">
+                <div>
+                    <b>Use this prompt in your code</b>
+                    <div className="text-secondary text-sm">
+                        Fetch the latest version at runtime — publish new versions without deploying.
+                    </div>
+                </div>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    to="https://posthog.com/docs/prompt-management"
+                    targetBlank
+                    data-attr="llma-prompt-snippet-docs-link"
+                >
+                    Read the docs
+                </LemonButton>
+            </div>
+            <LemonTabs
+                activeKey={snippetLanguage}
+                onChange={(key) => setSnippetLanguage(key)}
+                size="small"
+                tabs={[
+                    {
+                        key: 'python' as const,
+                        label: 'Python',
+                        content: (
+                            <CodeSnippet language={Language.Python}>
+                                {buildPythonSnippet(prompt.name, host, projectApiKey, variables)}
+                            </CodeSnippet>
+                        ),
+                    },
+                    {
+                        key: 'node' as const,
+                        label: 'Node.js',
+                        content: (
+                            <CodeSnippet language={Language.JavaScript}>
+                                {buildNodeSnippet(prompt.name, host, projectApiKey, variables)}
+                            </CodeSnippet>
+                        ),
+                    },
+                ]}
+            />
+        </div>
+    )
+}
+
 export function PromptUsage({ prompt }: { prompt: LLMPrompt }): JSX.Element {
     const { promptUsageLogQuery, promptUsageTrendQuery, analyticsScope } = useValues(llmPromptLogic)
     const { setAnalyticsScope } = useActions(llmPromptLogic)
 
     return (
         <div data-attr="llma-prompt-usage-container">
+            <PromptCodeSnippets prompt={prompt} />
+
             <LemonBanner type="info" className="mb-4">
                 During the beta period, each prompt fetch is currently charged as a Product analytics event. See the{' '}
                 <Link to="https://posthog.com/pricing" target="_blank">
@@ -478,11 +687,20 @@ export function PromptEditForm({
     isHistoricalVersion: boolean
     selectedVersion: number | null
 }): JSX.Element {
-    const { promptVariables, isNewPrompt, isRenderingMarkdown, promptForm } = useValues(llmPromptLogic)
+    const { promptVariables, isNewPrompt, isRenderingMarkdown, promptForm, publishConflict } = useValues(llmPromptLogic)
     const { toggleMarkdownRendering } = useActions(llmPromptLogic)
 
     return (
         <div className="mt-4 max-w-3xl space-y-4">
+            {publishConflict ? (
+                <LemonBanner type="warning" data-attr="llma-prompt-publish-conflict-banner">
+                    {publishConflict.latestVersion
+                        ? `v${publishConflict.latestVersion} was published while you were editing.`
+                        : 'This prompt changed while you were editing.'}{' '}
+                    Your edits below are preserved — review them before publishing again.
+                </LemonBanner>
+            ) : null}
+
             {isHistoricalVersion && selectedVersion ? (
                 <LemonBanner type="info">
                     You are publishing a new latest version from historical version v{selectedVersion}. The original
@@ -496,7 +714,7 @@ export function PromptEditForm({
                 help={
                     isNewPrompt
                         ? `This name is used to fetch the prompt from your code. It must be unique and cannot be changed later. Maximum ${PROMPT_NAME_MAX_LENGTH} characters. Only letters, numbers, hyphens (-), and underscores (_) are allowed.`
-                        : 'This name is used to fetch the prompt from your code.'
+                        : 'This name is used to fetch the prompt from your code. To use a different name, duplicate the prompt.'
                 }
             >
                 <LemonInput
@@ -561,6 +779,7 @@ export function PromptVersionSidebar({
     canLoadMoreVersions,
     loadMoreVersions,
     searchParams,
+    readOnly = false,
 }: {
     promptName: string
     prompt: LLMPrompt | null
@@ -569,6 +788,7 @@ export function PromptVersionSidebar({
     canLoadMoreVersions: boolean
     loadMoreVersions: () => void
     searchParams: Record<string, any>
+    readOnly?: boolean
 }): JSX.Element {
     const { compareVersion } = useValues(llmPromptLogic)
     const { setCompareVersion } = useActions(llmPromptLogic)
@@ -589,22 +809,11 @@ export function PromptVersionSidebar({
                     {versions.map((versionPrompt) => {
                         const selected = prompt?.id === versionPrompt.id
                         const isCompareTarget = compareVersion === versionPrompt.version
-                        const canCompare = prompt?.version !== versionPrompt.version
+                        const canCompare = !readOnly && prompt?.version !== versionPrompt.version
                         const versionUrl = buildPromptUrl(promptName, searchParams, versionPrompt.version)
 
-                        return (
-                            <Link
-                                key={versionPrompt.id}
-                                to={versionUrl}
-                                className={`block rounded border p-3 no-underline ${
-                                    selected
-                                        ? 'border-primary bg-primary-highlight'
-                                        : isCompareTarget
-                                          ? 'border-warning bg-warning-highlight'
-                                          : 'border-primary/10 hover:bg-fill-secondary'
-                                }`}
-                                data-attr={`llma-prompt-version-link-${versionPrompt.version}`}
-                            >
+                        const cardContent = (
+                            <>
                                 <div className="mb-1 flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                         <span className="font-mono text-sm">v{versionPrompt.version}</span>
@@ -638,12 +847,49 @@ export function PromptVersionSidebar({
                                         />
                                     )}
                                 </div>
+                                {versionPrompt.version_description ? (
+                                    <div
+                                        className="mb-1 line-clamp-2 text-xs"
+                                        title={versionPrompt.version_description}
+                                    >
+                                        {versionPrompt.version_description}
+                                    </div>
+                                ) : null}
                                 <div className="text-xs text-secondary">
                                     {dayjs(versionPrompt.created_at).format('MMM D, YYYY h:mm A')}
                                 </div>
                                 {versionPrompt.created_by?.email ? (
                                     <div className="mt-1 text-xs text-secondary">{versionPrompt.created_by.email}</div>
                                 ) : null}
+                            </>
+                        )
+
+                        const cardClassName = `block rounded border p-3 no-underline ${
+                            selected
+                                ? 'border-primary bg-primary-highlight'
+                                : isCompareTarget
+                                  ? 'border-warning bg-warning-highlight'
+                                  : readOnly
+                                    ? 'border-primary/10 opacity-75'
+                                    : 'border-primary/10 hover:bg-fill-secondary'
+                        }`
+
+                        if (readOnly) {
+                            return (
+                                <div key={versionPrompt.id} className={cardClassName}>
+                                    {cardContent}
+                                </div>
+                            )
+                        }
+
+                        return (
+                            <Link
+                                key={versionPrompt.id}
+                                to={versionUrl}
+                                className={cardClassName}
+                                data-attr={`llma-prompt-version-link-${versionPrompt.version}`}
+                            >
+                                {cardContent}
                             </Link>
                         )
                     })}

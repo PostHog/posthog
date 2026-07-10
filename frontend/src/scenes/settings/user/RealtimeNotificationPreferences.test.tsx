@@ -39,7 +39,7 @@ describe('<RealtimeNotificationPreferences />', () => {
 
     it('toggling a single type dispatches updateRealtimeNotificationForTeam', async () => {
         render(<RealtimeNotificationPreferences />)
-        const checkbox = screen.getAllByRole('checkbox', { name: /Comment mentions/i })[0]
+        const checkbox = screen.getAllByLabelText(/Comment mentions/i)[0]
         await expectLogic(userLogic, () => userEvent.click(checkbox)).toDispatchActions([
             userLogic.actionCreators.updateRealtimeNotificationForTeam('comment_mention', 1, false),
         ])
@@ -47,7 +47,7 @@ describe('<RealtimeNotificationPreferences />', () => {
 
     it('clicking a project parent dispatches updateRealtimeNotificationForProject with disable', async () => {
         render(<RealtimeNotificationPreferences />)
-        const projectCheckbox = screen.getAllByRole('checkbox', { name: /Project A/i })[0]
+        const projectCheckbox = screen.getAllByLabelText(/Project A/i)[0]
         await expectLogic(userLogic, () => userEvent.click(projectCheckbox)).toDispatchActions([
             userLogic.actionCreators.updateRealtimeNotificationForProject(1, ['comment_mention'], false),
         ])

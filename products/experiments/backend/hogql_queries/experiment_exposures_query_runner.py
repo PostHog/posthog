@@ -41,11 +41,11 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
     get_exposure_config_params_for_builder,
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import (
-    DEFAULT_EXPOSURE_TTL_SECONDS,
     experiment_has_min_runtime_for_precomputation,
+    experiment_precompute_ttl_schedule,
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
-from products.experiments.backend.models.experiment import Experiment, get_excluded_variants
+from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 logger = structlog.get_logger(__name__)
@@ -58,8 +58,10 @@ class ExperimentExposuresQueryRunner(QueryRunner):
     query: ExperimentExposureQuery
     cached_response: CachedExperimentExposureQueryResponse
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, error_event_context: str | None = "ui", **kwargs):
         super().__init__(*args, **kwargs)
+        # See ExperimentQueryRunner.__init__ — tags the terminal error event; None = silent.
+        self.error_event_context = error_event_context
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -85,7 +87,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # Holdout is intentionally not appended: holdout users were never exposed to
         # the experiment, so they don't belong in the exposure chart. self.query.holdout
         # is still consulted by _calculate_srm for the holdout-adjusted rollout math.
-        self.excluded_variants = set(get_excluded_variants(self.experiment))
+        self.excluded_variants = set(self.experiment.excluded_variants or [])
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         self.variants = [
             variant.get("key")
@@ -119,10 +121,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             insert_query=query_string,
             time_range_start=date_from,
             time_range_end=date_to,
-            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            ttl_seconds=experiment_precompute_ttl_schedule(self.team.timezone),
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            spill_to_disk=True,
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:

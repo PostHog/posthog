@@ -27,6 +27,7 @@ describe('Experiments', { concurrent: false }, () => {
         cohorts: [],
     }
     const createdExperiments: number[] = []
+    const createdHoldouts: number[] = []
 
     // Helper function to track created experiments and their feature flags
     const trackExperiment = (experiment: any): void => {
@@ -35,6 +36,12 @@ describe('Experiments', { concurrent: false }, () => {
         }
         if (experiment.feature_flag?.id) {
             createdResources.featureFlags.push(experiment.feature_flag.id)
+        }
+    }
+
+    const trackHoldout = (holdout: any): void => {
+        if (holdout?.id) {
+            createdHoldouts.push(holdout.id)
         }
     }
 
@@ -50,6 +57,11 @@ describe('Experiments', { concurrent: false }, () => {
     const resumeTool = GENERATED_TOOLS['experiment-resume']!()
     const resetTool = GENERATED_TOOLS['experiment-reset']!()
     const shipVariantTool = GENERATED_TOOLS['experiment-ship-variant']!()
+    const holdoutCreateTool = GENERATED_TOOLS['experiment-holdouts-create']!()
+    const holdoutListTool = GENERATED_TOOLS['experiment-holdouts-list']!()
+    const holdoutRetrieveTool = GENERATED_TOOLS['experiment-holdouts-retrieve']!()
+    const holdoutUpdateTool = GENERATED_TOOLS['experiment-holdouts-partial-update']!()
+    const holdoutDeleteTool = GENERATED_TOOLS['experiment-holdouts-destroy']!()
     const getResultsTool = getExperimentResultsTool()
 
     beforeAll(async () => {
@@ -73,6 +85,19 @@ describe('Experiments', { concurrent: false }, () => {
             }
         }
         createdExperiments.length = 0
+
+        // Clean up holdouts (after experiments, which may reference them)
+        for (const holdoutId of createdHoldouts) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/projects/${TEST_PROJECT_ID}/experiment_holdouts/${holdoutId}/`,
+                })
+            } catch {
+                // Ignore cleanup failures
+            }
+        }
+        createdHoldouts.length = 0
 
         // Clean up associated feature flags
         await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
@@ -125,12 +150,16 @@ describe('Experiments', { concurrent: false }, () => {
             const params = {
                 name: 'Variant Test Experiment',
                 feature_flag_key: flagKey,
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', name: 'Control Group', split_percent: 33 },
-                        { key: 'variant_a', name: 'Variant A', split_percent: 33 },
-                        { key: 'variant_b', name: 'Variant B', split_percent: 34 },
-                    ],
+                feature_flag: {
+                    filters: {
+                        multivariate: {
+                            variants: [
+                                { key: 'control', name: 'Control Group', rollout_percentage: 33 },
+                                { key: 'variant_a', name: 'Variant A', rollout_percentage: 33 },
+                                { key: 'variant_b', name: 'Variant B', rollout_percentage: 34 },
+                            ],
+                        },
+                    },
                 },
                 allow_unknown_events: true,
             }
@@ -140,9 +169,13 @@ describe('Experiments', { concurrent: false }, () => {
             trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
-            expect(experiment.parameters?.feature_flag_variants).toHaveLength(3)
-            expect(experiment.parameters?.feature_flag_variants?.[0]?.key).toBe('control')
-            expect(experiment.parameters?.feature_flag_variants?.[0]?.split_percent).toBe(33)
+
+            // create response omits feature_flag; fetch the full object to read the flag's variant split
+            const retrieved = parseToolResponse(await getTool.handler(context, { id: experiment.id }))
+            const flagVariants = retrieved.feature_flag?.filters?.multivariate?.variants
+            expect(flagVariants).toHaveLength(3)
+            expect(flagVariants?.[0]?.key).toBe('control')
+            expect(flagVariants?.[0]?.rollout_percentage).toBe(33)
         })
 
         it('should create an experiment with mean metric', async () => {
@@ -563,11 +596,17 @@ describe('Experiments', { concurrent: false }, () => {
                 description: 'Testing complete experiment workflow with all features',
                 feature_flag_key: flagKey,
                 type: 'product',
+                feature_flag: {
+                    filters: {
+                        multivariate: {
+                            variants: [
+                                { key: 'control', name: 'Control', rollout_percentage: 50 },
+                                { key: 'test', name: 'Test Variant', rollout_percentage: 50 },
+                            ],
+                        },
+                    },
+                },
                 parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', name: 'Control', split_percent: 50 },
-                        { key: 'test', name: 'Test Variant', split_percent: 50 },
-                    ],
                     minimum_detectable_effect: 20,
                 },
                 exposure_criteria: {
@@ -619,7 +658,6 @@ describe('Experiments', { concurrent: false }, () => {
             // Verify creation
             expect(createdExperiment.id).toBeTruthy()
             expect(createdExperiment.name).toBe(createParams.name)
-            expect(createdExperiment.parameters?.feature_flag_variants).toHaveLength(2)
             expect(createdExperiment.metrics).toHaveLength(2)
             expect(createdExperiment.metrics_secondary).toHaveLength(1)
 
@@ -629,6 +667,8 @@ describe('Experiments', { concurrent: false }, () => {
             })
             const retrievedExperiment = parseToolResponse(getResult)
             expect(retrievedExperiment.id).toBe(createdExperiment.id)
+            // feature_flag is only on the full get response, not the update projection
+            expect(retrievedExperiment.feature_flag?.filters?.multivariate?.variants).toHaveLength(2)
 
             // Verify it appears in list
             const listResult = await listTool.handler(context, {})
@@ -745,11 +785,15 @@ describe('Experiments', { concurrent: false }, () => {
             const params = {
                 name: 'Invalid Rollout Experiment',
                 feature_flag_key: flagKey,
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', split_percent: 60 },
-                        { key: 'test', split_percent: 60 }, // Total > 100%
-                    ],
+                feature_flag: {
+                    filters: {
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 60 },
+                                { key: 'test', rollout_percentage: 60 }, // Total > 100%
+                            ],
+                        },
+                    },
                 },
                 allow_unknown_events: true,
             }
@@ -1131,17 +1175,17 @@ describe('Experiments', { concurrent: false }, () => {
             const createParams = {
                 name: 'Variants Update Test',
                 feature_flag_key: flagKey,
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', split_percent: 50 },
-                        { key: 'test', split_percent: 50 },
-                    ],
+                feature_flag: {
+                    filters: {
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 50 },
+                                { key: 'test', rollout_percentage: 50 },
+                            ],
+                        },
+                    },
                 },
                 allow_unknown_events: true,
-                feature_flag_variants: [
-                    { key: 'control', split_percent: 50 },
-                    { key: 'test', split_percent: 50 },
-                ],
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -1324,6 +1368,102 @@ describe('Experiments', { concurrent: false }, () => {
 
             expect(shipped.end_date).toBeTruthy()
             expect(shipped.conclusion).toBe('won')
+        })
+    })
+
+    describe('experiment-holdouts tools', () => {
+        it('should create a holdout and normalize its variant key', async () => {
+            const createResult = await holdoutCreateTool.handler(context, {
+                name: generateUniqueKey('holdout-create'),
+                description: 'Created via MCP integration test',
+                filters: [{ rollout_percentage: 10, properties: [] }],
+            } as any)
+            const holdout = parseToolResponse(createResult)
+            trackHoldout(holdout)
+
+            expect(holdout.id).toBeTruthy()
+            expect(holdout.filters).toHaveLength(1)
+            expect(holdout.filters[0].rollout_percentage).toBe(10)
+            // The server rewrites `variant` to `holdout-{id}` regardless of what the agent sends.
+            expect(holdout.filters[0].variant).toBe(`holdout-${holdout.id}`)
+        })
+
+        it('should reject an empty filters array', async () => {
+            await expect(
+                holdoutCreateTool.handler(context, {
+                    name: generateUniqueKey('holdout-empty'),
+                    filters: [],
+                } as any)
+            ).rejects.toThrow()
+        })
+
+        it('should reject a rollout_percentage outside 0-100', async () => {
+            await expect(
+                holdoutCreateTool.handler(context, {
+                    name: generateUniqueKey('holdout-bad-pct'),
+                    filters: [{ rollout_percentage: 150, properties: [] }],
+                } as any)
+            ).rejects.toThrow()
+        })
+
+        it('should list holdouts including a freshly created one', async () => {
+            const createResult = await holdoutCreateTool.handler(context, {
+                name: generateUniqueKey('holdout-list'),
+                filters: [{ rollout_percentage: 20, properties: [] }],
+            } as any)
+            const holdout = parseToolResponse(createResult)
+            trackHoldout(holdout)
+
+            const listResult = await holdoutListTool.handler(context, {})
+            const holdouts = parseToolResponse(listResult)
+            const found = holdouts.results.find((h: any) => h.id === holdout.id)
+            expect(found).toBeTruthy()
+        })
+
+        it('should retrieve a holdout by ID', async () => {
+            const createResult = await holdoutCreateTool.handler(context, {
+                name: generateUniqueKey('holdout-get'),
+                filters: [{ rollout_percentage: 30, properties: [] }],
+            } as any)
+            const holdout = parseToolResponse(createResult)
+            trackHoldout(holdout)
+
+            const retrieveResult = await holdoutRetrieveTool.handler(context, { id: holdout.id })
+            const retrieved = parseToolResponse(retrieveResult)
+            expect(retrieved.id).toBe(holdout.id)
+            expect(retrieved.filters[0].rollout_percentage).toBe(30)
+        })
+
+        it('should update a holdout rollout percentage', async () => {
+            const createResult = await holdoutCreateTool.handler(context, {
+                name: generateUniqueKey('holdout-update'),
+                filters: [{ rollout_percentage: 10, properties: [] }],
+            } as any)
+            const holdout = parseToolResponse(createResult)
+            trackHoldout(holdout)
+
+            const updateResult = await holdoutUpdateTool.handler(context, {
+                id: holdout.id,
+                filters: [{ rollout_percentage: 25, properties: [] }],
+            } as any)
+            const updated = parseToolResponse(updateResult)
+            expect(updated.filters[0].rollout_percentage).toBe(25)
+            expect(updated.filters[0].variant).toBe(`holdout-${holdout.id}`)
+        })
+
+        it('should delete a holdout', async () => {
+            const createResult = await holdoutCreateTool.handler(context, {
+                name: generateUniqueKey('holdout-delete'),
+                filters: [{ rollout_percentage: 15, properties: [] }],
+            } as any)
+            const holdout = parseToolResponse(createResult)
+
+            await holdoutDeleteTool.handler(context, { id: holdout.id })
+
+            const listResult = await holdoutListTool.handler(context, {})
+            const holdouts = parseToolResponse(listResult)
+            const found = holdouts.results.find((h: any) => h.id === holdout.id)
+            expect(found).toBeFalsy()
         })
     })
 })

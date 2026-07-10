@@ -1,12 +1,17 @@
 """Base class for all Replay Vision scanner types."""
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
+
+# `(t 123)` / `(t 123, t 456)` citation markers the model leaks into the plain-text signal description despite the
+# prompt forbidding them. Matched leniently (whitespace, comma-joined times) so the strip catches every variant.
+_SIGNAL_TIMESTAMP_MARKER_RE = re.compile(r"\s*\(\s*t\s*\d+(?:\s*,\s*t?\s*\d+)*\s*\)")
 
 
 # Sited here rather than `temporal/types.py`: `types.py` imports from this module, so siting Segment in types.py would close the cycle.
@@ -56,8 +61,9 @@ class SignalFinding(BaseModel, frozen=True):
             "Actionable prose a reader with no session context can act on. Lead with what you saw on screen that "
             "reveals the issue — the visual detail the events don't capture (e.g. a spinner overlapping a button, an "
             "error toast that flashed off-screen, a layout shift, visible hesitation). Then say what happened, where "
-            "in the product, and the user impact. Quote exact on-screen labels and button text when visible. Use "
-            "plain prose. Do not use `(t …)` citation markers — this is a signal field, not a cited summary."
+            "in the product, and the user impact. Quote exact on-screen labels and button text when visible. Plain "
+            "prose with no timestamp references — no `(t …)` markers, no `REC_T`, no 'at N seconds', no event IDs; "
+            "the timing lives in `start_time`/`end_time`."
         )
     )
     confidence: float = Field(
@@ -65,6 +71,14 @@ class SignalFinding(BaseModel, frozen=True):
         le=1,
         description="Calibrated confidence that this is a real, actionable issue. Apply the calibration rules.",
     )
+
+    @field_validator("description", mode="after")
+    @classmethod
+    def _strip_timestamp_markers(cls, value: str) -> str:
+        # The model leaks `(t 123)` markers into this embedded, free-text-searchable field despite the prompt — strip
+        # them so the timing stays only in start_time/end_time and the prose reads cleanly. Collapse any double space
+        # the removal (or the model) leaves so the prose stays clean.
+        return re.sub(r"\s{2,}", " ", _SIGNAL_TIMESTAMP_MARKER_RE.sub("", value)).strip()
 
 
 class SignalsResponse(BaseModel, frozen=True):

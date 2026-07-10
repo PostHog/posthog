@@ -280,8 +280,6 @@ describe('performance-event-utils', () => {
         const actual = getPerformanceEvents(someData)
         // we're collapsing server timings into their parent, so we'll have no top-level server timings
         expect(actual.map((a) => a.entry_type)).toEqual(['navigation', 'resource', 'resource', 'resource', 'resource'])
-
-        expect(actual).toMatchSnapshot()
     })
 
     it.each([

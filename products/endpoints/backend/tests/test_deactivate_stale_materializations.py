@@ -6,9 +6,9 @@ from unittest import mock
 
 from django.utils import timezone
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.endpoints.backend.tasks import (
+from products.endpoints.backend.tasks.tasks import (
     STALE_THRESHOLD_DAYS,
     _deactivate_version_materialization,
     deactivate_stale_materializations,
@@ -207,7 +207,7 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
 
     def test_no_endpoints_found(self):
         # No materialized endpoints exist
-        with mock.patch("products.endpoints.backend.tasks.logger") as mock_logger:
+        with mock.patch("products.endpoints.backend.tasks.tasks.logger") as mock_logger:
             deactivate_stale_materializations()
             mock_logger.info.assert_called_with("deactivate_stale_materializations_no_candidates")
 

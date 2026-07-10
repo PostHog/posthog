@@ -211,6 +211,13 @@ class RESTClient:
         try:
             body = response.json()
         except RequestsJSONDecodeError as e:
+            # An empty body on an otherwise-successful response is a complete "no data"
+            # answer (e.g. an endpoint with nothing to return), not a truncated page —
+            # retrying can't conjure rows, so treat it as an empty page and let the
+            # paginator stop. A non-empty body that fails to parse is a partial/truncated
+            # read, which stays retryable.
+            if not response.content or not response.content.strip():
+                return response, None
             raise RESTClientRetryableError(f"Malformed JSON response from {response.url}: {e}") from e
 
         return response, body

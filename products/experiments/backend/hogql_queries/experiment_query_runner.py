@@ -38,7 +38,9 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
+    TtlSchedule,
     ensure_precomputed,
+    parse_ttl_schedule,
 )
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
@@ -63,7 +65,7 @@ from products.experiments.backend.hogql_queries.utils import (
     split_baseline_and_test_variants,
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.models.experiment import Experiment, get_excluded_variants
+from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 logger = structlog.get_logger(__name__)
@@ -78,6 +80,27 @@ DEFAULT_EXPOSURE_TTL_SECONDS = {
     "4d": 18 * 60 * 60,  # 18 hours; covers windows 2-4 days old
     "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
 }
+
+# Cap on merged precompute job width. Without it, the frozen band (everything
+# older than 4 days, one uniform TTL) merges into a single INSERT, so a cold or
+# TTL-expired long-running experiment scans hundreds of days in one query. For
+# high-volume teams that deterministically exceeds the per-query bytes-to-read
+# cap or the 600s timeout and can never succeed. Seven days keeps the worst
+# observed per-day scan rates comfortably under both limits, while creating far
+# fewer jobs (and fewer rows per user to re-aggregate at read time) than daily
+# chunks. Completed chunks persist, so a wide backfill converges across runs
+# instead of failing atomically on every attempt.
+PRECOMPUTE_MAX_WINDOW_DAYS = 7
+
+
+def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
+    """The experiment TTL schedule with job width capped at PRECOMPUTE_MAX_WINDOW_DAYS."""
+    return parse_ttl_schedule(
+        DEFAULT_EXPOSURE_TTL_SECONDS,
+        team_timezone,
+        max_window_days=PRECOMPUTE_MAX_WINDOW_DAYS,
+    )
+
 
 # Minimum experiment runtime before auto-enabling precomputation. The
 # today-window TTL (DEFAULT_EXPOSURE_TTL_SECONDS["0d"], 15 min) caches the
@@ -135,12 +158,18 @@ class ExperimentQueryRunner(QueryRunner):
         user_facing: bool = True,
         max_execution_time: Optional[int] = None,
         bypass_warehouse_access_control: bool = False,
+        error_event_context: Optional[str] = "ui",
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
         self.bypass_warehouse_access_control = bypass_warehouse_access_control
+        # Tags the terminal `experiment metric error` event with where the load came from. Defaults to "ui"
+        # because the generic /query API path constructs runners without kwargs; internal callers that own
+        # their own retries/telemetry (recalc, warming, canary, backfills) must pass None or user_facing=False
+        # so the error boundary stays silent for them. See error_handling._emit_runner_terminal_error_event.
+        self.error_event_context = error_event_context
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -164,7 +193,7 @@ class ExperimentQueryRunner(QueryRunner):
         # the experiment, so they don't belong in the metric scorecard.
         # self.experiment.holdout is still readable for code paths that need it
         # (e.g. the Distribution table on the Variants tab).
-        excluded_variants = set(get_excluded_variants(self.experiment))
+        excluded_variants = set(self.experiment.excluded_variants or [])
         self.variants = [
             variant["key"] for variant in self.feature_flag.variants if variant["key"] not in excluded_variants
         ]
@@ -257,10 +286,13 @@ class ExperimentQueryRunner(QueryRunner):
             insert_query=query_string,
             time_range_start=date_from,
             time_range_end=date_to,
-            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            ttl_seconds=experiment_precompute_ttl_schedule(self.team.timezone),
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            # High-volume teams' builds OOM even at capped window widths; spilling the
+            # GROUP BY to disk degrades gracefully instead of failing the build.
+            spill_to_disk=True,
         )
 
     def _ensure_metric_events_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
@@ -288,10 +320,11 @@ class ExperimentQueryRunner(QueryRunner):
             insert_query=query_string,
             time_range_start=date_from,
             time_range_end=date_to,
-            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            ttl_seconds=experiment_precompute_ttl_schedule(self.team.timezone),
             table=LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            spill_to_disk=True,
         )
 
     @cached_property
@@ -313,6 +346,23 @@ class ExperimentQueryRunner(QueryRunner):
             self.experiment.end_date,
         )
 
+    def _precompute_skip_reason(self) -> Optional[str]:
+        """Why precompute was not used, for the query-performance UI. None when it was attempted."""
+        if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
+            return None
+        if self.query.precomputation_mode == PrecomputationMode.DIRECT:
+            return "override_direct"
+        if not self._team_experiments_config.experiment_precomputation_enabled:
+            return "team_disabled"
+        if not experiment_has_min_runtime_for_precomputation(
+            self.experiment.start_date,
+            self.experiment.end_date,
+        ):
+            return "min_runtime"
+        if self.is_data_warehouse_query:
+            return "data_warehouse"
+        return None  # precompute was attempted; a direct path means the build failed / wasn't ready
+
     def _metric_events_precompute_applicable(self) -> bool:
         """Metric-events precompute only supports ordered funnels without breakdowns, CUPED, or data warehouse."""
         return (
@@ -322,14 +372,6 @@ class ExperimentQueryRunner(QueryRunner):
             and not self.cuped_config.enabled
             and not self.is_data_warehouse_query
         )
-
-    def _resolve_funnel_steps_data_disabled(self) -> bool:
-        """Resolve funnel_steps_data_disabled: experiment parameter > team config."""
-        parameters = self.experiment.parameters or {}
-        if "funnel_steps_data_disabled" in parameters:
-            return bool(parameters["funnel_steps_data_disabled"])
-
-        return self._team_experiments_config.funnel_steps_data_disabled
 
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
@@ -347,10 +389,6 @@ class ExperimentQueryRunner(QueryRunner):
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
-        funnel_steps_data_disabled = (
-            self._resolve_funnel_steps_data_disabled() if isinstance(self.metric, ExperimentFunnelMetric) else False
-        )
-
         builder = ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
@@ -363,7 +401,6 @@ class ExperimentQueryRunner(QueryRunner):
             metric=self.metric,
             breakdowns=self._get_breakdowns_for_builder(),
             only_count_matured_users=self.experiment.only_count_matured_users,
-            funnel_steps_data_disabled=funnel_steps_data_disabled,
             cuped_config=self.cuped_config,
         )
 
@@ -464,8 +501,16 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_exposures_path=exposures_path,
             experiment_metric_events_path=metric_events_path,
             experiment_execution_path=exposures_path,
+            experiment_precompute_skip_reason=self._precompute_skip_reason(),
+            experiment_scan_date_from=self.date_range.date_from,
+            experiment_scan_date_to=self.date_range.date_to,
         )
-        experiment_query_debug = get_experiment_query_debug(experiment_query_ast, self.team)
+        experiment_query_debug = get_experiment_query_debug(
+            experiment_query_ast,
+            self.team,
+            user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+        )
         self.hogql = experiment_query_debug[0]
         self.clickhouse_sql = experiment_query_debug[1]
 

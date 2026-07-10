@@ -115,10 +115,15 @@ if settings.ADMIN_PORTAL_ENABLED:
         health_check_runs_fragment_view,
         health_check_trigger_view,
     )
+    from posthog.admin.admins.notebook_markdown_migration_admin import (
+        notebook_markdown_migration_run_view,
+        notebook_markdown_migration_stats_view,
+        notebook_markdown_migration_view,
+    )
     from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
-    from posthog.admin.admins.tophog_admin import tophog_dashboard_view
+    from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
 
     admin_urlpatterns = [
         # APPEND_SLASH is disabled globally, so redirect /admin to /admin/ explicitly
@@ -195,6 +200,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="tophog-dashboard",
         ),
         path(
+            "admin/tophog/restrictions/",
+            admin.site.admin_view(tophog_restrictions_view),
+            name="tophog-restrictions",
+        ),
+        path(
             "admin/health-checks/",
             admin.site.admin_view(health_check_list_view),
             name="health-checks",
@@ -208,6 +218,21 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/health-checks/<str:kind>/runs/",
             admin.site.admin_view(health_check_runs_fragment_view),
             name="health-check-runs",
+        ),
+        path(
+            "admin/notebook-markdown-migration/",
+            admin.site.admin_view(notebook_markdown_migration_view),
+            name="notebook-markdown-migration",
+        ),
+        path(
+            "admin/notebook-markdown-migration/stats/",
+            admin.site.admin_view(notebook_markdown_migration_stats_view),
+            name="notebook-markdown-migration-stats",
+        ),
+        path(
+            "admin/notebook-markdown-migration/run/",
+            admin.site.admin_view(notebook_markdown_migration_run_view),
+            name="notebook-markdown-migration-run",
         ),
         path(
             "admin/logout/",

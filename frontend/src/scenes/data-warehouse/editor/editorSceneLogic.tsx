@@ -224,6 +224,21 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     }
                 }
 
+                if (editorSource === 'view') {
+                    const forceBackTo: Breadcrumb = {
+                        key: 'models',
+                        name: 'Models',
+                        path: urls.models(),
+                        iconType: 'sql_editor',
+                    }
+
+                    return {
+                        forceBackTo,
+                        name: 'New view',
+                        resourceType: { type: 'sql_editor' },
+                    }
+                }
+
                 if (dashboardId) {
                     const forceBackTo: Breadcrumb = {
                         key: 'dashboard',
@@ -267,6 +282,13 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     return {
                         primary: saveAsEndpointItem,
                         secondary: [saveAsInsightItem, saveAsViewItem],
+                    }
+                }
+
+                if (editorSource === 'view') {
+                    return {
+                        primary: saveAsViewItem,
+                        secondary: endpointsEnabled ? [saveAsInsightItem, saveAsEndpointItem] : [saveAsInsightItem],
                     }
                 }
 

@@ -23,7 +23,8 @@ from rest_framework.views import APIView
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Tag, Team
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.tag import tagify
 
 from products.conversations.backend.api.tickets import assign_ticket
@@ -145,6 +146,30 @@ def _validate_ticket_id(ticket_id: str | uuid.UUID) -> Response | None:
     return None
 
 
+# Header a HogFlow workflow step forwards so activity entries can attribute the change to it.
+HOG_FLOW_ID_HEADER = "X-PostHog-Hog-Flow-Id"
+
+
+def _workflow_trigger_from_request(request: Request) -> Trigger | None:
+    """Build an activity-log Trigger when the request originates from a HogFlow workflow step.
+
+    Only the workflow id is taken from the (caller-supplied) header, and only as a well-formed
+    UUID. The display name is resolved from the workflow itself on the frontend, so a token
+    holder can't spoof an arbitrary workflow name into the audit log. Module boundaries keep
+    conversations independent of workflows, so we can't validate id ownership here; the endpoint
+    is team-token authenticated, so the worst case is a token holder pointing attribution at
+    another workflow id within its own team — no cross-team or privilege impact.
+    """
+    hog_flow_id = request.headers.get(HOG_FLOW_ID_HEADER)
+    if not hog_flow_id:
+        return None
+    try:
+        uuid.UUID(hog_flow_id)
+    except (ValueError, TypeError):
+        return None
+    return Trigger(job_type="hog_flow", job_id=hog_flow_id, payload={})
+
+
 class ExternalTicketView(APIView):
     """
     GET /api/conversations/external/ticket/<ticket_id>  — Fetch ticket data
@@ -228,6 +253,10 @@ class ExternalTicketView(APIView):
             return error
 
         assert team is not None
+
+        # When a HogFlow workflow step makes the change, it forwards its identity via
+        # headers so the activity log can attribute (and link to) the workflow.
+        workflow_trigger = _workflow_trigger_from_request(request)
 
         if error := _validate_ticket_id(ticket_id):
             return error
@@ -378,6 +407,7 @@ class ExternalTicketView(APIView):
                     detail=Detail(
                         name=f"Ticket #{ticket.ticket_number}",
                         changes=changes,
+                        trigger=workflow_trigger,
                     ),
                 )
             except Exception as e:
@@ -392,6 +422,7 @@ class ExternalTicketView(APIView):
                     user=None,
                     team_id=team.id,
                     was_impersonated=False,
+                    trigger=workflow_trigger,
                 )
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
@@ -400,21 +431,33 @@ class ExternalTicketView(APIView):
         if "tags" in serializer.validated_data:
             try:
                 tags_mode = serializer.validated_data.get("tags_mode", "add")
-                normalized_tags = list({tagify(t) for t in serializer.validated_data["tags"]})
+                normalized_tags = {tagify(t) for t in serializer.validated_data["tags"]}
 
-                if tags_mode == "remove":
-                    ticket.tagged_items.filter(tag__name__in=normalized_tags).delete()
-                    Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
-                elif tags_mode == "set":
-                    for tag_name in normalized_tags:
-                        tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
-                        ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
-                    ticket.tagged_items.exclude(tag__name__in=normalized_tags).delete()
-                    Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
-                else:
-                    for tag_name in normalized_tags:
-                        tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
-                        ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
+                # Tag adds and removes are both logged by the TaggedItem model activity signal
+                # (to the ticket's timeline and the Tag audit stream). Removals must go through
+                # the per-instance delete() so the signal fires for them too; a bulk queryset
+                # delete would skip it. The trigger context attributes every resulting entry
+                # to the workflow that made the change.
+                with ActivityTriggerContext(workflow_trigger):
+                    if tags_mode == "remove":
+                        for tagged_item in ticket.tagged_items.filter(tag__name__in=normalized_tags).select_related(
+                            "tag__team", "ticket"
+                        ):
+                            tagged_item.delete()
+                        Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                    elif tags_mode == "set":
+                        for tag_name in normalized_tags:
+                            tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
+                            ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
+                        for tagged_item in ticket.tagged_items.exclude(tag__name__in=normalized_tags).select_related(
+                            "tag__team", "ticket"
+                        ):
+                            tagged_item.delete()
+                        Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                    else:
+                        for tag_name in normalized_tags:
+                            tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
+                            ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
                 return Response({"error": "Failed to update tags"}, status=status.HTTP_400_BAD_REQUEST)

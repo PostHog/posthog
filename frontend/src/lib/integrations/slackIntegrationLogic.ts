@@ -97,7 +97,9 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                     if (aRecency !== bRecency) {
                         return aRecency - bRecency
                     }
-                    return a.name.localeCompare(b.name)
+                    // Private channels the bot can't access come back from Slack without a name,
+                    // so guard the comparator instead of assuming a string.
+                    return (a.name ?? '').localeCompare(b.name ?? '')
                 })
             },
         ],

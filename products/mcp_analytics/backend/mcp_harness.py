@@ -7,20 +7,19 @@ query-time computation:
 
   1. Resolve a normalized token from the strongest available signal (the
      x-anthropic-client vendor header, then Claude Code's User-Agent surface,
+     then the Grok User-Agent surface,
      then the clientInfo.name — `$mcp_client_name` as reported by the posthog-node
      MCP analytics SDK, or `mcp_session_client_name` as reported by PostHog's hosted
      MCP server — then the User-Agent product token, then the OAuth client name) —
      `HARNESS_TOKEN_SQL`.
   2. Bucket that token into a customer label — `harness_label_sql`.
 
-This module is being established as the single source of truth. Today the same
-label logic still lives in two other places that must move in lockstep until they
-are consolidated onto this runner: the frontend's own `categorizeHarness` +
-`HARNESS_REGISTRY` in `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts`
-(its category keys also drive logos/colours), and the documented query in the
-`querying-posthog-data` skill's `models-mcp.md`. Rewiring the dashboard onto this
-runner (and the registry down to logos-by-label) is a follow-up; a cross-language
-test pinning the registry keys to `HARNESS_LABELS` lands with that rewire.
+This module is the single source of truth for harness classification. The frontend no
+longer classifies — `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts` keeps
+only a label-to-logo/colour map (`HARNESS_BY_LABEL`), keyed by the labels this module
+emits, and a cross-language test pins those keys to `HARNESS_LABELS`. The one remaining
+copy that must move in lockstep is the documented query in the `querying-posthog-data`
+skill's `models-mcp.md`.
 
 Because the token appears many times in the bucketing `multiIf`, callers compute
 it once as a column (`{HARNESS_TOKEN_SQL} AS h`, or `argMax(..., timestamp)` for a
@@ -37,7 +36,7 @@ _UA_PRODUCT = "extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')"
 # (step 2, to keep the CLI/SDK/IDE split) and as the generic fallback (step 4).
 _UA_TOKEN = f"trim(concat({_UA_PRODUCT}, ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')))"
 
-# Step 1-5 of the resolution, mirroring HARNESS_ROWS_QUERY in the frontend.
+# The ordered resolution steps, mirroring HARNESS_ROWS_QUERY in the frontend.
 _RAW_TOKEN = f"""coalesce(
     multiIf(
         lower(toString(properties.mcp_vendor_client)) = 'claudecode', 'claude-code',
@@ -47,6 +46,12 @@ _RAW_TOKEN = f"""coalesce(
         NULL
     ),
     if(lower({_UA_PRODUCT}) = 'claude-code', {_UA_TOKEN}, NULL),
+    -- grok.com Connectors self-identifies as grok only in the User-Agent
+    -- (`grok-connectors-manager/…`); its clientInfo.name is the generic
+    -- "connectors-manager", which would otherwise win below and drop the vendor.
+    -- Promote the grok UA above it. (grok-shell keeps its `grok-`-prefixed
+    -- clientInfo.name and buckets to Grok without help.)
+    if(startsWith(lower({_UA_PRODUCT}), 'grok'), {_UA_TOKEN}, NULL),
     nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),
     nullIf(nullIf(toString(properties.mcp_session_client_name), ''), 'mcp'),
     nullIf({_UA_TOKEN}, ''),
@@ -89,6 +94,7 @@ def harness_label_sql(token_col: str = "h") -> str:
         {token_col} = 'openai-mcp responses api', 'OpenAI Responses API',
         startsWith({token_col}, 'openai-mcp'), 'OpenAI',
         startsWith({token_col}, 'codex'), 'OpenAI Codex',
+        startsWith({token_col}, 'grok'), 'Grok',
         startsWith({token_col}, 'cursor'), 'Cursor',
         startsWith({token_col}, 'visual studio code'), 'VS Code',
         {token_col} = 'windsurf', 'Windsurf',
@@ -126,6 +132,7 @@ HARNESS_LABELS: tuple[str, ...] = (
     "OpenAI Responses API",
     "OpenAI",
     "OpenAI Codex",
+    "Grok",
     "Cursor",
     "VS Code",
     "Windsurf",

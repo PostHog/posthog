@@ -5,7 +5,9 @@ Mirrors the inbox Reports tab's actionability gate: a report notifies only if it
 enforced upstream — and has at least one suggested reviewer that resolves to a destination.
 Each reviewer is routed to one channel: their own configured channel if set (filtered by their
 min-priority), otherwise the team-default channel. Reviewers sharing a channel get a single post
-mentioning only the reviewers routed there. A report with no resolvable reviewer sends nothing.
+mentioning only the reviewers routed there. When no suggested reviewer resolves, the report is
+still delivered to the team-default channel (if one is configured) with no mentions, so a team is
+notified even when none of its members are linked to a resolvable GitHub identity.
 All sends are best-effort.
 """
 
@@ -23,12 +25,12 @@ from slack_sdk.errors import SlackApiError
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
 
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
-    SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -79,7 +81,7 @@ _SLACK_PRIORITY_LABELS: dict[str, str] = {
 }
 
 _SOURCE_PRODUCT_LABELS: dict[str, str] = {
-    choice.value: str(choice.label) for choice in SignalSourceConfig.SourceProduct
+    product.value: label for product, label in SIGNAL_SOURCE_PRODUCT_LABELS.items()
 }
 
 
@@ -459,6 +461,7 @@ _SIGNAL_SOURCE_LINES: dict[tuple[str, str], str] = {
     ("session_replay", "session_segment_cluster"): "Session replay · Session segment cluster",
     ("session_replay", "session_analysis_cluster"): "Session replay · Session analysis cluster",
     ("llm_analytics", "evaluation"): "AI observability · Evaluation",
+    ("llm_analytics", "evaluation_report"): "AI observability · Evaluation report",
     ("zendesk", "ticket"): "Zendesk · Ticket",
     ("github", "issue"): "GitHub · Issue",
     ("linear", "issue"): "Linear · Issue",
@@ -607,24 +610,31 @@ def _build_reviewer_routes(
     team_integration: Integration | None,
     team_channel: str | None,
 ) -> list[_ChannelRoute]:
-    """Route each resolvable suggested reviewer to a single destination channel.
+    """Route resolvable suggested reviewers to a destination channel, mentioning them there.
 
-    Own channel (filtered by the reviewer's min-priority) if set, else the team default,
-    else nowhere. A reviewer filtered out of their own channel does not fall back to the
-    team channel — that was their choice. Reviewers sharing a destination are grouped so
-    each channel is posted to once, mentioning only its own reviewers. A report whose
-    reviewers don't resolve to a channel sends nothing.
+    Own channel (filtered by the reviewer's min-priority) if set, else the team default. A reviewer
+    filtered out of their own channel does not fall back to the team channel — that was their choice.
+    Reviewers sharing a destination are grouped so each channel is posted to once, mentioning only
+    its own reviewers. When no suggested reviewer resolves, the report is still delivered to the
+    team-default channel (if configured) with no mentions, so a team is notified even when none of
+    its members are linked to a resolvable GitHub identity.
     """
     reviewer_user_ids = _resolve_suggested_reviewer_user_ids(report)
-    if not reviewer_user_ids:
-        return []
-
     reviewer_users = {user.id: user for user in User.objects.filter(id__in=reviewer_user_ids)}
     own_configs = _own_channel_configs_by_user(report.team_id, reviewer_user_ids)
 
     # Keyed by (integration_id, channel_id) so a reviewer's own channel and the team
     # default collapse into one post when they resolve to the same Slack channel.
     routes: dict[tuple[int, str], _ChannelRoute] = {}
+
+    def _route_for(integration: Integration, channel: str, *, is_team_channel: bool) -> _ChannelRoute:
+        key = (integration.id, _channel_id_from_target(channel))
+        route = routes.get(key)
+        if route is None:
+            route = _ChannelRoute(integration, channel, is_team_channel=is_team_channel)
+            routes[key] = route
+        return route
+
     for user_id in sorted(reviewer_user_ids):
         user = reviewer_users.get(user_id)
         if user is None:
@@ -646,12 +656,14 @@ def _build_reviewer_routes(
 
         if integration is None or not channel:
             continue
-        key = (integration.id, _channel_id_from_target(channel))
-        route = routes.get(key)
-        if route is None:
-            route = _ChannelRoute(integration, channel, is_team_channel=is_team_channel)
-            routes[key] = route
-        route.users.append(user)
+        _route_for(integration, channel, is_team_channel=is_team_channel).users.append(user)
+
+    # No suggested reviewer resolved to a PostHog user: deliver to the team-default channel (if
+    # configured) so the team is still notified, without @-mentions — the message omits the
+    # suggested-reviewers section when there is nobody to tag. Per-user own channels are reviewer
+    # notifications, so they are not used here.
+    if not reviewer_user_ids and team_integration is not None and team_channel:
+        _route_for(team_integration, team_channel, is_team_channel=True)
 
     return list(routes.values())
 
@@ -702,11 +714,11 @@ def dispatch_inbox_item_notifications(
         team_channel=team_channel,
     )
     if not routes:
-        # No reviewer resolved to a destination: no suggested reviewers linked to a user, none met
-        # their min-priority, or there's no own/team channel to fall back to. This is the most
-        # common reason an actionable report sends nothing — log the inputs so it's diagnosable.
+        # No channel to deliver to: no reviewer resolved to a destination and no notification channel
+        # is configured for the team (no per-user own channel and no team default). Log the inputs so
+        # it's diagnosable.
         logger.info(
-            "dispatch_inbox_item_notifications: no reviewer routes resolved, skipping",
+            "dispatch_inbox_item_notifications: no notification channel configured, skipping",
             extra={
                 "report_id": report_id,
                 "team_id": team_id,

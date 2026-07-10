@@ -144,46 +144,12 @@ if direct_host:
     lock_timeout_ms = os.getenv("MIGRATE_LOCK_TIMEOUT", "20000")
     DATABASES["default_direct"]["OPTIONS"] = {"options": f"-c lock_timeout={lock_timeout_ms}"}
 
-# Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
-# For local development, default to the persons database in the main container if no URL is provided
-persons_db_writer_url = os.getenv("PERSONS_DB_WRITER_URL")
-if not persons_db_writer_url and DEBUG and not TEST:
-    # Default to local persons database in main container in development mode (but not test mode)
-    # This matches the docker-compose.dev.yml configuration
-    # A default is needed for generate_demo_data to properly populate the correct databases
-    # with the demo data
-    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/posthog_persons"
-elif not persons_db_writer_url and TEST:
-    # In test mode, use a placeholder database name that will be updated by conftest
-    # pytest-django adds test_ prefix which isn't known at settings import time
-    # conftest.py django_db_setup fixture will update the NAME with the correct test database name
-    test_persons_db = PG_DATABASE + "_persons"
-    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{test_persons_db}"
-
-if persons_db_writer_url:
-    DATABASES["persons_db_writer"] = dict(
-        dj_database_url.config(env="PERSONS_DB_WRITER_URL", default=persons_db_writer_url, conn_max_age=0)
-    )
-
-    # Fall back to the writer URL if no reader URL is set
-    DATABASES["persons_db_reader"] = dict(
-        dj_database_url.config(env="PERSONS_DB_READER_URL", default=persons_db_writer_url, conn_max_age=0)
-    )
-    if DISABLE_SERVER_SIDE_CURSORS:
-        DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-        DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-
-    if TEST:
-        # The persons DB schema is built by sqlx (rust/persons_migrations), not Django —
-        # PersonDBRouter.allow_migrate blocks every Django migration on it. Without MIGRATE=False,
-        # pytest-django's setup_databases still walks and records all ~1,300 Django migrations
-        # against the empty persons test database on every shard (~300s of pure overhead, scaling
-        # with migration count), even though the router skips the actual DDL. Skipping migrate here
-        # leaves conftest.run_persons_sqlx_migrations to build the real schema.
-        DATABASES["persons_db_writer"]["TEST"] = {"MIGRATE": False, "DEPENDENCIES": []}
-        DATABASES["persons_db_reader"]["TEST"] = {"MIRROR": "persons_db_writer"}
-
-    DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
+# The persons database is not a Django connection. Person/group/cohort data lives behind
+# the personhog service and is reached through the personhog client or off-Django psycopg
+# (posthog/persons_db.py), never the ORM. PersonDBRouter stays registered solely as a guard
+# that raises if a persons-DB model is queried through the ORM while the test block is active
+# (see posthog/person_db_router.py); it routes nothing and adds no DATABASES entry.
+DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 
 product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
@@ -535,6 +501,13 @@ if not REDIS_URL:
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
+# Socket timeouts for the central Redis clients (posthog/redis.py). The connect timeout is kept
+# small so a dead node fails fast. The read timeout must comfortably exceed the largest server-side
+# blocking window on the central client, which is a 15s XREAD BLOCK (notebooks collab_stream);
+# 20s leaves margin so blocking stream reads never spuriously time out.
+REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS: float = get_from_env("REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS", 3.0, type_cast=float)
+REDIS_SOCKET_TIMEOUT_SECONDS: float = get_from_env("REDIS_SOCKET_TIMEOUT_SECONDS", 20.0, type_cast=float)
+
 # Controls whether the ZstdCompressor is used for Redis compression when writing to Redis.
 # The ZstdCompressor uses zstd compression and can cope with compressed and uncompressed reading at the same time
 USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", True, type_cast=str_to_bool)
@@ -566,6 +539,8 @@ if not CDP_API_URL:
 # internal API requests fail closed at request time (InternalAPIAuthentication) rather than silently
 # running on a known-public value. Stripped at load so a mounted secret's trailing newline can't
 # cause a spurious mismatch; get_list already strips the fallbacks.
+# Do not add new callers or protected endpoints to this shared secret — mint a scoped JWT (see
+# RECORDING_API_JWT_SECRET) or add a dedicated per-purpose secret. See .agents/security.md.
 LOCAL_DEV_INTERNAL_API_SECRET = "posthog123"
 INTERNAL_API_SECRET = get_from_env(
     "INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET if DEBUG or TEST else ""
@@ -699,7 +674,10 @@ if TEST:
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
-MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", False, type_cast=str_to_bool)
+# Default on in TEST: the schema-introspection query behind materialized-column lookups otherwise runs
+# hundreds of times per suite, and the test cache backend is process-local (LocMem) with all column
+# mutations invalidating the key (see ee/clickhouse/materialized_columns/columns.py).
+MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", TEST, type_cast=str_to_bool)
 
 # Limiting event_list API, saving ClickHouse, 0 - disabled, 1 - migration period, 2 - enabled.
 PATCH_EVENT_LIST_MAX_OFFSET: int = get_from_env("PATCH_EVENT_LIST_MAX_OFFSET", 0, type_cast=int)

@@ -15,6 +15,7 @@ from posthog.models.utils import UUIDT
 
 from products.error_tracking.backend.models import (
     ErrorTrackingAssignmentRule,
+    ErrorTrackingBypassRule,
     ErrorTrackingExternalReference,
     ErrorTrackingGroupingRule,
     ErrorTrackingIssue,
@@ -155,6 +156,10 @@ def list_issues(team_id: int) -> QuerySet[ErrorTrackingIssue]:
     return get_issue_list_queryset(team_id)
 
 
+def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list[ErrorTrackingIssue]:
+    return list(get_issue_list_queryset(team_id).filter(created_at__gte=since).order_by("-created_at")[:limit])
+
+
 def get_issue(issue_id: UUID, team_id: int) -> ErrorTrackingIssue:
     issue = get_issue_detail_queryset(team_id).filter(id=issue_id).first()
     if issue is None:
@@ -191,6 +196,15 @@ def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> QuerySet[Er
     if issue_id is not None:
         queryset = queryset.filter(issue_id=issue_id)
     return queryset
+
+
+def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[ErrorTrackingIssueFingerprintV2]:
+    """Earliest-created fingerprint per issue (one row per issue), via Postgres DISTINCT ON."""
+    return list(
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id__in=issue_ids)
+        .order_by("issue_id", "created_at")
+        .distinct("issue_id")
+    )
 
 
 def get_fingerprint(team_id: int, fingerprint_id: UUID) -> ErrorTrackingIssueFingerprintV2 | None:
@@ -526,6 +540,7 @@ def match_all_bytecode() -> list[Any]:
 _ReorderableRule = TypeVar(
     "_ReorderableRule",
     ErrorTrackingAssignmentRule,
+    ErrorTrackingBypassRule,
     ErrorTrackingGroupingRule,
     ErrorTrackingSuppressionRule,
 )
@@ -714,6 +729,49 @@ def delete_suppression_rule(team_id: int, rule_id: str) -> bool:
 
 def reorder_suppression_rules(team_id: int, orders: dict[str, int]) -> None:
     _reorder_rules(ErrorTrackingSuppressionRule, team_id, orders)
+
+
+def list_bypass_rules(team_id: int) -> QuerySet[ErrorTrackingBypassRule]:
+    return ErrorTrackingBypassRule.objects.filter(team_id=team_id).order_by("order_key")
+
+
+def get_bypass_rule(team_id: int, rule_id: str) -> ErrorTrackingBypassRule | None:
+    return ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=rule_id).first()
+
+
+def create_bypass_rule(team_id: int, *, filters: dict) -> ErrorTrackingBypassRule:
+    return ErrorTrackingBypassRule.objects.create(
+        team_id=team_id,
+        filters=filters,
+        bytecode=_rule_bytecode(team_id, filters),
+        order_key=0,
+    )
+
+
+def update_bypass_rule(
+    team_id: int,
+    rule_id: str,
+    *,
+    filters: dict | None = None,
+) -> ErrorTrackingBypassRule | None:
+    rule = get_bypass_rule(team_id, rule_id)
+    if rule is None:
+        return None
+    if filters is not None:
+        rule.filters = filters
+        rule.bytecode = _rule_bytecode(team_id, filters)
+    rule.disabled_data = None
+    rule.save()
+    return rule
+
+
+def delete_bypass_rule(team_id: int, rule_id: str) -> bool:
+    deleted, _ = ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    return deleted > 0
+
+
+def reorder_bypass_rules(team_id: int, orders: dict[str, int]) -> None:
+    _reorder_rules(ErrorTrackingBypassRule, team_id, orders)
 
 
 def get_client_safe_filters(filters: dict) -> dict | None:

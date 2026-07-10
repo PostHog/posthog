@@ -1,12 +1,17 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.scoping import team_scope
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -20,6 +25,7 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.recalculation import (
     build_timeseries_cold_start_payload,
     get_latest_recalculation,
+    get_live_query_progress,
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
@@ -416,3 +422,95 @@ class TestTimeseriesColdStartPayload(BaseTest):
         exp.exposure_criteria = {"filterTestAccounts": True}
         exp.save()
         assert build_timeseries_cold_start_payload(exp) is None
+
+
+@pytest.mark.django_db(transaction=True)
+class TestLiveQueryProgress(BaseTest):
+    def _recalc(self, status: str) -> ExperimentMetricsRecalculation:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key=f"live-{status}", name="live")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag, name="live")
+        return ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status=status)
+
+    @parameterized.expand([("pending",), ("completed",), ("failed",)])
+    def test_returns_none_without_querying_clickhouse_when_not_in_progress(self, status: str):
+        recalc = self._recalc(status)
+        with team_scope(self.team.id, canonical=True):
+            with patch("products.experiments.backend.recalculation.sync_execute") as mock_execute:
+                assert get_live_query_progress(recalc) is None
+        mock_execute.assert_not_called()
+
+    def test_returns_none_without_querying_clickhouse_when_team_context_mismatches(self):
+        # system.processes is cluster-global; the team boundary is the query_id prefix. The team-context guard
+        # is the fail-closed backstop against a caller passing a row from a different team than the request scope.
+        recalc = self._recalc("in_progress")
+        with team_scope(self.team.id + 1, canonical=True):
+            with patch("products.experiments.backend.recalculation.sync_execute") as mock_execute:
+                assert get_live_query_progress(recalc) is None
+        mock_execute.assert_not_called()
+
+    def test_maps_system_processes_aggregate_for_in_progress_run(self):
+        recalc = self._recalc("in_progress")
+        with team_scope(self.team.id, canonical=True):
+            with patch(
+                "products.experiments.backend.recalculation.sync_execute",
+                return_value=[(1_284_512, 9_800_000)],
+            ):
+                progress = get_live_query_progress(recalc)
+        assert progress == {
+            "rows_read": 1_284_512,
+            "estimated_rows_total": 9_800_000,
+        }
+
+    def test_maps_all_zero_row_to_zeros_while_in_progress(self):
+        # system.processes returns one all-zero row in the ~5s gaps between per-metric queries. That's a real,
+        # non-terminal state: return zeros (not None) so the poll can tell "in-flight, idle" from "run finished".
+        recalc = self._recalc("in_progress")
+        with team_scope(self.team.id, canonical=True):
+            with patch(
+                "products.experiments.backend.recalculation.sync_execute",
+                return_value=[(0, 0)],
+            ):
+                progress = get_live_query_progress(recalc)
+        assert progress == {
+            "rows_read": 0,
+            "estimated_rows_total": 0,
+        }
+
+    def test_returns_none_when_clickhouse_read_raises(self):
+        # The live read is best-effort on the poll's hot path: a ClickHouse hiccup must degrade to None, never
+        # bubble up and 500 the recalculation-detail endpoint (which also carries status + derived counters).
+        recalc = self._recalc("in_progress")
+        with team_scope(self.team.id, canonical=True):
+            with patch(
+                "products.experiments.backend.recalculation.sync_execute",
+                side_effect=Exception("clusterAllReplicas unavailable"),
+            ):
+                assert get_live_query_progress(recalc) is None
+
+
+@pytest.mark.django_db(transaction=True)
+class TestLiveQueryProgressFinishedQueries(BaseTest, ClickhouseTestMixin):
+    def test_counts_rows_from_queries_finished_during_the_run(self):
+        # The per-metric queries usually outlive no single 2s poll: a query that finishes between polls must
+        # still be visible via system.query_log, otherwise the run's progress reads zero for its whole life.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="live-ql", name="live-ql")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag, name="live-ql")
+        recalc = ExperimentMetricsRecalculation.objects.create(
+            team=self.team, experiment=exp, status="in_progress", started_at=timezone.now()
+        )
+
+        with tags_context(
+            team_id=self.team.id,
+            client_query_id=f"experiment_metric_recalc_{recalc.id}_metric-1",
+            product=Product.EXPERIMENTS,
+            feature=Feature.CACHE_WARMUP,
+        ):
+            sync_execute("SELECT sum(number) FROM numbers(1000)", team_id=self.team.id)
+        sync_execute("SYSTEM FLUSH LOGS")
+
+        with team_scope(self.team.id, canonical=True):
+            progress = get_live_query_progress(recalc)
+
+        assert progress is not None
+        assert progress["rows_read"] == 1000
+        assert progress["estimated_rows_total"] == 1000

@@ -5,10 +5,13 @@ import { HogTransformer } from '~/common/hog-transformations/hog-transformer.int
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { TeamManager } from '~/common/utils/team-manager'
-import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
-import { AiEventSubpipelineFactory, AiEventSubpipelineInput } from '~/ingestion/common/ai-subpipeline.contract'
 import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
+import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
+import {
+    AiEventSubpipelineFactory,
+    AiEventSubpipelineInput,
+} from '~/ingestion/common/subpipelines/ai-subpipeline.contract'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { TopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { Team } from '~/types'
@@ -63,31 +66,29 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
 ): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
     const { options, outputs, aiSubpipelineFactory, teamManager, groupTypeManager, hogTransformer, topHog } = config
 
-    return builder.retry(
-        (e) =>
-            e.branching(classifyEvent, (branches) =>
-                branches
-                    .branch('ai', (b) =>
-                        aiSubpipelineFactory(b, {
-                            options,
-                            outputs,
-                            teamManager,
-                            groupTypeManager,
-                            hogTransformer,
-                            topHog,
-                        })
-                    )
-                    .branch('event', (b) =>
-                        createEventSubpipeline(b, {
-                            options,
-                            outputs,
-                            teamManager,
-                            groupTypeManager,
-                            hogTransformer,
-                            topHog,
-                        })
-                    )
-            ),
-        { tries: 5, sleepMs: 100, name: 'per_distinct_id' }
+    // Retry is applied per step inside each branch's subpipeline (on the I/O
+    // steps that can throw transient errors), rather than around the whole chain.
+    return builder.branching(classifyEvent, (branches) =>
+        branches
+            .branch('ai', (b) =>
+                aiSubpipelineFactory(b, {
+                    options,
+                    outputs,
+                    teamManager,
+                    groupTypeManager,
+                    hogTransformer,
+                    topHog,
+                })
+            )
+            .branch('event', (b) =>
+                createEventSubpipeline(b, {
+                    options,
+                    outputs,
+                    teamManager,
+                    groupTypeManager,
+                    hogTransformer,
+                    topHog,
+                })
+            )
     )
 }

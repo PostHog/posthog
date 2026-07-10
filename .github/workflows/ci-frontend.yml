@@ -21,20 +21,22 @@ permissions:
     pull-requests: write
     actions: read
 
+env:
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+
 jobs:
     # Job to decide if we should run frontend ci
-    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    # See .github/actions/paths-filter/README.md for filter semantics
     # we skip each step individually, so   they are still reported as success
     # because many of them are required for CI checks to be green
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run frontend checks
-        # Skip when a bot's push adds only snapshot baselines — Visual Review auto-commits
-        # frontend/snapshots.yml after human review and CI approval, so re-running the suite
-        # on that commit is pure waste. The detect step keys off the push delta (this push's
-        # commits), not the whole-PR diff dorny reports, so it fires even when the PR also
-        # carries real code changes. The aggregator (frontend_tests) treats skips as success.
+        # A snapshot-only bot push (Visual Review auto-commits frontend/snapshots.yml after
+        # approval) skips ci-storybook and ci-e2e-playwright (the snapshot-baseline-dependent
+        # suites), not these checks. Jest, TypeScript, format, and bundle-size don't depend on
+        # the baseline and still gate merge, so they run purely off the paths filter here.
         outputs:
             # AND the broad filter with `exclude` (below): a PR that touches only
             # Node-only product workspaces (their own ci-agents.yml suite, no stories,
@@ -42,12 +44,12 @@ jobs:
             # derived from pnpm-workspace.yaml, not hardcoded — see the exclude step.
             frontend: >-
                 ${{ (steps.filter.outputs.frontend || 'true') == 'true'
-                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true'
-                    && steps.baseline_push.outputs.result != 'true' }}
+                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true' }}
             frontend_code: >-
                 ${{ (steps.filter.outputs.frontend_code || 'true') == 'true'
-                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true'
-                    && steps.baseline_push.outputs.result != 'true' }}
+                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true' }}
+            replay_shared: >-
+                ${{ (steps.filter.outputs.replay_shared || 'true') == 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -59,7 +61,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -122,36 +124,16 @@ jobs:
                         - tsconfig.*.json
                         - webpack.config.js
                         - stylelint*
-
-            - name: Detect Visual Review baseline-only push
-              id: baseline_push
-              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  REPO: ${{ github.repository }}
-                  ACTOR: ${{ github.actor }}
-                  BEFORE: ${{ github.event.before }}
-                  AFTER: ${{ github.event.after }}
-              run: |
-                  set -euo pipefail
-                  result=false
-                  # Visual Review commits the approved baseline as a bot (a [bot] app or posthog-bot).
-                  case "$ACTOR" in
-                      *'[bot]' | posthog-bot) is_bot=true ;;
-                      *) is_bot=false ;;
-                  esac
-                  zero=0000000000000000000000000000000000000000
-                  if [ "$is_bot" = true ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "$zero" ] && [ -n "$AFTER" ]; then
-                      # Diff only the commits this push added. compare uses merge-base(before, after),
-                      # which for an appended commit is exactly the push delta; a force-push/rebase
-                      # widens it and won't match. dorny above already covers the whole-PR diff.
-                      files=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename' || true)
-                      if [ -n "$files" ] && ! grep -qvE '^(frontend|playwright)/snapshots\.yml$' <<<"$files"; then
-                          result=true
-                      fi
-                  fi
-                  echo "result=$result" >>"$GITHUB_OUTPUT"
-                  echo "Visual Review baseline-only push: $result"
+                      # The @posthog/replay-shared package's own jest suite (the
+                      # jest-replay-shared job). posthog-js bumps land via the catalog +
+                      # lockfile and have broken it before (rrweb subpath entries switching
+                      # to ESM); its zstd tests need the node:zlib support pinned by .nvmrc.
+                      replay_shared:
+                        - 'common/replay-shared/**'
+                        - pnpm-workspace.yaml
+                        - pnpm-lock.yaml
+                        - .nvmrc
+                        - .github/workflows/ci-frontend.yml
 
             # The broad `products/**/*.ts(x)` rules above correctly match all product
             # frontend code (which doesn't always live under frontend/ — see
@@ -163,20 +145,18 @@ jobs:
             # that declare nested pnpm workspaces) rather than hardcoded, so a new product's
             # services are excluded automatically — see bin/frontend-exclude-filter.
             #
-            # A separate `every`-quantifier step is required: appending a plain `!...` to the
-            # broad filter wouldn't work because dorny's default `some` quantifier OR-matches
-            # predicates and neutralizes the negation (same gotcha as
-            # ci-migrations-service-separation-check.yml). With `every`, the filter is true
-            # only when some changed file lives OUTSIDE every excluded dir.
+            # A separate step is still needed because these exclusions are generated at
+            # runtime from pnpm-workspace.yaml into a filter file, while the main filter
+            # above is inline YAML — paths-filter takes one or the other. The exclude-only
+            # filter is true only when some changed file lives OUTSIDE every excluded dir.
             - name: Derive Node-only product workspace exclusions
               if: github.event_name != 'push'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: exclude
               if: github.event_name != 'push'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  predicate-quantifier: 'every'
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
     # Pick which jest tests to run on draft PRs by passing changed files to
@@ -359,7 +339,7 @@ jobs:
               with:
                   filter: blob:none
 
-            # compressed-size-action below checks out the base branch mid-job, which
+            # The bundle-size build below git-resets to the base branch mid-job, which
             # removes this repo's local actions from the workspace — a local
             # ./.github/actions/pnpm-install would then fail in its post phase. Use
             # inline cache steps (remote actions, no workspace-dependent post) sharing
@@ -403,32 +383,68 @@ jobs:
             - name: Build products
               run: pnpm --filter=@posthog/frontend build:products
 
-            - name: Check frontend bundle size
-              uses: preactjs/compressed-size-action@66325aad6443cb7cf89c4bfcd414aea2367cda94 # v2.9.1
-              with:
-                  build-script: '--filter=@posthog/frontend build:with-report'
-                  install-script: 'pnpm --filter=@posthog/frontend... install'
-                  compression: 'none'
-                  # dist-report/ carries the source bundle (posthog-app, exporter, …) and source
-                  # path in the filename, so strip-hash yields a deterministic identity. dist/ has
-                  # cross-bundle basename collisions that cause phantom size changes.
-                  pattern: 'frontend/dist-report/**/*.js'
-                  # Shared chunk hashes change every build, ignore those
-                  exclude: '{**/_chunks/chunk*.js}'
-                  # Only show large changes
-                  minimum-change-threshold: 1000
-                  order-by: 'Size:desc'
-                  strip-hash: "-[A-Za-z0-9]{8}\\.js$"
+            # Vendored replacement for preactjs/compressed-size-action: build the PR branch,
+            # then git-reset to the base branch and rebuild so the bundle-size and eager-graph
+            # reports (both written by build:with-report) get a vs-base baseline. The base
+            # build runs LAST in the same workspace, so the plain report filenames hold the
+            # base numbers while the sha-suffixed ones hold the PR build's — the post scripts
+            # pick the PR report by sha and treat the plain file as the base. Reports are
+            # untracked, so they survive `git reset --hard` onto the base tree. A failing base
+            # build (build:with-report runs the eager-graph check in --report-only) must never
+            # abort the job for every open PR, so budgets are enforced warn-only further down.
+            - name: Build frontend (bundle-size + eager-graph report)
+              run: pnpm --filter=@posthog/frontend build:with-report
 
-            # The eager graph check runs in --report-only mode inside build:with-report
-            # (compressed-size-action runs that for the PR AND base builds — a failing
-            # base build must not abort the action for every open PR). These steps post
-            # the sticky PR comment and enforce the budgets from the PR build's report,
-            # which carries the checkout sha in its filename because the base build
-            # overwrites the plain one. After compressed-size-action the tree is on the
-            # BASE branch, so guard for the scripts' absence (also covers branches
-            # predating the check).
-            - name: Post eager graph comment
+            # Measured before the base build overwrites dist/. Untracked, so it survives the
+            # git reset --hard onto the base tree; the dist-size section reads it back.
+            - name: Measure PR dist size
+              run: du -sb frontend/dist | cut -f1 > frontend/dist-size-pr.txt
+
+            # Runs against the PR's own build, before the base rebuild below overwrites dist/.
+            - name: Check toolbar bundle stays under the CloudFront gzip limit
+              run: pnpm --filter=@posthog/frontend check-toolbar-size
+
+            # Runs against the PR's own metafile, before the base rebuild overwrites it.
+            - name: Check toolbar graph stays inside its module boundary
+              run: pnpm --filter=@posthog/frontend check-toolbar-graph
+
+            - name: Build base branch for size comparison
+              # A broken base build (install/esbuild — which --report-only does not cover) must
+              # only cost the vs-base delta, never redden every open PR's job. The comment steps
+              # below already degrade to "no base measurement" when the base reports are absent.
+              continue-on-error: true
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: |
+                  git fetch -n origin "$BASE_SHA"
+                  git reset --hard "$BASE_SHA"
+                  # dist/ is untracked so it survives the reset. Without a clean, the base
+                  # build layers differently-hashed chunks on top of the PR's, inflating the
+                  # base measurement by hundreds of MiB and making every PR's dist-size delta
+                  # a large spurious negative. The build never cleans dist/ itself.
+                  rm -rf frontend/dist
+                  pnpm --filter=@posthog/frontend... install
+                  pnpm --filter=@posthog/frontend build:with-report
+                  du -sb frontend/dist | cut -f1 > frontend/dist-size-base.txt
+
+            # Each frontend check contributes one section to a single ci-report comment
+            # (how a section writer picks the PR vs base report is report-files.mjs's story).
+            # After the base build the tree is on the BASE branch, so guard for the scripts'
+            # absence (also covers branches predating a check). Budgets are surfaced
+            # warn-only further down.
+            - name: Clean up legacy per-check CI comments
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/ci-report/delete-legacy-comments.mjs ]; then
+                      node frontend/bin/ci-report/delete-legacy-comments.mjs
+                  else
+                      echo "Skipping legacy CI comment cleanup — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — eager graph
               if: always() && github.event_name == 'pull_request'
               env:
                   GITHUB_TOKEN: ${{ github.token }}
@@ -436,14 +452,36 @@ jobs:
                   if [ -f frontend/bin/post-eager-graph-comment.mjs ]; then
                       node frontend/bin/post-eager-graph-comment.mjs
                   else
-                      echo "Skipping eager graph comment — script not present on this checkout"
+                      echo "Skipping eager graph section — script not present on this checkout"
                   fi
 
-            - name: Enforce eager graph budgets
+            - name: Post CI report — bundle size
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-bundle-size-comment.mjs ]; then
+                      node frontend/bin/post-bundle-size-comment.mjs
+                  else
+                      echo "Skipping bundle size section — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — dist size
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-dist-size-comment.mjs ]; then
+                      node frontend/bin/post-dist-size-comment.mjs
+                  else
+                      echo "Skipping dist size section — script not present on this checkout"
+                  fi
+
+            - name: Check eager graph budgets (warn only)
               if: always() && github.event_name == 'pull_request'
               run: |
                   if [ ! -f frontend/bin/check-eager-graph.mjs ]; then
-                      echo "Skipping eager graph enforcement — script not present on this checkout"
+                      echo "Skipping eager graph check — script not present on this checkout"
                       exit 0
                   fi
                   REPORT="frontend/eager-graph-report-${GITHUB_SHA}.json"
@@ -451,7 +489,7 @@ jobs:
                       REPORT="frontend/eager-graph-report.json"
                   fi
                   if [ ! -f "$REPORT" ]; then
-                      echo "Skipping eager graph enforcement — no report found (branch may predate the check)"
+                      echo "Skipping eager graph check — no report found (branch may predate the check)"
                       exit 0
                   fi
                   node frontend/bin/check-eager-graph.mjs --assert-report "$REPORT"
@@ -461,8 +499,12 @@ jobs:
 
             - name: Calculate dist folder size
               id: dist-size
+              # After the base build the workspace's dist/ holds the BASE branch's build, so
+              # read back the PR measurement taken before it — the captured metric must be
+              # the PR's size. The du fallback covers runs where that file wasn't written
+              # (dist/ is still the PR's own build then).
               run: |
-                  size_bytes=$(du -sb frontend/dist | cut -f1)
+                  size_bytes=$(cat frontend/dist-size-pr.txt 2>/dev/null || du -sb frontend/dist | cut -f1)
                   echo "size_bytes=${size_bytes}" >> $GITHUB_OUTPUT
                   echo "Frontend dist folder size: ${size_bytes} bytes ($(numfmt --to=iec-i --suffix=B ${size_bytes}))"
 
@@ -562,7 +604,11 @@ jobs:
 
     jest:
         runs-on: ubuntu-latest
-        timeout-minutes: 15
+        # Draft PRs run the selective mode as a single unsharded job over every
+        # test reachable from the changed files. A PR touching a scene component
+        # can pull in ~700 suites, which does not fit in 15 minutes. 20 covers it;
+        # the ready-for-review fanout shards well below either limit.
+        timeout-minutes: 20
         needs: [changes, select-jest-tests]
         if: |
             always() && needs.changes.outputs.frontend_code == 'true'
@@ -576,7 +622,7 @@ jobs:
             # or skip jest entirely (should_run=false) when selection can't be
             # trusted. On ready PRs, master push, and merge_group it's skipped, so
             # we fall back to the full FOSS×EE × chunk fanout (the merge gate).
-            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2]}') }}
+            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2,3,4]}') }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -591,12 +637,26 @@ jobs:
                   install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Test with Jest
+              id: run-jest
+              # continue-on-error so a failure doesn't fail the job here; the quarantine
+              # gate below is the verdict — it passes when every failure is an
+              # already-quarantined flake, fails otherwise.
+              continue-on-error: true
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}
-                  SHARD_COUNT: 2
+                  # Keep shard runtime well under timeout-minutes: the EE suite at 2
+                  # shards ran 13-15 min on the 2-worker config and regularly died at
+                  # the 15-min timeout, failing the whole run.
+                  SHARD_COUNT: 4
                   MODE: ${{ needs.select-jest-tests.outputs.mode }}
                   CHANGED_FILES: ${{ needs.select-jest-tests.outputs.changed_files }}
+                  JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
+                  JEST_JUNIT_OUTPUT_NAME: junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
+                  # Trunk attributes flakes by test file; jest-junit's default suite name is the
+                  # top-level describe, which collides across files. Anchor identity to the file.
+                  JEST_JUNIT_SUITE_NAME: '{filepath}'
+                  JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
               run: |
                   if [ "$MODE" = "selective" ]; then
                       # --findRelatedTests walks jest's import graph from the changed
@@ -616,12 +676,112 @@ jobs:
                           --passWithNoTests \
                           --findRelatedTests $CHANGED_FILES
                   else
-                      bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=2
+                      # 100% = one worker per available core. Public-repo ubuntu-latest
+                      # runners have 4 vCPUs; a hardcoded 2 left half the machine idle.
+                      bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=100%
                   fi
+
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: junit-results-frontend-${{ matrix.segment }}-${{ matrix.chunk }}
+                  path: junit-results/junit-*.xml
+                  if-no-files-found: ignore
+                  retention-days: 1
+
+            # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
+            # the verdict, so a Trunk outage can't red a passing shard. FOSS and EE share test files,
+            # so each segment uploads under its own variant. Internal PRs only (needs the secret);
+            # cli-version pinned, not 'latest' (skips the release redirect).
+            - name: Quarantine gate
+              id: quarantine_gate
+              continue-on-error: true
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-results/junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
+                  org-slug: posthog-inc
+                  variant: ${{ matrix.segment }}
+                  cli-version: '0.13.7'
+                  quarantine: true
+                  previous-step-outcome: ${{ steps.run-jest.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
+            # also covers the skipped gate on fork/Dependabot. Passing shards never red here.
+            - name: Fail on jest failure
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
+              shell: bash
+              run: exit 1
+
+    jest-replay-shared:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        needs: changes
+        if: needs.changes.outputs.replay_shared == 'true'
+        name: Jest test (replay-shared)
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # Full workspace install: the suite's jsdom test environment resolves
+            # through the workspace root, not the package's own dependencies, so a
+            # filtered install can't run it.
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+
+            - name: Test with Jest
+              id: run-jest
+              # continue-on-error so the quarantine gate below is the verdict.
+              continue-on-error: true
+              env:
+                  JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
+                  JEST_JUNIT_OUTPUT_NAME: junit-replay-shared.xml
+                  # Anchor flake identity to the test file, matching the main jest job.
+                  JEST_JUNIT_SUITE_NAME: '{filepath}'
+                  JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
+              run: pnpm --filter=@posthog/replay-shared test
+
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: junit-results-replay-shared
+                  path: junit-results/junit-*.xml
+                  if-no-files-found: ignore
+                  retention-days: 1
+
+            # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
+            # the verdict. See the jest job for the full rationale. cli-version pinned, not 'latest'.
+            - name: Quarantine gate
+              id: quarantine_gate
+              continue-on-error: true
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-results/junit-replay-shared.xml
+                  org-slug: posthog-inc
+                  variant: replay-shared
+                  cli-version: '0.13.7'
+                  quarantine: true
+                  previous-step-outcome: ${{ steps.run-jest.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+            - name: Fail on jest failure
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
+              shell: bash
+              run: exit 1
 
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, frontend_tests, changes]
+        needs:
+            [
+                jest,
+                jest-replay-shared,
+                frontend-typescript-checks,
+                frontend-format,
+                frontend-bundle-size,
+                frontend_tests,
+                changes,
+            ]
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
@@ -663,7 +823,7 @@ jobs:
                   runner: 'github'
 
     frontend_tests:
-        needs: [jest, frontend-format, frontend-bundle-size, frontend-typescript-checks]
+        needs: [jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -677,6 +837,11 @@ jobs:
                     exit 1
                   fi
                   echo "Frontend jest tests passed."
+                  if [[ "${{ needs.jest-replay-shared.result }}" != "success" && "${{ needs.jest-replay-shared.result }}" != "skipped" ]]; then
+                    echo "Replay shared jest tests failed."
+                    exit 1
+                  fi
+                  echo "Replay shared jest tests passed."
                   if [[ "${{ needs.frontend-format.result }}" != "success" && "${{ needs.frontend-format.result }}" != "skipped" ]]; then
                     echo "Frontend linting failed."
                     exit 1

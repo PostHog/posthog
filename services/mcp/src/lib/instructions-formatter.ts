@@ -18,6 +18,7 @@ import CLI_RENDERING from '@/templates/sections/cli-rendering.md'
 import CLI_SCHEMA_DRILLDOWN from '@/templates/sections/cli-schema-drilldown.md'
 import CLI_SYNTAX from '@/templates/sections/cli-syntax.md'
 import COMPACT_INSTRUCTIONS from '@/templates/sections/compact-instructions.md'
+import ENTITY_SCHEMA_DISCOVERY from '@/templates/sections/entity-schema-discovery.md'
 import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
@@ -35,9 +36,9 @@ export interface InstructionsContext {
     /** Resolved tool feature flags from `resolveToolFeatureFlags`. Used to gate
      *  prompt sections whose corresponding tool is flag-gated. */
     featureFlags?: EvaluatedFlags | undefined
-    /** Whether `render-ui` is actually available to this client (the `mcp-render-ui`
-     *  flag is on AND the client is an MCP Apps host). Gates the CLI rendering section
-     *  so it never reaches clients — like Claude Code — that can't mount the iframe. */
+    /** Whether `render-ui` is actually available to this client (i.e. the client is
+     *  an MCP Apps host). Gates the CLI rendering section so it never reaches clients —
+     *  like Claude Code — that can't mount the iframe. */
     renderUiEnabled?: boolean | undefined
 }
 
@@ -83,8 +84,23 @@ export class InstructionsFormatter {
      *  `instructions` field), the env-related placeholders (metadata, group
      *  types, tool domains) resolve to empty strings to avoid duplication. The
      *  query-tool catalog is kept: in single-exec mode it lives here on the exec
-     *  tool, not in `instructions` (which only carries the `query` tool domain). */
-    buildExecCommandReference(ctx: InstructionsContext, opts: { stripEnvContext: boolean }): string {
+     *  tool, not in `instructions` (which only carries the `query` tool domain).
+     *
+     *  `keepEnvContext` is the escape hatch for clients that report
+     *  `supportsInstructions` but don't actually surface the `instructions`
+     *  payload to the model (Claude web/desktop): it retains the env-context
+     *  (project metadata, group types) here even though `stripEnvContext` is
+     *  set, so it still reaches the agent.
+     *
+     *  SIZE BUDGET: the serialized exec tool entry must stay under 32,600 chars —
+     *  clients (e.g. Claude web/desktop) silently drop tools past ~32,768, which
+     *  breaks the entire MCP for them. Enforced by the budget test in
+     *  `tests/unit/instructions-formatter-snapshot.test.ts`; when adding prose
+     *  here or to the section templates, shrink elsewhere to stay under. */
+    buildExecCommandReference(
+        ctx: InstructionsContext,
+        opts: { stripEnvContext: boolean; keepEnvContext?: boolean }
+    ): string {
         const sections = [
             CLI_SYNTAX,
             CLI_SCHEMA_DRILLDOWN,
@@ -102,8 +118,17 @@ export class InstructionsFormatter {
             EXAMPLES,
         ]
         const renderCtx: InstructionsContext = opts.stripEnvContext
-            ? { guidelines: ctx.guidelines, queryTools: ctx.queryTools }
-            : ctx
+            ? {
+                  guidelines: ctx.guidelines,
+                  queryTools: ctx.queryTools,
+                  featureFlags: ctx.featureFlags,
+                  ...(opts.keepEnvContext ? { metadata: ctx.metadata, groupTypes: ctx.groupTypes } : {}),
+              }
+            : { ...ctx, tools: undefined }
+        // Tool domains are temporarily omitted from the command reference while we
+        // probe claude.ai's per-tool size cap (it silently drops oversized entries);
+        // agents still discover domains at runtime via the `search` command, and
+        // `instructions`-honoring clients keep the compact domain index there.
         return this.compose(sections, renderCtx, { compact: false })
     }
 
@@ -125,6 +150,7 @@ export class InstructionsFormatter {
             metadata: ctx.metadata?.trim() ?? '',
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
+            entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
         }
         const body = sections
             .map((s) => s.trim())

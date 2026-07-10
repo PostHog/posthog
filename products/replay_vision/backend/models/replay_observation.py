@@ -2,6 +2,8 @@ from django.db import models
 
 from posthog.models.utils import UUIDModel
 
+from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
+
 
 class ObservationStatus(models.TextChoices):
     PENDING = "pending", "Pending"
@@ -13,9 +15,14 @@ class ObservationStatus(models.TextChoices):
     INELIGIBLE = "ineligible", "Ineligible"
 
 
+# Not-yet-terminal statuses: what the quota meter reserves and the concurrency caps count as "in flight".
+IN_FLIGHT_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
+
+
 class ObservationTrigger(models.TextChoices):
     SCHEDULE = "schedule", "Schedule"
     ON_DEMAND = "on_demand", "On demand"
+    RETRY = "retry", "Retry"
 
 
 class ReplayObservation(UUIDModel):
@@ -24,18 +31,25 @@ class ReplayObservation(UUIDModel):
     scanner = models.ForeignKey("replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="observations")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     session_id = models.CharField(max_length=200, help_text="Session recording id this scanner was applied to.")
+    distinct_id = models.CharField(
+        max_length=400,
+        null=True,
+        blank=True,
+        help_text="Distinct id of the person in the recorded session (the subject), resolved from session metadata.",
+    )
+    recording_subject_email = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Email of the recording subject at scan time; denormalized so the list can filter and sort on it.",
+    )
+    session_started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Start time of the recorded session; copied from session metadata so downstream steps don't re-query.",
+    )
 
     status = models.CharField(max_length=16, choices=ObservationStatus.choices, default=ObservationStatus.PENDING)
-    error_reason = models.TextField(
-        blank=True,
-        default="",
-        help_text=(
-            "Populated on terminal non-success statuses; formatted as `kind:human-readable message`. "
-            "For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. "
-            "For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / "
-            "validation_failed / internal_error."
-        ),
-    )
+    error_reason = models.TextField(blank=True, default="", help_text=ERROR_REASON_HELP_TEXT)
     workflow_id = models.CharField(
         max_length=255,
         blank=True,
@@ -55,7 +69,7 @@ class ReplayObservation(UUIDModel):
     triggered_by = models.CharField(
         max_length=16,
         choices=ObservationTrigger.choices,
-        help_text="What started this observation: a per-scanner schedule fire or an explicit /observe/ call.",
+        help_text="What started this observation: a per-scanner schedule fire, an explicit /observe/ call, or a retry of a failed observation.",
     )
     triggered_by_user = models.ForeignKey(
         "posthog.User",
@@ -63,7 +77,7 @@ class ReplayObservation(UUIDModel):
         null=True,
         blank=True,
         related_name="+",
-        help_text="Populated for on-demand triggers; null for schedule-driven observations.",
+        help_text="Populated for on-demand and retry triggers; null for schedule-driven observations.",
     )
 
     started_at = models.DateTimeField(null=True, blank=True)
@@ -85,12 +99,26 @@ class ReplayObservation(UUIDModel):
         indexes = [
             models.Index(fields=["team", "created_at"], name="rlo_team_created_idx"),
             models.Index(fields=["scanner", "status"], name="rlo_scanner_status_idx"),
+            # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
+            models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
             models.Index(
                 fields=["workflow_id"],
                 name="rlo_workflow_id_idx",
                 condition=~models.Q(workflow_id=""),
             ),
+            # Serves the per-team in-flight concurrency count (sweep headroom + on-demand 429). Partial on the
+            # in-flight statuses only, since terminal rows dominate and are never counted.
+            models.Index(
+                fields=["team", "scanner"],
+                name="rlo_team_in_flight_idx",
+                condition=models.Q(status__in=("pending", "running")),
+            ),
         ]
+
+    @classmethod
+    def in_flight_for_team(cls, team_id: int) -> "models.QuerySet[ReplayObservation]":
+        """A team's not-yet-terminal observations; the one predicate the quota meter and concurrency caps share."""
+        return cls.objects.filter(team_id=team_id, status__in=IN_FLIGHT_STATUSES)
 
     def save(self, *args, **kwargs) -> None:
         # Tenant invariant: observation.team_id must match scanner.team_id.

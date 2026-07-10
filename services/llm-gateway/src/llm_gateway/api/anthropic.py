@@ -31,6 +31,7 @@ from llm_gateway.cloudflare import (
     cloudflare_litellm_model,
     ensure_cloudflare_configured,
     ensure_cloudflare_model_allowed,
+    is_cloudflare_model,
     make_cloudflare_anthropic_call,
 )
 from llm_gateway.config import get_settings
@@ -403,7 +404,14 @@ async def _handle_anthropic_messages(
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
-    if provider == "cloudflare":
+    # `@cf/` models are Cloudflare-only, so route them to CF by model id — the same way the
+    # chat/completions and responses handlers do. The agent harness derives the provider header from
+    # the runtime (`claude`->anthropic, `codex`->openai) and never sends "cloudflare", so a
+    # claude-runtime scout on a CF-served model (e.g. GLM) arrives here as provider="anthropic".
+    # Without the id check it would fall through to the real Anthropic API and 404. Unlike the
+    # Responses path, this CF route serves tools fine: litellm's Anthropic->chat/completions adapter
+    # translates Anthropic tools into OpenAI function tools that CF's endpoint accepts.
+    if provider == "cloudflare" or is_cloudflare_model(body.model):
         return await _send_cloudflare_messages(data, user, body.stream or False, product)
 
     if provider == "bedrock":
@@ -478,7 +486,10 @@ async def _handle_count_tokens(
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
-    if provider == "cloudflare":
+    # Route `@cf/` models by model id (see `_handle_anthropic_messages`): a claude-runtime scout on a
+    # CF model counts tokens here with provider="anthropic", and CF has no count_tokens endpoint, so
+    # approximate locally rather than POST a CF model id to the real Anthropic count_tokens API.
+    if provider == "cloudflare" or is_cloudflare_model(body.model):
         ensure_cloudflare_model_allowed(body.model)
         # CF Workers AI has no count_tokens endpoint. Approximate via litellm's tokenizer on the
         # serialised payload — callers use this for context-window budgeting, where over-counting

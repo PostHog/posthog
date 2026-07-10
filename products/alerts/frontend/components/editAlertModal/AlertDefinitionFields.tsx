@@ -3,19 +3,20 @@ import { Group } from 'kea-forms'
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
-import {
-    funnelConfigForOptionKey,
-    funnelConfigToOptionKey,
-    funnelConversionOptions,
-} from 'lib/components/Alerts/funnelAlertOptions'
-import { FunnelAlertPreview } from 'lib/components/Alerts/funnelAlertPreview'
-import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
-import { isFunnelsAlertConfig } from 'lib/components/Alerts/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { alphabet } from 'lib/utils/strings'
 
 import { AlertConditionType } from '~/queries/schema/schema-general'
+
+import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
+import {
+    funnelConfigForOptionKey,
+    funnelConfigToOptionKey,
+    funnelConversionOptions,
+} from 'products/alerts/frontend/logic/funnelAlertOptions'
+import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
+import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
+import { isFunnelsAlertConfig } from 'products/alerts/frontend/types'
 
 import { HogQLAlertPreviewBanner, HogQLAlertPreviewRowsTable } from './HogQLAlertPreview'
 
@@ -96,6 +97,32 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
         </LemonTag>
     ) : null
 
+    if (preview.relative) {
+        // Relative alerts evaluate the change between the period being checked and the one before it
+        // (the checkbox controls whether that's the in-progress period); `breaching` reflects the change.
+        const first = preview.values[0]
+        const hasPrior = preview.values.some((value) => value.previousRate !== undefined)
+        return (
+            <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
+                {statusTag}
+                {!hasPrior ? (
+                    <>Needs an earlier completed period to compare against — extend the date range.</>
+                ) : preview.isBreakdown ? (
+                    <>
+                        Across {preview.values.length} breakdown values, comparing each period against the one before it
+                        {wouldFire ? `: ${breaching.map((value) => value.label ?? 'conversion').join(', ')}` : ''}.
+                    </>
+                ) : (
+                    <>
+                        Evaluating <strong>{format(first.rate)}</strong> against{' '}
+                        <strong>{format(first.previousRate as number)}</strong> (the prior period).
+                    </>
+                )}
+                {!preview.hasBounds ? <> Set a threshold to preview whether it would fire.</> : null}
+            </LemonBanner>
+        )
+    }
+
     if (preview.isBreakdown) {
         const rates = preview.values.map((value) => value.rate)
         return (
@@ -135,19 +162,33 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
     )
 }
 
-/** Funnels: a single valid-conversion picker over the `{metric, funnel_step}` config — see funnelAlertOptions. */
+/** Funnels: a single valid-conversion picker over the `{metric, funnel_step}` config — see funnelAlertOptions.
+ * A trends funnel charts the overall (whole-funnel) conversion rate over time, so there's no per-step
+ * choice to make — it shows just the preview of the latest period's rate. */
 export function FunnelsDefinitionFields({
     alertForm,
     stepLabels,
     funnelPreview,
+    isTrendsFunnel,
     onSetAlertFormValue,
 }: {
     alertForm: AlertFormType
     stepLabels: string[]
     funnelPreview: FunnelAlertPreview | null
+    isTrendsFunnel: boolean
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }): JSX.Element {
     const config = isFunnelsAlertConfig(alertForm.config) ? alertForm.config : null
+    if (isTrendsFunnel) {
+        // A trends funnel charts the overall conversion rate over time, so there's no per-step choice.
+        // The in-progress-period toggle lives in Advanced options, mirroring the trends-alert equivalent.
+        return (
+            <div className="flex flex-wrap gap-3 items-center">
+                <div>Alert on the overall conversion rate</div>
+                <FunnelAlertPreviewBanner preview={funnelPreview} />
+            </div>
+        )
+    }
     return (
         <div className="flex flex-wrap gap-3 items-center">
             <div>Alert on</div>

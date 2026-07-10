@@ -1,7 +1,9 @@
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
-import { DetectiveHog, WavingHog } from 'lib/components/hedgehogs'
+import { WavingHog } from 'lib/components/hedgehogs'
 
 import type { MCPOnboardingState } from './mcpAnalyticsOnboardingLogic'
 import {
@@ -11,11 +13,13 @@ import {
     useMCPAnalyticsWizardCommand,
 } from './onboarding/MCPAnalyticsInstall'
 
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+
 /** Branded loading state shown while we work out whether the project has MCP events yet. */
 export function MCPAnalyticsLoading(): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
-            <DetectiveHog className="w-32 h-32" />
+            <HedgehogMagnifyingGlass className="w-32 h-32" />
             <div className="flex items-center gap-2 text-secondary">
                 <Spinner />
                 <span>Checking for MCP activity…</span>
