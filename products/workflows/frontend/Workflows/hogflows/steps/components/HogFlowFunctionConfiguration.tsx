@@ -118,6 +118,15 @@ export function HogFlowFunctionConfiguration({
         }
         sampleGlobals.groups = {}
     } else if (triggerType === 'batch') {
+        // Batch runs carry a synthesized event whose distinct_id the worker backfills from the
+        // person, so {event.distinct_id} resolves at runtime — expose it here so the editor
+        // doesn't flag it as an unknown global.
+        sampleGlobals.event = {
+            event: '$batch_hog_flow_invocation',
+            distinct_id: 'user123',
+            properties: {},
+            timestamp: '2024-01-01T12:00:00Z',
+        }
         sampleGlobals.person = {
             id: 'person123',
             properties: {
