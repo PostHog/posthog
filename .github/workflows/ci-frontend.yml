@@ -686,26 +686,27 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 1
 
-            # Quarantine gate: uploads junit to Trunk and gates the job. Exit 0 when every
-            # failure is an already-quarantined flake, non-zero otherwise (falls back to the
-            # raw test outcome if Trunk is unreachable). FOSS and EE run the same test files,
-            # so each segment uploads under its own variant to keep their histories distinct.
-            # Runs the token only on internal PRs, master, and the merge queue — never on fork
-            # PRs or Dependabot, which have no secret.
+            # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
+            # the verdict, so a Trunk outage can't red a passing shard. FOSS and EE share test files,
+            # so each segment uploads under its own variant. Internal PRs only (needs the secret);
+            # cli-version pinned, not 'latest' (skips the release redirect).
             - name: Quarantine gate
+              id: quarantine_gate
+              continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-results/junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
                   org-slug: posthog-inc
                   variant: ${{ matrix.segment }}
+                  cli-version: '0.13.7'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
-            # No Trunk secret on fork PRs and Dependabot; fall back to the raw jest outcome so
-            # a genuine failure still goes red exactly as before.
-            - name: Fail on jest failure (no quarantine gate)
-              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
+            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
+            # also covers the skipped gate on fork/Dependabot. Passing shards never red here.
+            - name: Fail on jest failure
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
               shell: bash
               run: exit 1
 
@@ -745,22 +746,23 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 1
 
-            # Quarantine gate: see the jest job for the full rationale. Runs the token only
-            # on internal PRs, master, and the merge queue — never on fork PRs or Dependabot.
+            # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
+            # the verdict. See the jest job for the full rationale. cli-version pinned, not 'latest'.
             - name: Quarantine gate
+              id: quarantine_gate
+              continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-results/junit-replay-shared.xml
                   org-slug: posthog-inc
                   variant: replay-shared
+                  cli-version: '0.13.7'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
-            # No Trunk secret on fork PRs and Dependabot; fall back to the raw jest outcome so
-            # a genuine failure still goes red exactly as before.
-            - name: Fail on jest failure (no quarantine gate)
-              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
+            - name: Fail on jest failure
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
               shell: bash
               run: exit 1
 
