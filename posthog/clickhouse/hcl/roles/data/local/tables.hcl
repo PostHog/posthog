@@ -557,7 +557,7 @@ database "posthog" {
       type = "UInt64"
     }
     column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
+      type    = "DateTime64(6, 'UTC')"
       default = "now64()"
     }
     engine "distributed" {
@@ -2260,7 +2260,7 @@ database "posthog" {
       type = "UInt64"
     }
     column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
+      type    = "DateTime64(6, 'UTC')"
       default = "now64()"
     }
     engine "distributed" {

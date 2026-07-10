@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Literal, Union, cast
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -22,11 +22,10 @@ from posthog.models.event.new_events_schema import events_read_table, use_new_ev
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization
-from posthog.models.property import Property, TableWithProperties
+from posthog.models.property import Property
 from posthog.models.property.util import (
     PropertyGroup,
     get_property_string_expr,
-    get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
     prop_filter_json_extract,
 )
@@ -1187,112 +1186,6 @@ def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
         )
         == snapshot
     )
-
-
-TEST_BREAKDOWN_PROCESSING = [
-    (
-        "$browser",
-        "events",
-        "prop",
-        "properties",
-        (
-            "replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', '') AS prop",
-            {"breakdown_param_1": "$browser"},
-        ),
-    ),
-    (
-        ["$browser"],
-        "events",
-        "value",
-        "properties",
-        (
-            "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', '')) AS value",
-            {"breakdown_param_1": "$browser"},
-        ),
-    ),
-    (
-        ["$browser", "$browser_version"],
-        "events",
-        "prop",
-        "properties",
-        (
-            "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_2)s), '^\"|\"$', '')) AS prop",
-            {"breakdown_param_1": "$browser", "breakdown_param_2": "$browser_version"},
-        ),
-    ),
-]
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("breakdown, table, query_alias, column, expected", TEST_BREAKDOWN_PROCESSING)
-def test_breakdown_query_expression(
-    clean_up_materialised_columns,
-    breakdown: Union[str, list[str]],
-    table: TableWithProperties,
-    query_alias: Literal["prop", "value"],
-    column: str,
-    expected: tuple[str, dict[str, Any]],
-):
-    actual = get_single_or_multi_property_string_expr(breakdown, table, query_alias, column)
-
-    assert actual == expected
-
-
-TEST_BREAKDOWN_PROCESSING_MATERIALIZED = [
-    (
-        ["$browser"],
-        "events",
-        "value",
-        "properties",
-        "person_properties",
-        (
-            "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', '')) AS value",
-            {"breakdown_param_1": "$browser"},
-        ),
-        ('array("mat_pp_$browser") AS value', {"breakdown_param_1": "$browser"}),
-    )
-]
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    "breakdown, table, query_alias, column, materialise_column, expected_with, expected_without",
-    TEST_BREAKDOWN_PROCESSING_MATERIALIZED,
-)
-def test_breakdown_query_expression_materialised(
-    clean_up_materialised_columns,
-    breakdown: Union[str, list[str]],
-    table: TableWithProperties,
-    query_alias: Literal["prop", "value"],
-    column: str,
-    materialise_column: str,
-    expected_with: tuple[str, dict[str, Any]],
-    expected_without: tuple[str, dict[str, Any]],
-):
-    from posthog.models.team import util
-
-    util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
-
-    materialize(table, breakdown[0], table_column="properties")
-    actual = get_single_or_multi_property_string_expr(
-        breakdown,
-        table,
-        query_alias,
-        column,
-        materialised_table_column=materialise_column,
-    )
-    assert actual == expected_with
-
-    materialize(table, breakdown[0], table_column=cast(Any, materialise_column))
-    actual = get_single_or_multi_property_string_expr(
-        breakdown,
-        table,
-        query_alias,
-        column,
-        materialised_table_column=materialise_column,
-    )
-
-    assert actual == expected_without
 
 
 @pytest.fixture

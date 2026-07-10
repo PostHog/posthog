@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { HedgehogWizardHog } from '@posthog/brand/hoggies'
+import * as wizardHogPng from '@posthog/brand/hoggies/png/wizard-hog'
 import {
     IconCheckCircle,
     IconDashboard,
@@ -13,6 +13,7 @@ import {
 } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +28,8 @@ import {
     InstallationStepStatus,
 } from './installationProgressLogic'
 import { DetectedDashboard, wizardDashboardLogic } from './wizardDashboardLogic'
+
+const HedgehogWizardHog = pngHoggie(wizardHogPng)
 
 // Timeline dot for a single step.
 function StepIcon({ status }: { status: InstallationStepStatus }): JSX.Element {

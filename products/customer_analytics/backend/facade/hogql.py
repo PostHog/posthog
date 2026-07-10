@@ -154,8 +154,14 @@ def _account_notebooks_select() -> ast.SelectQuery | ast.SelectSetQuery:
 
 # A custom property value is stored across four typed columns (exactly one non-null per row);
 # coalesce them to a single string so any display type round-trips through one column.
+# Booleans render as 'true'/'false' explicitly: the federated read maps PostgreSQL boolean to
+# UInt8, so toString() would yield '1'/'0' — which filters and value suggestions don't speak.
+# The isNull guard keeps non-boolean rows falling through the coalesce (ClickHouse if()
+# treats a NULL condition as false, which would otherwise coalesce them to 'false').
 _COALESCED_VALUE = (
-    "coalesce(cpv.value_str, toString(cpv.value_num), toString(cpv.value_bool), toString(cpv.value_datetime))"
+    "coalesce(cpv.value_str, toString(cpv.value_num),"
+    " if(isNull(cpv.value_bool), NULL, if(cpv.value_bool, 'true', 'false')),"
+    " toString(cpv.value_datetime))"
 )
 
 
@@ -524,22 +530,6 @@ accounts: PostgresTable = PostgresTable(
         "zendesk_id": ExpressionField(
             name="zendesk_id",
             expr=parse_expr("JSONExtractString(properties, 'zendesk_id')"),
-        ),
-        "csm": ExpressionField(
-            name="csm",
-            expr=parse_expr("JSONExtract(properties, 'csm', 'Tuple(id Nullable(Int64), email Nullable(String))')"),
-        ),
-        "account_executive": ExpressionField(
-            name="account_executive",
-            expr=parse_expr(
-                "JSONExtract(properties, 'account_executive', 'Tuple(id Nullable(Int64), email Nullable(String))')"
-            ),
-        ),
-        "account_owner": ExpressionField(
-            name="account_owner",
-            expr=parse_expr(
-                "JSONExtract(properties, 'account_owner', 'Tuple(id Nullable(Int64), email Nullable(String))')"
-            ),
         ),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who created the account record."

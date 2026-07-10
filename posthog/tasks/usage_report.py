@@ -1296,6 +1296,8 @@ def get_teams_with_ai_event_count_in_period(
 
 # AI billing markup: 20% markup on top of cost
 AI_COST_MARKUP_PERCENT = 0.2
+# PostHog Code bills model costs as pure pass-through: no markup
+POSTHOG_CODE_COST_MARKUP_PERCENT = 0.0
 # Tools excluded from AI billing (traces with only these tools are not billed)
 AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
 AI_BILLING_INSTANCE_GROUP_TYPE = "instance"
@@ -1318,6 +1320,7 @@ POSTHOG_AI_PRODUCTS = [
     "alert_investigation_agent",
     "product_analytics",
     "surveys",
+    "replay_vision",
 ]
 
 # ai_product values billed as PostHog Code credits.
@@ -1348,6 +1351,7 @@ def _get_teams_with_ai_credits_for_products(
     ai_products: list[str],
     usage_report_tag: str,
     product_tag: Product = Product.MAX_AI,
+    markup_percent: float = AI_COST_MARKUP_PERCENT,
 ) -> list[tuple[int, int]]:
     """
     Shared implementation for AI billing credit aggregation, whitelisting on the
@@ -1513,7 +1517,7 @@ def _get_teams_with_ai_credits_for_products(
                 "team_to_query": team_to_query,
                 "begin": begin,
                 "end": end,
-                "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
+                "markup_multiplier": 1 + markup_percent,
                 "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
                 "ai_products": tuple(ai_products),
                 **region_filter_params,
@@ -1559,13 +1563,17 @@ def get_teams_with_posthog_code_credits_used_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    """PostHog Code billing credits — only events tagged with ai_product='posthog_code'."""
+    """PostHog Code billing credits — only events tagged with ai_product='posthog_code'.
+
+    Billed as pure pass-through of model costs (no markup), unlike PostHog AI's 20%.
+    """
     return _get_teams_with_ai_credits_for_products(
         begin,
         end,
         ai_products=POSTHOG_CODE_AI_PRODUCTS,
         usage_report_tag="posthog_code_credits",
         product_tag=Product.POSTHOG_CODE,
+        markup_percent=POSTHOG_CODE_COST_MARKUP_PERCENT,
     )
 
 

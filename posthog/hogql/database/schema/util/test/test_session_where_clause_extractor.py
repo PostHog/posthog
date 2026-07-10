@@ -5,6 +5,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from django.conf import settings
 
+from parameterized import parameterized
+
 from posthog.schema import SessionTableVersion
 
 from posthog.hogql import ast
@@ -317,6 +319,69 @@ SELECT
         select = ast.SelectQuery(select=[], where=where)
         actual = f(self.inliner.get_inner_where(select))
         expected = f("raw_sessions.min_timestamp >= ('2024-03-12' - toIntervalDay(3))")
+        assert expected == actual
+
+    @parameterized.expand(
+        [
+            # `NOT (a OR b)` as an ast.Not node
+            ("not_node", lambda inner: ast.Not(expr=inner)),
+            # the same thing as a `not(...)` call, which the parser can also emit
+            ("not_call", lambda inner: ast.Call(name="not", args=[inner])),
+        ]
+    )
+    def test_negated_or_chain_fails_safe(self, _name, wrap):
+        # `NOT (host ILIKE 'a' OR host ILIKE 'b')` must not lift `NOT True` = False into the inner
+        # aggregation (which would drop every session). The extractor can't reduce it, so no inner filter.
+        negated_or = wrap(
+            ast.Or(
+                exprs=[
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["host"]),
+                        op=ast.CompareOperationOp.ILike,
+                        right=ast.Constant(value="localhost:3000"),
+                    ),
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["host"]),
+                        op=ast.CompareOperationOp.ILike,
+                        right=ast.Constant(value="localhost:3001"),
+                    ),
+                ]
+            )
+        )
+        select = ast.SelectQuery(select=[], where=negated_or)
+        assert self.inliner.get_inner_where(select) is None
+
+    def test_negated_or_chain_does_not_poison_timestamp_bound(self):
+        # A liftable timestamp bound alongside a negated OR-chain must still be extracted cleanly — the
+        # NOT branch fails safe to True and is dropped from the AND, rather than adding `NOT True` = False.
+        where = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=["$start_timestamp"]),
+                    op=ast.CompareOperationOp.Gt,
+                    right=ast.Constant(value="2021-01-01"),
+                ),
+                ast.Not(
+                    expr=ast.Or(
+                        exprs=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["host"]),
+                                op=ast.CompareOperationOp.ILike,
+                                right=ast.Constant(value="localhost:3000"),
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["host"]),
+                                op=ast.CompareOperationOp.ILike,
+                                right=ast.Constant(value="localhost:3001"),
+                            ),
+                        ]
+                    )
+                ),
+            ]
+        )
+        select = ast.SelectQuery(select=[], where=where)
+        actual = f(self.inliner.get_inner_where(select))
+        expected = f("raw_sessions.min_timestamp >= ('2021-01-01' - toIntervalDay(3))")
         assert expected == actual
 
     def test_handles_select_set_query_in_comparison(self):

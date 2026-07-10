@@ -55,7 +55,7 @@ class BackfillQuery:
                 team_where = "true"
 
             return (
-                RAW_SESSION_TABLE_BACKFILL_SELECT_SQL()
+                RAW_SESSION_TABLE_BACKFILL_SELECT_SQL(self.team_id)
                 + f"""
 AND and(
     {date_where},

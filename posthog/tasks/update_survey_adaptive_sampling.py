@@ -3,11 +3,10 @@ from datetime import datetime, timedelta
 
 from django.utils.timezone import now
 
-from posthog.clickhouse.client import sync_execute
-from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 
 from products.surveys.backend.models import Survey
-from products.surveys.backend.util import SurveyEventProperties, get_survey_property_string_expr
 
 
 def _update_survey_adaptive_sampling(survey: Survey) -> None:
@@ -26,7 +25,7 @@ def _update_survey_adaptive_sampling(survey: Survey) -> None:
     if today_entry is None:
         return
 
-    total_response_count = _get_survey_responses_count(survey.id, survey.team_id)
+    total_response_count = _get_survey_responses_count(survey)
     if total_response_count < today_entry.get("daily_response_limit", 0) and survey.internal_response_sampling_flag:
         # Update the internal_response_sampling_flag's rollout percentage
         internal_response_sampling_flag = survey.internal_response_sampling_flag
@@ -42,25 +41,19 @@ def _update_survey_adaptive_sampling(survey: Survey) -> None:
         survey.save(update_fields=["response_sampling_start_date", "response_sampling_daily_limits"])
 
 
-def _get_survey_responses_count(survey_id: int, team_id: int) -> int:
-    use_new = use_new_events_schema(team_id)
-    survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID, use_new_events_schema=use_new)
-
-    # nosemgrep: clickhouse-fstring-param-audit - survey property/table expressions come from internal helpers
-    data = sync_execute(
-        f"""
-                SELECT {survey_id_expr} as survey_id, count()
-                FROM {events_read_table(use_new)}
-                WHERE event = 'survey sent' AND {survey_id_expr} = %(survey_id)s
-            """,
-        {"survey_id": survey_id},
+def _get_survey_responses_count(survey: Survey) -> int:
+    response = execute_hogql_query(
+        """
+        SELECT count()
+        FROM events
+        WHERE event = 'survey sent'
+            AND properties.$survey_id = {survey_id}
+        """,
+        placeholders={"survey_id": ast.Constant(value=str(survey.id))},
+        team=survey.team,
+        query_type="update_survey_adaptive_sampling",
     )
-
-    counts = {}
-    for survey_id, count in data:
-        counts[survey_id] = count
-
-    return counts[survey_id]
+    return response.results[0][0] if response.results else 0
 
 
 def update_survey_adaptive_sampling() -> None:

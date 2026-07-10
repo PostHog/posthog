@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
     from posthog.models import Team, User
     from posthog.rbac.user_access_control import UserAccessControl
+    from posthog.scopes import APIScopeObject
 
 
 def _default_modifiers() -> "HogQLQueryModifiers":
@@ -69,11 +70,6 @@ class HogQLContext:
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
     use_new_events_schema: Optional[bool] = None
-    # Temporary (June 2026 MaxMind incident): the geoip dict fallback decision, evaluated exactly once per query in
-    # `prepare_ast_for_printing` so the transform and the printer's `_lookupGeoip*` gate can never disagree mid-query
-    # (the underlying probe is a background-refreshed cache that may flip between evaluations). Remove with the
-    # transform in posthog/hogql/transforms/geoip_dict_fallback.py.
-    geoip_dict_fallback_enabled: bool = False
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
@@ -98,6 +94,12 @@ class HogQLContext:
     # Data warehouse sync warnings collected while resolving warehouse tables referenced by the query.
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
+
+    # Resources with object-level access restrictions referenced by the query, collected while printing
+    # system tables. A set dedupes when several system tables share an access scope (e.g. system.dashboards
+    # and system.dashboard_tiles both scope "dashboard"). Turned into a single AccessControlFilterWarning
+    # on the response by build_access_control_warning.
+    access_control_restricted_resources: set["APIScopeObject"] = field(default_factory=set)
 
     # Timings in seconds for different parts of the HogQL query
     timings: HogQLTimings = field(default_factory=HogQLTimings)

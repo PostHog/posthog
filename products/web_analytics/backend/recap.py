@@ -5,9 +5,11 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.utils import timezone
 
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
+from posthog.models.user import User
 
-from products.web_analytics.backend.weekly_digest import build_team_digest
+from products.web_analytics.backend.weekly_digest import DEFAULT_DIGEST_EXECUTION_MODE, build_team_digest
 
 # Below this many weekly visitors we don't try to assign a "real" persona — we
 # celebrate the start of the journey instead of surfacing a thin, discouraging stat.
@@ -231,9 +233,16 @@ def recap_url_for_team(team: Team, *, utm_source: str, utm_medium: str | None = 
     return f"{settings.SITE_URL}/project/{team.pk}/web/recap?{urlencode(params)}"
 
 
-def build_team_recap(team: Team, days: int = 7, compare: bool = True) -> dict:
+def build_team_recap(
+    team: Team,
+    days: int = 7,
+    compare: bool = True,
+    *,
+    execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
+    user: User | None = None,
+) -> dict:
     """Build the full weekly recap payload: the digest data plus the derived persona and highlights."""
-    digest = build_team_digest(team, days=days, compare=compare)
+    digest = build_team_digest(team, days=days, compare=compare, execution_mode=execution_mode, user=user)
     return {
         **digest,
         "persona": compute_persona(digest),

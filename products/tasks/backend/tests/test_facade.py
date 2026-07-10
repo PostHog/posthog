@@ -18,7 +18,7 @@ from products.tasks.backend.facade import (
     warm as warm_facade,
 )
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
-from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
+from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -449,4 +449,17 @@ class TestFacadeReadsAndMappers(TestCase):
         run = TaskRun.objects.get(task_id=created.task_id)
         # The agent server boots idle; forward_pending_user_message only kicks it off if the run state
         # carries the prompt. Without this the cloud wizard stalls right after "Started agent".
-        self.assertEqual(run.state.get("pending_user_message"), WIZARD_PR_AGENT_PROMPT)
+        head_branch = run.state.get("wizard_head_branch")
+        # Server-generated head branch: the GitHub PR webhook binds the opened PR back to this
+        # run by matching it (wizard PRs are bot-authored, so agent-side attribution can't).
+        # Losing the state key or leaving the placeholder untemplated in the prompt silently
+        # unbinds every wizard PR again.
+        assert head_branch is not None
+        self.assertRegex(head_branch, r"^posthog/instrumentation-[0-9a-f]{6}$")
+        self.assertEqual(run.state.get("pending_user_message"), build_wizard_pr_agent_prompt(head_branch))
+        self.assertIn(f"`{head_branch}`", run.state["pending_user_message"])
+        self.assertNotIn(WIZARD_HEAD_BRANCH_PLACEHOLDER, run.state["pending_user_message"])
+        # The agent-server self-delivers pending_user_message the moment it boots, so an
+        # overlap-clone-boot launch (before run_wizard) burns the prompt on an untouched repo
+        # and the run never opens a PR. Wizard runs must pin the overlap boot off.
+        self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)

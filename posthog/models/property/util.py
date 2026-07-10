@@ -6,8 +6,6 @@ from collections import (
 from collections.abc import Callable, Iterable
 from typing import Any, Literal, Optional, Union, cast
 
-from django.db.models import QuerySet
-
 from rest_framework import exceptions
 
 from posthog.hogql import ast
@@ -36,9 +34,7 @@ from posthog.models.property.property import ValueT
 from posthog.models.team import Team
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
-from posthog.schema_enums import PropertyOperator
 from posthog.session_recordings.queries.session_query import SessionQuery
-from posthog.types import ErrorTrackingIssueFilter
 from posthog.utils import is_json, is_valid_regex
 
 from products.actions.backend.models.action import Action
@@ -134,13 +130,6 @@ def parse_prop_grouped_clauses(
         final = f"({_final})"
 
     return final, final_params
-
-
-def is_property_group(group: Union[Property, "PropertyGroup"]):
-    if isinstance(group, PropertyGroup):
-        return True
-    else:
-        return False
 
 
 def parse_prop_clauses(
@@ -637,79 +626,6 @@ def property_table(property: Property) -> TableWithProperties:
         raise ValueError(f"Property type does not have a table: {property.type}")
 
 
-def get_single_or_multi_property_string_expr(
-    breakdown,
-    table: TableWithProperties,
-    query_alias: Literal["prop", "value", "prop_basic", None],
-    column: str,
-    allow_denormalized_props=True,
-    materialised_table_column: str = "properties",
-    normalize_url: bool = False,
-    use_new_events_schema: bool = False,
-) -> tuple[str, dict[str, Any]]:
-    """
-    When querying for breakdown properties:
-     * If the breakdown provided is a string, we extract the JSON from the properties object stored in the DB
-     * If it is an array of strings, we extract each of those properties and concatenate them into a single value
-    clickhouse parameterizes into a query template from a flat list using % string formatting
-    values are escaped and inserted in the query here instead of adding new items to the flat list of values
-
-    :param query_alias:
-
-        Specifies the SQL query alias to add to the expression e.g. `AS prop`. If this is specified as None, then
-        no alias will be appended.
-
-    """
-    breakdown_params: dict[str, Any] = {}
-    if isinstance(breakdown, str) or isinstance(breakdown, int):
-        breakdown_key = f"breakdown_param_{len(breakdown_params) + 1}"
-        breakdown_key = f"breakdown_param_{len(breakdown_params) + 1}"
-        breakdown_params[breakdown_key] = breakdown
-
-        expression, _ = get_property_string_expr(
-            table,
-            str(breakdown),
-            f"%({breakdown_key})s",
-            column,
-            allow_denormalized_props,
-            materialised_table_column=materialised_table_column,
-            use_new_events_schema=use_new_events_schema,
-        )
-
-        expression = normalize_url_breakdown(expression, normalize_url)
-    else:
-        expressions = []
-        for b in breakdown:
-            breakdown_key = f"breakdown_param_{len(breakdown_params) + 1}"
-            breakdown_params[breakdown_key] = b
-            expr, _ = get_property_string_expr(
-                table,
-                b,
-                f"%({breakdown_key})s",
-                column,
-                allow_denormalized_props,
-                materialised_table_column=materialised_table_column,
-                use_new_events_schema=use_new_events_schema,
-            )
-            expressions.append(normalize_url_breakdown(expr, normalize_url))
-
-        expression = f"array({','.join(expressions)})"
-
-    if query_alias is None:
-        return expression, breakdown_params
-
-    return f"{expression} AS {query_alias}", breakdown_params
-
-
-def normalize_url_breakdown(breakdown_value, breakdown_normalize_url: bool = True):
-    if breakdown_normalize_url:
-        return (
-            f"if( empty(trim(TRAILING '/?#' from {breakdown_value})), '/', trim(TRAILING '/?#' from {breakdown_value}))"
-        )
-
-    return breakdown_value
-
-
 def get_property_string_expr(
     table: TableWithProperties,
     property_name: PropertyName,
@@ -1024,71 +940,6 @@ def clear_excess_levels(prop: Union["PropertyGroup", "Property"], skip=False):
             prop.values = [clear_excess_levels(p, skip=True) for p in prop.values]
 
     return prop
-
-
-_ALLOWED_ISSUE_FILTER_KEYS = {"name", "status", "issue_description", "first_seen"}
-
-
-def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFilter):
-    # Allowlist prevents ORM relationship traversal via Django's __ notation
-    if property.key not in _ALLOWED_ISSUE_FILTER_KEYS:
-        raise ValueError(f"Unsupported error tracking filter key: {property.key}")
-
-    operator = property.operator
-    value = property.value
-    field = property.key
-
-    if property.type == "error_tracking_issue" and property.key == "issue_description":
-        field = "description"
-
-    array_based = (
-        operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_NOT or operator == PropertyOperator.NOT_IN
-    )
-    negated = (
-        True
-        if operator
-        in [
-            PropertyOperator.IS_NOT,
-            PropertyOperator.NOT_ICONTAINS,
-            PropertyOperator.NOT_ICONTAINS_MULTI,
-            PropertyOperator.NOT_REGEX,
-            PropertyOperator.IS_SET,
-            PropertyOperator.NOT_IN,
-        ]
-        else False
-    )
-    query = f"{field}"
-
-    if array_based and not value:
-        return queryset
-
-    if array_based:
-        query += "__in"
-    elif operator == PropertyOperator.IS_SET or operator == PropertyOperator.IS_NOT_SET:
-        query += "__isnull"
-        value = True
-    elif operator == PropertyOperator.ICONTAINS or operator == PropertyOperator.NOT_ICONTAINS:
-        query += "__icontains"
-    elif operator == PropertyOperator.ICONTAINS_MULTI or operator == PropertyOperator.NOT_ICONTAINS_MULTI:
-        query += "__icontains"
-    elif operator == PropertyOperator.REGEX:
-        query += "__regex"
-    elif operator == PropertyOperator.IS_DATE_EXACT:
-        query += "__date"
-    elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
-        query += "__gt"
-    elif operator == PropertyOperator.GTE:
-        query += "__gte"
-    elif operator == PropertyOperator.LT or operator == PropertyOperator.IS_DATE_BEFORE:
-        query += "__lt"
-    elif operator == PropertyOperator.LTE:
-        query += "__lte"
-    else:
-        raise NotImplementedError(f"PropertyOperator {operator} not implemented")
-
-    filter = {f"{query}": value}
-
-    return queryset.exclude(**filter) if negated else queryset.filter(**filter)
 
 
 class S3TableVisitor(TraversingVisitor):

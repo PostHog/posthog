@@ -242,6 +242,11 @@ jobs:
                         - bin/ci-wait-for-docker
                         - frontend/public/email/*
                         - 'docker/clickhouse/**'
+                        # Same rationale as the backend filter's excludes above: docs-only
+                        # changes match the broad globs but exercise no legacy backend code,
+                        # so they shouldn't trigger the Django/turbo-discover path either.
+                        - '!**/*.md'
+                        - '!**/*.mdx'
                       schema:
                         # Tracked separately from `legacy` so turbo-discover can
                         # diff schema.json and narrow the product matrix to
@@ -692,7 +697,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.10.60
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.6.1.1193
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   bin/ci-wait-for-docker launch --background --down \
@@ -758,7 +763,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.10.60
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.6.1.1193
               run: bin/ci-wait-for-docker wait
 
             - name: Restore schema cache from master

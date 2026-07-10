@@ -2,6 +2,7 @@ from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 
 TABLE_BASE_NAME = "raw_sessions"
 
@@ -169,24 +170,28 @@ SAMPLE BY cityHash64(session_id_v7)
     )
 
 
-def source_url_column(column_name: str) -> str:
-    return f"nullIf(JSONExtractString(properties, '{column_name}'), '')"
+def source_url_column(column_name: str, properties: str = "properties") -> str:
+    return f"nullIf(JSONExtractString({properties}, '{column_name}'), '')"
 
 
-def source_string_column(column_name: str) -> str:
-    return f"JSONExtractString(properties, '{column_name}')"
+def source_string_column(column_name: str, properties: str = "properties") -> str:
+    return f"JSONExtractString({properties}, '{column_name}')"
 
 
-def source_int_column(column_name: str) -> str:
-    return f"JSONExtractInt(properties, '{column_name}')"
+def source_int_column(column_name: str, properties: str = "properties") -> str:
+    return f"JSONExtractInt({properties}, '{column_name}')"
 
 
-def source_nullable_float_column(column_name: str) -> str:
+def source_nullable_float_column(column_name: str, properties: str = "properties") -> str:
     # this is what we do in queries, but it seems pretty awful
-    return f"""accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '{column_name}'), ''), 'null'), '^"|"$', ''), 'Float64')"""
+    return f"""accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({properties}, '{column_name}'), ''), 'null'), '^"|"$', ''), 'Float64')"""
 
 
-RAW_SESSION_TABLE_BACKFILL_SELECT_SQL = lambda: """
+def RAW_SESSION_TABLE_BACKFILL_SELECT_SQL(team_id: int | None = None) -> str:
+    use_new = use_new_events_schema(team_id)
+    properties = "toJSONString(properties)" if use_new else "properties"
+
+    return """
 SELECT
     team_id,
     toUInt128(toUUID(`$session_id`)) as session_id_v7,
@@ -261,51 +266,52 @@ SELECT
 
     -- vitals
     initializeAggregation('argMinState', {vitals_lcp}, timestamp) as vitals_lcp
-FROM {database}.events
+FROM {database}.{events_table}
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 """.format(
-    database=settings.CLICKHOUSE_DATABASE,
-    current_url=source_url_column("$current_url"),
-    current_url_string=source_string_column("$current_url"),
-    external_click_url=source_string_column("$external_click_url"),
-    browser=source_string_column("$browser"),
-    browser_version=source_string_column("$browser_version"),
-    os=source_string_column("$os"),
-    os_version=source_string_column("$os_version"),
-    device_type=source_string_column("$device_type"),
-    viewport_width=source_int_column("$viewport_width"),
-    viewport_height=source_int_column("$viewport_height"),
-    geoip_country_code=source_string_column("$geoip_country_code"),
-    geoip_subdivision_1_code=source_string_column("$geoip_subdivision_1_code"),
-    geoip_subdivision_1_name=source_string_column("$geoip_subdivision_1_name"),
-    geoip_subdivision_city_name=source_string_column("$geoip_subdivision_city_name"),
-    geoip_time_zone=source_string_column("$geoip_time_zone"),
-    referring_domain=source_string_column("$referring_domain"),
-    utm_source=source_string_column("utm_source"),
-    utm_campaign=source_string_column("utm_campaign"),
-    utm_medium=source_string_column("utm_medium"),
-    utm_term=source_string_column("utm_term"),
-    utm_content=source_string_column("utm_content"),
-    gclid=source_string_column("gclid"),
-    gad_source=source_string_column("gad_source"),
-    gclsrc=source_string_column("gclsrc"),
-    dclid=source_string_column("dclid"),
-    gbraid=source_string_column("gbraid"),
-    wbraid=source_string_column("wbraid"),
-    fbclid=source_string_column("fbclid"),
-    msclkid=source_string_column("msclkid"),
-    twclid=source_string_column("twclid"),
-    li_fat_id=source_string_column("li_fat_id"),
-    mc_cid=source_string_column("mc_cid"),
-    igshid=source_string_column("igshid"),
-    ttclid=source_string_column("ttclid"),
-    epik=source_string_column("epik"),
-    qclid=source_string_column("qclid"),
-    sccid=source_string_column("sccid"),
-    kx=source_string_column("_kx"),
-    irclid=source_string_column("irclid"),
-    vitals_lcp=source_nullable_float_column("$web_vitals_LCP_value"),
-)
+        database=settings.CLICKHOUSE_DATABASE,
+        events_table=events_read_table(use_new),
+        current_url=source_url_column("$current_url", properties),
+        current_url_string=source_string_column("$current_url", properties),
+        external_click_url=source_string_column("$external_click_url", properties),
+        browser=source_string_column("$browser", properties),
+        browser_version=source_string_column("$browser_version", properties),
+        os=source_string_column("$os", properties),
+        os_version=source_string_column("$os_version", properties),
+        device_type=source_string_column("$device_type", properties),
+        viewport_width=source_int_column("$viewport_width", properties),
+        viewport_height=source_int_column("$viewport_height", properties),
+        geoip_country_code=source_string_column("$geoip_country_code", properties),
+        geoip_subdivision_1_code=source_string_column("$geoip_subdivision_1_code", properties),
+        geoip_subdivision_1_name=source_string_column("$geoip_subdivision_1_name", properties),
+        geoip_subdivision_city_name=source_string_column("$geoip_subdivision_city_name", properties),
+        geoip_time_zone=source_string_column("$geoip_time_zone", properties),
+        referring_domain=source_string_column("$referring_domain", properties),
+        utm_source=source_string_column("utm_source", properties),
+        utm_campaign=source_string_column("utm_campaign", properties),
+        utm_medium=source_string_column("utm_medium", properties),
+        utm_term=source_string_column("utm_term", properties),
+        utm_content=source_string_column("utm_content", properties),
+        gclid=source_string_column("gclid", properties),
+        gad_source=source_string_column("gad_source", properties),
+        gclsrc=source_string_column("gclsrc", properties),
+        dclid=source_string_column("dclid", properties),
+        gbraid=source_string_column("gbraid", properties),
+        wbraid=source_string_column("wbraid", properties),
+        fbclid=source_string_column("fbclid", properties),
+        msclkid=source_string_column("msclkid", properties),
+        twclid=source_string_column("twclid", properties),
+        li_fat_id=source_string_column("li_fat_id", properties),
+        mc_cid=source_string_column("mc_cid", properties),
+        igshid=source_string_column("igshid", properties),
+        ttclid=source_string_column("ttclid", properties),
+        epik=source_string_column("epik", properties),
+        qclid=source_string_column("qclid", properties),
+        sccid=source_string_column("sccid", properties),
+        kx=source_string_column("_kx", properties),
+        irclid=source_string_column("irclid", properties),
+        vitals_lcp=source_nullable_float_column("$web_vitals_LCP_value", properties),
+    )
 
 
 RAW_SESSION_TABLE_MV_SELECT_SQL = lambda: """
