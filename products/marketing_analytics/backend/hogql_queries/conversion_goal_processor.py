@@ -42,6 +42,12 @@ LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) *
 # This follows the industry standard (Google Analytics, Adobe, Mixpanel all use 7-day half-life).
 TIME_DECAY_HALF_LIFE_DIVISOR = 4
 
+# Freshness windows for the precompute read path. The Dagster warmer
+# (products/marketing_analytics/dags/marketing_precompute.py) MUST drive ensure_precomputed with this
+# exact schedule — otherwise the read path's freshness check would treat warmed rows as stale and
+# recompute them inline, defeating the warm-up.
+PRECOMPUTE_TTL_SECONDS = {"0d": 15 * 60, "1d": 60 * 60, "7d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
+
 logger = structlog.get_logger(__name__)
 
 
@@ -349,12 +355,14 @@ class ConversionGoalProcessor:
         array_collection = self.build_array_collection_query(additional_conditions)
         return self.build_attribution_pipeline(array_collection)
 
-    def _should_use_precompute(self, date_from: Optional[datetime], date_to: Optional[datetime]) -> bool:
-        """Eligibility check: flag on, explicit date range, Events/Actions goal, no person/cohort filters."""
-        if not self.config.conversion_goal_precomputation_enabled:
-            return False
-        if date_from is None or date_to is None:
-            return False
+    def is_goal_precomputable(self) -> bool:
+        """Goal-level precompute eligibility, independent of the requesting user, date range, or flag.
+
+        Shared by the live read path (`_should_use_precompute`) and the Dagster warmer
+        (products/marketing_analytics/dags/marketing_precompute.py) so both agree on which goals get a
+        conversions precompute job — otherwise the warmer could materialize jobs the read never asks for,
+        or skip ones it does.
+        """
         if self.goal.kind not in ("EventsNode", "ActionsNode"):
             return False
         if self.goal.kind == "EventsNode" and not self.goal.event:
@@ -372,6 +380,18 @@ class ConversionGoalProcessor:
         # schema_map would read mismatched columns on the conversion side, so use the direct path.
         if any(self._resolve_field_name(field) != field.event_property for field in TRACKED_FIELDS):
             return False
+        return True
+
+    def _should_use_precompute(self, date_from: Optional[datetime], date_to: Optional[datetime]) -> bool:
+        """Read-path eligibility: flag on, explicit date range, goal precomputable, no restricted props."""
+        if not self.config.conversion_goal_precomputation_enabled:
+            return False
+        if date_from is None or date_to is None:
+            return False
+        if not self.is_goal_precomputable():
+            return False
+        # User-scoped: the precompute path materializes some event properties as plain columns, bypassing
+        # per-user masking. When any is restricted for THIS user, fall back to the masked direct path.
         if self._precompute_properties_restricted_for_user():
             return False
         return True
@@ -464,7 +484,6 @@ class ConversionGoalProcessor:
         collection through the existing pipeline (all modes). Neither precompute depends on attribution
         mode or window. Returns None if either set of jobs isn't ready — caller falls back.
         """
-        ttl_seconds = {"0d": 15 * 60, "1d": 60 * 60, "7d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
         window = timedelta(days=self.config.attribution_window_days)
 
         # Touchpoints extend back by the attribution window; conversions only span the query range.
@@ -473,7 +492,7 @@ class ConversionGoalProcessor:
             insert_query=build_touchpoints_precompute_query(),
             time_range_start=date_from - window,
             time_range_end=date_to,
-            ttl_seconds=ttl_seconds,
+            ttl_seconds=PRECOMPUTE_TTL_SECONDS,
             table=LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
         )
         if not touchpoints_result.ready:
@@ -484,7 +503,7 @@ class ConversionGoalProcessor:
             insert_query=self.build_conversions_precompute_query(),
             time_range_start=date_from,
             time_range_end=date_to,
-            ttl_seconds=ttl_seconds,
+            ttl_seconds=PRECOMPUTE_TTL_SECONDS,
             table=LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
         )
         if not conversions_result.ready:
