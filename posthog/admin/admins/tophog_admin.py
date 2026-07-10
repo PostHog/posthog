@@ -3,22 +3,34 @@ from collections import OrderedDict, defaultdict
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
+from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.team.team import Team
 from posthog.models.tophog.queries import query_tophog_filter_options, query_tophog_metrics
 
 logger = logging.getLogger(__name__)
 
-# Maps tophog key fields to EventIngestionRestrictionConfig form fields for prefilling the add form
-RESTRICTION_PREFILL_FIELDS = {
+# Maps tophog key fields to EventIngestionRestrictionConfig filter fields, used both for
+# matching existing restrictions against a tophog entry and for prefilling the add form
+RESTRICTION_FILTER_FIELDS = {
     "distinct_id": "distinct_ids",
     "session_id": "session_ids",
     "event_name": "event_names",
     "event_uuid": "event_uuids",
+}
+
+# Maps tophog pipeline names (INGESTION_PIPELINE deployment values) to
+# EventIngestionRestrictionConfig pipeline values until the naming is unified
+TOPHOG_TO_RESTRICTION_PIPELINE = {
+    "analytics": "analytics",
+    "sessionreplay": "session_recordings",
+    "errortracking": "errortracking",
+    "clientwarnings": "clientwarnings",
 }
 
 PRESETS = OrderedDict(
@@ -79,14 +91,70 @@ def _key_token(key: dict[str, str], tokens_by_team_id: dict[str, str]) -> str:
     return tokens_by_team_id.get(key.get("team_id", ""), "")
 
 
-def _restriction_url(token: str, key: dict[str, str]) -> str:
+def _map_pipelines(tophog_pipelines: list[str]) -> list[str]:
+    return sorted({TOPHOG_TO_RESTRICTION_PIPELINE[p] for p in tophog_pipelines if p in TOPHOG_TO_RESTRICTION_PIPELINE})
+
+
+def _restrictions_page_url(token: str, key: dict[str, str], tophog_pipelines: list[str]) -> str:
+    """Link to the restrictions page for a tophog entry, carrying the full key for search and prefill."""
+    params = {"token": token, **{k: v for k, v in key.items() if k != "token"}}
+    if tophog_pipelines:
+        params["pipelines"] = ",".join(tophog_pipelines)
+    return reverse("tophog-restrictions") + "?" + urlencode(params)
+
+
+def _create_restriction_url(token: str, key: dict[str, str], restriction_pipelines: list[str]) -> str:
     """Link to the event ingestion restriction add form, prefilled from a tophog key."""
     params = {"token": token}
-    for key_field, form_field in RESTRICTION_PREFILL_FIELDS.items():
+    for key_field, config_field in RESTRICTION_FILTER_FIELDS.items():
         value = key.get(key_field)
         if value:
-            params[form_field] = value
+            params[config_field] = value
+    if restriction_pipelines:
+        params["pipelines"] = ",".join(restriction_pipelines)
     return reverse("admin:posthog_eventingestionrestrictionconfig_add") + "?" + urlencode(params)
+
+
+def _restriction_matches(
+    restriction: EventIngestionRestrictionConfig, key: dict[str, str], restriction_pipelines: list[str]
+) -> bool:
+    """Whether an existing restriction already covers the tophog entry described by key and pipelines.
+
+    Mirrors the ingestion matching semantics: an empty filter list matches everything,
+    a non-empty list matches if it contains the entry's value (fields combine with AND).
+    Key fields absent from the tophog entry don't disqualify a restriction.
+    """
+    if _extendable_fields(restriction, key):
+        return False
+    if restriction_pipelines and restriction.pipelines and not set(restriction_pipelines) & set(restriction.pipelines):
+        return False
+    return True
+
+
+def _extendable_fields(restriction: EventIngestionRestrictionConfig, key: dict[str, str]) -> list[str]:
+    """Filter fields whose configured values exclude the tophog entry's value.
+
+    Only non-empty lists qualify: appending to an empty list would narrow a
+    match-everything filter down to a single value instead of extending it.
+    """
+    extendable = []
+    for key_field, config_field in RESTRICTION_FILTER_FIELDS.items():
+        value = key.get(key_field)
+        configured = getattr(restriction, config_field) or []
+        if value and configured and value not in configured:
+            extendable.append(config_field)
+    return extendable
+
+
+def _extend_restriction(restriction: EventIngestionRestrictionConfig, key: dict[str, str]) -> list[str]:
+    """Append the tophog entry's key values to the restriction's filter lists; returns changed fields."""
+    changed = _extendable_fields(restriction, key)
+    for key_field, config_field in RESTRICTION_FILTER_FIELDS.items():
+        if config_field in changed:
+            setattr(restriction, config_field, [*getattr(restriction, config_field), key[key_field]])
+    if changed:
+        restriction.save()
+    return changed
 
 
 def tophog_dashboard_view(request):
@@ -129,7 +197,7 @@ def tophog_dashboard_view(request):
                     "pipeline": ", ".join(row["pipelines"]),
                     "lane": ", ".join(row["lanes"]),
                     "token": token,
-                    "restriction_url": _restriction_url(token, row["key"]) if token else "",
+                    "restrictions_url": (_restrictions_page_url(token, row["key"], row["pipelines"]) if token else ""),
                 }
             )
     except Exception as e:
@@ -165,3 +233,59 @@ def tophog_dashboard_view(request):
         "filter_qs": filter_qs,
     }
     return render(request, "admin/tophog.html", context)
+
+
+def tophog_restrictions_view(request):
+    if not request.user.is_staff:
+        raise PermissionDenied
+
+    token = request.GET.get("token", "")
+    key = {k: v for k, v in request.GET.items() if k not in ("token", "pipelines") and v}
+    tophog_pipelines = [p for p in request.GET.get("pipelines", "").split(",") if p]
+    restriction_pipelines = _map_pipelines(tophog_pipelines)
+
+    if request.method == "POST":
+        restriction = EventIngestionRestrictionConfig.objects.filter(
+            pk=request.POST.get("restriction_id"), token=token
+        ).first()
+        if restriction is None:
+            messages.error(request, "Restriction not found for this token.")
+        else:
+            changed = _extend_restriction(restriction, key)
+            if changed:
+                messages.success(
+                    request,
+                    f"Extended {restriction.get_restriction_type_display()} restriction: {', '.join(changed)}.",
+                )
+            else:
+                messages.info(request, "Nothing to add — restriction unchanged.")
+        return HttpResponseRedirect(f"{request.path}?{request.GET.urlencode()}")
+
+    restrictions = (
+        EventIngestionRestrictionConfig.objects.filter(token=token).order_by("restriction_type") if token else []
+    )
+    entries = [
+        {
+            "restriction": restriction,
+            "matches": _restriction_matches(restriction, key, restriction_pipelines),
+            "extendable_fields": _extendable_fields(restriction, key),
+            "edit_url": reverse("admin:posthog_eventingestionrestrictionconfig_change", args=[restriction.pk]),
+        }
+        for restriction in restrictions
+    ]
+
+    unmapped_pipelines = [p for p in tophog_pipelines if p not in TOPHOG_TO_RESTRICTION_PIPELINE]
+
+    context = {
+        **admin.site.each_context(request),
+        "title": "TopHog Restrictions",
+        "token": token,
+        "key": key,
+        "tophog_pipelines": tophog_pipelines,
+        "restriction_pipelines": restriction_pipelines,
+        "unmapped_pipelines": unmapped_pipelines,
+        "entries": entries,
+        "create_url": _create_restriction_url(token, key, restriction_pipelines) if token else "",
+        "dashboard_url": reverse("tophog-dashboard"),
+    }
+    return render(request, "admin/tophog_restrictions.html", context)
