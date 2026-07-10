@@ -8,7 +8,7 @@ import {
     useState,
 } from 'react'
 
-import { IconCode, IconComment, IconCopy, IconQuote, IconSparkles } from '@posthog/icons'
+import { IconCode, IconComment, IconCopy, IconExternal, IconQuote, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
@@ -358,6 +358,20 @@ export function FormattingToolbar({
                         autoFocus
                         className="MarkdownNotebook__format-link-input"
                     />
+                    {hasExistingLink && sanitizeNotebookLinkHref(currentLinkHref ?? '') ? (
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconExternal />}
+                            tooltip="Open link in new tab"
+                            aria-label="Open link in new tab"
+                            onClick={() => {
+                                const href = sanitizeNotebookLinkHref(currentLinkHref ?? '')
+                                if (href) {
+                                    window.open(href, '_blank', 'noopener')
+                                }
+                            }}
+                        />
+                    ) : null}
                     {hasExistingLink ? (
                         <LemonButton size="xsmall" status="danger" onClick={removeLink}>
                             Remove

@@ -785,6 +785,23 @@ continued line
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
     })
 
+    it('opens links on modifier-click while editing but not on plain click', () => {
+        const windowOpen = jest.spyOn(window, 'open').mockImplementation(() => null)
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('See [docs](https://posthog.com/docs)') })
+        )
+        const link = container.querySelector('.MarkdownNotebook__text-block a[href]') as HTMLAnchorElement
+        expect(link).toBeInstanceOf(HTMLAnchorElement)
+
+        fireEvent.click(link)
+        expect(windowOpen).not.toHaveBeenCalled()
+
+        fireEvent.click(link, { metaKey: true })
+        expect(windowOpen).toHaveBeenCalledWith('https://posthog.com/docs', '_blank', 'noopener')
+
+        windowOpen.mockRestore()
+    })
+
     it('groups consecutive text, heading, and list rows into text surfaces', () => {
         const { container } = render(
             createElement(MarkdownNotebook, {
