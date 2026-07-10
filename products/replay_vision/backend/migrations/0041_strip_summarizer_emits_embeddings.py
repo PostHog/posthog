@@ -17,7 +17,7 @@ def strip_emits_embeddings(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("replay_vision", "0030_vision_action_unique_scanner_digest"),
+        ("replay_vision", "0040_replayobservation_rlo_team_in_flight_idx"),
     ]
 
     operations = [

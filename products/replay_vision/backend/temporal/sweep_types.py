@@ -22,6 +22,12 @@ class FindScannerCandidatesInputs(BaseModel, frozen=True):
 
 class CountInFlightAppliesInputs(BaseModel, frozen=True):
     scanner_id: UUID
+    team_id: int
+
+
+class InFlightApplyCounts(BaseModel, frozen=True):
+    scanner: int
+    team: int
 
 
 class CandidateSessionPayload(BaseModel, frozen=True):
