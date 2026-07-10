@@ -4,6 +4,7 @@ import { HogFunctionTemplate, NativeTemplate } from '../types'
 import { template as accoilTemplate } from './_destinations/accoil/accoil.template'
 import { template as appcuesTemplate } from './_destinations/appcues/appcues.template'
 import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
+import { template as closeTemplate } from './_destinations/close/close.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as emailTemplate } from './_destinations/email/email.template'
 import { template as firebasePushTemplate } from './_destinations/firebase_push/firebase_push.template'
@@ -24,7 +25,9 @@ import { template as posthogUpdatePersonPropertiesTemplate } from './_destinatio
 import { template as posthogGetTicketTemplate } from './_destinations/posthog_conversations/posthog-get-ticket.template'
 import { template as posthogUpdateTicketTemplate } from './_destinations/posthog_conversations/posthog-update-ticket.template'
 import { template as posthogGetAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-get-account.template'
+import { template as posthogTagAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-tag-account.template'
 import { template as posthogUpdateAccountPropertyTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account-property.template'
+import { template as posthogUpdateAccountRelationshipsTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account-relationships.template'
 import { template as posthogUpdateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
@@ -77,6 +80,8 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogGetTicketTemplate,
     posthogUpdateTicketTemplate,
     posthogGetAccountTemplate,
+    posthogTagAccountTemplate,
+    posthogUpdateAccountRelationshipsTemplate,
     posthogUpdateAccountTemplate,
     posthogUpdateAccountPropertyTemplate,
     hubspotCompanyTemplate,
@@ -84,6 +89,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     appcuesTemplate,
     klimeTemplate,
     unifyTemplate,
+    closeTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [

@@ -67,9 +67,16 @@ def _dt(value: str) -> datetime:
 
 
 def _ago(days: int) -> str:
+    return _ago_with_duration(days, 0)[0]
+
+
+def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
     # Seed dates relative to real time: HogQL now() runs server-side and ignores
     # freezegun, so window/age assertions must share the clock the query uses.
-    return (timezone.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    started_at = timezone.now() - timedelta(days=days)
+    updated_at = started_at + timedelta(seconds=duration_seconds)
+    fmt = "%Y-%m-%d %H:%M:%S"
+    return started_at.strftime(fmt), updated_at.strftime(fmt)
 
 
 def _job_row(
@@ -792,6 +799,75 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.success_rate == 0.5  # 1 success of 2 completed
         assert ci.last_failure_at is not None
         assert ci.billable_minutes is None  # no jobs source seeded → no cost figure
+
+    def test_workflow_health_duration_percentiles_exclude_cancelled_and_failed_runs(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(90, "alice", "open", 0, _ago(1), head_sha="sha90")],
+        )
+        # Every success shares one duration, so success-only p50/p95 are exactly 100; any leaked
+        # cancel (1s) or failure (1000s) in the percentile population moves them off 100.
+        conclusions = [("success", 100)] * 2 + [("cancelled", 1)] * 3 + [("failure", 1000)]
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    9000 + index,
+                    "CI",
+                    f"{conclusion}-{index}",
+                    "completed",
+                    conclusion,
+                    *_ago_with_duration(1, duration_seconds),
+                    pr_number=90,
+                    head_branch="feature/ci",
+                )
+                for index, (conclusion, duration_seconds) in enumerate(conclusions)
+            ],
+        )
+
+        ci = next(
+            item for item in api.list_workflow_health(team=self.team, date_from="-30d") if item.workflow_name == "CI"
+        )
+
+        # Counts and rate stay over all/completed runs; only the duration population narrows.
+        assert ci.run_count == 6
+        assert ci.success_rate == pytest.approx(2 / 6)
+        assert ci.p50_seconds == pytest.approx(100)
+        assert ci.p95_seconds == pytest.approx(100)
+
+    def test_workflow_health_pull_request_scope_excludes_default_branch_and_unattributed_runs(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(91, "alice", "open", 0, _ago(1), head_sha="sha91")],
+        )
+        # The scenario matrix: PR-attributed × head branch. Only the attributed feature-branch
+        # run belongs in the pull_request scope.
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(run_id, "CI", sha, "completed", "success", _ago(1), _ago(1), pr_number=pr, head_branch=head)
+                for run_id, sha, pr, head in [
+                    (9101, "sha-pr", 91, "feature/pr"),
+                    (9102, "sha-master", None, "master"),
+                    (9103, "sha-master-pr", 91, "master"),
+                    (9104, "sha-branch", None, "feature/no-pr"),
+                    (9105, "sha-main-pr", 91, "main"),
+                ]
+            ],
+        )
+
+        pull_request = next(
+            item
+            for item in api.list_workflow_health(team=self.team, date_from="-30d", run_scope="pull_request")
+            if item.workflow_name == "CI"
+        )
+
+        # 1 exactly: over-exclusion drops to 0, a leaked master/main/unattributed row raises it above 1.
+        assert pull_request.run_count == 1
 
     def test_workflow_health_includes_cost_when_jobs_synced(self) -> None:
         # With the jobs source synced, each workflow carries its windowed billable cost + minutes.

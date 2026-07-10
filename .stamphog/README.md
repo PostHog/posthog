@@ -2,6 +2,7 @@
 
 Declarative policy for the stamphog PR-approval merge gate (`tools/pr-approval-agent/`).
 The engine loads these files from the checked-out working tree at run time.
+Engine and policy are vendored into other repos (see the note in `tools/pr-approval-agent/README.md`), so format changes here need those copies re-synced too.
 
 ## What lives here
 

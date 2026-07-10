@@ -358,6 +358,47 @@ describe('BatchingPipeline', () => {
         })
     })
 
+    describe('empty and count-changing batches', () => {
+        // An empty feed used to register an un-completable batch: next() then
+        // threw the "null with N in-flight batches" corruption guard, and the
+        // phantom batch permanently occupied a concurrentBatches slot so every
+        // later feed() was rejected.
+        it('empty feed is a no-op that skips hooks and does not leak a capacity slot', async () => {
+            const collector = createCollector({ concurrentBatches: 1 })
+
+            expect(await collector.feed([])).toEqual({ ok: true })
+            expect(beforeBatchStep).not.toHaveBeenCalled()
+            expect(await collector.next()).toBeNull()
+
+            // The slot was not leaked: a subsequent normal batch is accepted and processed.
+            expect(await collector.feed(makeBatch([9]))).toEqual({ ok: true })
+            const { allResults } = await drainAll(collector)
+            expect(allResults).toHaveLength(1)
+            expect(afterBatchStep).toHaveBeenCalledTimes(1)
+        })
+
+        // beforeBatch must preserve the element count; a shrunken batch (worst
+        // case zero elements) could never complete and would leak its slot.
+        // A count change is a broken framework invariant, so feed() throws.
+        it('throws when beforeBatch changes the element count, without registering state', async () => {
+            beforeBatchStep.mockImplementationOnce(({ elements, batchContext }: any) =>
+                Promise.resolve(ok({ elements: elements.slice(1), batchContext }))
+            )
+            const collector = createCollector({ concurrentBatches: 1 })
+
+            await expect(collector.feed(makeBatch([1, 2]))).rejects.toThrow('changed element count (2 -> 1)')
+            expect(await collector.next()).toBeNull()
+
+            // Nothing was registered before the throw: a subsequent normal batch
+            // is accepted and processed (real drivers crash on the throw; this
+            // documents that the throw itself does not corrupt state).
+            expect(await collector.feed(makeBatch([9]))).toEqual({ ok: true })
+            const { allResults } = await drainAll(collector)
+            expect(allResults).toHaveLength(1)
+            expect(afterBatchStep).toHaveBeenCalledTimes(1)
+        })
+    })
+
     describe('concurrentBatches', () => {
         it('feed() rejects with reason when at limit (default concurrentBatches: 1)', async () => {
             const collector = createCollector({ concurrentBatches: 1 })

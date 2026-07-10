@@ -24,6 +24,7 @@ import sys
 import json
 import time
 import webbrowser
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,7 @@ _CHROMIUM_PROFILE_ROOTS: dict[str, list[Path]] = {
     "chrome": [_HOME / "Library/Application Support/Google/Chrome"],
     "chromium": [_HOME / "Library/Application Support/Chromium"],
     "brave": [_HOME / "Library/Application Support/BraveSoftware/Brave-Browser"],
+    "dia": [_HOME / "Library/Application Support/Dia/User Data"],
 }
 
 REGIONS: dict[str, str] = {
@@ -52,7 +54,7 @@ REQUIRED_COOKIES: tuple[str, ...] = (
     "ph_int_auth-0",
     "ph_int_auth-1",
 )
-SUPPORTED_BROWSERS: tuple[str, ...] = ("chrome", "chromium", "brave", "firefox", "safari")
+SUPPORTED_BROWSERS: tuple[str, ...] = ("chrome", "chromium", "brave", "dia", "firefox", "safari")
 CACHE_DIR: Path = Path.home() / ".config" / "posthog" / "metabase"
 
 
@@ -67,7 +69,7 @@ def _format_cookie_header(cookies: dict[str, str]) -> str:
 def _enumerate_cookie_files(browser: str | None) -> list[tuple[str, Path]]:
     """Return (loader_name, cookie_file_path) pairs for every browser profile to try.
 
-    Chromium-family browsers (Chrome, Brave, Chromium) keep a `Cookies`
+    Chromium-family browsers (Chrome, Brave, Chromium, Dia) keep a `Cookies`
     SQLite db per profile (`Default`, `Profile 1`, ...). We glob each profile
     directory so users with multiple profiles (work + personal) don't have to
     care which one they logged in with.
@@ -104,11 +106,23 @@ def _load_cookies_from_browser(domain: str, browser: str | None) -> dict[str, st
     if browser is not None and browser not in SUPPORTED_BROWSERS:
         raise click.ClickException(f"Unsupported browser: {browser}")
 
+    def dia(domain_name: str, cookie_file: str | None = None) -> Iterable:
+        # Dia has no browser_cookie3 loader; it's Chromium-based but decrypts
+        # its cookie DB with its own Keychain entry, so build one from ChromiumBased.
+        return browser_cookie3.ChromiumBased(
+            browser="Dia",
+            cookie_file=cookie_file,
+            domain_name=domain_name,
+            osx_cookies=[],
+            osx_key_service="Dia Safe Storage",
+            osx_key_user="Dia",
+        ).load()
+
     targets = _enumerate_cookie_files(browser)
     found: dict[str, str] = {}
     errors: list[str] = []
     for loader_name, cookie_file in targets:
-        loader = getattr(browser_cookie3, loader_name, None)
+        loader = dia if loader_name == "dia" else getattr(browser_cookie3, loader_name, None)
         if loader is None:
             continue
         kwargs: dict = {"domain_name": domain}

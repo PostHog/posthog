@@ -16,7 +16,8 @@ use http::HeaderMap;
 use http_body_util::BodyExt;
 use personhog_coordination::routing_table::StashHandler;
 use personhog_proto::personhog::types::v1::{
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    GetPersonRequest, GetPersonResponse, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse,
 };
 use personhog_router::backend::{LeaderBackend, LeaderBackendConfig, StashTable};
 use personhog_router::config::RetryConfig;
@@ -123,9 +124,7 @@ async fn forward(
 /// its gRPC status code on error. The status lives in the response headers
 /// (router-generated errors, trailers-only leader errors) or the trailers
 /// (a normal leader response).
-async fn decode_response(
-    resp: http::Response<BoxBody>,
-) -> Result<UpdatePersonPropertiesResponse, Code> {
+async fn decode_response<T: Message + Default>(resp: http::Response<BoxBody>) -> Result<T, Code> {
     let (parts, body) = resp.into_parts();
     let collected = body.collect().await.expect("collect leader response body");
     let trailers = collected.trailers().cloned();
@@ -145,7 +144,39 @@ async fn decode_response(
     let msg = data
         .get(5..)
         .expect("successful response carries a gRPC frame");
-    Ok(UpdatePersonPropertiesResponse::decode(msg).expect("decode UpdatePersonPropertiesResponse"))
+    Ok(T::decode(msg).expect("decode leader response message"))
+}
+
+/// Drive a strong read through the backend's raw, stash-aware forward
+/// path — the same route `raw_proxy_to_leader` takes for a strong
+/// `GetPerson` — returning the router's gRPC response.
+async fn forward_read(
+    backend: &LeaderBackend,
+    team_id: i64,
+    person_id: i64,
+) -> http::Response<BoxBody> {
+    let req = GetPersonRequest {
+        team_id,
+        person_id,
+        read_options: None,
+    };
+    let encoded = req.encode_to_vec();
+    let mut buf = Vec::with_capacity(5 + encoded.len());
+    buf.push(0);
+    buf.extend_from_slice(&(encoded.len() as u32).to_be_bytes());
+    buf.extend(encoded);
+
+    let partition = backend.partition_for_person(team_id, person_id);
+    let (response, _call_ms) = backend
+        .forward_or_stash(
+            "GetPerson",
+            partition,
+            (team_id, person_id),
+            HeaderMap::new(),
+            Bytes::from(buf),
+        )
+        .await;
+    response
 }
 
 /// A request that arrives while the stash is open must park on a oneshot,
@@ -192,7 +223,9 @@ async fn request_during_stash_completes_after_drain() {
         .await
         .expect("drain should release the parked request promptly")
         .expect("task should not panic");
-    let response = decode_response(raw).await.expect("update should succeed");
+    let response = decode_response::<UpdatePersonPropertiesResponse>(raw)
+        .await
+        .expect("update should succeed");
     let returned = response.person.expect("leader returned a person");
     assert_eq!(returned.id, person.id);
     assert!(response.updated, "leader marked the update as applied");
@@ -238,7 +271,9 @@ async fn multiple_stashed_requests_drain_in_fifo() {
             .await
             .expect("each parked request should release after drain")
             .expect("task should not panic");
-        let resp = decode_response(raw).await.expect("update should succeed");
+        let resp = decode_response::<UpdatePersonPropertiesResponse>(raw)
+            .await
+            .expect("update should succeed");
         versions.push(resp.person.unwrap().version);
     }
 
@@ -275,7 +310,9 @@ async fn requests_for_unstashed_partition_forward_immediately() {
     let raw = tokio::time::timeout(Duration::from_secs(2), forward(&backend, req))
         .await
         .expect("forward should not block");
-    let response = decode_response(raw).await.expect("update should succeed");
+    let response = decode_response::<UpdatePersonPropertiesResponse>(raw)
+        .await
+        .expect("update should succeed");
     assert!(response.updated);
 }
 
@@ -304,7 +341,7 @@ async fn stash_full_returns_unavailable_via_backend() {
     // The second request hits the cap and is rejected.
     let req2 = mk_request(person.team_id, person.id, "second@example.com");
     let raw = forward(&backend, req2).await;
-    let code = decode_response(raw)
+    let code = decode_response::<UpdatePersonPropertiesResponse>(raw)
         .await
         .expect_err("second request must be rejected");
     assert_eq!(
@@ -337,7 +374,7 @@ async fn back_to_back_handoffs_use_fresh_queue() {
     tokio::time::sleep(Duration::from_millis(20)).await;
     handler.drain_stash(partition, "leader-a").await.unwrap();
     let raw_a = pending_a.await.unwrap();
-    decode_response(raw_a)
+    decode_response::<UpdatePersonPropertiesResponse>(raw_a)
         .await
         .expect("first handoff's stashed request should drain successfully");
 
@@ -355,7 +392,7 @@ async fn back_to_back_handoffs_use_fresh_queue() {
     );
     handler.drain_stash(partition, "leader-b").await.unwrap();
     let raw_b = pending_b.await.unwrap();
-    decode_response(raw_b)
+    decode_response::<UpdatePersonPropertiesResponse>(raw_b)
         .await
         .expect("second handoff's stashed request should drain successfully");
 }
@@ -414,10 +451,10 @@ async fn ordering_preserved_when_request_arrives_during_drain() {
 
     drain_task.await.unwrap();
 
-    let resp_a = decode_response(pending_a.await.unwrap())
+    let resp_a = decode_response::<UpdatePersonPropertiesResponse>(pending_a.await.unwrap())
         .await
         .expect("A should succeed");
-    let resp_b = decode_response(pending_b.await.unwrap())
+    let resp_b = decode_response::<UpdatePersonPropertiesResponse>(pending_b.await.unwrap())
         .await
         .expect("B should succeed");
 
@@ -466,13 +503,138 @@ async fn stash_wait_exceeded_returns_unavailable() {
     handler.drain_stash(partition, "leader-new").await.unwrap();
 
     let raw = pending.await.unwrap();
-    let code = decode_response(raw)
+    let code = decode_response::<UpdatePersonPropertiesResponse>(raw)
         .await
         .expect_err("drain must fail-fast past-deadline requests");
     assert_eq!(
         code,
         Code::Unavailable,
         "past-deadline drained requests must surface as UNAVAILABLE"
+    );
+}
+
+/// A drain that races the target leader's fence (a cancellation's
+/// drain-back arriving before the old owner's resume, or a completion's
+/// drain hitting a pod mid-cutover) gets FailedPrecondition from the
+/// leader — but the condition clears in watch-propagation time, so the
+/// client must see the same definitive-retry UNAVAILABLE contract as the
+/// deadline path, not a "do not retry" error for a write that was never
+/// acked.
+#[tokio::test]
+async fn fenced_leader_during_drain_returns_unavailable() {
+    let person = create_test_person();
+    let leader_addr = start_test_leader(
+        TestLeaderService::new()
+            .with_person(person.clone())
+            .fenced(),
+    )
+    .await;
+
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let backend = make_backend(leader_addr, stash.clone()).await;
+    // Generous deadline so only the fence-remap path can produce the
+    // UNAVAILABLE, never the deadline path.
+    let handler = RouterStashHandler::new(Arc::clone(&backend), Duration::from_secs(60), 4);
+
+    let partition = backend.partition_for_person(person.team_id, person.id);
+    handler.begin_stash(partition, "leader-new").await.unwrap();
+
+    let req = mk_request(person.team_id, person.id, "fenced@example.com");
+    let backend_for_call = Arc::clone(&backend);
+    let pending = tokio::spawn(async move { forward(&backend_for_call, req).await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    handler.drain_stash(partition, "leader-new").await.unwrap();
+
+    let response = pending.await.unwrap();
+    let code = decode_response::<UpdatePersonPropertiesResponse>(response)
+        .await
+        .expect_err("fenced leader must reject the drained write");
+    assert_eq!(
+        code,
+        Code::Unavailable,
+        "fence rejections during drain must surface as retryable UNAVAILABLE"
+    );
+}
+
+/// The reason strong reads stash at all: a write parked in the stash is
+/// invisible everywhere until drain, so a strong read that raced ahead to
+/// the (frozen) old owner would violate read-your-write for the whole
+/// handoff window. Stashed behind the write in the same per-key FIFO, the
+/// read drains after it and observes it.
+#[tokio::test]
+async fn stashed_strong_read_observes_stashed_write() {
+    let person = create_test_person();
+    let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
+
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let backend = make_backend(leader_addr, stash.clone()).await;
+    let handler = new_test_handler(Arc::clone(&backend));
+
+    let partition = backend.partition_for_person(person.team_id, person.id);
+    handler.begin_stash(partition, "leader-new").await.unwrap();
+
+    // Write first, then a strong read for the same person — both park.
+    let backend_w = Arc::clone(&backend);
+    let req = mk_request(person.team_id, person.id, "stashed-write@example.com");
+    let write = tokio::spawn(async move { forward(&backend_w, req).await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let backend_r = Arc::clone(&backend);
+    let (team_id, person_id) = (person.team_id, person.id);
+    let read = tokio::spawn(async move { forward_read(&backend_r, team_id, person_id).await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(
+        !write.is_finished() && !read.is_finished(),
+        "both must park"
+    );
+
+    handler.drain_stash(partition, "leader-new").await.unwrap();
+
+    let write_resp = decode_response::<UpdatePersonPropertiesResponse>(write.await.unwrap())
+        .await
+        .expect("stashed write must succeed on drain");
+    assert!(write_resp.updated);
+
+    let read_resp = decode_response::<GetPersonResponse>(read.await.unwrap())
+        .await
+        .expect("stashed read must succeed on drain");
+    let props: serde_json::Value =
+        serde_json::from_slice(&read_resp.person.expect("person").properties).unwrap();
+    assert_eq!(
+        props["email"], "stashed-write@example.com",
+        "the drained read must observe the write stashed before it"
+    );
+}
+
+/// A stashed strong read is bounded by the same per-request deadline as a
+/// write: past `max_stash_wait` it fails fast with retryable UNAVAILABLE
+/// instead of parking until the client's gRPC deadline.
+#[tokio::test]
+async fn stashed_read_past_deadline_returns_unavailable() {
+    let person = create_test_person();
+    let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
+
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let backend = make_backend(leader_addr, stash.clone()).await;
+    let handler = RouterStashHandler::new(Arc::clone(&backend), Duration::from_millis(50), 4);
+
+    let partition = backend.partition_for_person(person.team_id, person.id);
+    handler.begin_stash(partition, "leader-new").await.unwrap();
+
+    let backend_r = Arc::clone(&backend);
+    let (team_id, person_id) = (person.team_id, person.id);
+    let read = tokio::spawn(async move { forward_read(&backend_r, team_id, person_id).await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    handler.drain_stash(partition, "leader-new").await.unwrap();
+
+    let code = decode_response::<GetPersonResponse>(read.await.unwrap())
+        .await
+        .expect_err("past-deadline read must fail fast");
+    assert_eq!(
+        code,
+        Code::Unavailable,
+        "past-deadline stashed reads must surface as retryable UNAVAILABLE"
     );
 }
 

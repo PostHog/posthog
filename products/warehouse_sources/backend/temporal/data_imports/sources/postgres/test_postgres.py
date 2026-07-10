@@ -503,6 +503,28 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)). The leading
+            # "pg_readonly:" prefix and trailing docs URL are volatile; "cluster is read-only" is stable.
+            "pg_readonly: invalid statement because cluster is read-only. See planetscale.com/docs/postgres/troubleshooting/readonly",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "InternalError_: pg_readonly: invalid statement because cluster is read-only. See planetscale.com/docs/postgres/troubleshooting/readonly",
+        ],
+    )
+    def test_read_only_cluster_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Read-only cluster error should be non-retryable: {error_msg}"
+
+    def test_read_only_cluster_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "pg_readonly: invalid statement because cluster is read-only. See planetscale.com/docs/postgres/troubleshooting/readonly"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Read-only cluster error should surface an actionable message"
+        assert "read-only mode" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)). The request size
             # and memory-context name are volatile; the "out of memory" text is stable.
             'out of memory DETAIL:  Failed on request of size 12 in memory context "MessageContext".',
@@ -1168,6 +1190,12 @@ class TestIsConnectionDroppedError:
             # retrying internally. Same transient pooler class as EDBHANDLEREXITED; recovers on
             # reconnect once a session returns a connection to the pool.
             psycopg.errors.InternalError_("(ECHECKOUTRETRIES) failed to check out a connection after multiple retries"),
+            # Transaction-mode sibling of ECHECKOUTRETRIES: Supavisor couldn't check out a backend
+            # from the pool before its checkout timeout elapsed. Same transient pooler-saturation
+            # class, also an XX000 InternalError_, matched on the "(ECHECKOUTTIMEOUT)" code.
+            psycopg.errors.InternalError_(
+                "(ECHECKOUTTIMEOUT) unable to check out connection from the pool after 60000ms in Transaction mode"
+            ),
             # Supavisor loses the backend socket mid-session (idle cull, restart, failover) and, once
             # the client is past auth, surfaces it as an XX000 InternalError_ "Internal error
             # (authenticated): :closed" — ":closed" being the Erlang gen_tcp peer-closed reason. No
@@ -2017,11 +2045,18 @@ class TestServerCursorCloseStatementTimeout:
 class TestOffsetChunkingConnectRecoveryConflict:
     """A recovery conflict raised by the connect itself in the offset-chunking fallback — a hot
     standby cancelling the new connection's startup with "conflict with recovery" — must be retried
-    in-process, not escape `get_rows`. The bootstrap connect used to run outside the retry loop, so
-    the conflict bypassed the loop's recovery-conflict handler and failed the whole sync.
+    in-process, not escape `get_rows`. It surfaces as a SerializationFailure when the standby cancels
+    a chunk read, but as a plain OperationalError ("connection failed: ... conflict with recovery")
+    when it cancels the connection's own startup — the latter bypassed the loop's SerializationFailure
+    handler and failed the whole sync.
     """
 
     _RECOVERY_CONFLICT = "canceling statement due to conflict with recovery"
+    # psycopg wraps a startup-time cancel as a plain OperationalError with no SQLSTATE-mapped subclass.
+    _CONNECT_RECOVERY_CONFLICT = (
+        'connection failed: connection to server at "localhost", port 5432 failed: '
+        "FATAL:  canceling statement due to conflict with recovery"
+    )
 
     class _NamedCursor:
         def __init__(self):
@@ -2087,7 +2122,14 @@ class TestOffsetChunkingConnectRecoveryConflict:
         def __exit__(self, *args):
             return False
 
-    def test_recovery_conflict_on_offset_chunking_connect_is_retried_in_process(self):
+    @pytest.mark.parametrize(
+        "connect_error",
+        [
+            psycopg.errors.SerializationFailure(_RECOVERY_CONFLICT),
+            psycopg.OperationalError(_CONNECT_RECOVERY_CONFLICT),
+        ],
+    )
+    def test_recovery_conflict_on_offset_chunking_connect_is_retried_in_process(self, connect_error):
         @contextmanager
         def fake_tunnel():
             yield ("localhost", 5432)
@@ -2106,7 +2148,7 @@ class TestOffsetChunkingConnectRecoveryConflict:
             # Calls 1 (setup) and 2 (initial server-cursor read) succeed; the offset-chunking
             # bootstrap connect hits the recovery conflict twice before succeeding.
             if connect_calls["n"] in (3, 4):
-                raise psycopg.errors.SerializationFailure(self._RECOVERY_CONFLICT)
+                raise connect_error
             return connection
 
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
@@ -2671,6 +2713,27 @@ class TestValidateCredentialsErrorMapping:
                 "Your database connection pooler couldn't find the tenant or user. This usually means the "
                 "database project is paused or deleted, or the pooler username/host is wrong. Check that "
                 "your database is active and the connection details are correct.",
+            ),
+            # Supabase's transaction pooler (port 6543) rejects bad credentials during the
+            # SASL/SCRAM exchange rather than with libpq's "password authentication failed".
+            (
+                'connection failed: connection to server at "10.0.0.1", port 6543 failed: '
+                "FATAL:  SASL authentication failed",
+                'Your database rejected the credentials during authentication ("SASL '
+                'authentication failed"). This usually means the username or password is wrong. '
+                "Some connection poolers (for example Supabase's transaction pooler) also require a "
+                "pooler-specific username such as postgres.<project-ref>. Check your credentials "
+                "and try again.",
+            ),
+            # Supabase/Supavisor's shared pooler rejects a connection whose username carries no
+            # project ref with "(ENOIDENTIFIER) no tenant identifier provided".
+            (
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required)",
+                "Your connection pooler couldn't identify your project (\"no tenant identifier "
+                'provided"). On the shared pooler host the username must include your project ref '
+                '(for example "postgres.<project-ref>"). Update the username to the pooler username '
+                "shown in your Supabase dashboard and try again.",
             ),
             # Invalid SSL-negotiation response — the host/port isn't a Postgres server speaking SSL.
             (
@@ -6374,6 +6437,143 @@ class TestGetRowsInitialConnectRetry:
         finally:
             with django_connection.cursor() as dj_cursor:
                 dj_cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+
+
+class TestGetRowsInitialReadDropRetry:
+    # Regression: the main server-cursor read wrapped only the *connect* in
+    # _connect_with_dropped_retry, so a transient drop during the server-cursor DECLARE
+    # (cursor.execute) — before any row is yielded — escaped and failed the whole sync on a
+    # full-table scan, which has no stable ORDER BY and so can't resume via offset_chunking. At
+    # offset 0 nothing has been emitted, so re-running the read from scratch is safe and it should
+    # retry in process. Once a chunk is out, replaying it would duplicate rows, so the drop must
+    # still propagate.
+    _DROP = "consuming input failed: SSL connection has been closed unexpectedly"
+
+    class _Cursor:
+        def __init__(self, *, batches, drop_on_execute):
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+            self._batches = list(batches)
+            self._drop_on_execute = drop_on_execute
+
+        def execute(self, *args, **kwargs):
+            if self._drop_on_execute:
+                raise psycopg.OperationalError(TestGetRowsInitialReadDropRetry._DROP)
+            return None
+
+        def fetchmany(self, _n):
+            if not self._batches:
+                return []
+            batch = self._batches.pop(0)
+            if isinstance(batch, BaseException):
+                raise batch
+            return batch
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self, *, batches, drop_on_execute):
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+            self._batches = batches
+            self._drop_on_execute = drop_on_execute
+
+        def cursor(self, *args, **kwargs):
+            # The named cursor is the streaming server cursor under test; the unnamed setup cursor
+            # (SET statement_timeout) goes through the patched psycopg.Cursor and stays benign.
+            if "name" in kwargs:
+                return TestGetRowsInitialReadDropRetry._Cursor(
+                    batches=self._batches, drop_on_execute=self._drop_on_execute
+                )
+            return mock.MagicMock()
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _run(self, connect_side_effect):
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.time.sleep"),
+            patch(f"{module}.psycopg.connect", side_effect=connect_side_effect) as connect_mock,
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(batches=[], drop_on_execute=False)),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_rows_to_sync", return_value=10),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            tables = list(cast(Iterable[Any], response.items()))
+        return tables, connect_mock
+
+    def test_retries_full_table_read_when_connection_drops_before_first_row(self):
+        calls = {"n": 0}
+
+        def connect_side_effect(*args, **kwargs):
+            calls["n"] += 1
+            # First read connect succeeds, but the server-cursor DECLARE drops; the retry reconnects
+            # and serves the rows.
+            drop_on_execute = calls["n"] == 1
+            batches = [] if drop_on_execute else [[(1,), (2,), (3,)]]
+            return self._Connection(batches=batches, drop_on_execute=drop_on_execute)
+
+        tables, connect_mock = self._run(connect_side_effect)
+
+        assert connect_mock.call_count >= 2, "the read should have been retried after the DECLARE-time drop"
+        assert sum(table.num_rows for table in tables) == 3
+
+    def test_reraises_full_table_drop_after_rows_yielded(self):
+        # A drop after a chunk is already out must propagate: an unordered full-table scan can't
+        # resume without duplicating rows, so the in-process retry must not swallow it.
+        def connect_side_effect(*args, **kwargs):
+            return self._Connection(
+                batches=[[(1,), (2,)], psycopg.OperationalError(self._DROP)],
+                drop_on_execute=False,
+            )
+
+        with pytest.raises(psycopg.OperationalError, match="SSL connection has been closed unexpectedly"):
+            self._run(connect_side_effect)
 
 
 class TestPartitionIterationConnectRetry:

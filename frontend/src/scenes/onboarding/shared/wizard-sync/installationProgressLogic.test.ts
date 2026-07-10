@@ -334,6 +334,7 @@ describe('installationProgressLogic merge', () => {
                 ],
                 error: null,
                 prUrl: null,
+                prMerged: false,
                 isCurrent: true,
             })
         })
