@@ -290,6 +290,9 @@ def is_sso_authentication_backend(request: HttpRequest):
 CODE_LENGTH = 6
 CODE_TTL_SECONDS = 600  # 10 minutes
 CODE_MAX_ATTEMPTS = 5
+# Failed-attempt budget for a pending login is tracked in Redis so the cap is enforced atomically
+# (INCR) rather than via a raceable session read-modify-write, which parallel guesses could sidestep.
+CODE_ATTEMPTS_REDIS_KEY_PREFIX = "code_based_verification_attempts"
 
 
 class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
@@ -422,11 +425,10 @@ class CodeBasedVerifier:
             request.session["code_based_verification_issued_at"] = issued_at
             # Resends must not reset the failed-attempt counter, otherwise the attempt cap could be
             # sidestepped by guessing up to the limit, resending, and repeating - letting the 6-digit
-            # code be brute-forced in batches. The attempt budget is per pending login, not per code.
-            if is_resend:
-                request.session.setdefault("code_based_verification_attempts", 0)
-            else:
-                request.session["code_based_verification_attempts"] = 0
+            # code be brute-forced in batches. The attempt budget is per pending login, not per code,
+            # so only a fresh initial send (not a resend) clears it.
+            if not is_resend:
+                self._reset_attempts(user.pk)
             LOGIN_CODE_VERIFICATION_COUNTER.labels(result="resent" if is_resend else "sent").inc()
             mfa_logger.info(
                 "Code-based verification email sent",
@@ -460,7 +462,43 @@ class CodeBasedVerifier:
             return False
         return code_based_verification_token_generator.check_code(user, code, issued_at)
 
+    @staticmethod
+    def _attempts_redis_key(user_id: int) -> str:
+        return f"{CODE_ATTEMPTS_REDIS_KEY_PREFIX}:{user_id}"
+
+    def _reset_attempts(self, user_id: int) -> None:
+        try:
+            get_client().delete(self._attempts_redis_key(user_id))
+        except Exception:
+            mfa_logger.exception("Failed to reset code-based verification attempt counter", user_id=user_id)
+
+    def reserve_attempt(self, request: HttpRequest) -> int:
+        """Atomically count this verification attempt against the pending login's budget.
+
+        Returns the running attempt total (including this one) so the caller can reject once it
+        exceeds CODE_MAX_ATTEMPTS. Backed by a Redis INCR keyed on the pending user id, so parallel
+        guesses can't all read the same pre-increment value and slip past the cap. Fails open on a
+        Redis error (returns 0) to keep login working - the per-user verify throttle is the backstop.
+        """
+        user_id = self.get_pending_code_based_verification_user_id(request)
+        if not user_id:
+            return 0
+        try:
+            client = get_client()
+            count = int(client.incr(self._attempts_redis_key(user_id)))
+            client.expire(self._attempts_redis_key(user_id), CODE_TTL_SECONDS)
+            return count
+        except Exception:
+            mfa_logger.exception(
+                "Failed to reserve code-based verification attempt; allowing (throttle still applies)",
+                user_id=user_id,
+            )
+            return 0
+
     def clear_pending(self, request: HttpRequest) -> None:
+        user_id = self.get_pending_code_based_verification_user_id(request)
+        if user_id:
+            self._reset_attempts(user_id)
         for key in (
             "code_based_verification_pending_user_id",
             "code_based_verification_issued_at",

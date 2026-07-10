@@ -835,8 +835,10 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
                 code="no_pending_verification",
             )
 
-        attempts = request.session.get("code_based_verification_attempts", 0)
-        if attempts >= CODE_MAX_ATTEMPTS:
+        # Reserve this attempt atomically before doing anything else, so concurrent guesses can't all
+        # observe the same count and exceed the cap. `attempts` includes the current attempt.
+        attempts = code_based_verifier.reserve_attempt(request)
+        if attempts > CODE_MAX_ATTEMPTS:
             mfa_logger.warning(
                 "Code-based verification locked out",
                 user_id=code_based_verifier.get_pending_code_based_verification_user_id(request),
@@ -858,9 +860,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
             raise invalid_error
 
         if not code or not code_based_verifier.check_code(request, user, code):
-            request.session["code_based_verification_attempts"] = attempts + 1
-            request.session.save()
-            mfa_logger.warning("Code-based verification attempt failed", user_id=user.pk, attempt=attempts + 1)
+            mfa_logger.warning("Code-based verification attempt failed", user_id=user.pk, attempt=attempts)
             LOGIN_CODE_VERIFICATION_COUNTER.labels(result="invalid").inc()
             raise invalid_error
 
