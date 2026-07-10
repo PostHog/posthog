@@ -17,7 +17,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSavedQueriesLogic']),
     connect(() => ({
         values: [userLogic, ['user'], databaseTableListLogic, ['views', 'databaseLoading']],
-        actions: [databaseTableListLogic, ['loadDatabase']],
+        actions: [databaseTableListLogic, ['refreshDatabaseSchema']],
     })),
     reducers({
         initialDataWarehouseSavedQueryLoading: [
@@ -118,7 +118,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     })),
     listeners(({ actions }) => ({
         createDataWarehouseSavedQuerySuccess: () => {
-            actions.loadDatabase()
+            actions.refreshDatabaseSchema()
         },
         createDataWarehouseSavedQueryFolderSuccess: () => {
             actions.loadDataWarehouseSavedQueries()
@@ -146,7 +146,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             }
 
             actions.loadDataWarehouseSavedQueries()
-            actions.loadDatabase()
+            actions.refreshDatabaseSchema()
         },
         updateDataWarehouseSavedQueryError: () => {
             lemonToast.error('Failed to update view')
@@ -154,11 +154,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         deleteDataWarehouseSavedQuerySuccess: () => {
             lemonToast.success('View deleted')
+            actions.refreshDatabaseSchema()
         },
         deleteDataWarehouseSavedQueryFolderSuccess: () => {
             lemonToast.success('Folder deleted')
             actions.loadDataWarehouseSavedQueries()
-            actions.loadDatabase()
+            actions.refreshDatabaseSchema()
         },
         runDataWarehouseSavedQuery: async ({ viewId }) => {
             try {
@@ -186,7 +187,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     sync_frequency: '24hour',
                 })
                 actions.loadDataWarehouseSavedQueries()
-                actions.loadDatabase()
+                actions.refreshDatabaseSchema()
             } catch {
                 lemonToast.error(`Failed to materialize view`)
             }
@@ -196,7 +197,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 await api.dataWarehouseSavedQueries.revertMaterialization(viewId)
                 lemonToast.success('Materialization reverted')
                 actions.loadDataWarehouseSavedQueries()
-                actions.loadDatabase()
+                actions.refreshDatabaseSchema()
             } catch {
                 lemonToast.error(`Failed to revert materialization`)
             }
