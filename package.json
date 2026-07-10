@@ -99,15 +99,25 @@
             "bin/hogli lint:feature-flags:fix",
             "bin/hogli format:js"
         ],
-        "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:js",
-        "nodejs/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:nodejs",
+        "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,mts,ts,tsx}": [
+            "node .github/scripts/lint-em-dashes.mjs",
+            "bin/hogli format:js"
+        ],
+        "nodejs/**/*.{js,jsx,mjs,mts,ts,tsx}": [
+            "node .github/scripts/lint-em-dashes.mjs",
+            "bin/hogli format:nodejs"
+        ],
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*|products/*/skills/*/scripts/*)*.{py,pyi}": [
+            "node .github/scripts/lint-em-dashes.mjs",
             "bin/hogli lint:python:fix",
             "bin/hogli format:python",
             "uv run ty check"
         ],
-        "*.{md,mdx}": "bin/hogli format:markdown"
+        "*.{md,mdx}": [
+            "node .github/scripts/lint-em-dashes.mjs",
+            "bin/hogli format:markdown"
+        ]
     },
     "browserslist": {
         "development": [

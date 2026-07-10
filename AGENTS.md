@@ -2,7 +2,7 @@
 
 ## General guidelines
 
-- Avoid em-dashes like the plague
+- Avoid em-dashes like the plague. A lint-staged fixer (`.github/scripts/lint-em-dashes.mjs`) auto-replaces them with hyphens on staged lines at commit time, so don't spend effort hand-editing them
 
 ## Codebase Structure
 
