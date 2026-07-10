@@ -116,7 +116,7 @@ export function AIObservabilityErrors(): JSX.Element {
                                     <Tooltip title={errorString}>
                                         <Link
                                             to={buildErrorTracesUrl(errorString, searchParams, currentPropertyFilters)}
-                                            className="min-w-0 flex-1 truncate font-mono text-sm"
+                                            className="min-w-0 shrink truncate font-mono text-sm"
                                             data-attr="llm-errors-row-click"
                                         >
                                             {displayValue}
