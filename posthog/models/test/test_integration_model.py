@@ -2579,13 +2579,20 @@ class TestSnowflakeIntegrationModel(BaseTest):
             "private_key": "-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----"
         }
 
-    def test_integration_from_config_requires_name(self):
-        with pytest.raises(SnowflakeIntegrationError, match="A name is required"):
+    @parameterized.expand(
+        [
+            ("missing_name", "", "myorg-myaccount", "posthog_svc"),
+            ("missing_account", "prod-snowflake", "", "posthog_svc"),
+            ("missing_user", "prod-snowflake", "myorg-myaccount", ""),
+        ]
+    )
+    def test_integration_from_config_requires_name_account_user(self, _name, name, account, user):
+        with pytest.raises(SnowflakeIntegrationError, match="Name, account, and user must be provided"):
             SnowflakeIntegration.integration_from_config(
                 team_id=self.team.pk,
-                name="",
-                account="myorg-myaccount",
-                user="posthog_svc",
+                name=name,
+                account=account,
+                user=user,
                 authentication_type="password",
                 password="secret",
             )

@@ -4072,8 +4072,14 @@ class SnowflakeIntegration:
         private_key_passphrase: str | None = None,
         created_by: User | None = None,
     ) -> Integration:
-        if not name:
-            raise SnowflakeIntegrationError("A name is required for a Snowflake integration")
+        if not (name and account and user):
+            raise SnowflakeIntegrationError("Name, account, and user must be provided")
+        if not all(isinstance(value, str) for value in (name, account, user, authentication_type)):
+            raise SnowflakeIntegrationError("Name, account, user, and authentication type must be strings")
+        if not all(
+            value is None or isinstance(value, str) for value in (password, private_key, private_key_passphrase)
+        ):
+            raise SnowflakeIntegrationError("Password, private key, and private key passphrase must be strings")
 
         cls.validate_account(account)
 
