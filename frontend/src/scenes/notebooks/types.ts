@@ -54,6 +54,8 @@ export enum NotebookNodeType {
     DuckSQL = 'ph-duck-sql',
     HogQLSQL = 'ph-hogql-sql',
     SQLV2 = 'ph-sql-v2',
+    // An input widget bound to a kernel variable; changing it re-runs dependent V2 cells.
+    InputV2 = 'ph-input-v2',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',

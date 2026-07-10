@@ -117,6 +117,46 @@ describe('notebookNodeStalenessLogic', () => {
         expect(stalenessLogic.values.staleNodeIds).toEqual({ b: true, c: true })
     })
 
+    it('a run with autoRunDependents chains its stale dependents without a click (input widgets)', async () => {
+        // Journey 11: a widget's assignment landing must refresh the cells that read the
+        // variable, not just mark them stale behind a banner.
+        const widgetContent: JSONContent = {
+            type: 'doc',
+            content: [
+                { type: NotebookNodeType.InputV2, attrs: { nodeId: 'w', variable: 'date_from' } },
+                {
+                    type: NotebookNodeType.PythonV2,
+                    attrs: { nodeId: 'p', returnVariable: 'filtered', code: 'filtered = raw[raw.d >= date_from]' },
+                },
+            ],
+        }
+        const widgetLogic = notebookNodeSQLV2Logic({
+            nodeId: 'w',
+            notebookShortId: 'nb1',
+            updateAttributes: jest.fn(),
+            getContent: () => widgetContent,
+        })
+        widgetLogic.mount()
+        nodeLogics.push(widgetLogic)
+        const dependentLogic = notebookNodeSQLV2Logic({
+            nodeId: 'p',
+            notebookShortId: 'nb1',
+            updateAttributes: jest.fn(),
+            getContent: () => widgetContent,
+        })
+        dependentLogic.mount()
+        nodeLogics.push(dependentLogic)
+
+        widgetLogic.actions.runQuery('date_from = "2026-07-01"', {}, { nodeType: 'python', autoRunDependents: true })
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+        await expectLogic(dependentLogic).toFinishAllListeners()
+
+        // First run is the assignment, second is the dependent cell, no banner click involved.
+        expect(runSpy).toHaveBeenCalledTimes(2)
+        expect(runSpy.mock.calls[1][1]).toMatchObject({ node_id: 'p', node_type: 'python' })
+        expect(stalenessLogic.values.staleNodeIds).toEqual({})
+    })
+
     it('a second runStaleChain while one is active is refused', async () => {
         mountNode('b')
         // Keep the first link running so the chain stays active.

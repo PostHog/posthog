@@ -88,6 +88,20 @@ describe('buildNotebookDependencyGraph', () => {
         expect(identifiers).not.toContain('head')
     })
 
+    it('links an InputV2 widget to the cells that read its variable', () => {
+        // Journey 11: changing a widget must find its dependents to re-run; without the
+        // widget in the graph the change applies to the kernel but nothing refreshes.
+        const content = {
+            type: 'doc',
+            content: [
+                { type: NotebookNodeType.InputV2, attrs: { nodeId: 'w', variable: 'date_from' } },
+                pythonV2Node('py', 'filtered', 'filtered = df[df.date >= date_from]'),
+            ],
+        }
+        const graph = buildNotebookDependencyGraph(content)
+        expect(graph.downstreamUsageByNode['w'].date_from.map((usage) => usage.nodeId)).toEqual(['py'])
+    })
+
     it('links SQLV2 cells inside a markdown notebook', () => {
         // Markdown notebooks hold cells as tags inside one markdown attribute; without
         // expanding them the graph is empty and the "Used in" back-links never render.

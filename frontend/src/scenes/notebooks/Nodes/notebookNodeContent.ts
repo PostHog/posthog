@@ -706,11 +706,27 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
             })
         }
 
+        if (node.type === NotebookNodeType.InputV2) {
+            const attrs = node.attrs ?? {}
+            const variable = typeof attrs.variable === 'string' ? attrs.variable.trim() : ''
+            nodes.push({
+                nodeId: attrs.nodeId ?? '',
+                nodeType: NotebookNodeType.InputV2,
+                nodeIndex: 0,
+                title: typeof attrs.title === 'string' ? attrs.title : '',
+                // A widget is a pure source: it sets one kernel variable and reads nothing.
+                exports: variable ? [variable] : [],
+                uses: [],
+                returnVariable: variable,
+            })
+        }
+
         if (node.type === NotebookNodeType.MarkdownNotebook) {
-            // Markdown notebooks (the only V2 surface) store cells as component tags, so both
+            // Markdown notebooks (the only V2 surface) store cells as component tags, so all
             // V2 cell types must be expanded or the graph misses every markdown-held cell.
             expandMarkdownNotebookSqlV2Nodes(node).forEach(walk)
             expandMarkdownNotebookNodesOfType(node, NotebookNodeType.PythonV2).forEach(walk)
+            expandMarkdownNotebookNodesOfType(node, NotebookNodeType.InputV2).forEach(walk)
         }
 
         if (Array.isArray(node.content)) {

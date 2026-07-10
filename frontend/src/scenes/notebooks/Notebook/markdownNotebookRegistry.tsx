@@ -21,6 +21,7 @@ import '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
 import '../Nodes/NotebookNodePersonProperties'
 import '../Nodes/NotebookNodePlaylist'
 import '../Nodes/NotebookNodePython'
+import '../Nodes/NotebookNodeInputV2'
 import '../Nodes/NotebookNodePythonV2'
 import '../Nodes/NotebookNodeQuery'
 import '../Nodes/NotebookNodeRecording'
@@ -116,6 +117,7 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     DuckSQL: NotebookNodeType.DuckSQL,
     HogQLSQL: NotebookNodeType.HogQLSQL,
     SQLV2: NotebookNodeType.SQLV2,
+    InputV2: NotebookNodeType.InputV2,
     Recording: NotebookNodeType.Recording,
     RecordingPlaylist: NotebookNodeType.RecordingPlaylist,
     FeatureFlag: NotebookNodeType.FeatureFlag,
@@ -182,6 +184,16 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             // fingerprints, so without a persisted id every prop change (running the cell
             // writes runId/result) would orphan the cell's run history and cross-cell refs.
             defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2), nodeId: uuid() }),
+        },
+    },
+    // Journey 11 input widget; insertion gated with the other revamped cells.
+    {
+        tagName: 'InputV2',
+        category: 'Code',
+        label: 'Input',
+        insertCommand: {
+            aliases: ['input', 'widget'],
+            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.InputV2), nodeId: uuid() }),
         },
     },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
@@ -266,7 +278,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
 export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet): NotebookComponentRegistry {
     const hiddenTags: string[] = []
     if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
-        hiddenTags.push('SQLV2', 'PythonV2')
+        hiddenTags.push('SQLV2', 'PythonV2', 'InputV2')
     }
 
     if (hiddenTags.length === 0) {

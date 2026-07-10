@@ -27,6 +27,7 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.Query]: 'Queries',
     [NotebookNodeType.Python]: 'Python',
     [NotebookNodeType.PythonV2]: 'Python (v2)',
+    [NotebookNodeType.InputV2]: 'Input widget',
     [NotebookNodeType.DuckSQL]: 'SQL (DuckDB)',
     [NotebookNodeType.HogQLSQL]: 'SQL (HogQL)',
     [NotebookNodeType.SQLV2]: 'SQL (v2)',
