@@ -14,6 +14,45 @@ export interface BriefAnchorsApi {
     insights?: string[]
 }
 
+export interface BriefSettingsApi {
+    /**
+     * Minimum absolute percent change for a movement to count as significant. Default 20.
+     * @minimum 1
+     * @maximum 1000
+     */
+    min_abs_change_pct?: number
+    /**
+     * Minimum per-sample baseline volume before a movement is considered. Default 10.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    min_baseline_value?: number
+    /**
+     * Maximum anchor insights gathered per brief. Default 10.
+     * @minimum 1
+     * @maximum 100
+     */
+    max_anchor_insights?: number
+    /**
+     * How many recent dashboards to pull insights from when no anchors are set. Default 3.
+     * @minimum 1
+     * @maximum 20
+     */
+    fallback_dashboard_count?: number
+    /**
+     * Minimum confidence for a section or opportunity to survive the gate. Default 0.6.
+     * @minimum 0
+     * @maximum 1
+     */
+    confidence_threshold?: number
+    /**
+     * Maximum opportunities kept per brief. Default 3.
+     * @minimum 1
+     * @maximum 20
+     */
+    max_opportunities?: number
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -83,6 +122,8 @@ export interface BriefConfigApi {
     focus_prompt?: string
     /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
     anchors?: BriefAnchorsApi
+    /** Per-config tunables overriding the system defaults. Omitted knobs keep their default. */
+    settings?: BriefSettingsApi
     /** Whether this config generates briefs. */
     enabled?: boolean
     /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
@@ -117,6 +158,8 @@ export interface PatchedBriefConfigApi {
     focus_prompt?: string
     /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
     anchors?: BriefAnchorsApi
+    /** Per-config tunables overriding the system defaults. Omitted knobs keep their default. */
+    settings?: BriefSettingsApi
     /** Whether this config generates briefs. */
     enabled?: boolean
     /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
@@ -154,6 +197,31 @@ export const ProductBriefTriggerEnumApi = {
     Scheduled: 'scheduled',
 } as const
 
+/**
+ * * `last_n_days` - last_n_days
+ * * `since_last_run` - since_last_run
+ */
+export type PeriodTypeEnumApi = (typeof PeriodTypeEnumApi)[keyof typeof PeriodTypeEnumApi]
+
+export const PeriodTypeEnumApi = {
+    LastNDays: 'last_n_days',
+    SinceLastRun: 'since_last_run',
+} as const
+
+export interface PeriodApi {
+    /** How the brief window is chosen: a fixed lookback (last_n_days) or since the last ready brief.
+     *
+     * * `last_n_days` - last_n_days
+     * * `since_last_run` - since_last_run */
+    period_type: PeriodTypeEnumApi
+    /**
+     * Lookback length in days. Required and used only when period_type is last_n_days.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number
+}
+
 export interface ProductBriefListApi {
     readonly id: string
     /**
@@ -173,8 +241,8 @@ export interface ProductBriefListApi {
      * * `on_demand` - On Demand
      * * `scheduled` - Scheduled */
     readonly trigger: ProductBriefTriggerEnumApi
-    /** Number of days the brief covers. */
-    readonly period_days: number
+    /** The resolved-at-gather period spec the brief covers. */
+    readonly period: PeriodApi
     /** Names of the brief sources that contributed items. */
     readonly sources_used: readonly string[]
     /**
@@ -219,8 +287,8 @@ export interface ProductBriefApi {
      * * `on_demand` - On Demand
      * * `scheduled` - Scheduled */
     readonly trigger: ProductBriefTriggerEnumApi
-    /** Number of days the brief covers. */
-    readonly period_days: number
+    /** The resolved-at-gather period spec the brief covers. */
+    readonly period: PeriodApi
     /** Generated brief sections: kind, title, markdown, citations, confidence. */
     readonly sections: readonly ProductBriefApiSectionsItem[]
     /** Names of the brief sources that contributed items. */
@@ -243,12 +311,8 @@ export interface GenerateBriefRequestApi {
      * @nullable
      */
     config_id?: string | null
-    /**
-     * Number of days the brief should cover. Defaults to 7.
-     * @minimum 1
-     * @maximum 90
-     */
-    period_days?: number
+    /** Period the brief should cover. Defaults to the last 7 days. */
+    period?: PeriodApi
 }
 
 export type PulseBriefConfigsListParams = {

@@ -1,5 +1,4 @@
 import asyncio
-import datetime as dt
 from typing import cast
 
 from django.conf import settings
@@ -21,17 +20,13 @@ from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.temporal.common.client import sync_connect
 
+from products.pulse.backend.config import WORKFLOW_EXECUTION_TIMEOUT
 from products.pulse.backend.models import BriefConfig, ProductBrief
 from products.pulse.backend.temporal.inputs import GENERATE_BRIEF_WORKFLOW_NAME, GenerateBriefWorkflowInputs
 
 PULSE_FEATURE_FLAG = "pulse"
 
 logger = structlog.get_logger(__name__)
-
-# Caps total wall-clock across Temporal retries/re-executions. Worst-case activity budget
-# in temporal/workflow.py is ~18min (gather 2 attempts x 5min + synthesize 5min +
-# mark-failed 3 x 1min); 20 keeps the in-workflow failure path authoritative.
-_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=20)
 
 
 class BriefAnchorsSerializer(serializers.Serializer):
@@ -47,11 +42,56 @@ class BriefAnchorsSerializer(serializers.Serializer):
     )
 
 
+class BriefSettingsSerializer(serializers.Serializer):
+    # Per-config tunables overriding config.DEFAULT_BRIEF_SETTINGS. Each optional and range-bounded;
+    # ranges kept in sync with config._RANGES. Omitted keys keep their default.
+    min_abs_change_pct = serializers.FloatField(
+        required=False,
+        min_value=1.0,
+        max_value=1000.0,
+        help_text="Minimum absolute percent change for a movement to count as significant. Default 20.",
+    )
+    min_baseline_value = serializers.FloatField(
+        required=False,
+        min_value=0.0,
+        max_value=1_000_000.0,
+        help_text="Minimum per-sample baseline volume before a movement is considered. Default 10.",
+    )
+    max_anchor_insights = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum anchor insights gathered per brief. Default 10.",
+    )
+    fallback_dashboard_count = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=20,
+        help_text="How many recent dashboards to pull insights from when no anchors are set. Default 3.",
+    )
+    confidence_threshold = serializers.FloatField(
+        required=False,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Minimum confidence for a section or opportunity to survive the gate. Default 0.6.",
+    )
+    max_opportunities = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=20,
+        help_text="Maximum opportunities kept per brief. Default 3.",
+    )
+
+
 class BriefConfigSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the config.")
     anchors = BriefAnchorsSerializer(
         required=False,
         help_text="Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards.",
+    )
+    settings = BriefSettingsSerializer(
+        required=False,
+        help_text="Per-config tunables overriding the system defaults. Omitted knobs keep their default.",
     )
 
     class Meta:
@@ -61,6 +101,7 @@ class BriefConfigSerializer(serializers.ModelSerializer):
             "name",
             "focus_prompt",
             "anchors",
+            "settings",
             "enabled",
             "deleted",
             "created_at",
@@ -80,8 +121,28 @@ class BriefConfigSerializer(serializers.ModelSerializer):
         }
 
 
+class PeriodSerializer(serializers.Serializer):
+    period_type = serializers.ChoiceField(
+        choices=["last_n_days", "since_last_run"],
+        source="type",
+        help_text="How the brief window is chosen: a fixed lookback (last_n_days) or since the last ready brief.",
+    )
+    days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=90,
+        help_text="Lookback length in days. Required and used only when period_type is last_n_days.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("type") == "last_n_days" and attrs.get("days") is None:
+            raise serializers.ValidationError({"days": "days is required when period_type is last_n_days."})
+        return attrs
+
+
 class ProductBriefSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who requested the brief.")
+    period = PeriodSerializer(read_only=True, help_text="The resolved-at-gather period spec the brief covers.")
     sections = serializers.ListField(
         child=serializers.DictField(),
         read_only=True,
@@ -100,7 +161,7 @@ class ProductBriefSerializer(serializers.ModelSerializer):
             "config",
             "status",
             "trigger",
-            "period_days",
+            "period",
             "sections",
             "sources_used",
             "error",
@@ -115,7 +176,6 @@ class ProductBriefSerializer(serializers.ModelSerializer):
                 "help_text": "Lifecycle status: generating, ready, quiet (nothing confident to say), or failed."
             },
             "trigger": {"help_text": "What started the generation: on_demand or scheduled."},
-            "period_days": {"help_text": "Number of days the brief covers."},
             "error": {"help_text": "Error detail when status is failed."},
         }
 
@@ -134,12 +194,9 @@ class GenerateBriefRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Optional brief config to generate for. Omit for the zero-config default brief.",
     )
-    period_days = serializers.IntegerField(
+    period = PeriodSerializer(
         required=False,
-        default=7,
-        min_value=1,
-        max_value=90,
-        help_text="Number of days the brief should cover. Defaults to 7.",
+        help_text="Period the brief should cover. Defaults to the last 7 days.",
     )
 
 
@@ -162,10 +219,22 @@ class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         serializer.save(team=self.team, created_by=cast(User, self.request.user))
+        report_user_action(
+            cast(User, self.request.user),
+            "pulse config created",
+            {"config_id": str(serializer.instance.id)},
+            team=self.team,
+        )
 
     def perform_destroy(self, instance: BriefConfig) -> None:
         instance.deleted = True
         instance.save(update_fields=["deleted", "updated_at"])
+        report_user_action(
+            cast(User, self.request.user),
+            "pulse config deleted",
+            {"config_id": str(instance.id)},
+            team=self.team,
+        )
 
 
 class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
@@ -200,7 +269,14 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         request_serializer = GenerateBriefRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         config_id = request_serializer.validated_data.get("config_id")
-        period_days = request_serializer.validated_data["period_days"]
+        # validate() normalizes source="type"; rebuild the stored spec (default: last 7 days).
+        validated_period = request_serializer.validated_data.get("period")
+        if validated_period:
+            period = {"type": validated_period["type"]}
+            if validated_period.get("days") is not None:
+                period["days"] = validated_period["days"]
+        else:
+            period = {"type": "last_n_days", "days": 7}
 
         config = None
         if config_id is not None:
@@ -214,7 +290,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             created_by=cast(User, request.user),
             status=ProductBrief.Status.GENERATING,
             trigger=ProductBrief.Trigger.ON_DEMAND,
-            period_days=period_days,
+            period=period,
         )
 
         try:
@@ -226,13 +302,13 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                         team_id=self.team.id,
                         brief_id=str(brief.id),
                         brief_config_id=str(config.id) if config else None,
-                        period_days=period_days,
+                        period=period,
                     ),
                     # Keyed on team+config (not brief id) so a second generate while one is
                     # running for the same focus hits WorkflowAlreadyStartedError.
                     id=f"pulse-brief-{self.team_id}-{config.id if config else 'default'}",
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-                    execution_timeout=_WORKFLOW_EXECUTION_TIMEOUT,
+                    execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
                 )
             )
         except WorkflowAlreadyStartedError:
@@ -256,7 +332,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         report_user_action(
             cast(User, request.user),
             "pulse brief generated",
-            {"config_id": str(config.id) if config else None, "period_days": period_days, "trigger": "on_demand"},
+            {"config_id": str(config.id) if config else None, "period": period, "trigger": "on_demand"},
             team=self.team,
         )
         return Response(ProductBriefSerializer(brief).data, status=status.HTTP_201_CREATED)
