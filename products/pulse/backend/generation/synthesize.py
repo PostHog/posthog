@@ -4,10 +4,11 @@ import structlog
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.security.llm_prompt_sanitization import sanitize_user_text
 from posthog.sync import database_sync_to_async
 
 from products.pulse.backend.config import LLM_MAX_RETRIES, LLM_TIMEOUT_SECONDS, SYNTHESIS_MODEL, BriefSettings
-from products.pulse.backend.generation.prompts import SYNTHESIZE_PROMPT
+from products.pulse.backend.generation.prompts import PULSE_SYNTHESIS_PROMPT_KEY, SYNTHESIZE_PROMPT, _get_managed_prompt
 from products.pulse.backend.generation.schemas import KIND_DESCRIPTIONS, BriefOut
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import SourceItem, build_evidence_index
@@ -57,11 +58,15 @@ async def synthesize_brief(
     if not items:
         return BriefOut(sections=[], opportunities=[])
     settings = BriefSettings.from_config(config)
-    focus_prompt = (config.focus_prompt if config else "") or "the whole product"
-    rendered = SYNTHESIZE_PROMPT.format(
-        # The focus text is fenced in a <team_focus> block; strip the closing tag so
-        # user configuration can't break out of it.
-        focus_prompt=focus_prompt.replace("</team_focus>", ""),
+    # The focus text is fenced in a <team_focus> block. sanitize_user_text strips invisible chars,
+    # LLM framing tags (including the fence itself), and collapses newlines, so user configuration
+    # can't forge the fence or inject instruction-shaped content; empty falls back to a neutral default.
+    focus_prompt = sanitize_user_text(config.focus_prompt if config else "", max_len=2000) or "the whole product"
+    template = await database_sync_to_async(_get_managed_prompt, thread_sensitive=False)(
+        team, PULSE_SYNTHESIS_PROMPT_KEY, SYNTHESIZE_PROMPT
+    )
+    rendered = template.format(
+        focus_prompt=focus_prompt,
         start_date=start_date.isoformat(),
         end_date=end_date.isoformat(),
         lookback_days=lookback_days,
