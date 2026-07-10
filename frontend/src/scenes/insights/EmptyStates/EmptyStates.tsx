@@ -26,6 +26,7 @@ import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -57,9 +58,9 @@ const HedgehogConstruction2 = pngHoggie(construction2Png)
 // Matches ClickHouseQueryMemoryLimitExceeded.default_code on the backend. Keep the two in sync.
 const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
 
-// The leading `!` makes the AI side panel auto-submit the prompt on open (see parseCommandString in scenes/max/maxLogic.tsx).
-const MEMORY_LIMIT_AI_PROMPT =
-    "!This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it: a shorter date range, narrower filters, or materializing the data."
+const MEMORY_LIMIT_AI_PROMPT = autoRunMaxPrompt(
+    "This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it: a shorter date range, narrower filters, or materializing the data."
+)
 
 // Stop the capture before trailing sentence punctuation so a URL ending a sentence (".", ")") keeps
 // a clean href. No `g` flag needed: split() finds all matches and interleaves the captured URLs.
