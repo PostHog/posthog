@@ -347,6 +347,16 @@ urlpatterns: list[Any] = [
         name="agentic_provisioning_resource_remove",
     ),
     path(
+        "api/agentic/provisioning/resources/<str:resource_id>/github_integration",
+        csrf_exempt(agentic_provisioning_views.provisioning_github_integration),
+        name="agentic_provisioning_github_integration",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>/wizard_runs",
+        csrf_exempt(agentic_provisioning_views.provisioning_wizard_runs),
+        name="agentic_provisioning_wizard_runs",
+    ),
+    path(
         "api/agentic/provisioning/resources/<str:resource_id>",
         csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
         name="agentic_provisioning_resource_detail",
@@ -411,6 +421,16 @@ urlpatterns: list[Any] = [
         "api/provisioning/resources/<str:resource_id>/remove",
         csrf_exempt(agentic_provisioning_views.provisioning_resource_remove),
         name="provisioning_resource_remove",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/github_integration",
+        csrf_exempt(agentic_provisioning_views.provisioning_github_integration),
+        name="provisioning_github_integration",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/wizard_runs",
+        csrf_exempt(agentic_provisioning_views.provisioning_wizard_runs),
+        name="provisioning_wizard_runs",
     ),
     path(
         "api/provisioning/resources/<str:resource_id>",

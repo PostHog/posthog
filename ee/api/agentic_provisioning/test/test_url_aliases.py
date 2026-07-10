@@ -16,6 +16,8 @@ PROVISIONING_ALIAS_URLS = [
     ("resource_detail", f"/api/provisioning/resources/{RESOURCE_ID}", "GET"),
     ("deep_links", "/api/provisioning/deep_links", "POST"),
     ("github_grants_create", "/api/provisioning/github/grants", "POST"),
+    ("github_integration", f"/api/provisioning/resources/{RESOURCE_ID}/github_integration", "POST"),
+    ("wizard_runs", f"/api/provisioning/resources/{RESOURCE_ID}/wizard_runs", "POST"),
 ]
 
 

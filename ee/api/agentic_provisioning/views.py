@@ -26,21 +26,30 @@ import requests
 import structlog
 import posthoganalytics
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import (
+    AuthenticationFailed,
+    ValidationError as DRFValidationError,
+)
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import EmailVerifier
+from posthog.api.github_callback.team_services import link_github_installation_for_user
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import GitHubIntegration, StripeIntegration
+from posthog.models.integration import (
+    GitHubInstallationAccessFetchError,
+    GitHubIntegration,
+    Integration,
+    StripeIntegration,
+)
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, find_oauth_access_token
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-from posthog.models.user import User
+from posthog.models.user import OnboardingSkippedReason, User
 from posthog.models.utils import (
     generate_random_oauth_access_token,
     generate_random_oauth_refresh_token,
@@ -51,6 +60,8 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import narrow_scopes_to_ceiling, scopes_within_ceiling
 from posthog.tasks.email import send_provisioning_welcome
 from posthog.utils import get_instance_region
+
+from products.tasks.backend.facade import api as tasks_facade
 
 from ee.settings import BILLING_SERVICE_URL
 
@@ -84,13 +95,24 @@ PARTNER_RATE_LIMIT_DEFAULTS: dict[str, int] = {
     "token_exchanges": 20,
     "resource_creates": 20,
     "github_grants": 10,
+    "wizard_runs": 20,
 }
 PARTNER_RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
     "account_requests": "account_request",
     "token_exchanges": "token_exchange",
     "resource_creates": "resource_created",
     "github_grants": "github_grant",
+    "wizard_runs": "wizard_run",
 }
+
+# Per-user wizard-run budget, mirroring the session endpoint's DRF throttles
+# (SetupWizardCloudRunBurstRateThrottle 2/hour, SetupWizardCloudRunSustainedRateThrottle
+# 5/day) which can't run here — the partner path has no session user on the request.
+WIZARD_RUN_USER_RATE_LIMIT_PREFIX = "provisioning_wizard_run_user:"
+WIZARD_RUN_USER_RATE_LIMITS: list[tuple[str, int, int]] = [
+    ("burst", 2, 3600),
+    ("day", 5, 86400),
+]
 
 # Repo-picker polling budget per grant (the website polls while the visitor installs the
 # GitHub App in another tab). Keyed per grant, so one stuck visitor can't starve others.
@@ -2176,6 +2198,316 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
             },
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /provisioning/resources/:id/github_integration
+# POST /provisioning/resources/:id/wizard_runs
+# Drop-flow resource actions: link a GitHub installation to the team from a
+# stored grant, then kick off a cloud wizard run against a repository.
+# ---------------------------------------------------------------------------
+
+
+def _drf_validation_error_code(exc: DRFValidationError) -> str | None:
+    codes = exc.get_codes()
+    if isinstance(codes, list) and codes:
+        return str(codes[0])
+    if isinstance(codes, str):
+        return codes
+    return None
+
+
+def _apply_provisioned_onboarding_flags(user: User, team: Team) -> None:
+    """Keep the app from routing a partner-provisioned account into onboarding on first
+    login. Only applied to unclaimed accounts (never logged in, no password set) so an
+    existing user going through the consent path keeps their onboarding state."""
+    if user.last_login is not None or user.has_usable_password():
+        return
+    if user.onboarding_skipped_at is None:
+        user.onboarding_skipped_at = timezone.now()
+    user.onboarding_skipped_reason = OnboardingSkippedReason.PROVISIONED
+    user.onboarding_skipped_organization_id = team.organization_id
+    user.save(
+        update_fields=["onboarding_skipped_at", "onboarding_skipped_reason", "onboarding_skipped_organization_id"]
+    )
+    if not team.completed_snippet_onboarding:
+        team.completed_snippet_onboarding = True
+        team.save(update_fields=["completed_snippet_onboarding"])
+
+
+def _link_github_grant_to_team(
+    *, partner: OAuthApplication, user: User, team: Team, grant_id: str, installation_id: str
+) -> tuple[Response | None, Integration | None, bool]:
+    """Shared core of the github_integration action and the account_requests wizard
+    block: validate the grant, verify installation ownership, create both GitHub
+    records, consume the grant. Returns (error_response, integration, already_linked).
+    """
+    grant = github_grants.load_grant(grant_id, partner)
+    if grant is None:
+        # Idempotent retry: the grant is consumed on success, so a retry after a lost
+        # response must not fail if the installation is already linked to this team.
+        existing = Integration.objects.first_github_for_team_installation(team.id, str(installation_id))
+        if existing is not None:
+            return None, existing, True
+        _capture_provisioning_event("github_integration", "error", partner=partner, error_code="grant_not_found")
+        return (
+            _error_response("grant_not_found", "Grant not found or expired", resource_id=str(team.id), status=404),
+            None,
+            False,
+        )
+
+    try:
+        integration = link_github_installation_for_user(
+            user=user, team_id=team.id, installation_id=str(installation_id), authorization=grant.to_authorization()
+        )
+    except DRFValidationError as exc:
+        code = _drf_validation_error_code(exc)
+        if code == "installation_access_denied":
+            _capture_provisioning_event("github_integration", "error", partner=partner, error_code=code)
+            return (
+                _error_response(
+                    "installation_access_denied",
+                    "The GitHub user does not have access to this installation",
+                    resource_id=str(team.id),
+                    status=403,
+                ),
+                None,
+                False,
+            )
+        if code == "installation_verify_failed":
+            _capture_provisioning_event("github_integration", "error", partner=partner, error_code=code)
+            return (
+                _error_response(
+                    "installation_verify_failed",
+                    "Could not verify installation access with GitHub",
+                    resource_id=str(team.id),
+                    status=502,
+                ),
+                None,
+                False,
+            )
+        _capture_provisioning_event("github_integration", "error", partner=partner, error_code="invalid_request")
+        return (
+            _error_response("invalid_request", str(exc.detail), resource_id=str(team.id), status=400),
+            None,
+            False,
+        )
+    except GitHubInstallationAccessFetchError:
+        _capture_provisioning_event(
+            "github_integration", "error", partner=partner, error_code="integration_creation_failed"
+        )
+        return (
+            _error_response(
+                "integration_creation_failed",
+                "Could not create the GitHub integration",
+                resource_id=str(team.id),
+                status=502,
+            ),
+            None,
+            False,
+        )
+
+    github_grants.consume_grant(grant_id)
+    _apply_provisioned_onboarding_flags(user, team)
+    _capture_provisioning_event("github_integration", "success", partner=partner, team_id=team.id)
+    return None, integration, False
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+@region_proxy(strategy="bearer_lookup")
+def provisioning_github_integration(request: Request, resource_id: str) -> Response:
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+
+    if error := _verify_hmac_if_present(request):
+        return error
+    if error := verify_api_version(request):
+        return error
+
+    try:
+        team_id = int(resource_id)
+    except (ValueError, TypeError):
+        return _error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
+
+    if team_id not in (access_token.scoped_teams or []):
+        return _error_response(
+            "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
+        )
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
+
+    grant_id = request.data.get("grant_id")
+    installation_id = request.data.get("installation_id")
+    if not grant_id or not installation_id:
+        return _error_response("invalid_request", "grant_id and installation_id are required", resource_id=resource_id)
+
+    error, integration, already_linked = _link_github_grant_to_team(
+        partner=access_token.application,
+        user=user,
+        team=team,
+        grant_id=str(grant_id),
+        installation_id=str(installation_id),
+    )
+    if error:
+        return error
+    assert integration is not None
+
+    return Response(
+        {
+            "status": "complete",
+            "id": resource_id,
+            "github_integration": {
+                "integration_id": str(integration.id),
+                "gh_login": (integration.config or {}).get("connecting_user_github_login"),
+                "already_linked": already_linked,
+            },
+        }
+    )
+
+
+def _enforce_wizard_run_user_rate_limit(user_id: int) -> Response | None:
+    """Cache-counter equivalent of the session cloud_run endpoint's per-user throttles;
+    shared across the granular wizard_runs action and the bundled account_requests path
+    so retries can't double-spend the budget."""
+    for label, limit, window_seconds in WIZARD_RUN_USER_RATE_LIMITS:
+        window_index = int(time.time()) // window_seconds
+        key = f"{WIZARD_RUN_USER_RATE_LIMIT_PREFIX}{label}:{user_id}:{window_index}"
+        try:
+            cache.add(key, 0, timeout=window_seconds)
+            count = cache.incr(key)
+        except (ValueError, ConnectionError, TimeoutError):
+            count = 1
+        if count > limit:
+            response = Response(
+                {
+                    "status": "error",
+                    "error": {"code": "rate_limited", "message": "Too many wizard runs for this user. Try later."},
+                },
+                status=429,
+            )
+            response["Retry-After"] = str(window_seconds - (int(time.time()) % window_seconds))
+            return response
+    return None
+
+
+def _create_wizard_run(
+    *, partner: OAuthApplication, user_id: int, team: Team, repository: str, branch: str | None
+) -> tuple[Response | None, dict[str, str] | None]:
+    """Gate + throttle + create a cloud wizard run. Returns (error_response, run_payload)."""
+    if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
+        _capture_provisioning_event("wizard_run", "error", partner=partner, error_code="wizard_unavailable")
+        return (
+            _error_response(
+                "wizard_unavailable",
+                "Running the setup wizard in the cloud is not available",
+                resource_id=str(team.id),
+                status=503,
+            ),
+            None,
+        )
+
+    repository = (repository or "").strip()
+    parts = repository.split("/")
+    if len(parts) != 2 or not all(parts):
+        return (
+            _error_response("invalid_request", "repository must be in 'owner/repo' format", resource_id=str(team.id)),
+            None,
+        )
+
+    if error := _enforce_wizard_run_user_rate_limit(user_id):
+        return error, None
+    if error := _enforce_partner_rate_limit(partner, "wizard_runs"):
+        return error, None
+
+    try:
+        created = tasks_facade.create_wizard_cloud_run(
+            team=team, user_id=user_id, repository=repository, branch=branch or None
+        )
+    except ValueError:
+        # The facade raises when the team has no usable GitHub integration.
+        _capture_provisioning_event(
+            "wizard_run", "error", partner=partner, error_code="github_integration_required", team_id=team.id
+        )
+        return (
+            _error_response(
+                "github_integration_required",
+                "The team does not have a GitHub integration that can access this repository",
+                resource_id=str(team.id),
+                status=400,
+            ),
+            None,
+        )
+    except Exception:
+        capture_exception(additional_properties={"team_id": team.id, "step": "provisioning_wizard_run"})
+        _capture_provisioning_event(
+            "wizard_run", "error", partner=partner, error_code="run_creation_failed", team_id=team.id
+        )
+        return (
+            _error_response(
+                "run_creation_failed", "Failed to start the wizard run", resource_id=str(team.id), status=500
+            ),
+            None,
+        )
+
+    run = created.latest_run
+    _capture_provisioning_event("wizard_run", "success", partner=partner, team_id=team.id, task_id=str(created.task_id))
+    return None, {
+        "task_id": str(created.task_id),
+        "run_id": str(run.id) if run else "",
+        "status": str(run.status) if run else "queued",
+    }
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+@region_proxy(strategy="bearer_lookup")
+def provisioning_wizard_runs(request: Request, resource_id: str) -> Response:
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+
+    if error := _verify_hmac_if_present(request):
+        return error
+    if error := verify_api_version(request):
+        return error
+
+    try:
+        team_id = int(resource_id)
+    except (ValueError, TypeError):
+        return _error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
+
+    if team_id not in (access_token.scoped_teams or []):
+        return _error_response(
+            "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
+        )
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
+
+    repository = request.data.get("repository")
+    if not repository:
+        return _error_response("invalid_request", "repository is required", resource_id=resource_id)
+
+    error, run_payload = _create_wizard_run(
+        partner=access_token.application,
+        user_id=user.id,
+        team=team,
+        repository=str(repository),
+        branch=request.data.get("branch") or None,
+    )
+    if error:
+        return error
+
+    return Response({"status": "complete", "id": resource_id, "wizard_run": run_payload})
 
 
 # ---------------------------------------------------------------------------
