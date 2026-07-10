@@ -10,6 +10,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.access import has_tasks_access
+from products.tasks.backend.constants import TIMED_OUT_INACTIVITY_STATE_KEY
 
 logger = get_logger(__name__)
 
@@ -135,7 +136,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
 
         if task_run.status == TaskRun.Status.COMPLETED:
             handler.update_reaction("hedgehog")
-            if task_run.error_message and "timed out" in task_run.error_message:
+            if _is_timed_out_completion(task_run):
                 handler.delete_progress()
                 return
             if pr_url:
@@ -158,6 +159,18 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             handler.post_or_update_progress(stage, task_url)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
+
+
+def _is_timed_out_completion(task_run: Any) -> bool:
+    """An inactivity-timeout completion gets no completion card — the thread just went quiet.
+
+    The error_message check is a fallback for runs finalized before the state marker existed;
+    they carry the signal as "Run timed out due to inactivity" in error_message.
+    """
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    if state.get(TIMED_OUT_INACTIVITY_STATE_KEY):
+        return True
+    return bool(task_run.error_message and "timed out" in task_run.error_message)
 
 
 def _get_stage_from_status(status: str, stage: str | None = None) -> str:

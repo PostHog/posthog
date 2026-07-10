@@ -3,6 +3,12 @@ from typing import Literal, get_args
 
 import posthoganalytics
 
+# TaskRun.state key set when a run completes because its inactivity timeout fired rather
+# than the agent finishing. Consumers (e.g. Slack updates) render these completions quietly;
+# the signal lives in state, not error_message, so a normal completion never carries an
+# error and never reads as a failure in UIs that surface error_message.
+TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
+
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"

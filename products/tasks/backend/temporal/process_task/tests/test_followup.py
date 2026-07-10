@@ -27,7 +27,7 @@ from products.tasks.backend.temporal.process_task.workflow import (
     ProcessTaskWorkflow,
 )
 
-_status_updates: list[tuple[str, str | None]] = []
+_status_updates: list[tuple[str, str | None, bool]] = []
 
 
 @activity.defn(name="get_task_processing_context")
@@ -46,7 +46,7 @@ def _mock_get_context(_input) -> TaskProcessingContext:
 
 @activity.defn(name="update_task_run_status")
 def _mock_update_status(input: UpdateTaskRunStatusInput) -> None:
-    _status_updates.append((input.status, input.error_message))
+    _status_updates.append((input.status, input.error_message, input.timed_out_inactivity))
 
 
 @activity.defn(name="prepare_sandbox_for_repository")
@@ -162,7 +162,7 @@ class TestFollowupDeliveryFailure:
 
         assert result.success is True
 
-        failed_updates = [(s, e) for s, e in _status_updates if s == "failed"]
+        failed_updates = [(s, e) for s, e, _ in _status_updates if s == "failed"]
         assert len(failed_updates) == 1
         assert failed_updates[0][1] == "Follow-up delivery failed: RuntimeError: Sandbox session is dead"
 
@@ -290,8 +290,10 @@ class TestCIFollowUpLoop:
         assert result.success is True
         assert len(_ci_followup_calls) == MAX_CI_REPETITIONS
         assert all(msg == DEFAULT_CI_MESSAGE for msg in _ci_followup_calls)
-        timeout_updates = [(s, e) for s, e in _status_updates if "timed out" in (e or "")]
+        timeout_updates = [(s, e) for s, e, timed_out in _status_updates if timed_out]
         assert timeout_updates, f"expected an inactivity-timeout completion, got {_status_updates}"
+        # The idle timeout is a normal completion: no error_message on the run.
+        assert timeout_updates == [("completed", None)]
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_uses_ci_prompt_override_when_set(self):
@@ -347,7 +349,7 @@ class TestCIFollowUpLoop:
                 await handle.result()
 
         assert _ci_followup_calls == []
-        timeout_updates = [(s, e) for s, e in _status_updates if "timed out" in (e or "")]
+        timeout_updates = [(s, e) for s, e, timed_out in _status_updates if timed_out]
         assert timeout_updates, f"expected an inactivity-timeout completion, got {_status_updates}"
 
     @pytest.mark.timeout(60, func_only=True)

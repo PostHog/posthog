@@ -49,6 +49,27 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.error_message == error_msg
 
     @pytest.mark.django_db(transaction=True)
+    def test_timed_out_inactivity_sets_state_marker_without_error_message(self, activity_environment, test_task_run):
+        test_task_run.state = {**(test_task_run.state or {}), "existing_key": "kept"}
+        test_task_run.save(update_fields=["state"])
+
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.COMPLETED,
+            timed_out_inactivity=True,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert test_task_run.status == TaskRun.Status.COMPLETED
+        # A timed-out run is a normal completion; error_message stays empty so nothing
+        # downstream renders it as a failure.
+        assert test_task_run.error_message is None
+        assert test_task_run.state.get("timed_out_inactivity") is True
+        # Merge, not replace: concurrent state keys survive the marker write.
+        assert test_task_run.state.get("existing_key") == "kept"
+
+    @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_publishes_stream_state_event(self, mock_publish_stream_state_event, activity_environment, test_task_run):
         input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.IN_PROGRESS)

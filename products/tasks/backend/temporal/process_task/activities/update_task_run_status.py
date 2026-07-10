@@ -7,6 +7,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.constants import TIMED_OUT_INACTIVITY_STATE_KEY
 from products.tasks.backend.metrics import observe_wizard_run_unbound
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
@@ -18,6 +19,7 @@ class UpdateTaskRunStatusInput:
     run_id: str
     status: str
     error_message: Optional[str] = None
+    timed_out_inactivity: bool = False
 
 
 @activity.defn
@@ -43,6 +45,10 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     if input.error_message:
         task_run.error_message = input.error_message
+
+    if input.timed_out_inactivity:
+        # Atomic merge (not a plain assignment) so concurrent state writers aren't clobbered.
+        task_run.state = TaskRun.update_state_atomic(task_run.id, updates={TIMED_OUT_INACTIVITY_STATE_KEY: True})
 
     if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
         task_run.completed_at = timezone.now()

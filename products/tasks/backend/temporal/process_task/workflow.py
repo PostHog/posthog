@@ -686,7 +686,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if self._task_completed:
                 await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
             elif timed_out:
-                await self._update_task_run_status("completed", error_message="Run timed out due to inactivity")
+                # Inactivity timeout is a normal completion; the marker lives in run state, not
+                # error_message, so UIs surfacing error_message don't paint it as a failure.
+                await self._update_task_run_status("completed", timed_out_inactivity=True)
 
             # Close out the keep-it-green step so a finished run doesn't show a still-spinning CI step.
             if self._pr_progress_emitted:
@@ -1292,7 +1294,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
     async def _update_task_run_status(
-        self, status: str, error_message: Optional[str] = None, run_id: Optional[str] = None
+        self,
+        status: str,
+        error_message: Optional[str] = None,
+        run_id: Optional[str] = None,
+        timed_out_inactivity: bool = False,
     ) -> None:
         await workflow.execute_activity(
             update_task_run_status,
@@ -1300,6 +1306,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 run_id=run_id if run_id is not None else self.context.run_id,
                 status=status,
                 error_message=error_message,
+                timed_out_inactivity=timed_out_inactivity,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
