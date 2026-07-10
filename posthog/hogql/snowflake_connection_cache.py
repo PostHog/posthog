@@ -26,11 +26,11 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import TYPE_CHECKING
 
-import snowflake.connector
-
 from posthog.hogql.direct_query_metrics import SNOWFLAKE_CONNECTION_CACHE_TOTAL
 
 if TYPE_CHECKING:
+    import snowflake.connector
+
     from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
     from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
         SnowflakeImplementation,
@@ -43,12 +43,16 @@ SNOWFLAKE_CONNECTION_CACHE_TTL_SECONDS = 1800
 # can't accumulate open sessions without limit.
 SNOWFLAKE_CONNECTION_CACHE_MAX_PER_THREAD = 8
 
+
 # Transport/connection-level failures mean the cached session is suspect; SQL-level
 # errors (ProgrammingError, IntegrityError) leave the connection healthy.
-_CONNECTION_LEVEL_ERRORS = (
-    snowflake.connector.errors.OperationalError,
-    snowflake.connector.errors.InterfaceError,
-)
+def _connection_level_errors() -> tuple[type[Exception], ...]:
+    import snowflake.connector  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+    return (
+        snowflake.connector.errors.OperationalError,
+        snowflake.connector.errors.InterfaceError,
+    )
 
 
 @dataclass
@@ -156,7 +160,7 @@ def cached_snowflake_connection(
 
     try:
         yield connection
-    except _CONNECTION_LEVEL_ERRORS:
+    except _connection_level_errors():
         _evict(key)
         raise
 

@@ -6,18 +6,19 @@ import { combineUrl, router } from 'kea-router'
 
 import { IconBox } from '@posthog/icons'
 import { LemonCard, LemonSkeleton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
 
-import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { EntityHeader } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
-import { DeltaBadge, MetricTile, percentChange, pointChange } from '../components/MetricTile'
+import { MetricTile, percentChange, pointChange } from '../components/MetricTile'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { RunActivityChart, hasEnoughRunActivity } from '../components/RunActivityChart'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
@@ -25,7 +26,7 @@ import { Section, SectionNav, scrollToSection } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import type { MasterFailureGroupApi } from '../generated/api.schemas'
-import { compactCount, compactHours, compactHoursUnit, compactMinutes, compactUsd, percent } from '../lib/format'
+import { compactCount, compactHoursLabel, compactMinutes, compactUsd, percent } from '../lib/format'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { repoOverviewLogic } from './repoOverviewLogic'
 
@@ -86,11 +87,12 @@ function MasterStatusTile({
             className="flex min-w-44 flex-1 flex-col justify-center gap-1 px-5 py-4"
         >
             <Tooltip title="Workflows failing on the default branch in the last 24 hours.">
-                <span className="self-start cursor-default text-xs text-secondary">
+                <span className="self-start cursor-default text-sm font-medium">
                     {defaultBranch === 'main' ? 'Main' : 'Master'}
                 </span>
             </Tooltip>
-            <span className="flex items-center gap-2">
+            {/* Typography mirrors quill MetricCard so the tile sits flush in the stat strip. */}
+            <span className="mt-2 flex items-center gap-2">
                 <span
                     className="inline-block size-2.5 shrink-0 rounded-full"
                     // eslint-disable-next-line react/forbid-dom-props
@@ -98,7 +100,7 @@ function MasterStatusTile({
                 />
                 <span
                     className={cn(
-                        'text-2xl font-semibold leading-none',
+                        'text-4xl font-bold leading-none tracking-tight',
                         loading ? 'text-tertiary' : failing ? 'text-danger' : 'text-primary'
                     )}
                 >
@@ -261,6 +263,8 @@ export function RepoOverviewScene(): JSX.Element {
     } = useValues(engineeringAnalyticsLogic)
     const { loadOverview, loadMasterFailures, loadRepoActivity } = useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
+    const { timezone } = useValues(teamLogic)
+    const chartTheme = useChartTheme()
 
     // jobsAvailable reads false until the overview payload lands, so "not synced" messaging
     // during the initial fetch would misread as a broken setup — hold it back while loading.
@@ -299,17 +303,15 @@ export function RepoOverviewScene(): JSX.Element {
                     label="Pass rate"
                     tooltip="Workflow-level, across all branches."
                     value={percent(overview?.success_rate)}
-                    delta={
-                        <DeltaBadge
-                            value={pointChange(overview?.success_rate, overview?.success_rate_prev)}
-                            unit="pp"
-                        />
-                    }
+                    delta={{
+                        value: pointChange(overview?.success_rate, overview?.success_rate_prev),
+                        unit: 'pp',
+                    }}
                 />
                 <MetricTile
                     label="Runs"
                     value={compactCount(overview?.run_count)}
-                    delta={<DeltaBadge value={percentChange(overview?.run_count, overview?.run_count_prev)} />}
+                    delta={{ value: percentChange(overview?.run_count, overview?.run_count_prev) }}
                 />
                 <MetricTile
                     label="CI cost"
@@ -322,45 +324,38 @@ export function RepoOverviewScene(): JSX.Element {
                     }
                     value={jobsAvailable ? compactUsd(overview?.estimated_cost_usd) : '—'}
                     delta={
-                        jobsAvailable ? (
-                            <DeltaBadge
-                                value={percentChange(overview?.estimated_cost_usd, overview?.estimated_cost_usd_prev)}
-                                goodWhenDown
-                            />
-                        ) : undefined
+                        jobsAvailable
+                            ? {
+                                  value: percentChange(overview?.estimated_cost_usd, overview?.estimated_cost_usd_prev),
+                                  goodWhenDown: true,
+                              }
+                            : undefined
                     }
                     sub={jobsAvailable || overviewPending ? undefined : 'Job-level source not synced'}
                 />
                 <MetricTile
                     label="Median PR open→merge"
                     tooltip="Created to merged, over PRs merged in the window. Bots and drafts excluded."
-                    value={compactHours(overview?.median_open_to_merge_seconds)}
-                    valueSuffix={compactHoursUnit(overview?.median_open_to_merge_seconds)}
-                    delta={
-                        <DeltaBadge
-                            value={
-                                overview?.median_open_to_merge_seconds != null &&
-                                overview?.median_open_to_merge_seconds_prev != null
-                                    ? (overview.median_open_to_merge_seconds -
-                                          overview.median_open_to_merge_seconds_prev) /
-                                      3600
-                                    : null
-                            }
-                            unit="h"
-                            goodWhenDown
-                        />
-                    }
+                    value={compactHoursLabel(overview?.median_open_to_merge_seconds)}
+                    delta={{
+                        value:
+                            overview?.median_open_to_merge_seconds != null &&
+                            overview?.median_open_to_merge_seconds_prev != null
+                                ? (overview.median_open_to_merge_seconds - overview.median_open_to_merge_seconds_prev) /
+                                  3600
+                                : null,
+                        unit: 'h',
+                        goodWhenDown: true,
+                    }}
                 />
                 <MetricTile
                     label="Re-run cycles"
                     tooltip="Runs with attempt > 1 in the window."
                     value={compactCount(overview?.rerun_cycles)}
-                    delta={
-                        <DeltaBadge
-                            value={percentChange(overview?.rerun_cycles, overview?.rerun_cycles_prev)}
-                            goodWhenDown
-                        />
-                    }
+                    delta={{
+                        value: percentChange(overview?.rerun_cycles, overview?.rerun_cycles_prev),
+                        goodWhenDown: true,
+                    }}
                 />
             </div>
 
@@ -480,15 +475,25 @@ export function RepoOverviewScene(): JSX.Element {
                 ) : jobsAvailable && costPerMergeSeries ? (
                     <LemonCard hoverEffect={false} className="mb-2 p-4">
                         <h3 className="mb-1 text-xs font-semibold text-secondary">Cost per merged PR</h3>
-                        <Sparkline
-                            data={costPerMergeSeries.values}
-                            labels={costPerMergeSeries.labels}
-                            name="Cost per merged PR"
-                            type="line"
-                            className="h-24 w-full"
-                            renderLabel={(label) => label}
-                            renderTooltipValue={(value) => compactUsd(value)}
-                        />
+                        {/* Charts fill their container, so the wrapper pins an explicit height. */}
+                        <div className="h-32 w-full">
+                            <TimeSeriesLineChart
+                                series={[
+                                    {
+                                        key: 'cost_per_merge',
+                                        label: 'Cost per merged PR',
+                                        data: costPerMergeSeries.values,
+                                    },
+                                ]}
+                                labels={costPerMergeSeries.labels}
+                                theme={chartTheme}
+                                config={{
+                                    xAxis: { timezone, interval: costPerMergeSeries.interval },
+                                    yAxis: { format: 'currency', currency: 'USD' },
+                                    tooltip: { valueFormatter: (value) => compactUsd(value) },
+                                }}
+                            />
+                        </div>
                         <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
                             Estimated Depot CI cost per PR merged. Each point divides a trailing window's CI cost by its
                             merges (24 h, 7 d, or 4 w to match the grain), so quiet buckets don't punch holes in the
