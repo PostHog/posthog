@@ -859,8 +859,15 @@ def _should_send_nudge(
             return False
 
     # The only paid check, so it runs last: with org consent and the rollout flag on, a
-    # cheap LLM screens out chatter that the word-count heuristic can't catch.
-    return _llm_allows_nudge(team, text, files)
+    # cheap LLM screens out chatter that the word-count heuristic can't catch. A "no"
+    # verdict starts the same cooldown a posted nudge would — without it, every further
+    # message from a chatty author re-runs the classifier, unbounded; with it, the cadence
+    # is what the pre-classifier nudge already established: one evaluation per
+    # user/channel per window.
+    if not _llm_allows_nudge(team, text, files):
+        suppress_nudge(team_id, channel, slack_user_id, NUDGE_COOLDOWN_TTL)
+        return False
+    return True
 
 
 def post_ticket_confirmation_prompt(

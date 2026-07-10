@@ -700,6 +700,35 @@ class TestSlackNudge(BaseTest):
             mock_get_client.return_value.chat_postMessage.assert_not_called()
         mock_create_or_update.assert_not_called()
 
+    @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
+    @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
+    @patch(f"{MODULE}.get_llm_client")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_classifier_no_starts_cooldown_so_chatter_is_not_reclassified(
+        self, mock_create_or_update, mock_get_client, mock_get_llm_client, _mock_flag_enabled
+    ):
+        # A "no" verdict must start the nudge cooldown — otherwise an external user posting
+        # chatter triggers a paid classifier call on every single message.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        completion = Mock()
+        completion.choices = [Mock(message=Mock(content="no"))]
+        mock_get_llm_client.return_value.chat.completions.create.return_value = completion
+
+        event = {
+            "type": "message",
+            "channel": "C_OTHER",
+            "user": "U123",
+            "text": "lovely weather over here today, hope you all have a great weekend",
+        }
+        handle_support_message({**event, "ts": "1700000000.000100"}, self.team, "T123")
+        handle_support_message({**event, "ts": "1700000000.000200"}, self.team, "T123")
+
+        assert mock_get_llm_client.return_value.chat.completions.create.call_count == 1
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
+        mock_create_or_update.assert_not_called()
+
     @parameterized.expand(
         [
             ("ai_processing_off", False, True),
