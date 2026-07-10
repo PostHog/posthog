@@ -879,7 +879,7 @@ class EnterpriseExperimentsViewSet(
         Returns a paginated list of feature flags eligible for use in experiments.
 
         Eligible flags must:
-        - Be multivariate with at least 2 variants
+        - Be multivariate with 2 to 20 variants
         - Have "control" as the first variant key
 
         Query parameters:

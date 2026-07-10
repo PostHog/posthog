@@ -43,7 +43,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -556,28 +556,17 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     @staticmethod
     def _assert_flag_variants_valid(config: dict) -> None:
-        """Experiment-specific variant rules on the validated (already normalized) config. Raised as
-        plain top-level errors so the messages surface directly to LLM/API callers."""
+        """Variant rules on the validated (already normalized) config, raised as plain top-level
+        errors so the messages surface directly to LLM/API callers. Absent or empty variants are
+        allowed here — the service fills in the default control/test pair. Capitalized 'Control' is
+        auto-normalized (ExperimentFlagMultivariateSerializer), so a control failure here genuinely
+        lacks a leading 'control' variant."""
         variants = ((config.get("filters") or {}).get("multivariate") or {}).get("variants")
-        if variants is None:
+        if not variants:
             return
-        if len(variants) >= 21:
-            raise serializers.ValidationError("Feature flag variants must be less than 21")
-        if len(variants) > 0:
-            if len(variants) < 2:
-                raise serializers.ValidationError(
-                    "Feature flag must have at least 2 variants (control and at least one test variant)"
-                )
-            keys = [variant["key"] for variant in variants]
-            if "control" not in keys:
-                # Capitalized 'Control' is auto-normalized (ExperimentFlagMultivariateSerializer), so
-                # anything reaching this branch genuinely lacks a baseline variant. Surface the keys
-                # we did receive so LLM callers can self-correct without a second roundtrip.
-                raise serializers.ValidationError(
-                    "Feature flag variants must contain a variant with key 'control' "
-                    f"(lowercase, exactly). Got keys: {keys}. Rename the baseline variant's "
-                    "'key' to 'control'."
-                )
+        error = experiment_eligibility_error(variants)
+        if error:
+            raise serializers.ValidationError(error)
 
     @staticmethod
     def _is_feature_flag_config_input(feature_flag_input: Any) -> TypeGuard[dict]:

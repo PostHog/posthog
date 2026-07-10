@@ -3025,7 +3025,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         detail = response.json()["detail"]
-        self.assertIn("must contain a variant with key 'control'", detail)
+        self.assertIn("must have 'control' as its first variant", detail)
         self.assertIn("'test_0'", detail)
         self.assertIn("'test_1'", detail)
         self.assertIn("'test_2'", detail)
@@ -3100,7 +3100,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             # 400 path: the error must NOT be the missing-control message,
             # which would only fire if normalization had wrongly rewritten things.
             detail = str(response.json())
-            self.assertNotIn("must contain a variant with key 'control'", detail)
+            self.assertNotIn("must have 'control' as its first variant", detail)
 
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"
@@ -3603,7 +3603,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Feature flag must have a variant with key 'control'")
+        self.assertEqual(
+            response.json()["detail"],
+            "Feature flag must have 'control' as its first variant. Got variant keys: ['test-1', 'test-2']",
+        )
 
     def test_create_experiment_with_feature_flag_insufficient_variants(self):
         feature_flag = FeatureFlag.objects.create(

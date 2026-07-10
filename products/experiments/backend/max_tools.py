@@ -18,7 +18,7 @@ from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryDataService
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
 from ee.hogai.context.experiment.context import ExperimentContext
 from ee.hogai.tool import MaxTool
@@ -129,21 +129,11 @@ class CreateExperimentTool(MaxTool):
             except FeatureFlag.DoesNotExist:
                 raise ValueError(f"Feature flag '{feature_flag_key}' does not exist")
 
-            multivariate = feature_flag.filters.get("multivariate")
-            if not multivariate or not multivariate.get("variants"):
+            eligibility_error = experiment_eligibility_error(feature_flag.variants)
+            if eligibility_error:
                 raise ValueError(
-                    f"Feature flag '{feature_flag_key}' must have multivariate variants to be used in an experiment. "
-                    f"Create the flag with variants first using the create_feature_flag tool."
-                )
-
-            variants = multivariate["variants"]
-            # Intentionally stricter than service validation for multi-variant flags:
-            # require control first for Max-created experiments.
-            # Single-variant flags are validated by the service with a clearer error.
-            if len(variants) >= 2 and variants[0].get("key") != "control":
-                raise ValueError(
-                    f"Feature flag '{feature_flag_key}' must have 'control' as the first variant. "
-                    f"Found '{variants[0].get('key')}' instead. Please update the feature flag variants."
+                    f"Feature flag '{feature_flag_key}' cannot back an experiment: {eligibility_error}. "
+                    f"Update the flag's variants, or create a new flag with the create_feature_flag tool."
                 )
 
             existing_experiment_with_flag = Experiment.objects.filter(feature_flag=feature_flag, deleted=False).first()

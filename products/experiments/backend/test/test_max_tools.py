@@ -250,7 +250,7 @@ class TestCreateExperimentTool(APIBaseTest):
         )
 
         assert "Failed to create" in result
-        assert "must have multivariate variants" in result
+        assert "at least 2 variants" in result
         assert artifact is not None
         assert artifact.get("error") is not None
 
@@ -323,8 +323,8 @@ class TestCreateExperimentTool(APIBaseTest):
         )
 
         assert "Failed to create" in result
-        assert "must have 'control' as the first variant" in result
-        assert "Found 'baseline' instead" in result
+        assert "must have 'control' as its first variant" in result
+        assert "'baseline'" in result
         assert artifact is not None
         assert artifact.get("error") is not None
 

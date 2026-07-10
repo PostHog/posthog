@@ -89,7 +89,7 @@ from products.feature_flags.backend.facade.api import (
     user_can_edit_flag,
 )
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -1185,13 +1185,9 @@ class ExperimentService:
 
     def _validate_existing_flag(self, feature_flag: FeatureFlag) -> None:
         """Validate that an existing feature flag is suitable for experiment use."""
-        variants = feature_flag.filters.get("multivariate", {}).get("variants", [])
-
-        if len(variants) < 2:
-            raise ValidationError("Feature flag must have at least 2 variants (control and at least one test variant)")
-
-        if "control" not in [variant["key"] for variant in variants]:
-            raise ValidationError("Feature flag must have a variant with key 'control'")
+        error = experiment_eligibility_error(feature_flag.variants)
+        if error:
+            raise ValidationError(error)
 
     def _assert_flag_not_deleted_for_launch(self, feature_flag: FeatureFlag) -> None:
         """A deleted flag distributes no traffic, so an experiment can never go live on it."""
@@ -3723,17 +3719,7 @@ class ExperimentService:
         evaluation_runtime: str | None,
         has_evaluation_contexts: str | bool | None,
     ) -> QuerySet[FeatureFlag]:
-        queryset = FeatureFlag.objects.filter(team__project_id=self.team.project_id)
-
-        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-        queryset = queryset.extra(
-            where=[
-                """
-                jsonb_array_length(filters->'multivariate'->'variants') >= 2
-                AND filters->'multivariate'->'variants'->0->>'key' = 'control'
-                """
-            ]
-        )
+        queryset = FeatureFlag.objects.filter(team__project_id=self.team.project_id).eligible_for_experiment()
 
         if excluded_flag_ids:
             queryset = queryset.exclude(id__in=excluded_flag_ids)
