@@ -55,7 +55,7 @@ Discover the columns and relationships of these tables with `information_schema`
 - **Properties**: Key-value metadata accessed via `properties.foo.bar` or `properties.foo['bar']` for special characters
 - **Person properties**: Access via `events.person.properties.foo` or `persons.properties.foo`
 - **Person property modes**: `person.properties.*` behavior depends on the project's person-on-events setting. Check the project metadata to determine if values are event-time (value at ingestion) or query-time (current value). See [Person property modes](references/person-property-modes.md) for details.
-- **Unique users**: Use `events.person_id` for counting unique users
+- **Unique users**: count unique users with `uniqExact(person_id)` or `count(DISTINCT person_id)`. A single person can hold many `distinct_id`s (anonymous IDs get merged onto the person on identify), so `uniqExact(distinct_id)` / `count(DISTINCT distinct_id)` overcounts users. Only count `distinct_id` when you specifically want raw pre-identity visitors (e.g. a session/visitor count), and label it as such.
 
 **Example - Weekly active users:**
 

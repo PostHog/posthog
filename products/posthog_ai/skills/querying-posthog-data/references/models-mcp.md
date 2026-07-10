@@ -72,7 +72,8 @@ SELECT
     round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
     round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50_ms,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_ms,
-    uniq(distinct_id) AS users,
+    -- unique users: count person_id, not distinct_id — one person can hold several distinct IDs
+    uniq(person_id) AS users,
     countDistinctIf($session_id, $session_id != '') AS sessions
 FROM events
 WHERE event = '$mcp_tool_call'
@@ -81,6 +82,8 @@ WHERE event = '$mcp_tool_call'
 GROUP BY tool
 ORDER BY total_calls DESC
 ```
+
+Count unique users with `uniq(person_id)` (or `uniqExact(person_id)` / `count(DISTINCT person_id)`), never `distinct_id` — one person can hold several `distinct_id`s, so counting distinct IDs overcounts users. Use `distinct_id` only for a deliberate raw-visitor count. (The typed `query-mcp-tool-*` tools and the MCP analytics dashboard currently report reach as a `distinct_id` count; when you need a number that matches the UI exactly, call the typed tool.)
 
 **Daily activity** (success/error split for a time series) — for one tool's daily series prefer `posthog:query-mcp-tool-daily-stats`; this all-tools version is the custom cut:
 
@@ -106,14 +109,14 @@ A "harness" is the friendly product label for the MCP client that made a call �
 ```sql
 SELECT
     harness,
-    uniq(distinct_id) AS users,
-    round(uniq(distinct_id) * 100.0 / (
-        SELECT uniq(distinct_id) FROM events
+    uniq(person_id) AS users,
+    round(uniq(person_id) * 100.0 / (
+        SELECT uniq(person_id) FROM events
         WHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 30 DAY
     ), 1) AS pct_of_users
 FROM (
     SELECT
-        distinct_id,
+        person_id,
         multiIf(
             h = 'claude-code claude-desktop', 'Claude Desktop',
             h = 'claude-code claude-vscode', 'Claude Code (VS Code)',
@@ -149,7 +152,7 @@ FROM (
         ) AS harness
     FROM (
         SELECT
-            distinct_id,
+            person_id,
             trim(replaceRegexpAll(lower(
                 coalesce(
                     multiIf(

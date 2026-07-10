@@ -1,5 +1,7 @@
 Executes HogQL — PostHog's variant of SQL that supports most of ClickHouse SQL. "HogQL" and "SQL" are used interchangeably.
 
+Count unique users with `uniqExact(person_id)` or `count(DISTINCT person_id)`, never `distinct_id` — one person can have many distinct IDs, so counting distinct IDs overcounts users. Use `distinct_id` only for a deliberate raw-visitor count.
+
 {guidelines}
 
 ### When to use `execute-sql`
