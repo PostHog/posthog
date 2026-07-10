@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonButton,
     LemonDialog,
     LemonInput,
@@ -51,6 +50,7 @@ import {
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
 
+import { ApiVersionDeprecationBanner } from '../SourceScene/SourceScene'
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
 import { RowFilterEditor } from '../SourceScene/tabs/RowFilterEditor'
 import { validateRowFilters } from '../SourceScene/tabs/rowFilterUtils'
@@ -74,10 +74,13 @@ function sameColumns(a: string[] | null, b: string[] | null, available: { name: 
     return setA.size === setB.size && [...setA].every((c) => setB.has(c))
 }
 
+/** The schema page's source is the retrieve-endpoint summary widened to the full type (see schemaSceneLogic). */
+export type SchemaSceneSource = ExternalDataSource & Partial<ExternalDataSchemaSourceSummary>
+
 export interface ConfigurationTabProps {
     sourceId: string
     schema: ExternalDataSourceSchema
-    source: ExternalDataSource | null
+    source: SchemaSceneSource | null
     section: SchemaConfigurationSection
     onConfigureSyncMethod: () => void
     onViewSyncHistory: () => void
@@ -511,17 +514,14 @@ function ApiVersionSection({
     schema,
 }: {
     sourceId: string
-    source: ExternalDataSource | null
+    source: SchemaSceneSource | null
     schema: ExternalDataSourceSchema
 }): JSX.Element | null {
-    const { loadSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
+    const { loadSchema, resyncSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
     const { disabledReason: accessDisabledReason } = useSourceEditorAccess(source)
 
-    // `source` is the lightweight schema-retrieve summary cast to the full type upstream
-    // (see schemaSceneLogic's `source` selector) — cast back to read the version fields.
-    const summary = source as unknown as ExternalDataSchemaSourceSummary | null
-    const supportedVersions = summary?.supported_api_versions ?? []
-    const sourceVersion = summary?.api_version
+    const supportedVersions = source?.supported_api_versions ?? []
+    const sourceVersion = source?.api_version
 
     const [draftVersion, setDraftVersion] = useState<string | null>(schema.api_version ?? null)
     const [saving, setSaving] = useState(false)
@@ -547,11 +547,16 @@ function ApiVersionSection({
         ...supportedVersions.map((version) => ({ value: version, label: version })),
     ]
 
-    const handleSave = async (): Promise<void> => {
+    const persist = async (resyncAfter: boolean): Promise<void> => {
         setSaving(true)
         try {
             await api.externalDataSchemas.update(schema.id, { api_version: draftVersion })
-            lemonToast.success('API version saved')
+            if (resyncAfter) {
+                resyncSchema(schema)
+                lemonToast.success('API version saved — full resync queued')
+            } else {
+                lemonToast.success('API version saved')
+            }
             loadSchema()
         } catch (e: any) {
             lemonToast.error(e?.detail || e?.message || "Can't save API version at this time")
@@ -560,22 +565,48 @@ function ApiVersionSection({
         }
     }
 
+    const handleSave = (): void => {
+        // Only warn when there is synced data that could mix shapes with the new version.
+        if (!schema.last_synced_at) {
+            void persist(false)
+            return
+        }
+        const isRunning = schema.status === 'Running'
+        LemonDialog.open({
+            title: 'Change API version for already-synced data?',
+            content: (
+                <div className="text-sm text-secondary space-y-2">
+                    <p>
+                        <strong>{schema.table?.name ?? schema.name}</strong> already contains data synced with the
+                        previous API version. Vendors can rename or remove fields between versions, so future syncs may
+                        not line up with the existing rows. A full resync is recommended.
+                    </p>
+                    {isRunning && <p>The sync currently running will be canceled when you save.</p>}
+                </div>
+            ),
+            primaryButton: { children: 'Save and resync', onClick: () => void persist(true) },
+            secondaryButton: { children: 'Save only', onClick: () => void persist(false) },
+            tertiaryButton: { children: 'Cancel', type: 'tertiary' },
+        })
+    }
+
     return (
         <div>
             <SectionHeader
                 title="Vendor API version"
                 description={`Which version of the ${
-                    summary?.source_type ?? 'vendor'
+                    source?.source_type ?? 'vendor'
                 } API this schema syncs with. Overriding pins this schema only — other schemas keep following the source's version, and version migrations never change an override.`}
             />
             {deprecation && (
-                <LemonBanner type="warning" className="mb-4">
-                    This schema is pinned to API version {deprecation.version}, which the vendor has deprecated
-                    {deprecation.sunset_at
-                        ? ` and will stop serving on ${dayjs(deprecation.sunset_at).format('LL')}`
-                        : ''}
-                    . Switch to version {deprecation.default_version} before syncs stop working.
-                </LemonBanner>
+                <div className="mb-4">
+                    <ApiVersionDeprecationBanner
+                        sourceType={source?.source_type ?? 'vendor'}
+                        deprecation={deprecation}
+                        subject="This schema"
+                        cta={`Switch to version ${deprecation.default_version} before syncs stop working.`}
+                    />
+                </div>
             )}
             <div className="border rounded p-4 bg-surface-primary flex flex-col gap-1">
                 <span>API version override</span>
@@ -605,7 +636,7 @@ function ApiVersionSection({
                               ? 'No changes to save'
                               : undefined)
                     }
-                    onClick={() => void handleSave()}
+                    onClick={handleSave}
                 >
                     Save
                 </LemonButton>

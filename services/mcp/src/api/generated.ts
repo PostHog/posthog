@@ -23857,17 +23857,6 @@ export namespace Schemas {
     } | null;
 
     /**
-     * Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin.
-     * @nullable
-     */
-    export type ExternalDataSchemaApiVersionDeprecation = {
-      readonly version?: string;
-      /** @nullable */
-      readonly sunset_at?: string | null;
-      readonly default_version?: string;
-    } | null;
-
-    /**
      * * `full_refresh` - full_refresh
      * * `incremental` - incremental
      * * `append` - append
@@ -23938,6 +23927,18 @@ export namespace Schemas {
       '7day': '7day',
       '30day': '30day',
     } as const;
+
+    export interface ExternalDataSourceApiVersionDeprecation {
+      /** The deprecated vendor API version this source is pinned to. */
+      version: string;
+      /**
+         * Date the vendor stops serving this version; null if not announced.
+         * @nullable
+         */
+      sunset_at: string | null;
+      /** The source's current default vendor API version — the migration target. */
+      default_version: string;
+    }
 
     export interface ExternalDataSchema {
       readonly id: string;
@@ -24043,23 +24044,8 @@ export namespace Schemas {
          * @nullable
          */
       api_version?: string | null;
-      /**
-         * Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin.
-         * @nullable
-         */
-      readonly api_version_deprecation: ExternalDataSchemaApiVersionDeprecation;
-    }
-
-    export interface ExternalDataSourceApiVersionDeprecation {
-      /** The deprecated vendor API version this source is pinned to. */
-      version: string;
-      /**
-         * Date the vendor stops serving this version; null if not announced.
-         * @nullable
-         */
-      sunset_at: string | null;
-      /** The source's current default vendor API version — the migration target. */
-      default_version: string;
+      /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
+      readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
     }
 
     export type ExternalDataSourceBulkUpdateSchemaRowFiltersItem = {
@@ -40254,17 +40240,6 @@ export namespace Schemas {
       readonly supported_api_versions?: string[];
     } | null;
 
-    /**
-     * Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin.
-     * @nullable
-     */
-    export type PatchedExternalDataSchemaApiVersionDeprecation = {
-      readonly version?: string;
-      /** @nullable */
-      readonly sunset_at?: string | null;
-      readonly default_version?: string;
-    } | null;
-
     export interface PatchedExternalDataSchema {
       readonly id?: string;
       readonly name?: string;
@@ -40369,11 +40344,8 @@ export namespace Schemas {
          * @nullable
          */
       api_version?: string | null;
-      /**
-         * Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin.
-         * @nullable
-         */
-      readonly api_version_deprecation?: PatchedExternalDataSchemaApiVersionDeprecation;
+      /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
+      readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null;
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {

@@ -107,6 +107,10 @@ from products.data_warehouse.backend.presentation.views.external_data_schema imp
     unsupported_row_filter_reason,
 )
 from products.data_warehouse.backend.presentation.views.public_source_configs import build_source_configs
+from products.data_warehouse.backend.presentation.views.source_api_versions import (
+    ExternalDataSourceApiVersionDeprecationSerializer,
+    api_version_deprecation_payload,
+)
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import (
     mysql_columns_to_dwh_columns,
@@ -693,16 +697,6 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
         ).data
 
 
-class ExternalDataSourceApiVersionDeprecationSerializer(serializers.Serializer):
-    version = serializers.CharField(help_text="The deprecated vendor API version this source is pinned to.")
-    sunset_at = serializers.DateField(
-        allow_null=True, help_text="Date the vendor stops serving this version; null if not announced."
-    )
-    default_version = serializers.CharField(
-        help_text="The source's current default vendor API version — the migration target."
-    )
-
-
 class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
@@ -870,18 +864,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, instance: ExternalDataSource) -> dict[str, Any] | None:
-        try:
-            source = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
-        except ValueError:
-            return None
-        deprecation = source.get_version_deprecation(instance.api_version)
-        if deprecation is None:
-            return None
-        return {
-            "version": deprecation.version,
-            "sunset_at": deprecation.sunset_at.isoformat() if deprecation.sunset_at else None,
-            "default_version": source.default_version,
-        }
+        return api_version_deprecation_payload(instance.source_type, instance.api_version)
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore

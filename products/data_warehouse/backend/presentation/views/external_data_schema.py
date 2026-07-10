@@ -43,6 +43,10 @@ from products.data_warehouse.backend.facade.api import (
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
+from products.data_warehouse.backend.presentation.views.source_api_versions import (
+    ExternalDataSourceApiVersionDeprecationSerializer,
+    api_version_deprecation_payload,
+)
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
     ExternalDataSchema,
@@ -477,34 +481,13 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "supported_api_versions": supported_api_versions,
         }
 
-    @extend_schema_field(
-        {
-            "type": "object",
-            "nullable": True,
-            "properties": {
-                "version": {"type": "string"},
-                "sunset_at": {"type": "string", "format": "date", "nullable": True},
-                "default_version": {"type": "string"},
-            },
-        }
-    )
+    @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
         # Only the schema-level override is judged here; a deprecated source pin surfaces on the
         # source, not on every schema.
         if not schema.api_version:
             return None
-        try:
-            source_impl = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
-        except ValueError:
-            return None
-        deprecation = source_impl.get_version_deprecation(schema.api_version)
-        if deprecation is None:
-            return None
-        return {
-            "version": deprecation.version,
-            "sunset_at": deprecation.sunset_at.isoformat() if deprecation.sunset_at else None,
-            "default_version": source_impl.default_version,
-        }
+        return api_version_deprecation_payload(schema.source.source_type, schema.api_version)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(Optional[ExternalDataSchema], self.instance)
@@ -637,6 +620,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
         previous_cdc_table_mode = instance.cdc_table_mode
+
+        api_version_changed = "api_version" in validated_data and validated_data["api_version"] != instance.api_version
 
         # Snapshot sync_type_config before the branches below mutate it in place. The terminal save
         # diffs against this to persist only the keys this request changed. Shallow is enough: the
@@ -1038,6 +1023,29 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
         updated_instance = self._save_merging_sync_type_config(instance, validated_data, original_sync_type_config)
+
+        # A version repin invalidates any in-flight import: retried/resumed activities re-resolve
+        # the version from the DB, so letting the run finish would mix two vendor API versions in
+        # one table. Cancel it; the user decides when to sync again.
+        if api_version_changed:
+            running_job = (
+                ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
+                .order_by("-created_at")
+                .first()
+            )
+            if running_job and running_job.workflow_id and running_job.status == "Running":
+
+                def cancel_running_import() -> None:
+                    try:
+                        cancel_external_data_workflow(running_job.workflow_id)
+                    except temporalio.service.RPCError as e:
+                        logger.exception(
+                            "Could not cancel running workflow after api_version change",
+                            schema_id=str(instance.id),
+                            exc_info=e,
+                        )
+
+                self._run_temporal_side_effect(cancel_running_import)
 
         if source.supports_scheduled_sync and (
             should_sync is not None or was_sync_frequency_updated or was_sync_time_of_day_updated

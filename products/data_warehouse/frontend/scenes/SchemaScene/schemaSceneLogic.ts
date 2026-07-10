@@ -15,6 +15,7 @@ import {
     Breadcrumb,
     ExternalDataSchemaStatus,
     ExternalDataSchemaWithSource,
+    ExternalDataSchemaSourceSummary,
     ExternalDataSource,
     ExternalDataSourceSchema,
     SchemaIncrementalFieldsResponse,
@@ -155,9 +156,12 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         source: [
             (s) => [s.schemaData],
             // The summary carries exactly the fields the page reads (source_type, user_access_level,
-            // supports_column_selection); cast to the full type so existing prop signatures are unchanged.
-            (schemaData): ExternalDataSource | null =>
-                (schemaData?.source ?? null) as unknown as ExternalDataSource | null,
+            // supports_column_selection, api version info); intersect with the full type so existing
+            // prop signatures are unchanged while the summary-only fields stay typed.
+            (schemaData): (ExternalDataSource & Partial<ExternalDataSchemaSourceSummary>) | null =>
+                (schemaData?.source ?? null) as unknown as
+                    | (ExternalDataSource & Partial<ExternalDataSchemaSourceSummary>)
+                    | null,
         ],
         supportsColumnSelection: [
             (s) => [s.schemaData],

@@ -292,16 +292,20 @@ function ManagedSourceTabs({
 export function ApiVersionDeprecationBanner({
     sourceType,
     deprecation,
+    subject = 'This source',
+    cta,
 }: {
-    sourceType: ExternalDataSource['source_type']
+    sourceType: string
     deprecation: ExternalDataSourceApiVersionDeprecation
+    subject?: string
+    cta?: string
 }): JSX.Element {
     return (
         <LemonBanner type="warning">
-            This source syncs using {sourceType} API version {deprecation.version}, which the vendor has deprecated
-            {deprecation.sunset_at ? ` and will stop serving on ${dayjs(deprecation.sunset_at).format('LL')}` : ''}.
-            Contact PostHog support to migrate this source to version {deprecation.default_version} before syncs stop
-            working.
+            {subject} syncs using {sourceType} API version {deprecation.version}, which the vendor has deprecated
+            {deprecation.sunset_at ? ` and will stop serving on ${dayjs(deprecation.sunset_at).format('LL')}` : ''}.{' '}
+            {cta ??
+                `Contact PostHog support to migrate this source to version ${deprecation.default_version} before syncs stop working.`}
         </LemonBanner>
     )
 }

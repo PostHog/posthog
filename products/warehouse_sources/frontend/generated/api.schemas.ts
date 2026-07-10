@@ -89,6 +89,18 @@ export const CdcTableModeEnumApi = {
     Both: 'both',
 } as const
 
+export interface ExternalDataSourceApiVersionDeprecationApi {
+    /** The deprecated vendor API version this source is pinned to. */
+    version: string
+    /**
+     * Date the vendor stops serving this version; null if not announced.
+     * @nullable
+     */
+    sunset_at: string | null
+    /** The source's current default vendor API version — the migration target. */
+    default_version: string
+}
+
 /**
  * @nullable
  */
@@ -122,17 +134,6 @@ export type ExternalDataSchemaApiSource = {
     /** @nullable */
     readonly api_version?: string | null
     readonly supported_api_versions?: string[]
-} | null
-
-/**
- * Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin.
- * @nullable
- */
-export type ExternalDataSchemaApiApiVersionDeprecation = {
-    readonly version?: string
-    /** @nullable */
-    readonly sunset_at?: string | null
-    readonly default_version?: string
 } | null
 
 export interface ExternalDataSchemaApi {
@@ -239,11 +240,8 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     api_version?: string | null
-    /**
-     * Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin.
-     * @nullable
-     */
-    readonly api_version_deprecation: ExternalDataSchemaApiApiVersionDeprecation
+    /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
+    readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecationApi | null
 }
 
 export interface PaginatedExternalDataSchemaListApi {
@@ -288,17 +286,6 @@ export type PatchedExternalDataSchemaApiSource = {
     /** @nullable */
     readonly api_version?: string | null
     readonly supported_api_versions?: string[]
-} | null
-
-/**
- * Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin.
- * @nullable
- */
-export type PatchedExternalDataSchemaApiApiVersionDeprecation = {
-    readonly version?: string
-    /** @nullable */
-    readonly sunset_at?: string | null
-    readonly default_version?: string
 } | null
 
 export interface PatchedExternalDataSchemaApi {
@@ -405,11 +392,8 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     api_version?: string | null
-    /**
-     * Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin.
-     * @nullable
-     */
-    readonly api_version_deprecation?: PatchedExternalDataSchemaApiApiVersionDeprecation
+    /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
+    readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecationApi | null
 }
 
 /**
@@ -1970,18 +1954,6 @@ export const EngineEnumApi = {
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
     enabled?: boolean
     include_invoiceless_charges?: boolean
-}
-
-export interface ExternalDataSourceApiVersionDeprecationApi {
-    /** The deprecated vendor API version this source is pinned to. */
-    version: string
-    /**
-     * Date the vendor stops serving this version; null if not announced.
-     * @nullable
-     */
-    sunset_at: string | null
-    /** The source's current default vendor API version — the migration target. */
-    default_version: string
 }
 
 export type ExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }

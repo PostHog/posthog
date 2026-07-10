@@ -3485,6 +3485,29 @@ class TestExternalDataSchemaApiVersionOverride(APIBaseTest):
         response = self._patch(schema, {"api_version": "v2"})
         assert response.status_code == 400
 
+    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    def test_repin_cancels_running_sync(self, mock_cancel):
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema = self._create_schema()
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=schema.source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            workflow_id="test-workflow-id",
+        )
+
+        response = self._patch(schema, {"api_version": StripeSource.default_version})
+        assert response.status_code == 200, response.json()
+        mock_cancel.assert_called_once_with("test-workflow-id")
+
+        # An unrelated edit (no version change) must not cancel anything.
+        mock_cancel.reset_mock()
+        response = self._patch(schema, {"api_version": StripeSource.default_version, "should_sync": False})
+        assert response.status_code == 200, response.json()
+        mock_cancel.assert_not_called()
+
     def test_api_version_deprecation_surfaces_for_deprecated_override_only(self):
         schema = self._create_schema(api_version="1999-legacy")
         url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}"
