@@ -17,7 +17,8 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import SANDBOX_EVENT_INGEST_FEATURE_FLAG
 from products.tasks.backend.metrics import observe_task_run_workflow_start
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
@@ -306,11 +307,26 @@ def execute_task_processing_workflow(
 
 
 def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
-    """Mirror ``_trigger_task_processing_workflow``: full scopes unless the run_source is scoped down."""
+    """Best-effort scope posture for the reconciler when ``pending_dispatch`` didn't carry
+    ``posthog_mcp_scopes`` (pre-reconciler rows, or the bootstrap/start path). Mirrors
+    ``_trigger_task_processing_workflow``: full scopes unless the run_source is scoped down.
+
+    Signals scout runs are the exception. Their posture (``signal_scout_internal:*`` +
+    ``signal_scout_report:write``) is carried by neither ``"full"`` nor ``"read_only"``, so a scout
+    re-dispatched on this fallback with a generic posture loses every ``signals-scout-*`` tool — they
+    drop out of the MCP catalog and surface to the agent as "Unknown tool", burning the whole run
+    (it investigates, then can't emit a report, write scratchpad, or build its profile). Pin
+    scout-origin runs to the most-capable scout posture so a reconciled scout stays fully functional.
+    Over-granting the report scope to a non-report scout is harmless: the report endpoints
+    independently gate on the skill's ``allowed_tools`` opt-in.
+    """
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — avoid an import cycle
         RunSource,
         parse_run_state,
     )
+
+    if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT:
+        return "signals_scout_reports"
 
     run_source = parse_run_state(task_run.state).run_source
     return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
@@ -342,7 +358,7 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     # Local (desktop) runs idle in QUEUED while the user's local agent drives them — there is no
     # lost dispatch to recover. Starting a cloud workflow here would hijack the live session: the
     # sandbox boots without the repo ever being cloned, burns its retries, and marks the user's
-    # run FAILED. The sweep already filters these out (cloud_only); this guards direct callers.
+    # run FAILED. The sweep already filters these out (environment=CLOUD); this guards direct callers.
     if task_run.environment == TaskRun.Environment.LOCAL:
         return "skipped_local"
 
@@ -414,6 +430,21 @@ def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
     )
 
 
+def execute_build_sandbox_image_workflow(image_id: str, team_id: int) -> None:
+    """Start (or restart) the scan → build → publish workflow for a custom sandbox image."""
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            "build-sandbox-image",
+            BuildSandboxImageInput(image_id=image_id, team_id=team_id),
+            id=f"build-sandbox-image-{image_id}",
+            id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+            task_queue=settings.TASKS_TASK_QUEUE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+    )
+
+
 def signal_task_followup_message(workflow_id: str, message: str | None, artifact_ids: list[str]) -> None:
     client = sync_connect()
     handle = client.get_workflow_handle(workflow_id)
@@ -425,6 +456,31 @@ def signal_agent_text_delta(workflow_id: str, text: str) -> None:
     client = sync_connect()
     handle = client.get_workflow_handle(workflow_id)
     asyncio.run(handle.signal("agent_text_delta", text))
+
+
+def signal_task_permission_response(
+    workflow_id: str,
+    *,
+    request_id: str,
+    option_id: str,
+    actor_user_id: int,
+    actor_slack_user_id: str | None = None,
+    is_denial: bool = False,
+    denial_message: str | None = None,
+    broker_reason: str | None = None,
+) -> None:
+    client = sync_connect()
+    handle = client.get_workflow_handle(workflow_id)
+    payload: dict[str, Any] = {
+        "request_id": request_id,
+        "option_id": option_id,
+        "actor_user_id": actor_user_id,
+        "actor_slack_user_id": actor_slack_user_id,
+        "is_denial": is_denial,
+        "denial_message": denial_message,
+        "broker_reason": broker_reason,
+    }
+    asyncio.run(handle.signal("send_permission_response", arg=payload))
 
 
 def execute_posthog_code_agent_relay_workflow(

@@ -17,8 +17,8 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
-from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
-from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
+from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -216,15 +216,24 @@ class TestFacadeReadsAndMappers(TestCase):
 
         stale_ids = facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100)
         self.assertIn(stale.id, stale_ids)
-        # The unrestricted sweep (24h killer) still reaps abandoned local runs.
+        # Unfiltered, the query returns stale runs of every environment.
         self.assertIn(stale_local.id, stale_ids)
         self.assertNotIn(fresh.id, stale_ids)
 
-        # The dispatch reconciler must never see local (desktop-driven) runs — re-dispatching
-        # one starts a cloud workflow that hijacks and eventually fails the live local session.
-        cloud_ids = facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100, cloud_only=True)
+        # The dispatch reconciler and the 24h fail sweep must never see local (desktop-driven)
+        # runs — re-dispatching one starts a cloud workflow that hijacks the live local session,
+        # and failing one turns an idle desktop session into a bogus failure.
+        cloud_ids = facade.get_stale_queued_task_run_ids(
+            older_than=timedelta(hours=24), limit=100, environment=TaskRun.Environment.CLOUD
+        )
         self.assertIn(stale.id, cloud_ids)
         self.assertNotIn(stale_local.id, cloud_ids)
+
+        local_ids = facade.get_stale_queued_task_run_ids(
+            older_than=timedelta(hours=24), limit=100, environment=TaskRun.Environment.LOCAL
+        )
+        self.assertIn(stale_local.id, local_ids)
+        self.assertNotIn(stale.id, local_ids)
 
         with patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"):
             self.assertTrue(facade.fail_task_run(stale.id, "boom"))
@@ -233,6 +242,29 @@ class TestFacadeReadsAndMappers(TestCase):
         stale.refresh_from_db()
         self.assertEqual(stale.status, TaskRun.Status.FAILED.value)
         self.assertEqual(stale.error_message, "boom")
+
+    def test_complete_idle_local_task_run_skips_run_handed_off_to_cloud(self):
+        task = self._make_task()
+        idle_local = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL
+        )
+        # Between the janitor's candidate scan and the finalize call, a user can resume the run
+        # into cloud (environment flips to CLOUD, workflow dispatched) — completing it then
+        # would kill a just-started cloud run.
+        handed_off = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.CLOUD
+        )
+
+        with patch("products.tasks.backend.push_dispatcher.notify_task_run_completed") as mock_notify:
+            self.assertTrue(facade.complete_idle_local_task_run(idle_local.id))
+            self.assertFalse(facade.complete_idle_local_task_run(handed_off.id))
+
+        idle_local.refresh_from_db()
+        self.assertEqual(idle_local.status, TaskRun.Status.COMPLETED.value)
+        self.assertIsNone(idle_local.error_message)
+        mock_notify.assert_not_called()
+        handed_off.refresh_from_db()
+        self.assertEqual(handed_off.status, TaskRun.Status.QUEUED.value)
 
     @parameterized.expand(
         [
@@ -277,6 +309,46 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertNotIn("snapshot_external_id", new_run.state)
             self.assertNotIn("snapshot_kind", new_run.state)
             self.assertNotIn("snapshot_mount_path", new_run.state)
+
+    @parameterized.expand(
+        [
+            ("ready", SandboxCustomImage.Status.READY, "posthog-sandbox-custom-1-abc:latest", True),
+            ("not_ready", SandboxCustomImage.Status.BUILDING, "", False),
+        ]
+    )
+    def test_run_task_resume_drops_carried_custom_image_when_not_ready(
+        self, _name: str, status: str, modal_image_name: str, expect_carried: bool
+    ):
+        task = self._make_task()
+        image = SandboxCustomImage(
+            team=self.team,
+            created_by=self.user,
+            name="img",
+            status=status,
+            modal_image_name=modal_image_name,
+        )
+        image.save()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"custom_image_id": str(image.id)},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        if expect_carried:
+            self.assertEqual(new_run.state.get("custom_image_id"), str(image.id))
+        else:
+            self.assertNotIn("custom_image_id", new_run.state)
 
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()
@@ -409,4 +481,17 @@ class TestFacadeReadsAndMappers(TestCase):
         run = TaskRun.objects.get(task_id=created.task_id)
         # The agent server boots idle; forward_pending_user_message only kicks it off if the run state
         # carries the prompt. Without this the cloud wizard stalls right after "Started agent".
-        self.assertEqual(run.state.get("pending_user_message"), WIZARD_PR_AGENT_PROMPT)
+        head_branch = run.state.get("wizard_head_branch")
+        # Server-generated head branch: the GitHub PR webhook binds the opened PR back to this
+        # run by matching it (wizard PRs are bot-authored, so agent-side attribution can't).
+        # Losing the state key or leaving the placeholder untemplated in the prompt silently
+        # unbinds every wizard PR again.
+        assert head_branch is not None
+        self.assertRegex(head_branch, r"^posthog/instrumentation-[0-9a-f]{6}$")
+        self.assertEqual(run.state.get("pending_user_message"), build_wizard_pr_agent_prompt(head_branch))
+        self.assertIn(f"`{head_branch}`", run.state["pending_user_message"])
+        self.assertNotIn(WIZARD_HEAD_BRANCH_PLACEHOLDER, run.state["pending_user_message"])
+        # The agent-server self-delivers pending_user_message the moment it boots, so an
+        # overlap-clone-boot launch (before run_wizard) burns the prompt on an untouched repo
+        # and the run never opens a PR. Wizard runs must pin the overlap boot off.
+        self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)

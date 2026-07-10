@@ -290,6 +290,9 @@ class ExperimentQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            # High-volume teams' builds OOM even at capped window widths; spilling the
+            # GROUP BY to disk degrades gracefully instead of failing the build.
+            spill_to_disk=True,
         )
 
     def _ensure_metric_events_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
@@ -321,6 +324,7 @@ class ExperimentQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            spill_to_disk=True,
         )
 
     @cached_property

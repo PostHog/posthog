@@ -670,6 +670,8 @@ mod tests {
             timestamp: String::new(),
             team_id,
             issue: None,
+            legacy_order_exception_list: None,
+            legacy_order_resolved: None,
         })
     }
 

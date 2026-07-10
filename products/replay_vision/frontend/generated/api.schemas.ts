@@ -40,26 +40,33 @@ export interface TriggerConfigApi {
 }
 
 /**
- * Observation filter applied at synthesis time. All keys optional; this typed shape is the
- * allowlist, so unknown input keys are dropped rather than persisted.
+ * * `yes` - yes
+ * * `no` - no
+ * * `inconclusive` - inconclusive
+ */
+export type VerdictEnumApi = (typeof VerdictEnumApi)[keyof typeof VerdictEnumApi]
+
+export const VerdictEnumApi = {
+    Yes: 'yes',
+    No: 'no',
+    Inconclusive: 'inconclusive',
+} as const
+
+/**
+ * The action's targeting predicate ("run this on…") applied when gathering observations. All keys
+ * optional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted.
  */
 export interface SelectionApi {
-    /** Filter observations by scanner type (monitor/classifier/scorer/summarizer). */
-    scanner_type?: string
-    /** Restrict to observations produced by these scanner IDs. */
+    /** Restrict to observations produced by these scanner IDs. Defaults to the bound scanner. */
     scanner_ids?: string[]
-    /** Filter to observations with this monitor verdict. */
-    verdict?: string
-    /** Filter to observations carrying any of these classifier tags. */
+    /** Only run on monitor observations with one of these verdicts (yes/no/inconclusive). */
+    verdict?: VerdictEnumApi[]
+    /** Only run on classifier observations carrying any of these tags (fixed or freeform). */
     tags?: string[]
-    /** Lower bound (inclusive) on scorer score. */
+    /** Only run on scorer observations with a score at or above this value (inclusive). */
     min_score?: number
-    /** Upper bound (inclusive) on scorer score. */
+    /** Only run on scorer observations with a score at or below this value (inclusive). */
     max_score?: number
-    /** Filter to observations with this processing status. */
-    status?: string
-    /** Lookback window in days for the observations gathered at synthesis time. */
-    window_days?: number
 }
 
 /**
@@ -162,6 +169,8 @@ export interface VisionActionApi {
     scanner: string
     /** When false, the scheduler skips this action. */
     enabled?: boolean
+    /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
+    is_scanner_digest?: boolean
     /** What fires the action. MVP supports 'schedule' only.
      *
      * * `schedule` - Schedule
@@ -174,7 +183,7 @@ export interface VisionActionApi {
     mode?: VisionActionModeEnumApi
     /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
     trigger_config?: TriggerConfigApi
-    /** Observation filter applied at synthesis time. */
+    /** Targeting predicate: which of the scanner's observations this action runs on. */
     selection?: SelectionApi
     /** Synthesis options for the group summary, e.g. {prompt_guide}. */
     synthesis_config?: SynthesisConfigApi
@@ -221,6 +230,8 @@ export interface PatchedVisionActionApi {
     scanner?: string
     /** When false, the scheduler skips this action. */
     enabled?: boolean
+    /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
+    is_scanner_digest?: boolean
     /** What fires the action. MVP supports 'schedule' only.
      *
      * * `schedule` - Schedule
@@ -233,7 +244,7 @@ export interface PatchedVisionActionApi {
     mode?: VisionActionModeEnumApi
     /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
     trigger_config?: TriggerConfigApi
-    /** Observation filter applied at synthesis time. */
+    /** Targeting predicate: which of the scanner's observations this action runs on. */
     selection?: SelectionApi
     /** Synthesis options for the group summary, e.g. {prompt_guide}. */
     synthesis_config?: SynthesisConfigApi
@@ -317,6 +328,8 @@ export interface PaginatedVisionActionRunListListApi {
  * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
  */
 export interface RunObservationApi {
+    /** 1-based reference number of this observation in the summary, stable across deletions. The synthesized report cites observations by this number (rendered like `[3]`), so consumers use it to resolve a citation to its observation. */
+    readonly index: number
     /** Observation id; links to the observation detail view. */
     readonly id: string
     /** Session recording id this observation was made on. */
@@ -440,12 +453,14 @@ export interface ScannerResultApi {
 /**
  * * `schedule` - Schedule
  * * `on_demand` - On demand
+ * * `retry` - Retry
  */
 export type ObservationTriggerEnumApi = (typeof ObservationTriggerEnumApi)[keyof typeof ObservationTriggerEnumApi]
 
 export const ObservationTriggerEnumApi = {
     Schedule: 'schedule',
     OnDemand: 'on_demand',
+    Retry: 'retry',
 } as const
 
 /**
@@ -483,10 +498,11 @@ export interface ReplayObservationApi {
     readonly scanner_snapshot: ScannerSnapshotApi | null
     /** Result data persisted on success; null until the observation succeeds. */
     readonly scanner_result: ScannerResultApi | null
-    /** Whether this observation came from the schedule or an on-demand request.
+    /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.
      *
      * * `schedule` - Schedule
-     * * `on_demand` - On demand */
+     * * `on_demand` - On demand
+     * * `retry` - Retry */
     readonly triggered_by: ObservationTriggerEnumApi
     /** User who triggered an on-demand observation; null for scheduled observations. */
     readonly triggered_by_user: UserBasicApi | null
@@ -501,12 +517,12 @@ export interface ReplayObservationApi {
      */
     readonly recording_subject_email: string | null
     /**
-     * Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.
+     * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
      * @nullable
      */
     readonly previous_observation_id: string | null
     /**
-     * Id of the older sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the end.
+     * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
      * @nullable
      */
     readonly next_observation_id: string | null
@@ -537,20 +553,26 @@ export interface RetryResponseApi {
 }
 
 export interface VisionQuotaApi {
-    /** Total observations the org may complete per calendar month. */
-    readonly monthly_quota: number
-    /** Observations created this month that are in flight or have succeeded, counted against the quota. */
-    readonly usage_this_month: number
-    /** `monthly_quota - usage_this_month`, floored at 0. */
-    readonly remaining: number
-    /** True when `usage_this_month >= monthly_quota`; further observations are skipped until next period. */
+    /**
+     * Credits the org may spend per billing period (1 credit = $0.01). Null when billing has synced the product with no spend limit: uncapped.
+     * @nullable
+     */
+    readonly credit_limit: number | null
+    /** Credits spent this period: succeeded observations from the receipt ledger plus reserved in-flight observations. */
+    readonly credits_used: number
+    /**
+     * `credit_limit - credits_used`, floored at 0. Null when uncapped.
+     * @nullable
+     */
+    readonly remaining: number | null
+    /** True when `credits_used >= credit_limit`; further observations are skipped until next period. Always false when uncapped. */
     readonly exhausted: boolean
     /** First moment of the current quota period (UTC). */
     readonly period_start: string
     /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
     readonly period_end: string
-    /** Sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
-    readonly projected_monthly_observations: number
+    /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+    readonly projected_monthly_credits: number
 }
 
 /**
@@ -576,14 +598,16 @@ export const ScannerProviderEnumApi = {
 } as const
 
 /**
+ * * `gemini-2.5-flash` - Gemini 2.5 Flash
  * * `gemini-3-flash-preview` - Gemini 3 Flash
- * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
+ * * `gemini-3.5-flash` - Gemini 3.5 Flash
  */
 export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
 
 export const ScannerModelEnumApi = {
+    Gemini25Flash: 'gemini-2.5-flash',
     Gemini3FlashPreview: 'gemini-3-flash-preview',
-    Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
+    Gemini35Flash: 'gemini-3.5-flash',
 } as const
 
 export interface ReplayScannerApi {
@@ -627,8 +651,9 @@ export interface ReplayScannerApi {
     provider?: ScannerProviderEnumApi
     /** Concrete model to use for this scanner.
      *
+     * * `gemini-2.5-flash` - Gemini 2.5 Flash
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
+     * * `gemini-3.5-flash` - Gemini 3.5 Flash */
     model: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -641,6 +666,13 @@ export interface ReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_observations: number | null
+    /** Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`. */
+    readonly credits_per_observation: number
+    /**
+     * `estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.
+     * @nullable
+     */
+    readonly estimated_monthly_credits: number | null
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
     readonly created_at: string
@@ -699,8 +731,9 @@ export interface PatchedReplayScannerApi {
     provider?: ScannerProviderEnumApi
     /** Concrete model to use for this scanner.
      *
+     * * `gemini-2.5-flash` - Gemini 2.5 Flash
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
+     * * `gemini-3.5-flash` - Gemini 3.5 Flash */
     model?: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -713,6 +746,13 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_observations?: number | null
+    /** Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`. */
+    readonly credits_per_observation?: number
+    /**
+     * `estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.
+     * @nullable
+     */
+    readonly estimated_monthly_credits?: number | null
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
     readonly created_at?: string
@@ -1043,14 +1083,20 @@ export interface EstimateRequestApi {
      * * `comprehensive` - Comprehensive */
     sampling_mode?: SamplingModeEnumApi
     /**
-     * The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
+     * The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
      * @nullable
      */
     scanner_id?: string | null
+    /** Proposed model; determines `credits_per_observation` in the response.
+     *
+     * * `gemini-2.5-flash` - Gemini 2.5 Flash
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.5-flash` - Gemini 3.5 Flash */
+    model?: ScannerModelEnumApi
 }
 
 /**
- * Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic.
+ * Forward-looking volume and credit-cost estimate for a proposed scanner.
  */
 export interface EstimateResponseApi {
     /** Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality filter but before random sampling. */
@@ -1059,8 +1105,12 @@ export interface EstimateResponseApi {
     window_days: number
     /** Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate. */
     estimated_observations_per_month: number
-    /** Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
-    other_enabled_scanners_monthly: number
+    /** Credits one observation costs at the proposed `model` (1 credit = $0.01). */
+    credits_per_observation: number
+    /** `estimated_observations_per_month` priced at `credits_per_observation`. */
+    estimated_credits_per_month: number
+    /** Credit-weighted projected monthly spend of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
+    other_enabled_scanners_monthly_credits: number
     /** Sampling rate applied to the projection. Echoed from the request. */
     sampling_rate: number
 }
@@ -1205,6 +1255,41 @@ export type VisionObservationsListParams = {
     session_id: string
 }
 
+export type VisionObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
+}
+
 export type VisionScannersListParams = {
     /**
      * Filter to scanners created by the given user IDs (comma-separated).
@@ -1274,7 +1359,42 @@ export type VisionScannersObservationsListParams = {
      */
     tags?: string
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
+}
+
+export type VisionScannersObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string
     /**
@@ -1309,7 +1429,7 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     tags?: string
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string
     /**

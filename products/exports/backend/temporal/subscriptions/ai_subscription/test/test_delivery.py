@@ -3,7 +3,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from parameterized import parameterized
 
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
@@ -12,13 +14,19 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     SLACK_MRKDWN_SECTION_LIMIT,
     _build_ai_slack_message,
     _last_scheduled_report_cutoff,
+    _persist_ai_query_plan,
     _split_text_into_chunks,
+    build_ai_subscription_report,
     render_ai_email_html,
     send_email_ai_subscription_report,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import ReportWindow
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessageData
+
+_DELIVERY = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery"
 
 _PARA = "a" * (SLACK_MRKDWN_SECTION_LIMIT - 100)
 _DELIVERY_ID = uuid.UUID("12345678-1234-5678-1234-567812345678")
@@ -284,6 +292,33 @@ class TestFeedbackFooter:
         assert context[f"feedback_{feedback}_url"] == _feedback_url(feedback, "email")
 
 
+class TestPersistAiQueryPlanRaceGuard(APIBaseTest):
+    @parameterized.expand(
+        [
+            # The write is conditional on the planning-time prompt: an edit that landed mid-generation
+            # (clearing the plan via save()) must not be overwritten with a plan for the old prompt.
+            ("prompt_unchanged_persists", "original prompt?", True),
+            ("prompt_changed_noops", "edited mid-generation?", False),
+        ]
+    )
+    def test_persist_is_conditional_on_planning_prompt(self, _name: str, current_prompt: str, written: bool) -> None:
+        sub = Subscription.objects.create(
+            team=self.team,
+            prompt=current_prompt,
+            target_type="email",
+            target_value="a@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        plan = {"version": 1, "plan": {}}
+
+        _persist_ai_query_plan(sub.id, self.team.id, "original prompt?", plan)
+
+        sub.refresh_from_db()
+        assert sub.ai_query_plan == (plan if written else None)
+
+
 class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
     def _delivery(
         self, trigger_type: str, status: str, finished_at: datetime | None, snapshot: dict | None = None
@@ -361,3 +396,93 @@ class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
         )
 
         assert _last_scheduled_report_cutoff(self.subscription) is None
+
+
+class TestFreezePlanPersistence:
+    """build_ai_subscription_report freezes a freshly-generated plan and skips persistence on reuse.
+    These guard the freeze contract without touching the DB — the persist write itself is a one-line
+    queryset .update() exercised by the integration/activity suites."""
+
+    def _subscription(self, ai_query_plan: dict | None) -> MagicMock:
+        sub = MagicMock()
+        sub.id = 42
+        sub.team_id = 7
+        sub.prompt = "how are exports doing?"
+        sub.ai_query_plan = ai_query_plan
+        return sub
+
+    def _context(self, sub: MagicMock) -> tuple[MagicMock, MagicMock, ReportWindow, dict | None]:
+        end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        window = ReportWindow(start=end - timedelta(days=1), end=end)
+        return MagicMock(), MagicMock(), window, sub.ai_query_plan
+
+    async def test_first_run_persists_freshly_generated_plan(self) -> None:
+        sub = self._subscription(ai_query_plan=None)
+        fresh_plan = {
+            "overall_intent": "i",
+            "steps": [{"description": "d", "query_type": "hogql", "hogql": "SELECT 1"}],
+        }
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(
+                f"{_DELIVERY}.generate_ai_report",
+                new=AsyncMock(
+                    return_value=AiReportResult(
+                        markdown="# R",
+                        diagnostics=(),
+                        window_end_utc="2026-06-29T16:00:00+00:00",
+                        plan_to_persist=fresh_plan,
+                    )
+                ),
+            ),
+            patch(f"{_DELIVERY}._persist_ai_query_plan") as mock_persist,
+        ):
+            await build_ai_subscription_report(sub)
+
+        # The plan generated on the first delivery is frozen onto the (id, team_id)-scoped subscription.
+        mock_persist.assert_called_once_with(sub.id, sub.team_id, sub.prompt, fresh_plan)
+
+    async def test_persist_failure_does_not_abort_the_delivery(self) -> None:
+        # The report is already generated when the freeze write runs; a transient DB error must not
+        # fail the delivery (which would discard the report and burn a full LLM re-run on retry).
+        sub = self._subscription(ai_query_plan=None)
+        result = AiReportResult(
+            markdown="# R",
+            diagnostics=(),
+            window_end_utc="2026-06-29T16:00:00+00:00",
+            plan_to_persist={"version": 1, "plan": {}},
+        )
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock(return_value=result)),
+            patch(f"{_DELIVERY}._persist_ai_query_plan", side_effect=Exception("db blip")),
+            patch(f"{_DELIVERY}.capture_exception") as mock_capture,
+        ):
+            returned = await build_ai_subscription_report(sub)
+
+        assert returned is result
+        mock_capture.assert_called_once()
+
+    async def test_reused_run_does_not_persist(self) -> None:
+        frozen = {"overall_intent": "i", "steps": [{"description": "d", "query_type": "hogql", "hogql": "SELECT 1"}]}
+        sub = self._subscription(ai_query_plan=frozen)
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)) as mock_ctx,
+            patch(
+                f"{_DELIVERY}.generate_ai_report",
+                new=AsyncMock(
+                    return_value=AiReportResult(
+                        markdown="# R", diagnostics=(), window_end_utc="2026-06-29T16:00:00+00:00", plan_to_persist=None
+                    )
+                ),
+            ) as mock_gen,
+            patch(f"{_DELIVERY}._persist_ai_query_plan") as mock_persist,
+        ):
+            await build_ai_subscription_report(sub)
+
+        # Reuse path returns plan_to_persist=None, so there's no write; the frozen plan is forwarded
+        # to generation so it can skip the planner.
+        mock_persist.assert_not_called()
+        assert mock_gen.await_args is not None
+        assert mock_gen.await_args.kwargs["ai_query_plan"] == frozen
+        mock_ctx.assert_called_once()

@@ -50,7 +50,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
-from posthog.event_usage import get_request_analytics_properties, report_user_or_team_action
+from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -100,6 +100,31 @@ def _extract_validation_code(error: ValidationError) -> str:
     return "unknown"
 
 
+# Matches an absolute ISO date that carries an explicit time-of-day (e.g. `2026-07-09T00:00:00Z`,
+# `2026-07-09 05:00:00`), but not a bare calendar day (`2026-07-09`) or a relative token (`-7d`, `mStart`).
+_ISO_TIMESTAMP_WITH_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}")
+
+
+def _date_bound_has_explicit_time(value: object) -> bool:
+    return isinstance(value, str) and _ISO_TIMESTAMP_WITH_TIME_RE.match(value) is not None
+
+
+def _mark_explicit_date_boundaries(query: BaseModel) -> None:
+    """MCP query tools accept ISO timestamps in `dateRange.date_to`. When a caller passes a full
+    timestamp with a time-of-day (e.g. `2026-07-09T00:00:00Z`) rather than a bare calendar day, they
+    mean an exact boundary, so mark the range explicit instead of snapping `date_to` to end of day.
+
+    Scoped to the MCP entrypoint on purpose: the web UI serialises fixed calendar ranges as naive
+    `YYYY-MM-DDTHH:mm:ss` strings and relies on the default end-of-day rounding, so this must not
+    change that path.
+    """
+    date_range = getattr(query, "dateRange", None)
+    if date_range is None or not hasattr(date_range, "explicitDate") or date_range.explicitDate:
+        return
+    if _date_bound_has_explicit_time(getattr(date_range, "date_to", None)):
+        date_range.explicitDate = True
+
+
 def _process_query_request(
     request_data: QueryRequest, team, client_query_id: str | None = None, user=None
 ) -> tuple[BaseModel, str, ExecutionMode]:
@@ -132,6 +157,14 @@ def _process_query_request(
     return query, query_id, execution_mode
 
 
+# Query kinds whose product exposes its own scoped API keep scope parity here: an
+# API token must hold the product scope, not just query:read, to run them through
+# the generic endpoint.
+_QUERY_KIND_SCOPES: dict[str, list[str]] = {
+    "MetricsQuery": ["metrics:read"],
+}
+
+
 class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
@@ -140,6 +173,13 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
     scope_object_write_actions: list[str] = []
     sharing_enabled_actions = ["retrieve"]
+
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        if getattr(view, "action", None) != "create":
+            return None
+        query = request.data.get("query") if isinstance(request.data, dict) else None
+        kind = query.get("kind") if isinstance(query, dict) else None
+        return _QUERY_KIND_SCOPES.get(kind) if isinstance(kind, str) else None
 
     def get_throttles(self):
         if self.action == "draft_sql":
@@ -193,12 +233,20 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 data, self.team, data.client_query_id, request.user
             )
 
+            is_mcp_client = request.headers.get("x-posthog-client") == "mcp"
+            if is_mcp_client:
+                _mark_explicit_date_boundaries(query)
+
             self._tag_client_query_id(client_query_id)
             analytics_props = get_request_analytics_properties(request)
             query_dict = query.model_dump()
 
             if data.limit_context == SchemaLimitContext.POSTHOG_AI:
                 limit_context: LimitContext | None = LimitContext.POSTHOG_AI
+                # Max's insight tiles run in the browser, so the request looks like a session
+                # web request and get_event_source classifies it as "web". Attribute it to
+                # posthog_ai instead, matching the server-side executor's tagging.
+                analytics_props["source"] = EventSource.POSTHOG_AI
             elif (
                 is_async_query(query_dict)
                 or is_insight_actors_query(query_dict)
@@ -259,7 +307,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 else status.HTTP_200_OK
             )
 
-            if request.headers.get("x-posthog-client") == "mcp":
+            if is_mcp_client:
                 with tracer.start_as_current_span("posthog.query.format_for_llm") as llm_span:
                     formatted = self._try_format_for_llm(query, result)
                     llm_span.set_attribute("query.formatted", formatted is not None)

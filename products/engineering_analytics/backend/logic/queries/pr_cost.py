@@ -20,6 +20,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PRCostSummary,
     RunCost,
     WorkflowCost,
+    WorkflowHealthRunScope,
     WorkflowRunnerCost,
 )
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate, aggregate_pr_cost, runner_descriptor
@@ -31,6 +32,11 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
     window_buckets,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    branch_filter_clause,
+    date_to_filter_clause,
+    run_scope_filter_clause,
+)
 
 # Pre-aggregated per (workflow, run, attempt, runner-label) — a raw per-job SELECT has no LIMIT, so HogQL
 # caps it at DEFAULT_RETURNED_ROWS (100) and silently drops the rest, undercounting any PR with >100 jobs.
@@ -167,7 +173,7 @@ _WINDOW_COST_SELECT = """
         countIf(j.duration_seconds IS NULL) AS unfinished
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
-    WHERE r.run_started_at >= {date_from} __DATE_TO__ __BRANCH__
+    WHERE r.run_started_at >= {date_from} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
     GROUP BY r.workflow_name, j.labels
     LIMIT 1000000
 """
@@ -179,8 +185,9 @@ def query_workflow_window_costs(
     date_from: datetime,
     date_to: datetime | None,
     branch: str | None,
+    run_scope: WorkflowHealthRunScope,
 ) -> dict[str, PRCostAggregate]:
-    """Per-workflow billable cost over [date_from, date_to] (optional branch), keyed by workflow_name.
+    """Per-workflow billable cost over [date_from, date_to] (optional branch/run_scope), keyed by workflow_name.
 
     Empty when the jobs source isn't synced. Mirrors the PR-list cost: grouped per workflow×label in SQL,
     expanded back through aggregate_pr_cost.
@@ -188,21 +195,16 @@ def query_workflow_window_costs(
     jobs_source = curated.jobs_source()
     if jobs_source is None:
         return {}
-    branch = branch.strip() if branch else None
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
-    date_to_clause = ""
-    if date_to is not None:
-        date_to_clause = "AND r.run_started_at <= {date_to}"
-        placeholders["date_to"] = ast.Constant(value=date_to)
-    branch_clause = ""
-    if branch:
-        branch_clause = "AND r.head_branch = {branch}"
-        placeholders["branch"] = ast.Constant(value=branch)
+    date_to_clause = date_to_filter_clause(date_to, placeholders)
+    branch_clause = branch_filter_clause(branch, placeholders)
+    run_scope_clause = run_scope_filter_clause(run_scope)
     sql = (
         _WINDOW_COST_SELECT.replace("__JOBS_SOURCE__", jobs_source)
         .replace("__RUNS_SOURCE__", curated.run_source())
         .replace("__DATE_TO__", date_to_clause)
         .replace("__BRANCH__", branch_clause)
+        .replace("__RUN_SCOPE__", run_scope_clause)
     )
     response = curated.run(sql, query_type="engineering_analytics.workflow_window_costs", placeholders=placeholders)
     by_workflow: dict[str, list[tuple[list[str], float | None]]] = defaultdict(list)
@@ -500,16 +502,8 @@ def query_workflow_runner_costs(
         "workflow_name": ast.Constant(value=workflow_name),
         "date_from": ast.Constant(value=date_from),
     }
-    date_to_clause = ""
-    if date_to is not None:
-        date_to_clause = "AND r.run_started_at <= {date_to}"
-        placeholders["date_to"] = ast.Constant(value=date_to)
-    # An empty/whitespace branch is "no filter", not a literal match on '' — mirrors workflow_health.
-    branch = branch.strip() if branch else None
-    branch_clause = ""
-    if branch:
-        branch_clause = "AND r.head_branch = {branch}"
-        placeholders["branch"] = ast.Constant(value=branch)
+    date_to_clause = date_to_filter_clause(date_to, placeholders)
+    branch_clause = branch_filter_clause(branch, placeholders)
     sql = (
         _RUNNER_COST_SELECT.replace("__JOBS_SOURCE__", jobs_source)
         .replace("__RUNS_SOURCE__", curated.run_source())

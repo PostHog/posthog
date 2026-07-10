@@ -107,18 +107,22 @@ Output rules:
   When context lists "Events matching your request", prefer those exact event names — they were
   selected for this prompt. For an event's properties, use only the names listed under its
   "`<event>` properties" line (access as `properties.<name>`); do not invent property names.
-- The analysis window is fixed and provided in <project_context> as "Analysis window start" and
-  "Analysis window end" (concrete timestamps in the project timezone). Filter EVERY query on exactly
-  that half-open range — copy the provided literals into a filter of the form
-  `timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')`. Do NOT compute the window
-  yourself with `now()` / `now() - INTERVAL …` / `today()` — those drift between runs and force fragile
-  timezone math. Use the provided literals verbatim, even when the prompt names a relative period
-  ("today", "this week"); the bounds already encode it. For sub-windows inside the range (e.g. day-over-day
-  within the window), bucket with `toStartOfDay(timestamp)` etc., but keep the outer filter on the literals.
-  The one exception is period-over-period growth ("vs last week/yesterday"), which may read back to the
-  "Previous-period start" literal `<compare_start>` — see the growth reference pattern below.
+- The analysis window is fixed, but you must NOT write its dates yourself. Filter EVERY query on the
+  window using the literal placeholder token `{{date_range}}` — write it verbatim where the timestamp
+  predicate goes, e.g. `WHERE {{date_range}}` or `WHERE event = '$pageview' AND {{date_range}}`. The
+  system substitutes the concrete half-open range at run time, so the plan stays reusable as the window
+  advances. Do NOT write `timestamp >= toDateTime('…')`, `now()`, `now() - INTERVAL …`, or `today()` for
+  the window yourself. The concrete bounds shown in <project_context> are for your understanding only;
+  copy the placeholder, not those dates, even when the prompt names a relative period ("today", "this
+  week"). For sub-windows inside the range (e.g. day-over-day within the window), bucket with
+  `toStartOfDay(timestamp)` etc., but keep the outer window filter as `{{date_range}}`. The one exception
+  is period-over-period growth ("vs last week/yesterday"), which uses `{{compare_date_range}}` and
+  `{{window_start}}` — see the growth reference pattern below. Boundary tokens `{{window_start}}` /
+  `{{window_end}}` substitute to bare `toDateTime('…')` literals where a pattern needs a single bound.
 - Each step's `description` must briefly explain *why* that query is relevant to the prompt.
 - Keep queries cheap: prefer aggregation over raw selects; cap with LIMIT 50; avoid wildcards on large tables.
+- Format each query for readability: each clause (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT) on
+  its own line, one selected column per line. Queries are shown to users verbatim.
 
 HogQL syntax constraints — write queries that PARSE first. Each step's `hogql` is a SELECT statement,
 ideally flat. A single level of subquery in the FROM clause is allowed (and is the right tool for
@@ -137,8 +141,8 @@ are common LLM mistakes that HogQL rejects:
   null-safe join keys with "Cannot determine join keys", so a JOIN will fail at execution time.
   (Person, session, and group/account data IS still available without a JOIN — see "Joined data
   available" below.)
-- Window filter: use the provided literals — `timestamp >= toDateTime('<start>') AND timestamp <
-  toDateTime('<end>')`. Never `now()` / `now() - INTERVAL …` / `today()` for the window.
+- Window filter: write the placeholder token `{{date_range}}` verbatim where the window predicate goes.
+  Never write `timestamp >= toDateTime('…')`, `now()`, `now() - INTERVAL …`, or `today()` for the window.
 - Time bucketing (for sub-windows WITHIN the range): `toStartOfHour(timestamp)`,
   `toStartOfDay(timestamp)`, `toStartOfWeek(timestamp)`.
 - Conditional aggregation: `countIf(cond)`, `uniqIf(field, cond)`, `sumIf(field, cond)`,
@@ -147,14 +151,14 @@ are common LLM mistakes that HogQL rejects:
   `arraySlice(arraySort(…), 1, N)` for many. Never `ROW_NUMBER() OVER (PARTITION BY …)`.
 - String literals use single quotes; identifiers are unquoted.
 
-Reference patterns (use as templates). `<start>` and `<end>` below stand for the exact
-"Analysis window start" / "Analysis window end" literals from <project_context> — substitute them
-verbatim; never write `now()` or `now() - INTERVAL …`:
+Reference patterns (use as templates). Write the placeholder tokens verbatim; the system substitutes
+the concrete bounds at run time. Never write `toDateTime('…')` window bounds, `now()`, or
+`now() - INTERVAL …` yourself:
 
 Top events across the window:
   SELECT event, count() AS count, uniq(distinct_id) AS users
   FROM events
-  WHERE timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
+  WHERE {{date_range}}
   GROUP BY event
   ORDER BY count DESC
   LIMIT 50
@@ -162,14 +166,14 @@ Top events across the window:
 Daily time series for a single event:
   SELECT toStartOfDay(timestamp) AS day, count() AS count, uniq(distinct_id) AS users
   FROM events
-  WHERE event = '$pageview' AND timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
+  WHERE event = '$pageview' AND {{date_range}}
   GROUP BY day
   ORDER BY day
 
 Hourly distribution to spot spikes:
   SELECT toStartOfHour(timestamp) AS hour, count() AS count
   FROM events
-  WHERE event = '$pageview' AND timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
+  WHERE event = '$pageview' AND {{date_range}}
   GROUP BY hour
   ORDER BY hour
 
@@ -177,16 +181,16 @@ Period-over-period growth (the window vs the equal-length period immediately bef
 regular send that's roughly the prior cadence period (about last week for a weekly report, yesterday
 for a daily one), but it tracks the window's ACTUAL length — a short re-fire window compares two
 short slices, so describe the result as "vs the previous period", not as an exact "week over week".
-This is the ONLY case that reads data before `<start>`: filter the wider `[<compare_start>, <end>)`
-range and split at `<start>` with conditional aggregation. `<compare_start>` is the "Previous-period
-start" literal from <project_context>. Still never `now()`:
+This is the ONLY case that reads data before the window: filter the wider previous+current range with
+the `{{compare_date_range}}` placeholder and split at `{{window_start}}` with conditional aggregation.
+Still never `now()`:
   SELECT
     event,
-    countIf(timestamp >= toDateTime('<start>')) AS current,
-    countIf(timestamp <  toDateTime('<start>')) AS previous,
+    countIf(timestamp >= {{window_start}}) AS current,
+    countIf(timestamp <  {{window_start}}) AS previous,
     (current - previous) / nullIf(previous, 0) AS growth_rate
   FROM events
-  WHERE timestamp >= toDateTime('<compare_start>') AND timestamp < toDateTime('<end>')
+  WHERE {{compare_date_range}}
   GROUP BY event
   HAVING previous > 0 OR current > 0
   ORDER BY growth_rate DESC
@@ -201,14 +205,14 @@ Top AND bottom events — a single `ORDER BY … DESC LIMIT n` only returns the 
 with an ASC tail to read both the most- and least-active events regardless of how many events exist:
   (SELECT event, count() AS event_count, uniq(distinct_id) AS users
    FROM events
-   WHERE timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
+   WHERE {{date_range}}
    GROUP BY event
    ORDER BY event_count DESC
    LIMIT 25)
   UNION ALL
   (SELECT event, count() AS event_count, uniq(distinct_id) AS users
    FROM events
-   WHERE timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
+   WHERE {{date_range}}
    GROUP BY event
    ORDER BY event_count ASC
    LIMIT 25)
@@ -218,6 +222,10 @@ Joined data available WITHOUT writing a JOIN (the engine joins these automatical
   available for this project are listed in <project_context>.
 - Group / account properties: `group_<index>.properties.<name>` (e.g. `group_0.properties.name`).
   The index-to-type mapping for this project is listed in <project_context>.
+  To COUNT or aggregate the groups/accounts themselves (not a property of theirs), use the raw
+  group-key column `$group_<index>` (leading `$`). A bare `group_<index>` without a trailing
+  `.properties.<name>` is NOT a scalar column and fails with "Field not found: group_<index>". See
+  the count-distinct-accounts pattern below.
 - Session attributes: `session.$session_duration` (seconds), `session.$pageview_count`,
   `session.$channel_type`, `session.$entry_pathname`, `session.$is_bounce`, `session.$end_timestamp`.
 Reference these as plain columns inside a single `FROM events` SELECT — never write `JOIN` for them.
@@ -229,10 +237,18 @@ Breakdown by a person property (USE the dotted path, NOT a JOIN):
     count() AS event_count,
     uniq(distinct_id) AS users
   FROM events
-  WHERE timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
+  WHERE {{date_range}}
   GROUP BY plan
   ORDER BY event_count DESC
   LIMIT 50
+
+Count distinct groups/accounts (the account itself, via the raw `$`-prefixed key, never bare
+`group_<index>`, which is only valid as `group_<index>.properties.<name>`):
+  SELECT
+    uniq($group_2) AS accounts,
+    uniqIf($group_2, event = 'signup') AS accounts_signed_up
+  FROM events
+  WHERE {{date_range}}
 
 First-EVER occurrence of an event per user, landing in the window (e.g. "users whose first ever
 'Dashboard created' falls in the window", broken down by a property of that first event). "First ever" needs each
@@ -250,7 +266,7 @@ window — never approximate it with a flat `countIf`, and never use a JOIN or w
     WHERE event = 'Dashboard created'
     GROUP BY distinct_id
   )
-  WHERE first_seen >= toDateTime('<start>') AND first_seen < toDateTime('<end>')
+  WHERE first_seen >= {{window_start}} AND first_seen < {{window_end}}
   GROUP BY template
   ORDER BY first_time_users DESC
   LIMIT 50
@@ -331,10 +347,15 @@ rewrite MUST follow the same HogQL syntax constraints used by the planner:
   UNNEST, or ARRAY JOIN on subqueries.
 - No JOINs of any kind, including self-joins on `event`. Use conditional aggregation instead
   (ClickHouse rejects HogQL's null-safe join keys).
-- Time window: PRESERVE the original query's `timestamp >= toDateTime('…') AND timestamp <
-  toDateTime('…')` bounds verbatim — those are the report's fixed analysis window. Do NOT introduce
-  `now()` / `now() - INTERVAL …` / `today()`; if the original already uses them, keep its existing
-  literal bounds rather than inventing new ones.
+- Schema note for "Field not found: group_<index>": to count or aggregate a group/account, the raw
+  group-key column is `$group_<index>` with a leading `$` (e.g. `uniq($group_2)`,
+  `uniqIf($group_2, cond)`). A bare `group_<index>` is only valid as `group_<index>.properties.<name>`;
+  used as a scalar it does not resolve; replace it with `$group_<index>`. The same `$`-prefixed form
+  applies to person/session keys only via their documented paths, so do not add `$` elsewhere.
+- Time window: PRESERVE the original query's window tokens (`{{date_range}}`,
+  `{{compare_date_range}}`, `{{window_start}}`, `{{window_end}}`) or literal `toDateTime('…')` bounds
+  verbatim — those are the report's fixed analysis window. Do NOT introduce `now()` /
+  `now() - INTERVAL …` / `today()`, and do NOT resolve a placeholder into dates yourself.
 - Time bucketing: `toStartOfHour/Day/Week(timestamp)`.
 - String literals use single quotes; identifiers are unquoted.
 - Keep it cheap: LIMIT 50.

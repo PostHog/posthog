@@ -81,9 +81,22 @@ jobs:
                   tags: tag:hogland-ci
             - name: Mint hogland OIDC token
               if: steps.gate.outputs.had_preview == 'true'
+              # A transient OIDC outage (2026-07-09 ~12:58–13:10 UTC) used to slip
+              # an EMPTY token through here: `curl | jq` takes jq's exit code, jq
+              # succeeds on empty input, the step passed, and the downstream
+              # destroy failed with "no API token provided" — leaking two preview
+              # pens (runs 29019106966, 29019621216). Retry the mint to ride out
+              # the blip, and keep the empty-token guard as the hard backstop.
               run: |
-                  token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-                    "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
+                  token=""
+                  for attempt in 1 2 3; do
+                    token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                      "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value') || token=""
+                    [ -n "$token" ] && [ "$token" != "null" ] && break
+                    echo "::warning::OIDC mint attempt ${attempt} failed; retrying"
+                    [ "$attempt" -lt 3 ] && sleep 5
+                  done
+                  [ -n "$token" ] && [ "$token" != "null" ] || { echo "::error::OIDC mint failed after 3 attempts"; exit 1; }
                   echo "::add-mask::$token"
                   echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
             # uv (repo convention): --no-project skips the monorepo sync, --with
@@ -143,7 +156,14 @@ jobs:
                   pr_age=$((($(date '+%s') - $(date -d "$PR_CREATED_AT" '+%s'))))
                   echo "pr_age=$pr_age" >> $GITHUB_ENV
 
-                  first_commit_message_in_pr=$(curl -s "$PR_HREF" | jq '.[0].commit.message')
+                  # The commits endpoint returns an ARRAY on success, but an error
+                  # OBJECT (rate limit, or a 404 after a force-push-and-close) on
+                  # failure — and `.[0]` on an object makes jq exit 5, which used
+                  # to fail the whole run and mask real cleanup failures on the
+                  # dashboard (4x on 2026-07-09, e.g. run 29040552494). Guard on the
+                  # type: degrade to an empty message instead of crashing.
+                  first_commit_message_in_pr=$(curl -s "$PR_HREF" \
+                    | jq 'if type == "array" and length > 0 then .[0].commit.message else "" end')
                   echo "first_commit_message_in_pr<<EOF" >> $GITHUB_ENV
                   echo "$first_commit_message_in_pr" >> $GITHUB_ENV
                   echo "EOF" >> $GITHUB_ENV
