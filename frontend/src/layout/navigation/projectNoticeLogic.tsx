@@ -91,6 +91,19 @@ function ProvisionedProductStrip(): JSX.Element {
     )
 }
 
+/** Message body of the provisioned-welcome banner. Exported so it's reviewable in Storybook. */
+export function ProvisionedWelcomeMessage(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <span>
+                <b>Welcome to PostHog!</b> We're setting up PostHog in your repo in the background. In the meantime,
+                here's what you can do with it:
+            </span>
+            <ProvisionedProductStrip />
+        </div>
+    )
+}
+
 function isNoticeDismissed(key: string): boolean {
     try {
         return localStorage.getItem(NOTICE_DISMISS_PREFIX + key) === 'true'
@@ -582,15 +595,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                         }
                     case 'provisioned_welcome':
                         return {
-                            message: (
-                                <div className="flex flex-col gap-1">
-                                    <span>
-                                        <b>Welcome to PostHog!</b> We're setting up PostHog in your repo in the
-                                        background. In the meantime, here's what you can do with it:
-                                    </span>
-                                    <ProvisionedProductStrip />
-                                </div>
-                            ),
+                            message: <ProvisionedWelcomeMessage />,
                             type: 'info',
                             onClose: dismiss,
                         }
