@@ -76,6 +76,17 @@ function SparklineInner({
         ],
         [data, resolvedColor, fillOpacity, dashedFromIndex]
     )
+    // Hug the data range: a fixed domain (no tick-nicing) puts the lowest point on the plot bottom
+    // instead of floating over a zero baseline, so a flat series runs along the bottom edge.
+    const config = useMemo<LineChartConfig>(() => {
+        const finite = data.filter((v) => Number.isFinite(v))
+        if (finite.length === 0) {
+            return SPARKLINE_CONFIG
+        }
+        const min = Math.min(...finite)
+        const max = Math.max(...finite)
+        return { ...SPARKLINE_CONFIG, valueDomain: [min, max === min ? min + 1 : max] }
+    }, [data])
     const wrapperStyle = useMemo<React.CSSProperties | undefined>(() => (fill ? undefined : { height }), [fill, height])
 
     return (
@@ -84,7 +95,7 @@ function SparklineInner({
             style={wrapperStyle}
             data-attr={dataAttr}
         >
-            <LineChart series={series} labels={resolvedLabels} theme={theme} config={SPARKLINE_CONFIG}>
+            <LineChart series={series} labels={resolvedLabels} theme={theme} config={config}>
                 {onHoverIndexChange ? <HoverWatcher onHoverChange={onHoverIndexChange} /> : null}
             </LineChart>
         </div>
