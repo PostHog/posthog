@@ -5,13 +5,7 @@ import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import {
-    API_SCOPES,
-    DEFAULT_OAUTH_SCOPES,
-    MCP_SERVER_OAUTH_SCOPES,
-    getMinimumEquivalentScopes,
-    getScopeDescription,
-} from 'lib/scopes'
+import { API_SCOPES, DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, getScopeDescription } from 'lib/scopes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { userLogic } from 'scenes/userLogic'
 
@@ -165,9 +159,6 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         setTeamHint: (teamId: number | null) => ({ teamId }),
         setScopesWereDefaulted: (scopesWereDefaulted: boolean) => ({ scopesWereDefaulted }),
         setIsMcpResource: (isMcpResource: boolean) => ({ isMcpResource }),
-        setResourceScopesUsedFallback: (resourceScopesUsedFallback: boolean) => ({ resourceScopesUsedFallback }),
-        loadResourceScopes: (resourceUrl: string) => ({ resourceUrl }),
-        setResourceScopesLoading: (loading: boolean) => ({ loading }),
         cancel: () => ({}),
         setCanceling: (canceling: boolean) => ({ canceling }),
         setAuthorizationComplete: (complete: boolean) => ({ complete }),
@@ -228,32 +219,6 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             } finally {
                 actions.setCanceling(false)
             }
-        },
-        loadResourceScopes: async ({ resourceUrl }) => {
-            // Last-resort browser fetch when the authorize view could not preload scopes.
-            // RFC 9728: metadata lives at /.well-known/oauth-protected-resource{resource_path}.
-            actions.setResourceScopesLoading(true)
-            actions.setResourceScopesUsedFallback(false)
-            try {
-                const url = new URL(resourceUrl)
-                const resourcePath = url.pathname === '/' ? '' : url.pathname
-                const metadataUrl = `${url.origin}/.well-known/oauth-protected-resource${resourcePath}`
-                const response = await fetch(metadataUrl)
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch protected resource metadata: ${response.status}`)
-                }
-                const metadata = await response.json()
-                if (metadata.scopes_supported && Array.isArray(metadata.scopes_supported)) {
-                    actions.setScopes(metadata.scopes_supported)
-                    return
-                }
-            } catch (e) {
-                console.warn('Failed to fetch resource scopes, using fallback:', e)
-            } finally {
-                actions.setResourceScopesLoading(false)
-            }
-            actions.setResourceScopesUsedFallback(true)
-            actions.setScopes(MCP_SERVER_OAUTH_SCOPES)
         },
         createNewProject: async ({ name }) => {
             actions.setNewProjectLoading(true)
@@ -321,18 +286,6 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             false,
             {
                 setIsMcpResource: (_, { isMcpResource }) => isMcpResource,
-            },
-        ],
-        resourceScopesLoading: [
-            false,
-            {
-                setResourceScopesLoading: (_, { loading }) => loading,
-            },
-        ],
-        resourceScopesUsedFallback: [
-            false,
-            {
-                setResourceScopesUsedFallback: (_, { resourceScopesUsedFallback }) => resourceScopesUsedFallback,
             },
         ],
         isCanceling: [
@@ -667,7 +620,6 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     urlToAction(({ actions }) => {
         const handleAuthorize = (_: Record<string, any>, searchParams: Record<string, any>): void => {
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
-            const resourceParam = searchParams['resource'] as string | undefined
             const oauthMcpConsent = getAppContext()?.oauth_mcp_consent
 
             const scopesWereDefaulted = requestedScopes.length === 0
@@ -688,23 +640,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
 
             if (scopesWereDefaulted && oauthMcpConsent?.is_mcp_resource) {
                 actions.setIsMcpResource(true)
-                if (oauthMcpConsent.scopes_fetch_failed) {
-                    if (resourceParam) {
-                        actions.loadResourceScopes(resourceParam)
-                    }
-                } else if (oauthMcpConsent.scopes !== undefined) {
-                    actions.setResourceScopesUsedFallback(false)
-                    actions.setScopes(oauthMcpConsent.scopes)
-                } else if (resourceParam) {
-                    actions.loadResourceScopes(resourceParam)
-                }
+                actions.setScopes(oauthMcpConsent.scopes ?? DEFAULT_OAUTH_SCOPES)
             } else if (scopesWereDefaulted) {
                 actions.setIsMcpResource(false)
-                actions.setResourceScopesUsedFallback(false)
                 actions.setScopes(DEFAULT_OAUTH_SCOPES)
             } else {
                 actions.setIsMcpResource(false)
-                actions.setResourceScopesUsedFallback(false)
                 actions.setScopes(requestedScopes)
             }
         }

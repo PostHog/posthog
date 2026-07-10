@@ -187,9 +187,9 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @patch("posthog.api.oauth.views.render_template")
-    @patch("posthog.api.oauth.mcp_resource_scopes.fetch_mcp_protected_resource_scopes")
-    def test_authorize_injects_mcp_scopes_when_resource_omits_scope(self, mock_fetch, mock_render):
-        mock_fetch.return_value = ["notebook:read", "notebook:write", "query:read"]
+    @patch("posthog.api.oauth.mcp_resource_scopes.mcp_advertised_scopes")
+    def test_authorize_injects_mcp_scopes_when_resource_omits_scope(self, mock_scopes, mock_render):
+        mock_scopes.return_value = ["openid", "notebook:read", "notebook:write", "query:read"]
         mock_render.return_value = HttpResponse(status=status.HTTP_200_OK)
 
         auth_url = f"{self.base_authorization_url}&resource=https%3A%2F%2Fmcp.posthog.com%2Fmcp"
@@ -202,29 +202,20 @@ class TestOAuthAPI(APIBaseTest):
             template_context["oauth_mcp_consent"],
             {
                 "is_mcp_resource": True,
-                "scopes": ["notebook:read", "notebook:write", "query:read"],
-                "scopes_fetch_failed": False,
+                "scopes": ["openid", "notebook:read", "notebook:write", "query:read"],
             },
         )
 
     @patch("posthog.api.oauth.views.render_template")
-    @patch("posthog.api.oauth.mcp_resource_scopes.fetch_mcp_protected_resource_scopes")
-    def test_authorize_marks_mcp_fetch_failure_when_metadata_unavailable(self, mock_fetch, mock_render):
-        mock_fetch.return_value = None
+    def test_authorize_omits_mcp_consent_for_untrusted_resource(self, mock_render):
         mock_render.return_value = HttpResponse(status=status.HTTP_200_OK)
 
-        auth_url = f"{self.base_authorization_url}&resource=https%3A%2F%2Fmcp.posthog.com%2Fmcp"
+        auth_url = f"{self.base_authorization_url}&resource=https%3A%2F%2Fevil.example.com%2Fmcp"
         response = self.client.get(auth_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         template_context = mock_render.call_args.kwargs["context"]
-        self.assertEqual(
-            template_context["oauth_mcp_consent"],
-            {
-                "is_mcp_resource": True,
-                "scopes_fetch_failed": True,
-            },
-        )
+        self.assertNotIn("oauth_mcp_consent", template_context)
 
     def test_first_party_app_auto_approves_with_org_scoped_grant(self):
         first_party_app = OAuthApplication.objects.create(

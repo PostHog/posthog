@@ -318,38 +318,6 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
-// Fallback when server-side MCP metadata preload fails on the OAuth consent page.
-// Production metadata is ~115 scopes; keep in sync or rely on server preload instead.
-// Scopes required by the PostHog MCP server (https://mcp.posthog.com)
-// These match the scopes_supported in the MCP server's OAuth protected resource metadata
-export const MCP_SERVER_OAUTH_SCOPES = [
-    'openid',
-    'profile',
-    'email',
-    'introspection',
-    'user:read',
-    'user:write',
-    'organization:read',
-    'project:read',
-    'project:write',
-    'feature_flag:read',
-    'feature_flag:write',
-    'experiment:read',
-    'experiment:write',
-    'insight:read',
-    'insight:write',
-    'dashboard:read',
-    'dashboard:write',
-    'query:read',
-    'survey:read',
-    'survey:write',
-    'event_definition:read',
-    'event_definition:write',
-    'error_tracking:read',
-    'logs:read',
-    'tracing:read',
-]
-
 export const getScopeDescription = (scope: string): string | undefined => {
     if (scope === '*') {
         return 'Read and write access to all PostHog data'

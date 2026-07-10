@@ -7483,7 +7483,6 @@ export interface ProjectTreeRef {
 export type OAuthMcpConsentContext = {
     is_mcp_resource: boolean
     scopes?: string[]
-    scopes_fetch_failed?: boolean
 }
 
 export type OAuthApplicationPublicMetadata = {
