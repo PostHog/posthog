@@ -87,11 +87,17 @@ export interface TraceGitMetadata {
     repo: string | null
 }
 
-/** A branch→PR resolution tagged with the branch it resolved for, so a result left over from a
- * previously viewed trace can be ignored until the reload for the new branch finishes. */
+/** A branch→PR resolution tagged with the request it resolved for, so a result left over from a
+ * previously viewed trace can be ignored until the reload for the new trace finishes. */
 export interface BranchPRResolution {
-    branch: string | null
+    key: string | null
     matches: BranchPRMatchApi[]
+}
+
+/** Identity of one resolution request. Branch alone is not enough: two traces can carry the same
+ * branch name in different repos, and a branch-only guard would link one repo's chip to the other's PR. */
+export function branchPRResolutionKey(gitMetadata: TraceGitMetadata | null): string | null {
+    return gitMetadata?.branch ? `${gitMetadata.repo ?? ''}::${gitMetadata.branch}` : null
 }
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -138,12 +144,12 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
 
     reducers(() => ({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
-        // The branch the loader is currently resolving for. Updates synchronously when the load is
+        // The branch+repo the loader is currently resolving for. Updates synchronously when the load is
         // dispatched (before the request resolves), so the branchPRMatches selector can drop a
-        // resolution still tagged with the previously viewed trace's branch.
-        resolvingBranch: [
+        // resolution still tagged with the previously viewed trace's branch/repo.
+        resolvingKey: [
             null as string | null,
-            { loadBranchPRMatches: (_, gitMetadata: TraceGitMetadata | null) => gitMetadata?.branch ?? null },
+            { loadBranchPRMatches: (_, gitMetadata: TraceGitMetadata | null) => branchPRResolutionKey(gitMetadata) },
         ],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
         highlightMessageIndex: [
@@ -339,16 +345,17 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
             },
         ],
         branchPRResolution: [
-            { branch: null, matches: [] } as BranchPRResolution,
+            { key: null, matches: [] } as BranchPRResolution,
             {
                 loadBranchPRMatches: async (gitMetadata: TraceGitMetadata | null, breakpoint) => {
-                    // Tag the result with the branch it resolved for, so a stale in-flight result from the
-                    // previously viewed trace can be discarded (see the branchPRMatches selector).
+                    // Tag the result with the branch+repo it resolved for, so a stale in-flight result from
+                    // the previously viewed trace can be discarded (see the branchPRMatches selector).
+                    const key = branchPRResolutionKey(gitMetadata)
                     const branch = gitMetadata?.branch ?? null
 
                     // Gated on engineering analytics: only that product can turn a git branch into a PR link.
                     if (!branch || !values.featureFlags?.[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
-                        return { branch, matches: [] }
+                        return { key, matches: [] }
                     }
 
                     await breakpoint(100)
@@ -361,26 +368,27 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                             repo: gitMetadata?.repo ?? undefined,
                         })
                     } catch {
-                        return { branch, matches: [] }
+                        return { key, matches: [] }
                     }
 
                     breakpoint()
 
-                    return { branch, matches }
+                    return { key, matches }
                 },
             },
         ],
     })),
 
     selectors({
-        // Only surface matches once the stored resolution's branch matches the branch currently being
-        // resolved. On a trace switch traceGitMetadata (and resolvingBranch) update immediately while the
-        // loader still holds the previous branch's matches, so this drops them until the reload lands —
-        // the chip never links the new branch's text to the old branch's PR.
+        // Only surface matches once the stored resolution matches the branch+repo currently being
+        // resolved. On a trace switch traceGitMetadata (and resolvingKey) update immediately while the
+        // loader still holds the previous trace's matches, so this drops them until the reload lands —
+        // the chip never links the new trace's text to another branch's (or same-named branch in
+        // another repo's) PR.
         branchPRMatches: [
-            (s) => [s.branchPRResolution, s.resolvingBranch],
-            (resolution, resolvingBranch): BranchPRMatchApi[] =>
-                resolution.branch === resolvingBranch ? resolution.matches : [],
+            (s) => [s.branchPRResolution, s.resolvingKey],
+            (resolution, resolvingKey): BranchPRMatchApi[] =>
+                resolution.key === resolvingKey ? resolution.matches : [],
         ],
         inputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.input],
         outputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.output],
