@@ -38,7 +38,7 @@ import {
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
-import { createFetchPersonBatchStep } from '~/ingestion/common/steps/event-processing/fetch-person-batch-step'
+import { createFetchPersonChunkStep } from '~/ingestion/common/steps/event-processing/fetch-person-chunk-step'
 import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-processing/flush-hog-transformer-step'
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '~/ingestion/common/steps/event-processing/normalize-event-step'
@@ -213,7 +213,7 @@ export function createAiIngestionPipeline<
                                         )
                                         .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
                                         // Read-only batch person fetch (no person writes).
-                                        .pipeChunk(createFetchPersonBatchStep(personRepository))
+                                        .pipeChunk(createFetchPersonChunkStep(personRepository))
                                         // Prefetch hog functions for the batch's teams so the transformer
                                         // honors Hog watcher's disabled-function state (mirrors analytics).
                                         .pipeChunk(

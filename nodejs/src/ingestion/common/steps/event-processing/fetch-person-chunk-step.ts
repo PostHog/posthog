@@ -4,7 +4,7 @@ import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'
 
-export interface FetchPersonBatchStepInput {
+export interface FetchPersonChunkStepInput {
     event: PluginEvent
     team: Team
 }
@@ -18,7 +18,7 @@ function personKey(teamId: number, distinctId: string): string {
 }
 
 /**
- * Creates a batch step that fetches person data for read-only pipelines
+ * Creates a chunk step that fetches person data for read-only pipelines
  * (error tracking, AI).
  *
  * This is a read-only step that fetches person data from the database
@@ -29,14 +29,14 @@ function personKey(teamId: number, distinctId: string): string {
  * to set the top-level person_id, person_properties, and person_created_at
  * fields on the ClickHouse event.
  *
- * This is a batch step to avoid N+1 queries when processing multiple events.
+ * This is a chunk step to avoid N+1 queries when processing multiple events.
  * The per-pipeline identity (client name) comes from the repository's client
  * label; this step only tags the query.
  */
-export function createFetchPersonBatchStep<T extends FetchPersonBatchStepInput>(
+export function createFetchPersonChunkStep<T extends FetchPersonChunkStepInput>(
     personRepository: PersonReadRepository
 ): ChunkProcessingStep<T, T & { person: Person | undefined }> {
-    return async function fetchPersonBatchStep(
+    return async function fetchPersonChunkStep(
         inputs: T[]
     ): Promise<PipelineResult<T & { person: Person | undefined }>[]> {
         if (inputs.length === 0) {

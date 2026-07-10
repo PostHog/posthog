@@ -30,7 +30,7 @@ import {
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
-import { createFetchPersonBatchStep } from '~/ingestion/common/steps/event-processing/fetch-person-batch-step'
+import { createFetchPersonChunkStep } from '~/ingestion/common/steps/event-processing/fetch-person-chunk-step'
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
@@ -273,7 +273,7 @@ export function createErrorTrackingPipeline(
                                     afterRateLimit
                                         // Enrich, prepare, create, and emit events
                                         // Batch fetch person (read-only, no updates)
-                                        .pipeChunk(createFetchPersonBatchStep(personRepository))
+                                        .pipeChunk(createFetchPersonChunkStep(personRepository))
                                         .sequentially((b) =>
                                             b
                                                 // Run Hog transformations (including GeoIP if team has it enabled)
