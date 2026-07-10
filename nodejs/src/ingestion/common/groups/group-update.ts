@@ -1,3 +1,4 @@
+import equal from 'fast-deep-equal'
 import { DateTime } from 'luxon'
 
 import { Properties } from '~/plugin-scaffold'
@@ -45,7 +46,11 @@ export function calculateUpdate(currentProperties: Properties, properties: Prope
     // So instead we just process properties updates based on ingestion time,
     // i.e. always update if value has changed.
     Object.entries(properties).forEach(([key, value]) => {
-        if (!(key in result.properties) || value != result.properties[key]) {
+        // Deep equality, not reference equality: object/array values arrive as fresh
+        // JSON parses on every event, so a reference compare would mark every group
+        // with a nested property as changed on every event, causing constant no-op
+        // writes, version bumps, and cross-pod update conflicts.
+        if (!(key in result.properties) || !equal(value, result.properties[key])) {
             result.updated = true
             result.properties[key] = value
         }
