@@ -358,7 +358,7 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     # Local (desktop) runs idle in QUEUED while the user's local agent drives them — there is no
     # lost dispatch to recover. Starting a cloud workflow here would hijack the live session: the
     # sandbox boots without the repo ever being cloned, burns its retries, and marks the user's
-    # run FAILED. The sweep already filters these out (cloud_only); this guards direct callers.
+    # run FAILED. The sweep already filters these out (environment=CLOUD); this guards direct callers.
     if task_run.environment == TaskRun.Environment.LOCAL:
         return "skipped_local"
 
