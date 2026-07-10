@@ -480,7 +480,7 @@ describe('PushNotificationService', () => {
 
             await service.executeSendPushNotification(invocation)
 
-            const body = JSON.parse(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
             expect(body.aps.alert.title).toBe('Real title')
             expect(body.custom).toBe('kept')
         })
