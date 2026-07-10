@@ -24,6 +24,7 @@ import {
 import { QueryContext } from '~/queries/types'
 
 import { EndpointsUsageOverviewNode, EndpointsUsageTrendsNode } from 'products/endpoints/frontend/nodes'
+import { MetricsQueryNode } from 'products/metrics/frontend/nodes'
 import {
     RevenueAnalyticsGrossRevenueNode,
     RevenueAnalyticsMRRNode,
@@ -42,6 +43,7 @@ import {
     isHogQuery,
     isInsightVizNode,
     isMarketingAnalyticsAggregatedQuery,
+    isMetricsQuery,
     isRevenueAnalyticsGrossRevenueQuery,
     isRevenueAnalyticsMRRQuery,
     isRevenueAnalyticsMetricsQuery,
@@ -226,6 +228,15 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
         component = (
             <RevenueAnalyticsTopCustomersNode
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
+    } else if (isMetricsQuery(query)) {
+        component = (
+            <MetricsQueryNode
                 attachTo={props.attachTo}
                 query={query}
                 cachedResults={props.cachedResults}
