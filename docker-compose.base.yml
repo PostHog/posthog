@@ -347,6 +347,17 @@ services:
             # the main posthog DB, so both point there.
             PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DB_READER_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            # Point Django at the Rust feature-flags container for flag-evaluation
+            # proxying; the setting otherwise defaults to localhost:3001.
+            FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
+            # The logs product talks to ClickHouse over a dedicated cluster config
+            # (separate from CLICKHOUSE_HOST) that otherwise defaults to
+            # https://localhost:9000. Point it at the stack's ClickHouse over HTTP.
+            CLICKHOUSE_LOGS_CLUSTER_HOST: 'clickhouse'
+            CLICKHOUSE_LOGS_CLUSTER_PORT: '8123'
+            CLICKHOUSE_LOGS_CLUSTER_SECURE: 'false'
+            CLICKHOUSE_LOGS_CLUSTER_USER: 'default'
+            CLICKHOUSE_LOGS_CLUSTER_PASSWORD: ''
 
     web:
         <<: *worker
