@@ -47,7 +47,7 @@ import {
     PASS_RATE_WARNING_THRESHOLD,
 } from './components/EvaluationMetrics'
 import { OfflineEvaluationsTab } from './components/OfflineEvaluationsTab'
-import { evaluationTypeCanBeCreated, evaluationTypeUsesProviderKey } from './evaluationCapabilities'
+import { evaluationTypeUsesProviderKey } from './evaluationCapabilities'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
@@ -134,7 +134,6 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         useActions(evaluationsLogic)
     const { evaluationsWithMetrics } = useValues(metricsLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const evaluationUrl = (id: string): string => combineUrl(urls.aiObservabilityEvaluation(id), searchParams).url
@@ -192,12 +191,9 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         </Tooltip>
                     )
                 }
-                const canUseEvaluationType = evaluationTypeCanBeCreated(evaluation.evaluation_type, featureFlags)
-                const canEnable = canEnableEvaluation(evaluation) && (evaluation.enabled || canUseEvaluationType)
+                const canEnable = canEnableEvaluation(evaluation)
                 const isBlocked = !canEnable && !evaluation.enabled
-                const blockedReason = !canUseEvaluationType
-                    ? 'Sentiment evaluations are not available for this project.'
-                    : 'Trial evaluation limit reached. Add a provider API key to re-enable.'
+                const blockedReason = 'Add a provider API key to enable this evaluation.'
                 return (
                     <div className="flex items-center gap-2">
                         <AccessControlAction
@@ -375,7 +371,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <TrialUsageMeter showSettingsLink={false} />
+            <TrialUsageMeter showSettingsLink />
 
             {unhealthyProviderKeysUsedByEvaluations.length > 0 && (
                 <LemonBanner type="warning">

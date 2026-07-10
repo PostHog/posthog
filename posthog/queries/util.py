@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.interval_specs import UnsupportedIntervalError, get_interval_func, get_trunc_func
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.schema_enums import PersonsOnEventsMode
 
@@ -54,20 +55,6 @@ TIME_IN_SECONDS: dict[str, Any] = {
     "month": 3600 * 24 * 30,  # TODO: Let's get rid of this lie! Months are not all 30 days long
 }
 
-PERIOD_TO_TRUNC_FUNC: dict[str, str] = {
-    "hour": "toStartOfHour",
-    "week": "toStartOfWeek",
-    "day": "toStartOfDay",
-    "month": "toStartOfMonth",
-}
-
-PERIOD_TO_INTERVAL_FUNC: dict[str, str] = {
-    "hour": "toIntervalHour",
-    "week": "toIntervalWeek",
-    "day": "toIntervalDay",
-    "month": "toIntervalMonth",
-}
-
 
 # TODO: refactor since this is only used in one spot now
 def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] = None):
@@ -102,21 +89,17 @@ def get_start_of_interval_sql(
 
 
 def get_trunc_func_ch(period: Optional[str]) -> str:
-    if period is None:
-        period = "day"
-    ch_function = PERIOD_TO_TRUNC_FUNC.get(period.lower())
-    if ch_function is None:
+    try:
+        return get_trunc_func(period)
+    except UnsupportedIntervalError:
         raise ValidationError(f"Period {period} is unsupported.")
-    return ch_function
 
 
 def get_interval_func_ch(period: Optional[str]) -> str:
-    if period is None:
-        period = "day"
-    ch_function = PERIOD_TO_INTERVAL_FUNC.get(period.lower())
-    if ch_function is None:
+    try:
+        return get_interval_func(period)
+    except UnsupportedIntervalError:
         raise ValidationError(f"Interval {period} is unsupported.")
-    return ch_function
 
 
 def get_time_in_seconds_for_period(period: Optional[str]) -> str:

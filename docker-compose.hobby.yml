@@ -33,10 +33,6 @@ services:
             - redis7-data:/data
 
     clickhouse:
-        #
-        # Note: please keep the default version in sync across
-        #       `posthog` and the `charts-clickhouse` repos
-        #
         extends:
             file: docker-compose.base.yml
             service: clickhouse

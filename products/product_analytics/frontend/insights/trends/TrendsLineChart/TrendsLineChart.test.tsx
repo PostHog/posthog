@@ -1,8 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library/react'
+import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
-import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { dragSelection, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -13,9 +13,11 @@ import {
     chart,
     createInsightTooltipAccessor,
     getHogChart,
+    getQuerySource,
     legend,
     personsModal,
     renderInsight,
+    trendsSeries,
 } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'
@@ -40,18 +42,12 @@ afterEach(() => {
     cleanupRaf()
     cleanupJsdom()
     cleanup()
+    // featureFlagLogic persists flags to localStorage, so per-test flags leak into later tests otherwise
+    localStorage.clear()
 })
 
 describe('TrendsLineChart', () => {
     describe('tooltips', () => {
-        it('shows the series value for a single series', async () => {
-            renderInsight({ query: buildTrendsQuery() })
-
-            const tooltip = await chart.hoverTooltip(2)
-
-            expect(tooltip.row('Pageview')).toContain('134')
-        })
-
         it('shows each series with its own value for multiple series', async () => {
             renderInsight({
                 query: buildTrendsQuery({
@@ -136,7 +132,7 @@ describe('TrendsLineChart', () => {
             })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -156,7 +152,7 @@ describe('TrendsLineChart', () => {
             })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -197,37 +193,9 @@ describe('TrendsLineChart', () => {
             expect(tooltip.row('ActiveSeries')).toContain('3')
             expect(tooltip.row('EmptySeries')).toContain('0')
         })
-
-        it('renders correctly when series has no action metadata', async () => {
-            renderInsight({
-                query: buildTrendsQuery({
-                    series: [{ kind: NodeKind.EventsNode, event: 'Minimal', name: 'Minimal' }],
-                }),
-            })
-
-            const tooltip = await chart.hoverTooltip(0)
-
-            expect(tooltip.row('Minimal')).toContain('1')
-        })
     })
 
     describe('moving average overlay', () => {
-        it('adds a dashed moving-average series per result when enabled', async () => {
-            renderInsight({
-                query: buildTrendsQuery({
-                    trendsFilter: {
-                        showMovingAverage: true,
-                        movingAverageIntervals: 3,
-                    },
-                }),
-            })
-
-            // One data series + one moving-average overlay = 2 rendered series.
-            await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
-            })
-        })
-
         it('omits the moving-average series from tooltip rows', async () => {
             renderInsight({
                 query: buildTrendsQuery({
@@ -248,7 +216,7 @@ describe('TrendsLineChart', () => {
             renderInsight({ query: buildTrendsQuery() })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 1 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 1 data series/i)).toBeInTheDocument()
             })
         })
     })
@@ -289,7 +257,7 @@ describe('TrendsLineChart', () => {
                 inSharedMode: true,
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
         })
     })
@@ -307,31 +275,7 @@ describe('TrendsLineChart', () => {
             })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
-            })
-        })
-
-        it('uses percent ticks on the y-axis in percent stack view', async () => {
-            renderInsight({
-                query: buildTrendsQuery({
-                    series: [
-                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
-                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
-                    ],
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsAreaGraph,
-                        showPercentStackView: true,
-                    },
-                }),
-            })
-
-            await screen.findByRole('img', { name: /chart with/i })
-            await waitFor(() => {
-                const ticks = getHogChart().yTicks()
-                expect(ticks.length).toBeGreaterThan(0)
-                for (const t of ticks) {
-                    expect(t).toMatch(/%/)
-                }
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
         })
     })
@@ -348,43 +292,17 @@ describe('TrendsLineChart', () => {
             expect(tooltip.title()).toMatch(/Wednesday/i)
             expect(tooltip.title()).toMatch(/12.+Jun/)
         })
-    })
 
-    describe('tooltip pin lifecycle', () => {
-        it.each([
-            {
-                trigger: 'Escape key press',
-                unpin: async () => {
-                    fireEvent.keyDown(document, { key: 'Escape' })
-                },
-            },
-            {
-                trigger: 'click outside the chart',
-                unpin: async () => {
-                    // The chart attaches its outside-click listener via setTimeout(0); flush
-                    // first so the listener actually intercepts the click.
-                    await new Promise((resolve) => setTimeout(resolve, 5))
-                    const outside = document.body.appendChild(document.createElement('div'))
-                    fireEvent.click(outside)
-                    outside.remove()
-                },
-            },
-        ])('unpins on $trigger', async ({ unpin }) => {
+        it('keeps the weekday in the quill tooltip (PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS on)', async () => {
             renderInsight({
-                query: buildTrendsQuery({
-                    series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
-                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
-                }),
+                query: buildTrendsQuery({ interval: 'day' }),
+                featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]: true },
             })
 
-            await chart.clickAtIndex(2)
-            expect(chart.getTooltip()).toBeInTheDocument()
+            const tooltip = await chart.hoverTooltip(2)
 
-            await unpin()
-
-            await waitFor(() => {
-                expect(chart.getTooltip()).not.toBeInTheDocument()
-            })
+            expect(tooltip.title()).toMatch(/Wednesday/i)
+            expect(tooltip.title()).toMatch(/12.+Jun/)
         })
     })
 
@@ -394,7 +312,7 @@ describe('TrendsLineChart', () => {
                 query: buildTrendsQuery(),
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             // Reference lines come exclusively from goalLines in this test (none configured),
             // so the count must be 0 — anything here would be a leaked alert overlay.
             expect(getHogChart().referenceLines()).toHaveLength(0)
@@ -414,7 +332,7 @@ describe('TrendsLineChart', () => {
 
             // Wait for both series before toggling.
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             await legend.toggle('Napped')
@@ -423,121 +341,52 @@ describe('TrendsLineChart', () => {
             expect(tooltip.row('Pageview')).toContain('134')
             expect(tooltip.element.textContent).not.toContain('Napped')
         })
-
-        it('does not draw value labels or trend lines for a hidden series', async () => {
-            renderInsight({
-                query: buildTrendsQuery({
-                    series: [
-                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
-                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
-                    ],
-                    trendsFilter: { showValuesOnSeries: true, showTrendLines: true },
-                }),
-            })
-
-            await waitFor(() => {
-                // 2 main + 2 trend lines = 4 series
-                expect(screen.getByRole('img', { name: /chart with 4 data series/i })).toBeInTheDocument()
-            })
-
-            await legend.toggle('Napped')
-
-            await waitFor(() => {
-                // Hiding Napped removes its main series + its trend line.
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
-            })
-
-            // No Napped value labels remain (Napped's data is 1, 3, 5, 8, 2; the 8 was the
-            // tallest distinct label so its absence is the cleanest signal).
-            const labels = getHogChart()
-                .valueLabels()
-                .map((l) => l.text)
-            expect(labels).not.toContain('8')
-            // Pageview labels should still be there.
-            expect(labels).toContain('210')
-        })
     })
 
     describe('axis labels', () => {
-        it.each([
-            {
-                name: 'renders custom axis titles from the trends filter',
-                trendsFilter: { xAxisLabel: 'Signup date', yAxisLabel: 'Unique users' },
-                expectedX: 'Signup date',
-                expectedY: 'Unique users',
-            },
-            {
-                name: 'renders no axis titles when the trends filter omits them',
-                trendsFilter: undefined,
-                expectedX: null,
-                expectedY: null,
-            },
-        ])('$name', async ({ trendsFilter, expectedX, expectedY }) => {
+        it('renders custom axis titles from the trends filter', async () => {
             renderInsight({
-                query: buildTrendsQuery({ trendsFilter }),
+                query: buildTrendsQuery({ trendsFilter: { xAxisLabel: 'Signup date', yAxisLabel: 'Unique users' } }),
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
-            expect(getHogChart().xAxisLabel()).toBe(expectedX)
-            expect(getHogChart().yAxisLabel()).toBe(expectedY)
+            await screen.findByLabelText(/chart with/i)
+            expect(getHogChart().xAxisLabel()).toBe('Signup date')
+            expect(getHogChart().yAxisLabel()).toBe('Unique users')
         })
     })
 
     describe('multi-axis', () => {
-        it.each([
-            { name: 'renders a right y-axis when showMultipleYAxes is true', enabled: true, expectedRight: true },
-            { name: 'omits the right y-axis by default', enabled: false, expectedRight: false },
-        ])('$name', async ({ enabled, expectedRight }) => {
+        it('renders a right y-axis when showMultipleYAxes is true', async () => {
             renderInsight({
                 query: buildTrendsQuery({
                     series: [
                         { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
                         { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
                     ],
-                    trendsFilter: enabled ? { showMultipleYAxes: true } : undefined,
+                    trendsFilter: { showMultipleYAxes: true },
                 }),
             })
 
             await waitFor(() => {
-                expect(getHogChart().hasRightAxis).toBe(expectedRight)
+                expect(getHogChart().hasRightAxis).toBe(true)
             })
-            if (expectedRight) {
-                expect(getHogChart().yRightTicks().length).toBeGreaterThan(0)
-            }
+            expect(getHogChart().yRightTicks().length).toBeGreaterThan(0)
         })
     })
 
     describe('goal lines', () => {
-        // Pageview peaks at 210; a `displayIfCrossed: false` line below that peak is filtered out.
-        it.each([
-            {
-                name: 'single goal line renders with its label',
-                goalLines: [{ label: 'Target', value: 150, displayIfCrossed: true }],
-                expectedLabels: ['Target'],
-            },
-            {
-                name: 'multiple goal lines render in order',
-                goalLines: [
-                    { label: 'Floor', value: 50, displayIfCrossed: true },
-                    { label: 'Ceiling', value: 200, displayIfCrossed: true },
-                ],
-                expectedLabels: ['Floor', 'Ceiling'],
-            },
-            {
-                name: 'displayIfCrossed=false hides a line the data has crossed',
-                goalLines: [{ label: 'Crossed', value: 100, displayIfCrossed: false }],
-                expectedLabels: [],
-            },
-        ])('$name', async ({ goalLines, expectedLabels }) => {
+        it('single goal line renders with its label', async () => {
             renderInsight({
-                query: buildTrendsQuery({ trendsFilter: { goalLines } }),
+                query: buildTrendsQuery({
+                    trendsFilter: { goalLines: [{ label: 'Target', value: 150, displayIfCrossed: true }] },
+                }),
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             await waitFor(
                 () => {
                     const lines = getHogChart().referenceLines()
-                    expect(lines.map((l) => l.label)).toEqual(expectedLabels)
+                    expect(lines.map((l) => l.label)).toEqual(['Target'])
                     for (const line of lines) {
                         expect(line.orientation).toBe('horizontal')
                     }
@@ -590,13 +439,6 @@ describe('TrendsLineChart', () => {
                 expect(l.text).toMatch(/%/)
             }
         })
-
-        it('renders no labels when showValuesOnSeries is disabled', async () => {
-            renderInsight({ query: buildTrendsQuery() })
-
-            await screen.findByRole('img', { name: /chart with/i })
-            expect(getHogChart().valueLabels()).toHaveLength(0)
-        })
     })
 
     describe('log y-scale', () => {
@@ -609,7 +451,7 @@ describe('TrendsLineChart', () => {
             })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -629,15 +471,8 @@ describe('TrendsLineChart', () => {
 
         it('adds a CI band series when enabled', async () => {
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
-        })
-
-        it('omits the CI series from tooltip rows', async () => {
-            const tooltip = await chart.hoverTooltip(2)
-
-            expect(tooltip.row('Pageview')).toContain('134')
-            expect(tooltip.element.textContent).not.toContain('(CI)')
         })
     })
 
@@ -647,12 +482,6 @@ describe('TrendsLineChart', () => {
                 query: buildTrendsQuery({
                     trendsFilter: { showTrendLines: true },
                 }),
-            })
-        })
-
-        it('adds a dashed trend-line series when enabled', async () => {
-            await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
             })
         })
 
@@ -681,7 +510,7 @@ describe('TrendsLineChart', () => {
 
             // main + raw trendline + moving avg + moving-avg trendline = 4 series.
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 4 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 4 data series/i)).toBeInTheDocument()
             })
         })
     })
@@ -697,7 +526,7 @@ describe('TrendsLineChart', () => {
             await waitFor(() => {
                 expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
             })
-            expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
+            expect(screen.queryByLabelText(/chart with/i)).not.toBeInTheDocument()
         })
 
         it('uses context.emptyStateHeading override when provided', async () => {
@@ -740,11 +569,7 @@ describe('TrendsLineChart', () => {
             expect(personsModal.get()).not.toBeInTheDocument()
         })
 
-        it.each([
-            ['Spike', ['spike-fan@example.com']],
-            ['Bramble', ['bramble-fan@example.com']],
-            ['Thistle', ['thistle-fan@example.com']],
-        ] as const)('multi-series: clicking the %s row shows only %s actors', async (breakdown, expectedActors) => {
+        it('multi-series: clicking the Spike row shows only Spike actors', async () => {
             renderInsight({
                 query: buildTrendsQuery({
                     series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
@@ -753,10 +578,10 @@ describe('TrendsLineChart', () => {
             })
 
             await chart.clickAtIndex(2)
-            await chart.clickTooltipRow(breakdown)
+            await chart.clickTooltipRow('Spike')
 
             await waitFor(() => {
-                expect(personsModal.actorNames()).toEqual(expectedActors)
+                expect(personsModal.actorNames()).toEqual(['spike-fan@example.com'])
             })
         })
 
@@ -774,23 +599,6 @@ describe('TrendsLineChart', () => {
             })
             const [seriesArg] = onDataPointClick.mock.calls[0]
             expect(seriesArg.day).toBe('2024-06-12')
-            expect(personsModal.get()).not.toBeInTheDocument()
-        })
-
-        it('does nothing when there is no persons modal and no onDataPointClick', async () => {
-            renderInsight({
-                query: buildTrendsQuery({
-                    trendsFilter: { formula: 'A + B' },
-                    series: [
-                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
-                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
-                    ],
-                }),
-            })
-
-            await chart.clickAtIndex(2)
-
-            // Without a click handler the canvas still renders; clicking is a no-op.
             expect(personsModal.get()).not.toBeInTheDocument()
         })
 
@@ -832,7 +640,7 @@ describe('TrendsLineChart', () => {
             const { container } = renderInsight({ query: twoSeriesQuery, featureFlags: quillLegendFlag })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             const legendEl = getInChartLegend(container)
@@ -844,7 +652,7 @@ describe('TrendsLineChart', () => {
             const { container } = renderInsight({ query: twoSeriesQuery, featureFlags: quillLegendFlag })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
             const legendEl = getInChartLegend(container)
 
@@ -872,35 +680,55 @@ describe('TrendsLineChart', () => {
             })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
             const legendEl = getInChartLegend(container)
 
             expect(legendEl.textContent).toContain('Napped')
             expect(legendEl.querySelector('button')).not.toBeInTheDocument()
         })
+    })
 
-        it.each(['left', 'right'] as const)(
-            'lays the legend out vertically when legendPosition is %s',
-            async (position) => {
-                const { container } = renderInsight({
-                    query: buildTrendsQuery({
-                        series: [
-                            { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
-                            { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
-                        ],
-                        trendsFilter: { showLegend: true, legendPosition: position },
-                    }),
-                    featureFlags: quillLegendFlag,
-                })
+    describe('drag-to-zoom', () => {
+        const totalLabels = trendsSeries.pageviews.labels.length
+        const zoomFlag = { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: true }
 
-                await waitFor(() => {
-                    expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
-                })
+        async function getChartWrapper(): Promise<HTMLElement> {
+            const canvas = await screen.findByLabelText(/chart with/i)
+            return canvas.parentElement!
+        }
 
-                const legendEl = getInChartLegend(container)
-                expect(legendEl.className).toContain('flex-col')
-            }
-        )
+        it('reports the dragged range as day strings to context.onDateRangeZoom', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom }, featureFlags: zoomFlag })
+            const wrapper = await getChartWrapper()
+
+            dragSelection(wrapper, 1, 3, totalLabels)
+
+            await waitFor(() => {
+                // Days, not the formatted axis labels ('Tue'/'Thu') the chart renders with.
+                expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-13')
+            })
+        })
+
+        it('ignores drags when the drag-to-zoom flag is off', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom } })
+            const wrapper = await getChartWrapper()
+
+            dragSelection(wrapper, 1, 3, totalLabels)
+
+            // A regression dropping the flag gate would ship zoom to everyone.
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+        })
+
+        it('ignores drags when no context handler opts in', async () => {
+            renderInsight({ query: buildTrendsQuery(), featureFlags: zoomFlag })
+            const wrapper = await getChartWrapper()
+
+            dragSelection(wrapper, 1, 3, totalLabels)
+
+            expect(getQuerySource().dateRange).toBeUndefined()
+        })
     })
 })

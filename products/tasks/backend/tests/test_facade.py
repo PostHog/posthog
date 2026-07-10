@@ -17,8 +17,8 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
-from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
-from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
+from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -114,6 +114,19 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertTrue(facade.is_task_controllable_by_user(task.id, self.user.id))
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
         self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
+
+    def test_count_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
+        integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+        other_integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+
+        live_task = self._make_task(github_integration=integration)
+        TaskRun.objects.create(task=live_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(task=live_task, team=self.team, status=TaskRun.Status.COMPLETED)
+        other_task = self._make_task(github_integration=other_integration)
+        TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        self.assertEqual(facade.count_in_progress_runs_for_github_integration(self.team.id, integration.id), 1)
+        self.assertEqual(facade.count_in_progress_runs_for_github_integration(self.team.id + 999, integration.id), 0)
 
     def test_get_latest_pr_url_and_run_by_task(self):
         task = self._make_task()
@@ -265,6 +278,46 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertNotIn("snapshot_kind", new_run.state)
             self.assertNotIn("snapshot_mount_path", new_run.state)
 
+    @parameterized.expand(
+        [
+            ("ready", SandboxCustomImage.Status.READY, "posthog-sandbox-custom-1-abc:latest", True),
+            ("not_ready", SandboxCustomImage.Status.BUILDING, "", False),
+        ]
+    )
+    def test_run_task_resume_drops_carried_custom_image_when_not_ready(
+        self, _name: str, status: str, modal_image_name: str, expect_carried: bool
+    ):
+        task = self._make_task()
+        image = SandboxCustomImage(
+            team=self.team,
+            created_by=self.user,
+            name="img",
+            status=status,
+            modal_image_name=modal_image_name,
+        )
+        image.save()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"custom_image_id": str(image.id)},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        if expect_carried:
+            self.assertEqual(new_run.state.get("custom_image_id"), str(image.id))
+        else:
+            self.assertNotIn("custom_image_id", new_run.state)
+
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()
         now = django_timezone.now()
@@ -396,4 +449,17 @@ class TestFacadeReadsAndMappers(TestCase):
         run = TaskRun.objects.get(task_id=created.task_id)
         # The agent server boots idle; forward_pending_user_message only kicks it off if the run state
         # carries the prompt. Without this the cloud wizard stalls right after "Started agent".
-        self.assertEqual(run.state.get("pending_user_message"), WIZARD_PR_AGENT_PROMPT)
+        head_branch = run.state.get("wizard_head_branch")
+        # Server-generated head branch: the GitHub PR webhook binds the opened PR back to this
+        # run by matching it (wizard PRs are bot-authored, so agent-side attribution can't).
+        # Losing the state key or leaving the placeholder untemplated in the prompt silently
+        # unbinds every wizard PR again.
+        assert head_branch is not None
+        self.assertRegex(head_branch, r"^posthog/instrumentation-[0-9a-f]{6}$")
+        self.assertEqual(run.state.get("pending_user_message"), build_wizard_pr_agent_prompt(head_branch))
+        self.assertIn(f"`{head_branch}`", run.state["pending_user_message"])
+        self.assertNotIn(WIZARD_HEAD_BRANCH_PLACEHOLDER, run.state["pending_user_message"])
+        # The agent-server self-delivers pending_user_message the moment it boots, so an
+        # overlap-clone-boot launch (before run_wizard) burns the prompt on an untouched repo
+        # and the run never opens a PR. Wizard runs must pin the overlap boot off.
+        self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)

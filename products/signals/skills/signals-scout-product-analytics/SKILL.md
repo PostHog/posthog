@@ -44,6 +44,8 @@ You can't scan a whole project in one run. Your leverage is a **durable watchlis
 
 If `signals-scout-project-profile-get` shows `product_analytics` is **not** in `products_in_use`, **or** there are no saved funnel/retention/lifecycle insights (check via the `system.insights` search below) **and** `top_events` is too thin to infer even one activation flow (fewer than ~3 discrete business events above ~100/day), this team has no behavioral flow to score yet. Write one `not-in-use:product_analytics:team{team_id}` scratchpad entry and close out empty. Re-running with the same key idempotently refreshes the timestamp.
 
+Before closing out on `top_events` thinness, rule out a capture gap: its counts are windowed (each row carries `window_days`), not lifetime, so a project whose ingestion recently went dark reads identically to one that never had a flow. If the events look thin for a team that otherwise looks active, confirm with a direct `execute-sql` over a longer window (e.g. 30d) before concluding there's no flow — a recent capture cliff is a volume problem for another surface, not an absence of behavior to score.
+
 ## How a run works
 
 Cycle between these moves; skip what's not useful. Spend the bulk of a run on **exploit** (re-scoring due watchlist flows) and a smaller slice on **explore** (finding new flows), so coverage compounds across runs instead of restarting cold.

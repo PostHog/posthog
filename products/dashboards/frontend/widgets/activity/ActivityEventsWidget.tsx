@@ -1,4 +1,6 @@
-import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+
+import { pngHoggie } from 'lib/brand/hoggies'
 
 import {
     WIDGET_LIST_COUNT_EVENTS,
@@ -13,6 +15,8 @@ import {
     ActivityEventsWidgetRowSkeleton,
     type ActivityEventsWidgetEvent,
 } from './ActivityEventsWidgetRow'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 export type ActivityEventsWidgetResult = {
     results?: ActivityEventsWidgetEvent[]

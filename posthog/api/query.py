@@ -50,7 +50,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
-from posthog.event_usage import get_request_analytics_properties, report_user_or_team_action
+from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -132,6 +132,14 @@ def _process_query_request(
     return query, query_id, execution_mode
 
 
+# Query kinds whose product exposes its own scoped API keep scope parity here: an
+# API token must hold the product scope, not just query:read, to run them through
+# the generic endpoint.
+_QUERY_KIND_SCOPES: dict[str, list[str]] = {
+    "MetricsQuery": ["metrics:read"],
+}
+
+
 class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
@@ -140,6 +148,13 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
     scope_object_write_actions: list[str] = []
     sharing_enabled_actions = ["retrieve"]
+
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        if getattr(view, "action", None) != "create":
+            return None
+        query = request.data.get("query") if isinstance(request.data, dict) else None
+        kind = query.get("kind") if isinstance(query, dict) else None
+        return _QUERY_KIND_SCOPES.get(kind) if isinstance(kind, str) else None
 
     def get_throttles(self):
         if self.action == "draft_sql":
@@ -199,6 +214,10 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
             if data.limit_context == SchemaLimitContext.POSTHOG_AI:
                 limit_context: LimitContext | None = LimitContext.POSTHOG_AI
+                # Max's insight tiles run in the browser, so the request looks like a session
+                # web request and get_event_source classifies it as "web". Attribute it to
+                # posthog_ai instead, matching the server-side executor's tagging.
+                analytics_props["source"] = EventSource.POSTHOG_AI
             elif (
                 is_async_query(query_dict)
                 or is_insight_actors_query(query_dict)

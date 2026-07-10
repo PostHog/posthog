@@ -8,6 +8,8 @@ use common_metrics::setup_metrics_routes;
 use dashmap::DashMap;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
+use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
+use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
@@ -137,6 +139,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?)
     };
 
+    // Connect to etcd for coordination and the partition count
+    let etcd_config = StoreConfig {
+        endpoints: config.etcd_endpoint_list(),
+        prefix: config.etcd_prefix.clone(),
+    };
+    let etcd_store = EtcdStore::connect(etcd_config)
+        .await
+        .expect("Failed to connect to etcd");
+    let store = Arc::new(PersonhogStore::new(etcd_store));
+
+    // Read total_partitions from etcd (set by kafka-assigner) — the same
+    // source the router hashes against, so partition validation can never
+    // drift between the two.
+    let num_partitions = store
+        .get_total_partitions()
+        .await
+        .expect("Failed to read total_partitions from etcd");
+    tracing::info!(num_partitions, "loaded partition count from etcd");
+
     let locks = Arc::new(DashMap::new());
     let inflight = Arc::new(personhog_leader::inflight::InflightTracker::new());
     let service = PersonHogLeaderService::new(
@@ -146,17 +167,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         fallback_pool,
         Arc::clone(&locks),
         Arc::clone(&inflight),
+        num_partitions,
     );
-
-    // Connect to etcd and start coordination
-    let etcd_config = StoreConfig {
-        endpoints: config.etcd_endpoint_list(),
-        prefix: config.etcd_prefix.clone(),
-    };
-    let etcd_store = EtcdStore::connect(etcd_config)
-        .await
-        .expect("Failed to connect to etcd");
-    let store = Arc::new(PersonhogStore::new(etcd_store));
 
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
@@ -210,19 +222,77 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // gRPC server
+    // gRPC server. Mirrors the replica's middleware stack so the router's
+    // per-backend metrics (processing time, transport/network overhead) and
+    // response compression behave identically on both backends. No tonic
+    // codec compression: requests always arrive uncompressed (the router
+    // rejects compressed leader requests before forwarding — it scans the
+    // request bytes for the routing key), and response compression is
+    // exclusively the gzip layer.
     let grpc_addr = config.grpc_address;
+    let keepalive_interval = config.grpc_keepalive_interval();
+    let keepalive_timeout = config.grpc_keepalive_timeout();
+    let max_connection_age = config.grpc_max_connection_age();
+    let max_send = config.grpc_max_send_message_size;
+    let max_recv = config.grpc_max_recv_message_size;
+    let max_concurrent_requests = config.max_concurrent_requests;
+    let max_response_size = if config.gzip_max_response_size > 0 {
+        Some(config.gzip_max_response_size)
+    } else {
+        None
+    };
+    let gzip_config = AsyncGzipConfig::new(
+        config.gzip_response_compression,
+        config.gzip_compression_level,
+        config.gzip_min_payload_size,
+    )
+    .with_max_response_size(max_response_size, config.gzip_max_response_size_enforce);
+
+    if gzip_config.enabled {
+        tracing::info!(
+            level = gzip_config.compression_level,
+            min_payload_size = gzip_config.min_payload_size,
+            "Async gzip response compression enabled"
+        );
+    }
+    if max_concurrent_requests > 0 {
+        tracing::info!(
+            limit = max_concurrent_requests,
+            "gRPC load shedding enabled"
+        );
+    }
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
     tokio::spawn(async move {
         let _guard = grpc_handle.process_scope();
-        if let Err(e) = Server::builder()
+        let listener = match tokio::net::TcpListener::bind(grpc_addr).await {
+            Ok(l) => l,
+            Err(e) => {
+                grpc_handle.signal_failure(format!("Failed to bind gRPC port: {e}"));
+                return;
+            }
+        };
+        let incoming = tracked_tcp_incoming(listener);
+        let mut server = Server::builder()
+            .http2_keepalive_interval(keepalive_interval)
+            .http2_keepalive_timeout(keepalive_timeout);
+        if let Some(age) = max_connection_age {
+            server = server.max_connection_age(age);
+        }
+        if let Err(e) = server
+            .layer(AsyncGzipLayer::new(gzip_config))
+            .layer(GrpcMetricsLayer::default().with_processing_time_header())
+            .layer(GrpcLoadShedLayer::new(max_concurrent_requests))
             .add_service(
+                // accept_compressed only decodes gzip request frames from
+                // opted-in clients; responses stay with the AsyncGzipLayer
+                // (never send_compressed — see the tonic entry in Cargo.toml).
                 PersonHogLeaderServer::new(service)
-                    .accept_compressed(CompressionEncoding::Zstd)
-                    .send_compressed(CompressionEncoding::Zstd),
+                    .accept_compressed(CompressionEncoding::Gzip)
+                    .max_encoding_message_size(max_send)
+                    .max_decoding_message_size(max_recv),
             )
-            .serve_with_shutdown(grpc_addr, grpc_handle.shutdown_signal())
+            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
             .await
         {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));

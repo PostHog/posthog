@@ -10,6 +10,8 @@
  * - Authorial `<!-- … -->` comments become plain paragraphs: the note text stays visible, but its
  *   comment framing is lost.
  * - Table column alignments are dropped — v1 tables do not store alignment.
+ * - Code block comment anchors (`ref=` tokens in the fence info string) are dropped — v1 code
+ *   blocks carry no inline marks to anchor to.
  */
 import {
     COMMENT_COMPONENT_TAG,
@@ -63,7 +65,12 @@ function convertBlockNode(node: NotebookBlockNode): JSONContent | JSONContent[] 
     }
     if (node.type === 'heading') {
         const content = convertInlineNodes(node.children)
-        return { type: 'heading', attrs: { level: node.level ?? 1 }, ...(content.length ? { content } : {}) }
+        const heading: JSONContent = {
+            type: 'heading',
+            attrs: { level: node.level ?? 1 },
+            ...(content.length ? { content } : {}),
+        }
+        return node.blockquote ? { type: 'blockquote', content: [heading] } : heading
     }
     if (node.type === 'blockquote') {
         return { type: 'blockquote', content: [makeParagraph(convertInlineNodes(node.children))] }

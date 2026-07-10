@@ -14,7 +14,7 @@ import {
 } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import api, { ApiError } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
@@ -44,6 +44,7 @@ import {
 import type { llmPromptLogicType } from './llmPromptLogicType'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
+import { getApiErrorDetail, openDiscardChangesDialog, validatePromptName } from './utils'
 
 export enum PromptMode {
     View = 'view',
@@ -82,7 +83,6 @@ const DEFAULT_PROMPT_FORM_VALUES: PromptFormValues = {
 
 const PROMPT_FETCHED_EVENT = '$llm_prompt_fetched'
 const PROMPT_VERSIONS_LIMIT = 50
-export const PROMPT_NAME_MAX_LENGTH = 255
 const DEFAULT_PROMPT_ANALYTICS_DATE_FROM = '-1d'
 const STALE_PROMPT_ERROR_MESSAGE =
     'This prompt changed while you were editing it. Your edits are preserved — review the latest version and publish again.'
@@ -90,6 +90,8 @@ const STALE_PROMPT_ERROR_MESSAGE =
 export interface PublishConflict {
     latestVersion: number | null
 }
+
+export type PromptSnippetLanguage = 'python' | 'node'
 
 async function fetchResolvedPrompt(
     promptName: string,
@@ -125,17 +127,11 @@ function buildPromptVersionSummary(prompt: LLMPrompt, isLatest: boolean): LLMPro
     return {
         id: prompt.id,
         version: prompt.version,
+        version_description: prompt.version_description ?? null,
         created_by: prompt.created_by,
         created_at: prompt.created_at,
         is_latest: isLatest,
     }
-}
-
-export function getApiErrorDetail(error: unknown): string | undefined {
-    if (error !== null && typeof error === 'object' && 'detail' in error && typeof error.detail === 'string') {
-        return error.detail
-    }
-    return undefined
 }
 
 function isNameFieldValidationError(error: unknown): error is { attr: 'name'; detail: string } {
@@ -168,7 +164,13 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         toggleMarkdownRendering: true,
         setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
         toggleOutlineExpanded: true,
+        cancelEditing: true,
         setPublishConflict: (publishConflict: PublishConflict | null) => ({ publishConflict }),
+        requestPublish: true,
+        openPublishReview: true,
+        closePublishReview: true,
+        setVersionDescription: (versionDescription: string) => ({ versionDescription }),
+        setSnippetLanguage: (snippetLanguage: PromptSnippetLanguage) => ({ snippetLanguage }),
     }),
 
     reducers(({ props }) => ({
@@ -240,6 +242,32 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 loadPromptSuccess: () => null,
             },
         ],
+        isPublishReviewOpen: [
+            false,
+            {
+                openPublishReview: () => true,
+                closePublishReview: () => false,
+                submitPromptFormSuccess: () => false,
+                // A publish conflict (409) needs the editor visible again to show the banner
+                setPublishConflict: () => false,
+                setMode: () => false,
+            },
+        ],
+        versionDescription: [
+            '',
+            {
+                setVersionDescription: (_, { versionDescription }) => versionDescription,
+                submitPromptFormSuccess: () => '',
+                closePublishReview: () => '',
+                setMode: () => '',
+            },
+        ],
+        snippetLanguage: [
+            'python' as PromptSnippetLanguage,
+            {
+                setSnippetLanguage: (_, { snippetLanguage }) => snippetLanguage,
+            },
+        ],
     })),
 
     loaders(({ props }) => ({
@@ -265,15 +293,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             options: { showErrorsOnTouch: true },
 
             errors: ({ name, prompt }) => ({
-                name: !name?.trim()
-                    ? 'Name is required'
-                    : name.toLowerCase() === 'new'
-                      ? "'new' is a reserved name and cannot be used"
-                      : name.length > PROMPT_NAME_MAX_LENGTH
-                        ? `Name must be ${PROMPT_NAME_MAX_LENGTH} characters or fewer`
-                        : !/^[a-zA-Z0-9_-]+$/.test(name)
-                          ? 'Only letters, numbers, hyphens (-), and underscores (_) are allowed'
-                          : undefined,
+                name: validatePromptName(name),
                 prompt: !prompt?.trim() ? 'Prompt content is required' : undefined,
             }),
 
@@ -303,12 +323,14 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             throw new Error('Cannot publish prompt version: prompt data not loaded')
                         }
 
+                        const versionDescription = values.versionDescription.trim()
                         savedPrompt = await api.llmPrompts.update(props.promptName, {
                             prompt: formValues.prompt,
                             base_version: currentPrompt.latest_version,
+                            ...(versionDescription ? { version_description: versionDescription } : {}),
                         })
                         llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
-                        lemonToast.success('Prompt version published successfully')
+                        lemonToast.success(`Published v${savedPrompt.version}`)
 
                         const optimisticVersions = [
                             buildPromptVersionSummary(savedPrompt, true),
@@ -383,6 +405,21 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         ],
 
         isHistoricalVersion: [(s) => [s.prompt], (prompt) => (isPrompt(prompt) ? !prompt.is_latest : false)],
+
+        isPromptFormDirty: [
+            (s) => [s.promptForm, s.prompt, s.isNewPrompt],
+            (promptForm, prompt, isNewPrompt): boolean => {
+                if (isNewPrompt) {
+                    return !!promptForm.name.trim() || !!promptForm.prompt.trim()
+                }
+                return isPrompt(prompt) ? promptForm.prompt !== prompt.prompt : false
+            },
+        ],
+
+        nextVersion: [
+            (s) => [s.prompt],
+            (prompt): number | null => (isPrompt(prompt) ? (prompt.latest_version ?? prompt.version) + 1 : null),
+        ],
 
         promptVariables: [
             (s) => [s.promptForm],
@@ -671,6 +708,36 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     }),
 
     listeners(({ actions, props, values }) => ({
+        requestPublish: () => {
+            // New prompts publish directly (v1, nothing to diff against); an empty form
+            // goes through submit so kea-forms surfaces the validation errors.
+            if (values.isNewPrompt || !values.promptForm.prompt?.trim()) {
+                actions.submitPromptForm()
+                return
+            }
+            actions.openPublishReview()
+        },
+
+        cancelEditing: () => {
+            const exitEditMode = (): void => {
+                if (values.isNewPrompt) {
+                    const { edit: _edit, ...searchParams } = router.values.searchParams
+                    router.actions.push(combineUrl(urls.aiObservabilityPrompts(), searchParams).url)
+                    return
+                }
+                if (isPrompt(values.prompt)) {
+                    actions.setPromptFormValues(getPromptFormDefaults(values.prompt))
+                }
+                actions.setMode(PromptMode.View)
+            }
+
+            if (values.isPromptFormDirty) {
+                openDiscardChangesDialog(exitEditMode)
+            } else {
+                exitEditMode()
+            }
+        },
+
         deletePrompt: async () => {
             if (props.promptName !== 'new' && values.prompt && isPrompt(values.prompt)) {
                 try {
@@ -681,8 +748,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                         ...router.values.searchParams,
                         [LLM_PROMPTS_FORCE_RELOAD_PARAM]: String(Date.now()),
                     })
-                } catch {
-                    lemonToast.error('Failed to archive prompt')
+                } catch (error) {
+                    lemonToast.error(getApiErrorDetail(error) || 'Failed to archive prompt')
                 }
             }
         },
@@ -772,13 +839,30 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         }
     ),
 
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, cache }) => {
         if (values.isNewPrompt) {
             actions.setPrompt(DEFAULT_PROMPT_FORM_VALUES)
             actions.resetPromptForm(DEFAULT_PROMPT_FORM_VALUES)
         } else {
             actions.loadPrompt()
         }
+
+        // pauseOnPageHidden: false — closing a background tab must still warn about unsaved edits.
+        cache.disposables.add(
+            () => {
+                const handler = (e: BeforeUnloadEvent): void => {
+                    if (values.isEditMode && values.isPromptFormDirty && !values.isPromptFormSubmitting) {
+                        e.preventDefault()
+                        // Some engines only show the native dialog when returnValue is set
+                        e.returnValue = ''
+                    }
+                }
+                window.addEventListener('beforeunload', handler)
+                return () => window.removeEventListener('beforeunload', handler)
+            },
+            'unsavedEditsGuard',
+            { pauseOnPageHidden: false }
+        )
     }),
 
     beforeUnmount(({ actions, props }) => {
@@ -790,6 +874,23 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         const existing = findExistingPrompt(props.promptName)
         actions.setPromptFormValues(existing ? getPromptFormDefaults(existing) : DEFAULT_PROMPT_FORM_VALUES)
     }),
+
+    actionToUrl(({ props }) => ({
+        // replace, not push: a push would re-trigger loadPrompt via urlToAction and
+        // its success handler would reset the form under the user's edits.
+        setMode: ({ mode }) => {
+            if (props.promptName === 'new') {
+                return undefined
+            }
+            const { edit: _edit, ...searchParams } = router.values.searchParams
+            return [
+                router.values.location.pathname,
+                mode === PromptMode.Edit ? { ...searchParams, edit: true } : searchParams,
+                router.values.hashParams,
+                { replace: true },
+            ]
+        },
+    })),
 
     urlToAction(({ actions, values }) => ({
         '/prompt-management/prompts/:name': (_, __, ___, { method }) => {

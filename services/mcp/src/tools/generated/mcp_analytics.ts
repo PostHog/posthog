@@ -8,6 +8,8 @@ import {
     McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsGenerateIntentQueryParams,
     McpAnalyticsSessionsListQueryParams,
+    McpAnalyticsSessionsToolCallsParams,
+    McpAnalyticsSessionsToolCallsQueryParams,
 } from '@/generated/mcp_analytics/api'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -94,6 +96,31 @@ const mcpAnalyticsSessionsList = (): ToolBase<
                 offset: params.offset,
                 order_by: params.order_by,
                 search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/mcp-analytics')
+    },
+})
+
+const McpAnalyticsSessionsToolCallsSchema = McpAnalyticsSessionsToolCallsParams.omit({ project_id: true }).extend(
+    McpAnalyticsSessionsToolCallsQueryParams.shape
+)
+
+const mcpAnalyticsSessionsToolCalls = (): ToolBase<
+    typeof McpAnalyticsSessionsToolCallsSchema,
+    WithPostHogUrl<Schemas.PaginatedMCPToolCallList>
+> => ({
+    name: 'mcp-analytics-sessions-tool-calls',
+    schema: McpAnalyticsSessionsToolCallsSchema,
+    handler: async (context: Context, params: z.infer<typeof McpAnalyticsSessionsToolCallsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedMCPToolCallList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/${encodeURIComponent(String(params.id))}/tool_calls/`,
+            query: {
+                date_from: params.date_from,
+                limit: params.limit,
+                offset: params.offset,
             },
         })
         return await withPostHogUrl(context, result, '/mcp-analytics')
@@ -189,6 +216,25 @@ const DateRange = z.object({
         .string()
         .nullable()
         .describe('End of the date range. Same format as date_from. Omit or null for "now".')
+        .optional(),
+    daysOfWeek: z
+        .union([
+            z.array(
+                z.union([
+                    z.literal(1),
+                    z.literal(2),
+                    z.literal(3),
+                    z.literal(4),
+                    z.literal(5),
+                    z.literal(6),
+                    z.literal(7),
+                ])
+            ),
+            z.null(),
+        ])
+        .describe(
+            'Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.'
+        )
         .optional(),
     explicitDate: z.coerce
         .boolean()
@@ -401,6 +447,14 @@ const LogPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const MetricPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('metric_attribute').default('metric_attribute'),
+    value: PropertyFilterValue.optional(),
+})
+
 const SpanPropertyFilterType = z.enum(['span', 'span_attribute', 'span_resource_attribute'])
 
 const SpanPropertyFilter = z.object({
@@ -446,6 +500,7 @@ const AnyPropertyFilter = z.union([
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
     SpanPropertyFilter,
     RevenueAnalyticsPropertyFilter,
     WorkflowVariablePropertyFilter,
@@ -524,6 +579,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'mcp-analytics-intent-clusters-retrieve': mcpAnalyticsIntentClustersRetrieve,
     'mcp-analytics-sessions-generate-intent': mcpAnalyticsSessionsGenerateIntent,
     'mcp-analytics-sessions-list': mcpAnalyticsSessionsList,
+    'mcp-analytics-sessions-tool-calls': mcpAnalyticsSessionsToolCalls,
     'mcp-feedback-submit': mcpFeedbackSubmit,
     'mcp-missing-capability-report': mcpMissingCapabilityReport,
     'query-mcp-harness-breakdown': createQueryWrapper({

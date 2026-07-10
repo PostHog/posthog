@@ -17,7 +17,6 @@ import {
     hasElementTarget,
     hasIncompleteTargeting,
 } from 'scenes/product-tours/stepUtils'
-import { urls } from 'scenes/urls'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarApi } from '~/toolbar/toolbarApi'
@@ -25,6 +24,7 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
+import { urls } from '~/toolbar/urls'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
 import { captureAndUploadElementScreenshot } from '~/toolbar/utils/screenshot'
 import { ProductTour, ProductTourStep, ProductTourStepType } from '~/types'

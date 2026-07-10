@@ -20,6 +20,51 @@ export const CodeInvitesRedeemCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create a draft custom image and start its interactive image-builder agent task. The returned builder_task_id points at the conversation.
+ */
+export const sandboxCustomImagesCreateBodyNameMax = 255
+
+export const sandboxCustomImagesCreateBodyDescriptionDefault = ``
+export const sandboxCustomImagesCreateBodyRepositoryMax = 255
+
+export const sandboxCustomImagesCreateBodyPrivateDefault = false
+
+export const SandboxCustomImagesCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(sandboxCustomImagesCreateBodyNameMax).describe('Display name for the custom image.'),
+        description: zod
+            .string()
+            .default(sandboxCustomImagesCreateBodyDescriptionDefault)
+            .describe('What should go into the image; seeds the image-builder agent conversation.'),
+        repository: zod
+            .string()
+            .max(sandboxCustomImagesCreateBodyRepositoryMax)
+            .nullish()
+            .describe(
+                "Optional 'org\/repo' the builder session clones so it can verify the image brings up that repository's dependencies."
+            ),
+        private: zod
+            .boolean()
+            .default(sandboxCustomImagesCreateBodyPrivateDefault)
+            .describe('If true, only you can see and use this image; otherwise the whole team can.'),
+    })
+    .describe('Request body for creating a custom sandbox base image.')
+
+/**
+ * Persist the image spec (from the request body or the builder agent's sandbox), run the security scan, and on pass build and publish the image.
+ */
+export const SandboxCustomImagesBuildCreateBody = /* @__PURE__ */ zod
+    .object({
+        spec_yaml: zod
+            .string()
+            .nullish()
+            .describe(
+                "Image spec YAML to build. When omitted, the spec is read from the builder agent's live sandbox."
+            ),
+    })
+    .describe('Request body for scanning and building a custom sandbox base image.')
+
+/**
  * API for managing sandbox environments that control network access for task runs.
  */
 export const sandboxCreateBodyNameMax = 255
@@ -62,6 +107,12 @@ export const SandboxCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(sandboxCreateBodyPrivateDefault)
             .describe('If true, only the creator can see this environment; otherwise the whole team can.'),
+        custom_image_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "Custom base image for this environment's sandboxes (Modal VM runtime only); null uses the default base."
+            ),
     })
     .describe('Request body for creating or updating a sandbox environment.')
 
@@ -112,6 +163,12 @@ export const SandboxPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .default(sandboxPartialUpdateBodyPrivateDefault)
             .describe('If true, only the creator can see this environment; otherwise the whole team can.'),
+        custom_image_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "Custom base image for this environment's sandboxes (Modal VM runtime only); null uses the default base."
+            ),
     })
     .describe('Request body for creating or updating a sandbox environment.')
 
@@ -264,6 +321,8 @@ export const tasksCreateBodyRepositoryMax = 255
 
 export const tasksCreateBodyBranchMax = 255
 
+export const tasksCreateBodyPendingUserArtifactIdsItemMax = 128
+
 export const TasksCreateBody = /* @__PURE__ */ zod
     .object({
         title: zod
@@ -290,17 +349,19 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'support_queue',
                 'session_summaries',
                 'posthog_ai',
+                'experiments',
                 'signal_report',
                 'signals_scout',
                 'support_reply',
                 'hogdesk',
+                'image_builder',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -359,6 +420,24 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
             ),
+        pending_user_message: zod
+            .string()
+            .nullish()
+            .describe(
+                'First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.'
+            ),
+        pending_user_artifact_ids: zod
+            .array(zod.string().max(tasksCreateBodyPendingUserArtifactIdsItemMax))
+            .optional()
+            .describe(
+                "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched."
+            ),
+        auto_publish: zod
+            .boolean()
+            .nullish()
+            .describe(
+                "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
+            ),
         channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
     })
     .describe(
@@ -373,6 +452,8 @@ export const tasksUpdateBodyTitleMax = 255
 export const tasksUpdateBodyRepositoryMax = 255
 
 export const tasksUpdateBodyBranchMax = 255
+
+export const tasksUpdateBodyPendingUserArtifactIdsItemMax = 128
 
 export const TasksUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -400,17 +481,19 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'support_queue',
                 'session_summaries',
                 'posthog_ai',
+                'experiments',
                 'signal_report',
                 'signals_scout',
                 'support_reply',
                 'hogdesk',
+                'image_builder',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -469,6 +552,24 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
             ),
+        pending_user_message: zod
+            .string()
+            .nullish()
+            .describe(
+                'First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.'
+            ),
+        pending_user_artifact_ids: zod
+            .array(zod.string().max(tasksUpdateBodyPendingUserArtifactIdsItemMax))
+            .optional()
+            .describe(
+                "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched."
+            ),
+        auto_publish: zod
+            .boolean()
+            .nullish()
+            .describe(
+                "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
+            ),
         channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
     })
     .describe(
@@ -483,6 +584,8 @@ export const tasksPartialUpdateBodyTitleMax = 255
 export const tasksPartialUpdateBodyRepositoryMax = 255
 
 export const tasksPartialUpdateBodyBranchMax = 255
+
+export const tasksPartialUpdateBodyPendingUserArtifactIdsItemMax = 128
 
 export const TasksPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -510,17 +613,19 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'support_queue',
                 'session_summaries',
                 'posthog_ai',
+                'experiments',
                 'signal_report',
                 'signals_scout',
                 'support_reply',
                 'hogdesk',
+                'image_builder',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -578,6 +683,24 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+            ),
+        pending_user_message: zod
+            .string()
+            .nullish()
+            .describe(
+                'First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.'
+            ),
+        pending_user_artifact_ids: zod
+            .array(zod.string().max(tasksPartialUpdateBodyPendingUserArtifactIdsItemMax))
+            .optional()
+            .describe(
+                "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched."
+            ),
+        auto_publish: zod
+            .boolean()
+            .nullish()
+            .describe(
+                "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
             ),
         channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
     })
@@ -649,12 +772,24 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .uuid()
                 .optional()
                 .describe('Optional sandbox environment to apply for this cloud run.'),
+            custom_image_id: zod
+                .uuid()
+                .optional()
+                .describe(
+                    "Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image."
+                ),
             pr_authorship_mode: zod
                 .enum(['user', 'bot'])
                 .describe('\* `user` - user\n\* `bot` - bot')
                 .optional()
                 .describe(
                     'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
+                ),
+            auto_publish: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.'
                 ),
             run_source: zod
                 .enum(['manual', 'signal_report'])
@@ -696,6 +831,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     'Initial permission mode for Claude runtimes.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto'
                 ),
+            rtk_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
+                ),
         })
         .describe('Request body for creating a new task run'),
     zod
@@ -728,12 +869,24 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .uuid()
                 .optional()
                 .describe('Optional sandbox environment to apply for this cloud run.'),
+            custom_image_id: zod
+                .uuid()
+                .optional()
+                .describe(
+                    "Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image."
+                ),
             pr_authorship_mode: zod
                 .enum(['user', 'bot'])
                 .describe('\* `user` - user\n\* `bot` - bot')
                 .optional()
                 .describe(
                     'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
+                ),
+            auto_publish: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.'
                 ),
             run_source: zod
                 .enum(['manual', 'signal_report'])
@@ -773,6 +926,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     'Initial permission mode for Codex runtimes.\n\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
                 ),
+            rtk_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
+                ),
         })
         .describe('Request body for creating a new task run'),
     zod.object({
@@ -800,6 +959,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
             .uuid()
             .optional()
             .describe('Optional sandbox environment to apply for this cloud run.'),
+        custom_image_id: zod
+            .uuid()
+            .optional()
+            .describe(
+                "Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image."
+            ),
         pr_authorship_mode: zod
             .enum(['user', 'bot'])
             .describe('\* `user` - user\n\* `bot` - bot')
@@ -1052,12 +1217,24 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .uuid()
             .optional()
             .describe('Optional sandbox environment to apply for this cloud run.'),
+        custom_image_id: zod
+            .uuid()
+            .optional()
+            .describe(
+                "Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image."
+            ),
         pr_authorship_mode: zod
             .enum(['user', 'bot'])
             .describe('\* `user` - user\n\* `bot` - bot')
             .optional()
             .describe(
                 'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
+            ),
+        auto_publish: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.'
             ),
         run_source: zod
             .enum(['manual', 'signal_report'])
@@ -1097,6 +1274,12 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+            ),
+        rtk_enabled: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
             ),
         home_quick_action: zod
             .string()
@@ -1525,6 +1708,116 @@ export const TasksRunsStartCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox.'
         ),
+})
+
+/**
+ * Create a stable, editable artifact handle from direct markdown/text content or an existing run artifact. Slack adapters deliver into the mapped Slack thread; document artifacts use external connector storage when available.
+ * @summary Create a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsCreateBodyNameMax = 255
+
+export const tasksRunsLivingArtifactsCreateBodyArtifactTypeDefault = `document`
+export const tasksRunsLivingArtifactsCreateBodyContentMax = 500000
+
+export const tasksRunsLivingArtifactsCreateBodyContentTypeMax = 255
+
+export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tasksRunsLivingArtifactsCreateBodyNameMax)
+        .describe('Human-readable artifact name, used as the title.'),
+    artifact_type: zod
+        .enum(['slack_message', 'slack_canvas', 'document', 'spreadsheet', 'dashboard', 'file', 'github_pr'])
+        .describe(
+            '\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `document` - document\n\* `spreadsheet` - spreadsheet\n\* `dashboard` - dashboard\n\* `file` - file\n\* `github_pr` - github_pr'
+        )
+        .default(tasksRunsLivingArtifactsCreateBodyArtifactTypeDefault)
+        .describe(
+            'Artifact format or delivery surface to create, such as document, spreadsheet, slack_canvas, or file.\n\n\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `document` - document\n\* `spreadsheet` - spreadsheet\n\* `dashboard` - dashboard\n\* `file` - file\n\* `github_pr` - github_pr'
+        ),
+    adapter: zod
+        .enum(['slack_message', 'slack_canvas', 'slack_file', 'document_connector', 'github_pr'])
+        .describe(
+            '\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `slack_file` - slack_file\n\* `document_connector` - document_connector\n\* `github_pr` - github_pr'
+        )
+        .optional()
+        .describe(
+            'Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.\n\n\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `slack_file` - slack_file\n\* `document_connector` - document_connector\n\* `github_pr` - github_pr'
+        ),
+    content: zod
+        .string()
+        .max(tasksRunsLivingArtifactsCreateBodyContentMax)
+        .optional()
+        .describe('Markdown or text content for the initial artifact version.'),
+    content_base64: zod
+        .string()
+        .optional()
+        .describe(
+            'Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts.'
+        ),
+    content_type: zod
+        .string()
+        .max(tasksRunsLivingArtifactsCreateBodyContentTypeMax)
+        .optional()
+        .describe(
+            'MIME type for content_base64 or source-backed artifacts, such as application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet.'
+        ),
+    source_artifact_id: zod
+        .string()
+        .optional()
+        .describe('Existing run artifact id to use as the initial content source.'),
+    source_storage_path: zod
+        .string()
+        .optional()
+        .describe('Existing run artifact storage_path to use as the initial content source.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Optional metadata to persist with the living artifact.'),
+})
+
+/**
+ * Commit a new version to an existing living artifact handle.
+ * @summary Edit a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsEditBodyNameMax = 255
+
+export const tasksRunsLivingArtifactsEditBodyContentMax = 500000
+
+export const tasksRunsLivingArtifactsEditBodyContentTypeMax = 255
+
+export const TasksRunsLivingArtifactsEditBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tasksRunsLivingArtifactsEditBodyNameMax)
+        .optional()
+        .describe('Optional new human-readable artifact name.'),
+    content: zod
+        .string()
+        .max(tasksRunsLivingArtifactsEditBodyContentMax)
+        .optional()
+        .describe('Markdown or text content for the next version.'),
+    content_base64: zod
+        .string()
+        .optional()
+        .describe('Base64-encoded binary content for the next version, used by adapters such as slack_file.'),
+    content_type: zod
+        .string()
+        .max(tasksRunsLivingArtifactsEditBodyContentTypeMax)
+        .optional()
+        .describe('MIME type for content_base64 or source-backed edits.'),
+    source_artifact_id: zod
+        .string()
+        .optional()
+        .describe('Existing run artifact id to use as the next version content source.'),
+    source_storage_path: zod
+        .string()
+        .optional()
+        .describe('Existing run artifact storage_path to use as the next version content source.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Optional metadata to merge into the artifact registry record.'),
 })
 
 /**

@@ -28,6 +28,8 @@ from products.tasks.backend.temporal.process_task.activities import (
     GetSandboxForRepositoryOutput,
     InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryOutput,
+    SendPermissionDenialGuidanceInput,
+    SendPermissionResponseToSandboxInput,
     StartAgentServerOutput,
     TaskProcessingContext,
     checkout_branch_in_sandbox,
@@ -39,8 +41,11 @@ from products.tasks.backend.temporal.process_task.activities import (
     get_task_processing_context,
     inject_fresh_tokens_on_resume,
     invalidate_resume_snapshot,
+    post_permission_delivery_failure_notice,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
+    send_permission_denial_guidance,
+    send_permission_response_to_sandbox,
     start_agent_server,
     track_workflow_event,
     update_task_run_status,
@@ -51,6 +56,7 @@ from products.tasks.backend.temporal.process_task.credential_refresh import (
 )
 from products.tasks.backend.temporal.process_task.workflow import (
     PendingFollowup,
+    PendingPermissionResponse,
     ProcessTaskInput,
     ProcessTaskOutput,
     ProcessTaskWorkflow,
@@ -324,6 +330,183 @@ class TestProcessTaskWorkflowUnit:
         )
         assert logger.info.call_count == 2
 
+    async def test_send_permission_response_can_arrive_before_context_is_loaded(self, monkeypatch):
+        logger = Mock()
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logger)
+        workflow = ProcessTaskWorkflow()
+
+        await workflow.send_permission_response(
+            {
+                "request_id": "perm-1",
+                "option_id": "allow",
+                "actor_user_id": 42,
+                "actor_slack_user_id": "U123",
+                "broker_reason": "destructive_policy_auto_allow",
+            }
+        )
+
+        assert workflow._pending_permission_responses == [
+            PendingPermissionResponse(
+                request_id="perm-1",
+                option_id="allow",
+                actor_user_id=42,
+                actor_slack_user_id="U123",
+                broker_reason="destructive_policy_auto_allow",
+            )
+        ]
+        logger.info.assert_called_once_with(
+            "permission_response_signal_received",
+            extra={
+                "run_id": None,
+                "request_id": "perm-1",
+                "option_id": "allow",
+                "actor_user_id": 42,
+                "is_denial": False,
+            },
+        )
+
+    async def test_denial_schedules_guidance_before_permission_response(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        activity_calls: list[tuple[object, object]] = []
+
+        async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
+            activity_calls.append((activity_fn, activity_input))
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        await workflow._send_permission_response_to_sandbox(
+            PendingPermissionResponse(
+                request_id="perm-1",
+                option_id="reject",
+                actor_user_id=42,
+                actor_slack_user_id="U123",
+                is_denial=True,
+                denial_message="Please choose another path.",
+                broker_reason="slack_human_response",
+            )
+        )
+
+        assert [call[0] for call in activity_calls] == [
+            send_permission_denial_guidance,
+            send_permission_response_to_sandbox,
+        ]
+        assert activity_calls[0][1] == SendPermissionDenialGuidanceInput(
+            run_id="run-id",
+            request_id="perm-1",
+            actor_user_id=42,
+            denial_message="Please choose another path.",
+        )
+        assert activity_calls[1][1] == SendPermissionResponseToSandboxInput(
+            run_id="run-id",
+            request_id="perm-1",
+            option_id="reject",
+            actor_user_id=42,
+            actor_slack_user_id="U123",
+            is_denial=True,
+            broker_reason="slack_human_response",
+        )
+
+    async def test_denial_guidance_failure_still_delivers_permission_response(self, monkeypatch):
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        activity_calls: list[object] = []
+
+        async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
+            activity_calls.append(activity_fn)
+            if activity_fn is send_permission_denial_guidance:
+                raise RuntimeError("sandbox unavailable")
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        await workflow._send_permission_response_to_sandbox(
+            PendingPermissionResponse(
+                request_id="perm-1",
+                option_id="reject",
+                actor_user_id=42,
+                is_denial=True,
+                denial_message="Please choose another path.",
+            )
+        )
+
+        assert activity_calls == [send_permission_denial_guidance, send_permission_response_to_sandbox]
+
+    async def test_approval_skips_denial_guidance_activity(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        activity_calls: list[object] = []
+
+        async def fake_execute_activity(activity_fn, _activity_input, **_kwargs):
+            activity_calls.append(activity_fn)
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        await workflow._send_permission_response_to_sandbox(
+            PendingPermissionResponse(
+                request_id="perm-1",
+                option_id="allow",
+                actor_user_id=42,
+                broker_reason="slack_human_response",
+            )
+        )
+
+        assert activity_calls == [send_permission_response_to_sandbox]
+
+    async def test_delivery_failure_does_not_raise_and_posts_thread_notice(self, monkeypatch):
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        workflow._slack_thread_context = {"channel": "C1", "thread_ts": "1.0"}
+        activity_calls: list[object] = []
+
+        async def fake_execute_activity(activity_fn, _activity_input, **_kwargs):
+            activity_calls.append(activity_fn)
+            if activity_fn is send_permission_response_to_sandbox:
+                raise RuntimeError("sandbox unavailable")
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        await workflow._send_permission_response_to_sandbox(
+            PendingPermissionResponse(request_id="perm-1", option_id="allow", actor_user_id=42)
+        )
+
+        assert activity_calls == [send_permission_response_to_sandbox, post_permission_delivery_failure_notice]
+
+    async def test_pending_responses_are_drained_before_drainer_exits_on_completion(self, monkeypatch):
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=None))
+
+        async def fake_wait_condition(condition):
+            assert condition()
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
+
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        workflow._task_completed = True
+        workflow._pending_permission_responses = [
+            PendingPermissionResponse(request_id="perm-1", option_id="allow", actor_user_id=42),
+            PendingPermissionResponse(request_id="perm-2", option_id="reject", actor_user_id=42),
+        ]
+        delivered: list[str] = []
+
+        async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
+            if activity_fn is send_permission_response_to_sandbox:
+                delivered.append(activity_input.request_id)
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        await workflow._deliver_pending_permission_responses()
+
+        assert delivered == ["perm-1", "perm-2"]
+        assert workflow._pending_permission_responses == []
+
     @pytest.mark.parametrize(
         "state, expected",
         [
@@ -378,6 +561,23 @@ class TestProcessTaskWorkflowUnit:
         refresh_loop_mock.assert_awaited_once_with(workflow.context, "sandbox-123")
         logger.warning.assert_called_once_with(
             "sandbox_gone_detected",
+            extra={"run_id": "run-id", "sandbox_id": "sandbox-123"},
+        )
+
+    async def test_credential_refresh_credentials_unavailable_does_not_mark_sandbox_gone(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        logger = Mock()
+        refresh_loop_mock = AsyncMock(return_value=CredentialRefreshExitReason.CREDENTIALS_UNAVAILABLE)
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logger)
+        monkeypatch.setattr(process_task_workflow_module, "run_credential_refresh_loop", refresh_loop_mock)
+
+        await workflow._run_credential_refresh_until_sandbox_gone("sandbox-123")
+
+        assert workflow._sandbox_gone is False
+        logger.warning.assert_called_once_with(
+            "credential_refresh_stopped_credentials_unavailable",
             extra={"run_id": "run-id", "sandbox_id": "sandbox-123"},
         )
 
@@ -555,6 +755,58 @@ class TestProcessTaskWorkflowUnit:
         assert result.success is True
         relay_sandbox_events_mock.assert_not_awaited()
 
+    async def test_run_relays_agent_design_signals_when_ingest_and_agent_design_enabled(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        context = _build_context(github_integration_id=123, sandbox_event_ingest_enabled=True)
+        relay_sandbox_events_mock = AsyncMock()
+        relay_agent_design_signals_mock = AsyncMock()
+
+        monkeypatch.setattr(workflow, "_get_task_processing_context", AsyncMock(return_value=context))
+        monkeypatch.setattr(workflow, "_update_task_run_status", AsyncMock())
+        monkeypatch.setattr(workflow, "_track_workflow_event", AsyncMock())
+        monkeypatch.setattr(workflow, "_post_slack_update", AsyncMock())
+        monkeypatch.setattr(workflow, "_read_sandbox_logs", AsyncMock())
+        monkeypatch.setattr(workflow, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(workflow, "_create_resume_snapshot", AsyncMock())
+        monkeypatch.setattr(workflow, "_emit_progress", AsyncMock())
+        monkeypatch.setattr(workflow, "_forward_pending_user_message", AsyncMock())
+        monkeypatch.setattr(workflow, "_resolve_agent_design_flag", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            workflow,
+            "_get_sandbox_for_repository",
+            AsyncMock(
+                return_value=GetSandboxForRepositoryOutput(
+                    sandbox_id="sandbox-123",
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                    used_snapshot=False,
+                    should_create_snapshot=False,
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            workflow,
+            "_start_agent_server",
+            AsyncMock(
+                return_value=StartAgentServerOutput(
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            workflow, "_wait_for_event", AsyncMock(return_value=process_task_workflow_module.TaskEvent.TIMEOUT_REACHED)
+        )
+        monkeypatch.setattr(workflow, "_relay_sandbox_events", relay_sandbox_events_mock)
+        monkeypatch.setattr(workflow, "_relay_agent_design_signals", relay_agent_design_signals_mock)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+
+        result = await workflow.run(ProcessTaskInput(run_id="run-id", slack_thread_context={"channel": "C1"}))
+
+        assert result.success is True
+        relay_sandbox_events_mock.assert_not_called()
+        relay_agent_design_signals_mock.assert_called_once()
+
     async def test_run_completes_when_credential_refresh_detects_sandbox_gone(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         context = _build_context(github_integration_id=123)
@@ -599,6 +851,14 @@ class TestProcessTaskWorkflowUnit:
             workflow, "_wait_for_event", AsyncMock(return_value=process_task_workflow_module.TaskEvent.SANDBOX_GONE)
         )
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+
+        # run() awaits the permission-response drainer on the completion path; outside a
+        # Temporal event loop the real workflow.wait_condition raises immediately.
+        async def fake_wait_condition(condition):
+            while not condition():
+                await asyncio.sleep(0)
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
 
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
 
