@@ -8,7 +8,6 @@ import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
-import type { AlertType } from 'lib/components/Alerts/types'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -28,7 +27,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
+import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { queryVizRendersToCanvas } from '~/queries/utils'
@@ -45,6 +44,8 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import type { AlertType } from 'products/alerts/frontend/types'
+
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
@@ -52,7 +53,7 @@ import { InsightMeta } from './InsightMeta'
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
 
 const LazyEditAlertModal = React.lazy(() =>
-    import('lib/components/Alerts/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
+    import('products/alerts/frontend/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
 )
 
 const RESIZE_REDRAW_THROTTLE_MS = 33 // ~30x/sec
@@ -336,7 +337,12 @@ function InsightCardInternal(
         if (apiErrored) {
             const validationError = extractValidationError(apiError)
             if (validationError) {
-                return <InsightValidationError detail={validationError} />
+                return (
+                    <InsightValidationError
+                        detail={validationError}
+                        validationErrorCode={extractValidationErrorCode(apiError)}
+                    />
+                )
             } else if (apiError instanceof ApiError) {
                 return <InsightErrorState title={apiError?.detail} />
             }

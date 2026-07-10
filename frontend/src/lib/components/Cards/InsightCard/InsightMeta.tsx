@@ -5,13 +5,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
-import {
-    areAlertsSupportedForInsight,
-    areAnomalyAlertsSupportedForInsight,
-    insightAlertsLogic,
-} from 'lib/components/Alerts/insightAlertsLogic'
-import type { AlertType } from 'lib/components/Alerts/types'
-import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
@@ -60,6 +53,14 @@ import {
     InsightShortId,
     QueryBasedInsightModel,
 } from '~/types'
+
+import {
+    areAlertsSupportedForInsight,
+    areAnomalyAlertsSupportedForInsight,
+    insightAlertsLogic,
+} from 'products/alerts/frontend/logic/insightAlertsLogic'
+import type { AlertType } from 'products/alerts/frontend/types'
+import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'

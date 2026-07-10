@@ -751,13 +751,17 @@ class EnterpriseExperimentsViewSet(
             feature_flag_key=feature_flag_key,
             description=data.get("description", ""),
             parameters={
-                "feature_flag_variants": variants,
-                "feature_flag_payloads": feature_flag_payloads,
-                "rollout_percentage": 100,
                 "prompt_metadata": {
                     "name": prompt_name,
                     "templates": templates,
                     "versions": versions,
+                },
+            },
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {"variants": variants},
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "payloads": feature_flag_payloads,
                 },
             },
             metrics=metrics,
