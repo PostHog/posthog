@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import subprocess
 from collections.abc import Callable
@@ -157,6 +158,26 @@ def reset_clickhouse_tables():
         )
         # Using `ON CLUSTER` takes x20 more time to drop the tables: https://github.com/ClickHouse/ClickHouse/issues/15473.
         TABLES_TO_CREATE_DROP += [f"DROP TABLE {table[0]}" for table in kafka_tables]
+
+    # Skip truncating tables ClickHouse reports as empty: each truncate costs a keeper
+    # round-trip on replicated engines, and pure-Postgres sessions never write to these
+    # tables at all. Fail-safe filter — anything unparseable or with unknown total_rows
+    # (NULL for non-MergeTree engines) is still truncated.
+    known_empty = {
+        row[0]
+        for row in sync_execute(
+            "SELECT name FROM system.tables WHERE database = %(database)s AND total_rows = 0",
+            {"database": settings.CLICKHOUSE_DATABASE},
+        )
+    }
+
+    def _truncate_target(statement: str) -> str | None:
+        match = re.search(r"TRUNCATE TABLE IF EXISTS\s+(\S+)", statement)
+        if not match:
+            return None
+        return match.group(1).strip("`").rsplit("`.`", 1)[-1].rsplit(".", 1)[-1].strip("`")
+
+    TABLES_TO_CREATE_DROP = [q for q in TABLES_TO_CREATE_DROP if _truncate_target(q) not in known_empty]
 
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)
 
