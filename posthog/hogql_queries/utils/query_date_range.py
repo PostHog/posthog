@@ -200,7 +200,7 @@ class QueryDateRange:
 
     def interval_relativedelta(self) -> relativedelta:
         spec = interval_spec(self.interval_name)
-        return relativedelta(**{spec.relativedelta_kwarg: self.interval_count})  # type: ignore[arg-type]
+        return relativedelta(**{spec.relativedelta_kwarg: self.interval_count * spec.relativedelta_multiplier})  # type: ignore[arg-type]
 
     def all_values(self, *, interval_name: Optional[IntervalLiteral] = None) -> list[datetime]:
         start = self.align_with_interval(self.date_from(), interval_name=interval_name)
@@ -212,6 +212,34 @@ class QueryDateRange:
             values.append(start)
             start += delta
         return values
+
+    def days_of_week(self) -> Optional[list[int]]:
+        # Returns None for unset, empty input, or all seven days; all three mean "no restriction".
+        # The schema constrains values to 1..7, so no range validation is needed here.
+        days = self._date_range.daysOfWeek if self._date_range else None
+        if not days:
+            return None
+        valid_days = sorted({int(day) for day in days})
+        if len(valid_days) == 7:
+            return None
+        return valid_days
+
+    def day_of_week_filter_expr(self, timestamp_field: ast.Expr) -> Optional[ast.Expr]:
+        """`toDayOfWeek(ts, 0) IN (...)`, where mode 0 is ISO (1=Mon...7=Sun).
+
+        No explicit timezone argument: the HogQL property-type transform wraps DateTime fields
+        in `toTimeZone(..., <project tz>)`, so the day boundary follows the project timezone and
+        stays consistent with interval bucketing, including when the convertToProjectTimezone
+        modifier switches everything to UTC.
+        """
+        days = self.days_of_week()
+        if days is None:
+            return None
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Call(name="toDayOfWeek", args=[timestamp_field, ast.Constant(value=0)]),
+            right=ast.Tuple(exprs=[ast.Constant(value=day) for day in days]),
+        )
 
     def date_to_as_hogql(self) -> ast.Expr:
         return ast.Call(

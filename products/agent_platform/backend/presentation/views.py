@@ -1160,7 +1160,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["get"], url_path="sessions")
     def sessions_list(self, request: Request, **kwargs) -> Response:
-        """List sessions for this application, newest first. Strips the
+        """List sessions for this application, most recently active first. Strips the
         conversation transcript from each summary, but includes a `preview`
         (last assistant text, ~120 chars) and `usage_total` (token + cost
         aggregate). Use `agent-applications-sessions-retrieve` for the full

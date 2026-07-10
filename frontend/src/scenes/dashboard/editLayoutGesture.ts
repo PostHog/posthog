@@ -14,6 +14,10 @@ export function resolveResizeHandleDirection(
     clientX: number,
     clientY: number
 ): string {
+    // Corner presses already name the diagonal handle directly.
+    if (['nw', 'ne', 'sw', 'se'].includes(edge)) {
+        return edge
+    }
     if (edge === 'n' || edge === 's') {
         if (clientX - rect.left <= CORNER_THRESHOLD_PX) {
             return `${edge}w`

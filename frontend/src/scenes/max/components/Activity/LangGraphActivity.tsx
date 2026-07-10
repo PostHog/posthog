@@ -44,7 +44,9 @@ export function LangGraphActivity({
     const uiPayloadBody =
         toolCall && uiPayload && isRenderableUIPayloadTool(toolCall.name, uiPayload)
             ? Object.entries(uiPayload)
-                  .filter(([toolName]) => toolName !== 'summarize_sessions')
+                  .filter(
+                      ([toolName]) => toolName !== 'summarize_sessions' && toolName !== 'summarize_website_interactions'
+                  )
                   .map(([toolName, toolPayload]) => (
                       <UIPayloadAnswer
                           key={`${result?.tool_call_id}-${toolName}`}
@@ -64,6 +66,14 @@ export function LangGraphActivity({
                 <SummarizeSessionsWidget
                     payload={uiPayload.summarize_sessions}
                     title={toolCall?.args.summary_title as string | undefined}
+                />
+            )}
+            {!!uiPayload?.summarize_website_interactions && result && (
+                <UIPayloadAnswer
+                    toolCallId={result.tool_call_id}
+                    toolName="summarize_website_interactions"
+                    toolPayload={uiPayload.summarize_website_interactions}
+                    embedded
                 />
             )}
         </>

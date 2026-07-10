@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCopy, IconEllipsis, IconPencil, IconStack, IconTarget, IconTrash } from '@posthog/icons'
@@ -6,6 +6,9 @@ import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonTag, Tooltip }
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
 import { isMetricThresholdCueVisible } from 'scenes/experiments/ExperimentMetricThreshold'
 import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 import { sharedMetricDetailsModalLogic } from 'scenes/experiments/Metrics/sharedMetricDetailsModalLogic'
@@ -202,6 +205,10 @@ export const MetricHeader = ({
 
     const canAddBreakdown = (metric.breakdownFilter?.breakdowns || []).length < MAX_BREAKDOWNS
 
+    const recalculationEnabled = useFeatureFlag('EXPERIMENTS_METRICS_RECALCULATION')
+    const { isMetricRecalculating } = useValues(experimentMetricsLogic({ experiment }))
+    const showRecalculatingTag = recalculationEnabled && isMetricRecalculating(metric.uuid)
+
     return (
         <div className="text-xs font-semibold flex flex-col justify-between h-full">
             <div className="deprecated-space-y-1">
@@ -281,6 +288,11 @@ export const MetricHeader = ({
                     )}
                 </div>
                 <div className="flex flex-wrap items-center gap-1">
+                    {showRecalculatingTag && (
+                        <LemonTag type="highlight" size="medium" icon={<Spinner textColored />}>
+                            Recalculating
+                        </LemonTag>
+                    )}
                     <LemonTag type="muted" size="small">
                         {getMetricTag(metric)}
                     </LemonTag>

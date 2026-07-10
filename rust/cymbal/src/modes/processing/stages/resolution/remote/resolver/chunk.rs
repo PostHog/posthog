@@ -1,42 +1,46 @@
-//! Group remote events by routing key. Work is submitted per exception; this
-//! module keeps only the routing-key helpers shared with the pool.
+//! Build remote routing keys. Work is submitted per exception; this module
+//! keeps only the routing-key helpers shared with the pool.
 
-use std::collections::BTreeMap;
+use crate::{
+    langs::native::DebugImage,
+    types::{exception_properties::ExceptionProperties, Exception},
+};
 
-use crate::types::exception_properties::ExceptionProperties;
-
-use super::RemoteEvent;
-
-/// Group events by their per-team routing key. `BTreeMap` keeps the key
-/// iteration order deterministic.
-pub(super) fn group_events_by_key(events: Vec<RemoteEvent>) -> BTreeMap<String, Vec<RemoteEvent>> {
-    let mut by_key: BTreeMap<String, Vec<RemoteEvent>> = BTreeMap::new();
-    for event in events {
-        by_key
-            .entry(routing_key_for_event(&event.evt))
-            .or_default()
-            .push(event);
-    }
-    by_key
+/// Return one routing key per exception in event order.
+pub(super) fn routing_keys_for_event(evt: &ExceptionProperties) -> Vec<String> {
+    evt.exception_list
+        .iter()
+        .map(|exception| {
+            routing_key_for_exception(evt.team_id, exception, evt.debug_images.as_ref())
+        })
+        .collect()
 }
 
-fn routing_key_for_event(evt: &ExceptionProperties) -> String {
-    // Per-team routing: every exception of an event hashes to the same pod
-    // via rendezvous selection in `EndpointPool::select_for_key`. One team's
-    // bursts land on one preferred pod. Overload spillover is driven by
-    // per-item outcomes from the resolver.
-    format!("team:{}", evt.team_id)
+fn routing_key_for_exception(
+    team_id: i32,
+    exception: &Exception,
+    debug_images: &[DebugImage],
+) -> String {
+    exception
+        .get_raw_frame()
+        .iter()
+        .find_map(|frame| frame.symbol_set_ref(debug_images))
+        .map(|symbol_set_ref| format!("team:{team_id}:symbol:{symbol_set_ref}"))
+        .unwrap_or_else(|| team_routing_key(team_id))
+}
+
+fn team_routing_key(team_id: i32) -> String {
+    format!("team:{team_id}")
 }
 
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use uuid::Uuid;
 
     use super::*;
 
     #[test]
-    fn routing_key_is_per_team_regardless_of_exception_internals() {
+    fn routing_key_uses_first_symbol_set_ref() {
         let mut evt: ExceptionProperties = serde_json::from_value(json!({
             "$exception_list": [{
                 "type": "Error",
@@ -56,47 +60,64 @@ mod tests {
         }))
         .expect("valid exception properties");
         evt.team_id = 7;
-        assert_eq!(routing_key_for_event(&evt), "team:7");
+        assert_eq!(routing_keys_for_event(&evt), vec!["team:7:symbol:chunk-a"]);
     }
 
     #[test]
-    fn group_events_by_key_separates_events_by_team() {
-        let events = vec![
-            fake_remote_event(1, 0, 1),
-            fake_remote_event(2, 1, 1),
-            fake_remote_event(1, 2, 1),
-            fake_remote_event(2, 3, 1),
-        ];
-        let grouped = group_events_by_key(events);
-        let keys: Vec<&String> = grouped.keys().collect();
-        assert_eq!(keys, vec!["team:1", "team:2"]);
-        assert_eq!(grouped["team:1"].len(), 2);
-        assert_eq!(grouped["team:2"].len(), 2);
-    }
-
-    fn fake_remote_event(team_id: i32, batch_index: usize, n_exceptions: usize) -> RemoteEvent {
+    fn routing_key_falls_back_to_team_without_symbol_set_ref() {
         let mut evt: ExceptionProperties = serde_json::from_value(json!({
-            "$exception_list": (0..n_exceptions)
-                .map(|i| json!({
-                    "type": "Error",
-                    "value": format!("boom-{i}"),
-                }))
-                .collect::<Vec<_>>()
+            "$exception_list": [{
+                "type": "Error",
+                "value": "boom"
+            }]
         }))
         .expect("valid exception properties");
-        evt.team_id = team_id;
-        evt.uuid = Uuid::from_u128(0xABCD_0000_0000_0000 ^ (batch_index as u128));
+        evt.team_id = 7;
+        assert_eq!(routing_keys_for_event(&evt), vec!["team:7"]);
+    }
 
-        let exception_jsons = evt
-            .exception_list
-            .iter()
-            .map(|exc| serde_json::to_vec(exc).expect("serialize exception"))
-            .collect();
-        RemoteEvent {
-            batch_index,
-            evt,
-            exception_jsons,
-            metadata: Vec::new(),
-        }
+    #[test]
+    fn routing_keys_are_per_exception() {
+        let mut evt: ExceptionProperties = serde_json::from_value(json!({
+            "$exception_list": [{
+                "type": "Error",
+                "value": "boom-a",
+                "stacktrace": {
+                    "type": "raw",
+                    "frames": [{
+                        "platform": "web:javascript",
+                        "filename": "https://example.com/app-a.js",
+                        "function": "minified",
+                        "lineno": 1,
+                        "colno": 2,
+                        "chunk_id": "chunk-a"
+                    }]
+                }
+            }, {
+                "type": "Error",
+                "value": "boom-b",
+                "stacktrace": {
+                    "type": "raw",
+                    "frames": [{
+                        "platform": "web:javascript",
+                        "filename": "https://example.com/app-b.js",
+                        "function": "minified",
+                        "lineno": 1,
+                        "colno": 2,
+                        "chunk_id": "chunk-b"
+                    }]
+                }
+            }, {
+                "type": "Error",
+                "value": "boom-c"
+            }]
+        }))
+        .expect("valid exception properties");
+        evt.team_id = 7;
+
+        assert_eq!(
+            routing_keys_for_event(&evt),
+            vec!["team:7:symbol:chunk-a", "team:7:symbol:chunk-b", "team:7",]
+        );
     }
 }

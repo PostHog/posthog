@@ -9,7 +9,7 @@ import { InstallationProgressContent } from './InstallationProgressView'
  * glance.
  */
 const meta: Meta<typeof InstallationProgressContent> = {
-    title: 'Scenes-Other/Onboarding/Installation Progress',
+    title: 'Scenes-Other/Onboarding/Shared/Installation Progress',
     component: InstallationProgressContent,
     // Provide the local-fallback callback to every story so the failed-run states show the full
     // "Run it yourself" + "Read the docs" recovery (no-op on non-error phases).
@@ -45,21 +45,36 @@ function steps(
 }
 
 function progress(overrides: Partial<InstallationProgress>): InstallationProgress {
-    return { phase: 'running', steps: [], error: null, prUrl: null, isCurrent: true, ...overrides }
+    return { phase: 'running', steps: [], error: null, prUrl: null, prMerged: false, isCurrent: true, ...overrides }
 }
 
 export const Connecting: Story = {
-    args: { progress: progress({ phase: 'connecting' }) },
+    args: { progress: progress({ phase: 'connecting' }), mode: 'cloud' },
+}
+
+export const ConnectingLocal: Story = {
+    args: { progress: progress({ phase: 'connecting' }), mode: 'local' },
 }
 
 export const RunningProvisioning: Story = {
     args: { progress: progress({ steps: steps(['in_progress', 'pending', 'pending', 'pending']) }) },
 }
 
+// The wizard's own sub-steps (session tasks) replace the pipeline's aggregate wizard stage in the
+// flat timeline, indistinguishable from pipeline steps.
+const wizardSubSteps: InstallationProgress['steps'] = [
+    { id: 'wizard-task:a', label: 'Detected Next.js', status: 'completed', detail: null, source: 'wizard' },
+    { id: 'wizard-task:b', label: 'Installing the PostHog SDK', status: 'in_progress', detail: null, source: 'wizard' },
+    { id: 'wizard-task:c', label: 'Wiring up event capture', status: 'pending', detail: null, source: 'wizard' },
+]
+
 export const RunningWizard: Story = {
     args: {
         progress: progress({
-            steps: steps(['completed', 'completed', 'in_progress', 'pending'], { at: 2, text: 'Detecting Next.js' }),
+            steps: (() => {
+                const stages = steps(['completed', 'completed', 'in_progress', 'pending'])
+                return [...stages.slice(0, 2), ...wizardSubSteps, ...stages.slice(3)]
+            })(),
         }),
     },
 }
@@ -71,7 +86,28 @@ export const Completed: Story = {
             steps: steps(['completed', 'completed', 'completed', 'completed']),
             prUrl: 'https://github.com/acme-co/web/pull/42',
         }),
+        mode: 'cloud',
+        dashboard: { id: 1, name: 'My app analytics' },
     },
+}
+
+// The local run's final handoff: the wizard finished on the user's machine, so the review + deploy
+// steps are theirs — plus the dashboard the wizard built as the payoff CTA.
+export const CompletedLocalHandoff: Story = {
+    args: {
+        progress: progress({
+            phase: 'completed',
+            steps: [
+                { id: 'a', label: 'Detected Next.js', status: 'completed', detail: null },
+                { id: 'b', label: 'Installed the PostHog SDK', status: 'completed', detail: null },
+                { id: 'c', label: 'Wired up event capture', status: 'completed', detail: null },
+                { id: 'd', label: 'Created a dashboard', status: 'completed', detail: null },
+            ],
+        }),
+        mode: 'local',
+        dashboard: { id: 1, name: 'My app analytics' },
+    },
+    argTypes: { onDismiss: { action: 'dismissed' } },
 }
 
 // The PR is open but the run keeps going (keeping CI green): "Pull request ready" headline + the review
@@ -88,6 +124,39 @@ export const PullRequestReady: Story = {
                 { id: 'setup:agent', label: 'Started agent', status: 'completed', detail: null },
                 { id: 'deliver:pr', label: 'Opened pull request', status: 'completed', detail: null },
                 { id: 'deliver:ci', label: 'Keeping CI green', status: 'in_progress', detail: null },
+            ],
+        }),
+    },
+}
+
+export const PullRequestMerged: Story = {
+    args: {
+        progress: progress({
+            phase: 'running',
+            prUrl: 'https://github.com/acme-co/web/pull/42',
+            prMerged: true,
+            steps: [
+                { id: 'setup:sandbox', label: 'Set up sandbox', status: 'completed', detail: null },
+                { id: 'setup:clone', label: 'Cloned repository', status: 'completed', detail: null },
+                { id: 'setup:wizard', label: 'Ran PostHog setup wizard', status: 'completed', detail: null },
+                { id: 'setup:agent', label: 'Started agent', status: 'completed', detail: null },
+                { id: 'deliver:pr', label: 'Pull request merged', status: 'completed', detail: null },
+            ],
+        }),
+    },
+}
+
+export const CompletedMerged: Story = {
+    args: {
+        progress: progress({
+            phase: 'completed',
+            prUrl: 'https://github.com/acme-co/web/pull/42',
+            prMerged: true,
+            steps: [
+                { id: 'setup:sandbox', label: 'Set up sandbox', status: 'completed', detail: null },
+                { id: 'setup:clone', label: 'Cloned repository', status: 'completed', detail: null },
+                { id: 'setup:wizard', label: 'Ran PostHog setup wizard', status: 'completed', detail: null },
+                { id: 'deliver:pr', label: 'Pull request merged', status: 'completed', detail: null },
             ],
         }),
     },
@@ -158,11 +227,13 @@ export const AllStates: Story = {
     parameters: { controls: { disable: true } },
     render: () => {
         const states: { label: string; args: Story['args'] }[] = [
-            { label: 'Connecting', args: Connecting.args },
+            { label: 'Connecting (cloud)', args: Connecting.args },
+            { label: 'Connecting (local)', args: ConnectingLocal.args },
             { label: 'Running: provisioning', args: RunningProvisioning.args },
             { label: 'Running: wizard', args: RunningWizard.args },
             { label: 'Pull request ready', args: PullRequestReady.args },
             { label: 'Completed', args: Completed.args },
+            { label: 'Completed: local handoff', args: CompletedLocalHandoff.args },
             { label: 'Failed: provisioning', args: FailedProvisioning.args },
             { label: 'Failed: wizard', args: FailedWizard.args },
             { label: 'Failed: no detail', args: FailedNoDetail.args },
@@ -172,7 +243,12 @@ export const AllStates: Story = {
                 {states.map(({ label, args }) => (
                     <div key={label} className="flex flex-col gap-1">
                         <span className="text-xs font-medium text-muted">{label}</span>
-                        <InstallationProgressContent progress={args!.progress!} onRetryLocally={() => {}} />
+                        <InstallationProgressContent
+                            progress={args!.progress!}
+                            mode={args!.mode}
+                            dashboard={args!.dashboard}
+                            onRetryLocally={() => {}}
+                        />
                     </div>
                 ))}
             </div>

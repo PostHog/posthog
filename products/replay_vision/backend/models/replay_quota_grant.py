@@ -10,9 +10,9 @@ MAX_GRANT_AMOUNT = 1_000_000
 
 
 class ReplayQuotaGrant(UUIDModel):
-    """Bonus observation budget for an organization, valid until `expires_at`.
+    """Bonus credit budget for an organization, valid until `expires_at`.
 
-    Active grants are summed into the organization's effective `monthly_quota` — see
+    Active grants are summed into the organization's effective credit limit; see
     `products.replay_vision.backend.quota.compute_quota_snapshot`. At and after `expires_at`, grants stop counting.
     """
 
@@ -23,7 +23,7 @@ class ReplayQuotaGrant(UUIDModel):
     )
     amount = models.PositiveIntegerField(
         validators=[MinValueValidator(1), MaxValueValidator(MAX_GRANT_AMOUNT)],
-        help_text=f"Extra observations granted on top of the base monthly quota (1–{MAX_GRANT_AMOUNT:,}).",
+        help_text=f"Extra credits granted on top of the base monthly credit limit (1–{MAX_GRANT_AMOUNT:,}).",
     )
     expires_at = models.DateTimeField(
         help_text="Grant is valid up to but not including this timestamp. Defaults to the start of next month.",

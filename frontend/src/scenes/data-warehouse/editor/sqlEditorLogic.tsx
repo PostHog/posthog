@@ -19,7 +19,7 @@ import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
 
 import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, Spinner, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
@@ -33,6 +33,7 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { objectsEqual } from 'lib/utils/objects'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -61,11 +62,12 @@ import {
 import {
     AccessControlResourceType,
     ChartDisplayType,
+    DataModelingEdge,
+    DataModelingNode,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     ExportContext,
     ExternalDataSource,
-    LineageGraph,
     QueryBasedInsightModel,
 } from '~/types'
 
@@ -216,7 +218,7 @@ export interface SuggestionPayload {
     acceptText?: string
     rejectText?: string
     diffShowRunButton?: boolean
-    source?: 'max_ai' | 'hogql_fixer'
+    source?: 'max_ai' | 'hogql_fixer' | 'materialization_fix'
     onAccept: (
         shouldRunQuery: boolean,
         actions: sqlEditorLogicType['actions'],
@@ -426,7 +428,9 @@ function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | un
     model.pushStackElement()
 }
 
-const LazyQuery = lazy(() => import('~/queries/Query/Query').then((m) => ({ default: m.Query<DataVisualizationNode> })))
+const LazyQuery = lazyWithRetry(() =>
+    import('~/queries/Query/Query').then((m) => ({ default: m.Query<DataVisualizationNode> }))
+)
 
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
@@ -701,10 +705,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     }),
     loaders(() => ({
         upstream: [
-            null as LineageGraph | null,
+            null as { nodes: DataModelingNode[]; edges: DataModelingEdge[] } | null,
             {
                 loadUpstream: async (payload: { modelId: string }) => {
-                    return await api.upstream.get(payload.modelId)
+                    return await api.dataModelingNodes.lineage({ savedQueryId: payload.modelId })
                 },
             },
         ],
@@ -985,8 +989,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 editor.focus()
             },
             setSuggestedQueryInput: ({ suggestedQueryInput, source }) => {
-                // If there's no active tab, create one first to ensure Monaco Editor is available
-                if (!values.activeTab) {
+                // If there's no active tab, create one first to ensure Monaco Editor is available.
+                // Embedded mode has no tabs at all — falling into createTab would replace the query
+                // outright instead of showing the accept/reject diff.
+                if (!values.activeTab && !values.isEmbeddedMode) {
                     actions.createTab(suggestedQueryInput)
                     return
                 }
