@@ -95,9 +95,8 @@ def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | No
     alone reads zero for most of the run; the query_log branch keeps finished queries counted, making
     rows_read cumulative and roughly monotonic across the run (modulo query_log flush lag).
 
-    `running_metrics` counts only the currently in-flight queries (bounded by the workflow's worker-pool
-    concurrency). `estimated_rows_total` is ClickHouse's own total_rows_approx for in-flight queries (revised
-    upward mid-scan) plus the final read_rows of finished ones, so it can trail rows_read; treat rows_read as
+    `estimated_rows_total` is ClickHouse's own total_rows_approx for in-flight queries (revised upward
+    mid-scan) plus the final read_rows of finished ones, so it can trail rows_read; treat rows_read as
     the primary signal. Temporal retries of a metric produce one query_log row per attempt and each attempt's
     rows are summed; that overcount is accepted for a decorative counter.
     """
@@ -122,27 +121,18 @@ def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | No
                 """
                 SELECT
                     sum(rows_read) AS rows_read,
-                    sum(estimated_rows_total) AS estimated_rows_total,
-                    sum(bytes_read) AS bytes_read,
-                    sum(active_cpu_time) AS active_cpu_time,
-                    countIf(is_running = 1) AS running_metrics
+                    sum(estimated_rows_total) AS estimated_rows_total
                 FROM
                 (
                     SELECT
                         read_rows AS rows_read,
-                        total_rows_approx AS estimated_rows_total,
-                        read_bytes AS bytes_read,
-                        ProfileEvents['OSCPUVirtualTimeMicroseconds'] AS active_cpu_time,
-                        1 AS is_running
+                        total_rows_approx AS estimated_rows_total
                     FROM clusterAllReplicas(%(cluster)s, system.processes)
                     WHERE query_id LIKE %(prefix)s
                     UNION ALL
                     SELECT
                         read_rows AS rows_read,
-                        read_rows AS estimated_rows_total,
-                        read_bytes AS bytes_read,
-                        ProfileEvents['OSCPUVirtualTimeMicroseconds'] AS active_cpu_time,
-                        0 AS is_running
+                        read_rows AS estimated_rows_total
                     FROM clusterAllReplicas(%(cluster)s, system.query_log)
                     WHERE query_id LIKE %(prefix)s
                         AND type = 'QueryFinish'
@@ -161,16 +151,13 @@ def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | No
         capture_exception()
         return None
 
-    rows_read, estimated_rows_total, bytes_read, active_cpu_time, running_metrics = rows[0]
+    rows_read, estimated_rows_total = rows[0]
     # All-zeros is a real, non-terminal state (queries not started yet, or finished but not flushed to
     # query_log), distinct from "run finished". Return the zeros so the poll can tell "in-flight, nothing
     # visible yet" from terminal null.
     return {
         "rows_read": int(rows_read or 0),
         "estimated_rows_total": int(estimated_rows_total or 0),
-        "bytes_read": int(bytes_read or 0),
-        "active_cpu_time": int(active_cpu_time or 0),
-        "running_metrics": int(running_metrics or 0),
     }
 
 

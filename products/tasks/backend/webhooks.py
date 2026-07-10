@@ -207,7 +207,17 @@ def _record_run_pr_merged(task_run: TaskRun) -> None:
     the wizard's setup PR) read it off the run's ``output``, which is the only PR state the task
     APIs expose.
     """
-    _record_run_output_field(task_run, "pr_merged", True, "github_pr_webhook_record_pr_merged_failed")
+    if not _record_run_output_field(task_run, "pr_merged", True, "github_pr_webhook_record_pr_merged_failed"):
+        return
+    # Publish-only (no append_log), same rationale and failure tolerance as _record_run_pr_url.
+    try:
+        pr_url = task_run.output.get("pr_url") if isinstance(task_run.output, dict) else None
+        task_run.publish_stream_event(
+            task_run.build_progress_event("pr", "completed", "Pull request merged", "setup", detail=pr_url)
+        )
+        task_run.publish_stream_state_event()
+    except Exception:
+        logger.warning("github_pr_webhook_pr_merged_events_failed", run_id=str(task_run.id), exc_info=True)
 
 
 def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, failure_log_event: str) -> bool:

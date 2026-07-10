@@ -5,7 +5,7 @@ import { z } from 'zod'
 
 import { ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
-import { buildQueryToolsBlock, buildToolDomainsBlock } from '@/lib/instructions'
+import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
@@ -1115,7 +1115,8 @@ describe('exec tool', () => {
             expect(commandDescription).not.toContain('{tool_domains}')
             expect(commandDescription).not.toContain('{query_tools}')
 
-            const domainsBlock = buildToolDomainsBlock(toolInfos)
+            // The command reference renders domains in the compact pipe form (size budget).
+            const domainsBlock = buildToolDomainsCompact(toolInfos)
             const queryToolsBlock = buildQueryToolsBlock(queryToolInfos)
             expect(domainsBlock).toContain('experiment')
             expect(domainsBlock).toContain('query')

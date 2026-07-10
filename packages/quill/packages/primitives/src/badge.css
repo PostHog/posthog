@@ -63,4 +63,9 @@
         color: var(--success-foreground);
         background-color: var(--success);
     }
+
+    .quill-badge--variant-completed {
+        color: var(--completed-foreground);
+        background-color: var(--completed);
+    }
 }
