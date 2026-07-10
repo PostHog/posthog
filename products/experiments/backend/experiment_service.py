@@ -214,75 +214,6 @@ class ExperimentService:
             raise ValidationError("End date must be after start date")
 
     @staticmethod
-    def validate_variant_shapes(parameters: dict | None) -> None:
-        """Validate that variant entries are well-formed dicts with required keys.
-
-        This catches malformed input early before it reaches FeatureFlagSerializer,
-        preventing unhandled KeyError/AttributeError 500s.
-        """
-        if not parameters:
-            return
-        variants = parameters.get("feature_flag_variants", [])
-        for i, variant in enumerate(variants):
-            if not isinstance(variant, dict):
-                raise ValidationError(f"Feature flag variant at index {i} must be an object")
-            if "key" not in variant:
-                raise ValidationError(f"Feature flag variant at index {i} must have a 'key' field")
-
-    @staticmethod
-    def validate_variant_percentages(parameters: dict | None) -> None:
-        """Each variant must carry split_percent (recommended) or rollout_percentage (deprecated).
-
-        The API serializer translates split_percent to rollout_percentage before this runs, but we
-        check for either field so direct service callers (facade, max_tools) are also covered.
-        Once we fully migrate to split_percent, we can remove this validation and make split_percent
-        required in the type system instead.
-        """
-        if not parameters:
-            return
-        for variant in parameters.get("feature_flag_variants", []) or []:
-            if not isinstance(variant, dict):
-                continue  # validate_variant_shapes handles this
-            if "split_percent" not in variant and "rollout_percentage" not in variant:
-                raise ValidationError(
-                    "Each variant must include split_percent (recommended) or rollout_percentage (deprecated)."
-                )
-
-    @staticmethod
-    def validate_experiment_parameters(parameters: dict | None) -> None:
-        """Validate experiment parameters accepted by the API layer.
-
-        Includes shape validation plus count/control checks.
-        Called from the serializer where the full parameter set is available.
-        """
-        if not parameters:
-            return
-
-        ExperimentService.validate_variant_shapes(parameters)
-        ExperimentService.validate_variant_percentages(parameters)
-
-        variants = parameters.get("feature_flag_variants", [])
-
-        if len(variants) >= 21:
-            raise ValidationError("Feature flag variants must be less than 21")
-        if len(variants) > 0:
-            if len(variants) < 2:
-                raise ValidationError(
-                    "Feature flag must have at least 2 variants (control and at least one test variant)"
-                )
-            keys = [variant["key"] for variant in variants]
-            if "control" not in keys:
-                # Surface the keys we did receive so LLM callers can self-correct without a
-                # second roundtrip. Capitalized 'Control' is auto-normalized on the feature_flag
-                # input path (_normalized_flag_variants), so anything reaching this branch
-                # genuinely lacks a baseline variant.
-                raise ValidationError(
-                    "Feature flag variants must contain a variant with key 'control' "
-                    f"(lowercase, exactly). Got keys: {keys}. Rename the baseline variant's "
-                    "'key' to 'control'."
-                )
-
-    @staticmethod
     def _validate_excluded_variant_keys(
         excluded_variants: list[str], variant_keys: Iterable[str], baseline_key: str
     ) -> None:
@@ -610,10 +541,12 @@ class ExperimentService:
                 f"Must be one of: {', '.join(sorted(variant_keys))}"
             )
 
-    # Feature-flag config keys that belong on the linked FeatureFlag (the source of truth). They are
-    # accepted as create/update input to build/sync the flag, projected back into the deprecated
-    # `parameters` API field at read time (see ExperimentBaseSerializer), but never persisted into
-    # the `parameters` column.
+    # Feature-flag config keys that historically lived on the deprecated `parameters` surface but
+    # belong on the linked FeatureFlag (the source of truth). A legacy caller still sending them in
+    # `parameters` input has them copied into the `feature_flag` config path (see
+    # ExperimentSerializer._deprecated_parameters_as_feature_flag_config) and stripped from the
+    # stored column; reads still project the flag's current config back into `parameters` for
+    # backward compatibility.
     FEATURE_FLAG_CONFIG_KEYS = (
         "feature_flag_variants",
         "rollout_percentage",
@@ -631,6 +564,37 @@ class ExperimentService:
             return parameters
         return {k: v for k, v in parameters.items() if k not in cls.FEATURE_FLAG_CONFIG_KEYS}
 
+    @classmethod
+    def _feature_flag_config_from_parameters(cls, parameters: dict | None) -> dict | None:
+        """Translate deprecated ``parameters`` flag-config keys into a ``feature_flag`` config object
+        (the flag's native write shape), or ``None`` when ``parameters`` carries no flag config.
+
+        This is the reverse of the read projection. It lets a caller that hands the service deprecated
+        flag config through ``parameters`` — a direct service caller, or ExperimentSerializer's
+        deprecated-parameters copy-forward — flow through the single gated flag-write path. The
+        serializer strips these keys from ``parameters`` before calling ``update_experiment``, so on
+        the HTTP path this returns ``None`` and the explicit ``feature_flag`` config is used instead."""
+        if not parameters:
+            return None
+        flag_config = {key: parameters[key] for key in cls.FEATURE_FLAG_CONFIG_KEYS if key in parameters}
+        if not flag_config:
+            return None
+        filters: dict[str, Any] = {}
+        if "feature_flag_variants" in flag_config:
+            filters["multivariate"] = {"variants": flag_config["feature_flag_variants"]}
+        if flag_config.get("rollout_percentage") is not None:
+            filters["groups"] = [{"properties": [], "rollout_percentage": flag_config["rollout_percentage"]}]
+        if "aggregation_group_type_index" in flag_config:
+            filters["aggregation_group_type_index"] = flag_config["aggregation_group_type_index"]
+        if "feature_flag_payloads" in flag_config:
+            filters["payloads"] = flag_config["feature_flag_payloads"]
+        config: dict[str, Any] = {}
+        if filters:
+            config["filters"] = filters
+        if "ensure_experience_continuity" in flag_config:
+            config["ensure_experience_continuity"] = flag_config["ensure_experience_continuity"]
+        return config or None
+
     @staticmethod
     def _parameters_with_variant_detail(experiment: Experiment) -> dict[str, Any]:
         """Parameters for analytics events: the stored column carries no flag config, so attach
@@ -638,101 +602,16 @@ class ExperimentService:
         return {**(experiment.parameters or {}), "feature_flag_variants": experiment.feature_flag.variants}
 
     @staticmethod
-    def feature_flag_config_to_parameters(
-        feature_flag_input: dict, parameters: dict | None, flag: FeatureFlag | None = None
-    ) -> dict:
-        """Translate a ``feature_flag`` config object (the flag's native write shape:
-        ``filters.multivariate.variants``, ``filters.groups``, ``filters.aggregation_group_type_index``,
-        ``filters.payloads``, ``ensure_experience_continuity``) into the legacy ``parameters`` input
-        keys the service still consumes to build/sync the flag.
+    def _flag_config_variants(feature_flag_config: dict | None) -> list | None:
+        """Variants carried by a ``feature_flag`` config object, or None when it omits them.
 
-        The explicit ``feature_flag`` object wins over any matching keys already in ``parameters``.
-        This is the create/update write counterpart to the read projection (see
-        ``ExperimentBaseSerializer``): callers send config through the flag object instead of
-        ``parameters``, and this normalizes it while ``parameters`` remains the internal input shape.
-        Returns a new dict, leaving the caller's input untouched.
-
-        Pass ``flag`` (the experiment's linked flag, on update) to give the object PATCH semantics:
-        config the input omits is backfilled from the flag's current state, because the downstream
-        sync treats a missing variants key as "reset to defaults" and a missing aggregation key as
-        "clear" — a partial object must not silently regress config it never mentioned.
+        None means "not mentioned" (PATCH: preserve the flag's current variants); a list means the
+        caller is setting the variant set explicitly.
         """
-        params = dict(parameters or {})
-        # Reject unrecognized keys instead of silently dropping them: applying half an object
-        # (e.g. taking filters but ignoring `active` or `super_groups`) would leave the flag in a
-        # state the caller never asked for. `id` is allowed because clients serializing an optional
-        # id as null still express write intent (a real echo carries a non-null id).
-        unsupported = sorted(set(feature_flag_input) - {"id", "filters", "ensure_experience_continuity"})
-        if unsupported:
-            raise ValidationError(
-                {
-                    "feature_flag": f"Unsupported keys: {', '.join(unsupported)}. The experiment feature_flag "
-                    "input accepts filters and ensure_experience_continuity; edit the feature flag "
-                    "directly for anything else."
-                }
-            )
-        filters = feature_flag_input.get("filters")
-        if filters is not None and not isinstance(filters, dict):
-            raise ValidationError({"feature_flag": "filters must be an object."})
-        filters = filters or {}
-        unsupported_filters = sorted(
-            set(filters) - {"multivariate", "groups", "aggregation_group_type_index", "payloads"}
-        )
-        if unsupported_filters:
-            raise ValidationError(
-                {
-                    "feature_flag": f"Unsupported filters keys: {', '.join(unsupported_filters)}. The experiment "
-                    "feature_flag input accepts filters.multivariate, filters.groups, "
-                    "filters.aggregation_group_type_index, and filters.payloads; edit the feature flag "
-                    "directly for anything else."
-                }
-            )
-        multivariate = filters.get("multivariate")
-        if multivariate is not None and not isinstance(multivariate, dict):
-            raise ValidationError({"feature_flag": "filters.multivariate must be an object."})
-        multivariate = multivariate or {}
-        if "variants" in multivariate:
-            if not isinstance(multivariate["variants"], list):
-                raise ValidationError({"feature_flag": "filters.multivariate.variants must be a list."})
-            params["feature_flag_variants"] = multivariate["variants"]
-        groups = filters.get("groups")
-        if groups is not None:
-            if not isinstance(groups, list) or not all(isinstance(group, dict) for group in groups):
-                raise ValidationError({"feature_flag": "filters.groups must be a list of objects."})
-            # Only groups[0].rollout_percentage is applied; silently dropping release conditions
-            # would leave the experiment exposed to a wider audience than the caller asked for.
-            if len(groups) > 1 or (groups and groups[0].get("properties")):
-                raise ValidationError(
-                    {
-                        "feature_flag": "Release conditions (multiple groups or group properties) are not "
-                        "supported via the experiment feature_flag input. Edit the feature flag directly."
-                    }
-                )
-            # Same rationale inside the group object: a `variant` override or per-group
-            # aggregation would be silently ignored, not applied.
-            unsupported_group_keys = sorted(set(groups[0]) - {"properties", "rollout_percentage"}) if groups else []
-            if unsupported_group_keys:
-                raise ValidationError(
-                    {
-                        "feature_flag": f"Unsupported keys in filters.groups[0]: {', '.join(unsupported_group_keys)}. "
-                        "Only rollout_percentage is applied here; edit the feature flag directly for anything else."
-                    }
-                )
-            if groups:
-                rollout_percentage = groups[0].get("rollout_percentage")
-                if rollout_percentage is not None:
-                    params["rollout_percentage"] = rollout_percentage
-        if "aggregation_group_type_index" in filters:
-            params["aggregation_group_type_index"] = filters["aggregation_group_type_index"]
-        if "payloads" in filters:
-            params["feature_flag_payloads"] = filters["payloads"]
-        if "ensure_experience_continuity" in feature_flag_input:
-            params["ensure_experience_continuity"] = feature_flag_input["ensure_experience_continuity"]
-        if flag is not None:
-            params.setdefault("feature_flag_variants", flag.variants)
-            if "aggregation_group_type_index" not in params and flag.aggregation_group_type_index is not None:
-                params["aggregation_group_type_index"] = flag.aggregation_group_type_index
-        return params
+        multivariate = ((feature_flag_config or {}).get("filters") or {}).get("multivariate")
+        if isinstance(multivariate, dict) and "variants" in multivariate:
+            return multivariate["variants"]
+        return None
 
     @staticmethod
     def _variant_keys(variants: list | None) -> list[str]:
@@ -740,13 +619,13 @@ class ExperimentService:
         return [variant["key"] for variant in (variants or []) if isinstance(variant, dict)]
 
     @classmethod
-    def _resolved_variant_keys(cls, experiment: Experiment, update_data: dict) -> list[str]:
+    def _resolved_variant_keys(cls, experiment: Experiment, feature_flag_config: dict | None) -> list[str]:
         """Variant keys the experiment will have after this update.
 
-        Prefer the variants the PATCH sets; otherwise resolve from the linked flag,
+        Prefer the variants the feature_flag config sets; otherwise resolve from the linked flag,
         which is the source of truth for variants.
         """
-        update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
+        update_variants = cls._flag_config_variants(feature_flag_config)
         if update_variants is None:
             update_variants = experiment.feature_flag.variants if experiment.feature_flag else []
         return cls._variant_keys(update_variants)
@@ -934,6 +813,7 @@ class ExperimentService:
         description: str = "",
         type: str = "product",
         parameters: dict | None = None,
+        feature_flag_config: dict | None = None,
         running_time_calculation: dict | None = None,
         excluded_variants: list[str] | None = None,
         metrics: list[dict] | None = None,
@@ -972,8 +852,6 @@ class ExperimentService:
         seen_metric_uuids: set[str] = self._collect_saved_metric_uuids(saved_metrics_ids)
         metrics = self._assign_uuids_to_metrics(metrics, seen=seen_metric_uuids)
         metrics_secondary = self._assign_uuids_to_metrics(metrics_secondary, seen=seen_metric_uuids)
-        self.validate_variant_shapes(parameters)
-        self.validate_variant_percentages(parameters)
         self.validate_running_time_calculation(running_time_calculation)
         self.validate_excluded_variants(excluded_variants)
         running_time_calculation = running_time_calculation or {}
@@ -999,7 +877,7 @@ class ExperimentService:
         feature_flag, used_variants = self._ensure_feature_flag(
             feature_flag_key=feature_flag_key,
             experiment_name=name,
-            parameters=parameters,
+            feature_flag_config=feature_flag_config,
             holdout=holdout,
             is_draft=is_draft,
             create_in_folder=create_in_folder,
@@ -1074,9 +952,9 @@ class ExperimentService:
             "name": name,
             "description": description,
             "type": type,
-            # Feature-flag config was already consumed by _ensure_feature_flag above; strip it so it
-            # lives only on the flag, not mirrored into the deprecated `parameters` column.
-            "parameters": self._strip_feature_flag_config(parameters),
+            # Flag config lives only on the flag (built by _ensure_feature_flag from
+            # feature_flag_config); `parameters` carries experiment-own keys only.
+            "parameters": parameters,
             "running_time_calculation": running_time_calculation,
             "excluded_variants": excluded_variants,
             "metrics": metrics if metrics is not None else [],
@@ -1202,13 +1080,18 @@ class ExperimentService:
         self,
         feature_flag_key: str,
         experiment_name: str,
-        parameters: dict | None,
+        feature_flag_config: dict | None,
         holdout: ExperimentHoldout | None,
         is_draft: bool,
         create_in_folder: str | None,
         serializer_context: dict | None,
     ) -> tuple[FeatureFlag, list[dict]]:
-        """Resolve existing flag or create a new one. Returns (flag, variants_used)."""
+        """Resolve existing flag or create a new one. Returns (flag, variants_used).
+
+        ``feature_flag_config`` is the flag's own write shape
+        (``{filters: {multivariate, groups, aggregation_group_type_index, payloads},
+        ensure_experience_continuity}``); a new flag is built from it plus defaults.
+        """
         existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team.id).first()
 
         if existing_flag:
@@ -1216,14 +1099,15 @@ class ExperimentService:
             variants = existing_flag.filters.get("multivariate", {}).get("variants", list(DEFAULT_VARIANTS))
             return existing_flag, variants
 
-        variants = []
-        aggregation_group_type_index = None
-        if parameters:
-            variants = parameters.get("feature_flag_variants", [])
-            aggregation_group_type_index = parameters.get("aggregation_group_type_index")
+        config = feature_flag_config or {}
+        config_filters = config.get("filters") or {}
+        variants = self._flag_config_variants(config) or []
+        aggregation_group_type_index = config_filters.get("aggregation_group_type_index")
 
-        params = parameters or {}
-        experiment_rollout_percentage = params.get("rollout_percentage", DEFAULT_ROLLOUT_PERCENTAGE)
+        groups = config_filters.get("groups")
+        experiment_rollout_percentage = DEFAULT_ROLLOUT_PERCENTAGE
+        if groups and groups[0].get("rollout_percentage") is not None:
+            experiment_rollout_percentage = groups[0]["rollout_percentage"]
 
         feature_flag_filters = {
             "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
@@ -1235,7 +1119,7 @@ class ExperimentService:
         # Per-variant payloads (variant_key -> JSON string). Callers pass this when they need to
         # attach metadata that the SDK can read alongside the variant assignment, e.g. prompt
         # experiments map each variant to {"prompt_name": ..., "prompt_version": ...}.
-        feature_flag_payloads = params.get("feature_flag_payloads")
+        feature_flag_payloads = config_filters.get("payloads")
         if feature_flag_payloads:
             feature_flag_filters["payloads"] = feature_flag_payloads
 
@@ -1246,8 +1130,8 @@ class ExperimentService:
             "active": not is_draft,
             "creation_context": "experiments",
         }
-        if params.get("ensure_experience_continuity") is not None:
-            feature_flag_data["ensure_experience_continuity"] = params["ensure_experience_continuity"]
+        if config.get("ensure_experience_continuity") is not None:
+            feature_flag_data["ensure_experience_continuity"] = config["ensure_experience_continuity"]
         else:
             feature_flag_data["ensure_experience_continuity"] = self.team.flags_persistence_default or False
         if create_in_folder is not None:
@@ -2910,6 +2794,7 @@ class ExperimentService:
         experiment: Experiment,
         update_data: dict,
         *,
+        feature_flag_config: dict | None = None,
         serializer_context: dict | None = None,
         allow_unknown_events: bool = False,
         event_source: EventSource | None = None,
@@ -2919,6 +2804,9 @@ class ExperimentService:
         ``update_data`` mirrors the DRF ``validated_data`` dict produced by
         ``ExperimentSerializer``.  The caller is responsible for DRF-level input
         validation (field types, metric schema, etc.) before calling this method.
+
+        ``feature_flag_config`` is the flag's own write shape (``{filters, ensure_experience_continuity}``),
+        synced onto the linked flag with object-PATCH semantics (config it omits is preserved).
 
         ``event_source`` attributes the "experiment updated" event for non-HTTP callers,
         mirroring ``create_experiment``.
@@ -2994,7 +2882,15 @@ class ExperimentService:
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
 
-        self._validate_update_payload(experiment, update_data, feature_flag)
+        # Direct service callers (no serializer) may still send flag config through the deprecated
+        # `parameters` keys instead of `feature_flag_config`. Translate them here so the flag write
+        # below still runs through the approval gate — otherwise the write is skipped and the edit is
+        # silently dropped (and the gate bypassed). No double-write on the HTTP path: the serializer
+        # strips these keys from `parameters` and passes an explicit `feature_flag_config`.
+        if feature_flag_config is None:
+            feature_flag_config = self._feature_flag_config_from_parameters(update_data.get("parameters"))
+
+        self._validate_update_payload(experiment, update_data, feature_flag, feature_flag_config)
 
         update_saved_metrics = "saved_metrics_ids" in update_data
         saved_metrics_data: list[dict] = update_data.pop("saved_metrics_ids", []) or []
@@ -3011,9 +2907,9 @@ class ExperimentService:
         # the stats_config itself, or the variant set it references. A variants-only
         # PATCH (e.g. updateDistribution) that renames/removes the current baseline
         # must not leave a dangling baseline_variant_key behind.
-        update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
+        update_variants = self._flag_config_variants(feature_flag_config)
         if "stats_config" in update_data or update_variants is not None:
-            variant_keys = self._resolved_variant_keys(experiment, update_data)
+            variant_keys = self._resolved_variant_keys(experiment, feature_flag_config)
             effective_stats_config = update_data.get("stats_config", experiment.stats_config)
             self.validate_stats_config(effective_stats_config, variant_keys)
 
@@ -3022,7 +2918,7 @@ class ExperimentService:
         if "excluded_variants" in update_data:
             new_excluded = update_data["excluded_variants"]
             if new_excluded:
-                variant_keys = self._resolved_variant_keys(experiment, update_data)
+                variant_keys = self._resolved_variant_keys(experiment, feature_flag_config)
                 effective_stats_config = update_data.get("stats_config", experiment.stats_config)
                 baseline_key = (effective_stats_config or {}).get("baseline_variant_key", "control")
                 self._validate_excluded_variant_keys(new_excluded, variant_keys, baseline_key)
@@ -3043,7 +2939,9 @@ class ExperimentService:
         # launch/pause/resume/ship_variant, which gate the flag write non-atomically
         # for the same reason. The flag write does not depend on any of the
         # experiment-state writes below, so hoisting it is safe.
-        self._sync_feature_flag_on_update(experiment, update_data, feature_flag, context, update_feature_flag_params)
+        self._sync_feature_flag_on_update(
+            experiment, update_data, feature_flag, context, update_feature_flag_params, feature_flag_config
+        )
 
         # --- feature flag activation on launch (OUTSIDE the atomic block) -----
         # Setting a start_date on a draft launches it, which activates the linked
@@ -3175,14 +3073,15 @@ class ExperimentService:
         feature_flag: FeatureFlag,
         context: dict,
         update_feature_flag_params: bool,
+        feature_flag_config: dict | None = None,
     ) -> None:
-        """Sync experiment parameters/holdout to the linked flag THROUGH the approval gate.
+        """Sync the experiment's feature_flag config/holdout to the linked flag THROUGH the approval gate.
 
-        Draft experiments always sync parameters to the linked feature flag.
+        Draft experiments always sync the feature_flag config to the linked flag.
         Running experiments only sync when update_feature_flag_params=True, to prevent
-        accidental side effects (e.g. overwrites when the frontend spreads stale
-        parameters alongside unrelated updates, or an agent calls MCP with too many
-        params).
+        accidental side effects (e.g. an agent calls MCP with too many params). Object-PATCH
+        semantics: config the object omits is preserved from the flag's current state, never
+        reset to defaults.
 
         Routing the write through FeatureFlagSerializer honours the @approval_gate, so a
         policy-gated variant/rollout change raises ApprovalRequired. This runs OUTSIDE
@@ -3196,16 +3095,21 @@ class ExperimentService:
         if "holdout" in update_data:
             holdout = update_data["holdout"]
 
-        # Only resync the flag from ``parameters`` when it actually carries flag-config keys.
-        # A read-modify-write PATCH that echoes non-flag params (e.g. variant_notes) alongside
-        # a stripped parameters dict must not reset the flag's variants to DEFAULT_VARIANTS.
-        params = update_data.get("parameters")
-        if params and any(key in params for key in self.FEATURE_FLAG_CONFIG_KEYS):
-            variants = update_data["parameters"].get("feature_flag_variants", [])
-            aggregation_group_type_index = update_data["parameters"].get("aggregation_group_type_index")
+        if feature_flag_config:
+            config_filters = feature_flag_config.get("filters") or {}
+            existing_filters = feature_flag.filters or {}
 
-            existing_groups = feature_flag.filters.get("groups", [])
-            experiment_rollout_percentage = update_data["parameters"].get("rollout_percentage")
+            config_variants = self._flag_config_variants(feature_flag_config)
+            variants = config_variants if config_variants is not None else feature_flag.variants
+
+            if "aggregation_group_type_index" in config_filters:
+                aggregation_group_type_index = config_filters["aggregation_group_type_index"]
+            else:
+                aggregation_group_type_index = existing_filters.get("aggregation_group_type_index")
+
+            existing_groups = existing_filters.get("groups", [])
+            groups = config_filters.get("groups")
+            experiment_rollout_percentage = groups[0].get("rollout_percentage") if groups else None
             if experiment_rollout_percentage is not None and existing_groups:
                 new_groups = [
                     {**existing_groups[0], "rollout_percentage": experiment_rollout_percentage},
@@ -3215,20 +3119,18 @@ class ExperimentService:
                 new_groups = list(existing_groups)
 
             new_filters = {
-                **feature_flag.filters,
+                **existing_filters,
                 "groups": new_groups,
                 "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
                 "aggregation_group_type_index": aggregation_group_type_index,
                 **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
             }
-            if "feature_flag_payloads" in update_data["parameters"]:
-                new_filters["payloads"] = update_data["parameters"]["feature_flag_payloads"]
+            if "payloads" in config_filters:
+                new_filters["payloads"] = config_filters["payloads"]
 
             flag_update_data: dict[str, Any] = {"filters": new_filters}
-            if "ensure_experience_continuity" in update_data["parameters"]:
-                flag_update_data["ensure_experience_continuity"] = update_data["parameters"][
-                    "ensure_experience_continuity"
-                ]
+            if "ensure_experience_continuity" in feature_flag_config:
+                flag_update_data["ensure_experience_continuity"] = feature_flag_config["ensure_experience_continuity"]
 
             existing_flag_serializer = FeatureFlagSerializer(
                 feature_flag,
@@ -3307,7 +3209,13 @@ class ExperimentService:
             request=request,
         )
 
-    def _validate_update_payload(self, experiment: Experiment, update_data: dict, feature_flag: FeatureFlag) -> None:
+    def _validate_update_payload(
+        self,
+        experiment: Experiment,
+        update_data: dict,
+        feature_flag: FeatureFlag,
+        feature_flag_config: dict | None = None,
+    ) -> None:
         """Validate update payload before any database mutations occur."""
         # Prevent restoring a deleted experiment if the linked feature flag is also deleted
         if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
@@ -3382,10 +3290,11 @@ class ExperimentService:
         self.validate_excluded_variants(update_data.get("excluded_variants"))
 
         if not experiment.is_draft:
-            if "feature_flag_variants" in update_data.get("parameters", {}):
-                if len(update_data["parameters"]["feature_flag_variants"]) != len(feature_flag.variants):
+            new_variants = self._flag_config_variants(feature_flag_config)
+            if new_variants is not None:
+                if len(new_variants) != len(feature_flag.variants):
                     raise ValidationError("Can't update feature_flag_variants on Experiment")
-                for variant in update_data["parameters"]["feature_flag_variants"]:
+                for variant in new_variants:
                     if (
                         len([ff_variant for ff_variant in feature_flag.variants if ff_variant["key"] == variant["key"]])
                         != 1
@@ -3423,21 +3332,13 @@ class ExperimentService:
         if feature_flag_key is None:
             feature_flag_key = source_experiment.feature_flag.key
 
+        # `parameters` carries only the source's experiment-own keys — flag config lives on the
+        # flag and is passed via feature_flag_config below.
         parameters = deepcopy(source_experiment.parameters) or {}
 
-        # Variants, payloads, and experience continuity come from the source experiment's feature
-        # flag (the source of truth), not any stale copy denormalized into parameters.
-        source_variants = source_experiment.feature_flag.variants
-        if source_variants:
-            parameters["feature_flag_variants"] = deepcopy(source_variants)
-        source_payloads = source_experiment.feature_flag.get_filters().get("payloads")
-        if source_payloads:
-            parameters["feature_flag_payloads"] = deepcopy(source_payloads)
-        else:
-            parameters.pop("feature_flag_payloads", None)
-        # bool() so a NULL continuity clones as off — the create path treats None as "unset" and
-        # would substitute the target team's flags_persistence_default, changing SDK behavior.
-        parameters["ensure_experience_continuity"] = bool(source_experiment.feature_flag.ensure_experience_continuity)
+        # Variants, payloads, group aggregation, and experience continuity come from the source
+        # experiment's feature flag (the source of truth), in the flag's own write shape.
+        clone_variants = deepcopy(source_experiment.feature_flag.variants)
 
         # An existing flag in the target project wins — reuse its variants instead.
         # For cross-project clones we always check the target; for same-project
@@ -3446,9 +3347,35 @@ class ExperimentService:
         if should_check_existing:
             existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
             if existing_flag and existing_flag.variants:
-                parameters["feature_flag_variants"] = deepcopy(existing_flag.variants)
+                clone_variants = deepcopy(existing_flag.variants)
 
-        self.validate_experiment_parameters(parameters)
+        clone_filters: dict[str, Any] = {}
+        if clone_variants:
+            clone_filters["multivariate"] = {"variants": clone_variants}
+        source_payloads = source_experiment.feature_flag.get_filters().get("payloads")
+        if source_payloads:
+            clone_filters["payloads"] = deepcopy(source_payloads)
+        # Group index 0 is valid, so guard on `is not None`; dropping it would silently convert a
+        # group-scoped experiment into a person-scoped one.
+        source_group_type_index = source_experiment.feature_flag.aggregation_group_type_index
+        if source_group_type_index is not None:
+            clone_filters["aggregation_group_type_index"] = source_group_type_index
+        # Inherit only the overall rollout percentage; without this the create path falls back to
+        # DEFAULT_ROLLOUT_PERCENTAGE and a 20%-rolled-out experiment would clone to 100%.
+        # Release-condition targeting (group properties, extra groups) intentionally does not clone:
+        # the experiment input surface restricts groups to a single empty-properties entry and
+        # _ensure_feature_flag only reads groups[0].rollout_percentage, so passing more through would
+        # not survive flag creation anyway. Edit the flag directly to copy targeting.
+        source_groups = source_experiment.feature_flag.get_filters().get("groups")
+        if source_groups and source_groups[0].get("rollout_percentage") is not None:
+            clone_filters["groups"] = [{"properties": [], "rollout_percentage": source_groups[0]["rollout_percentage"]}]
+        feature_flag_config = {
+            "filters": clone_filters,
+            # bool() so a NULL continuity clones as off — the create path treats None as "unset" and
+            # would substitute the target team's flags_persistence_default, changing SDK behavior.
+            "ensure_experience_continuity": bool(source_experiment.feature_flag.ensure_experience_continuity),
+        }
+
         self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
         self.validate_experiment_metrics(source_experiment.metrics)
         self.validate_experiment_metrics(source_experiment.metrics_secondary)
@@ -3491,6 +3418,7 @@ class ExperimentService:
             description=source_experiment.description or "",
             type=source_experiment.type or "product",
             parameters=parameters,
+            feature_flag_config=feature_flag_config,
             running_time_calculation=deepcopy(source_experiment.running_time_calculation),
             filters=source_experiment.filters,
             metrics=cloned_metrics,

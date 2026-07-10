@@ -76,6 +76,10 @@ registerAsyncFunction('postHogGetAccount', {
                     CSM: [{ user_id: 1, email: 'csm@example.com' }],
                     'Account executive': [{ user_id: 2, email: 'ae@example.com' }],
                 },
+                custom_properties: {
+                    Plan: 'enterprise',
+                    'MRR (net)': 1234,
+                },
             },
         }
     },

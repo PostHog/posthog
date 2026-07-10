@@ -555,6 +555,9 @@ SPECTACULAR_SETTINGS = {
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # The metrics query's OTel metric-type filter; without a pinned name it
+        # collides with the experiments MetricTypeEnum (funnel/ratio/...).
+        "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
         # bulk_update_tags exposes an identical add/remove/set `action` ChoiceField on both
         # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
         # unambiguously and auto-resolves to a hash name. Pin it to a stable name.

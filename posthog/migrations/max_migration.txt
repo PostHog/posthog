@@ -1,1 +1,1 @@
-1248_personal_api_key_description
+1250_duckgresserver_sink_max_concurrency
