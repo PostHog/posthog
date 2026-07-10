@@ -177,22 +177,32 @@ export function SurveyViewRedesign(): JSX.Element {
         }
 
         if (!isDraft) {
-            if (autoOpenedDraftPanelForSurveyIdRef.current) {
-                if (isRemovingSidePanel && sidePanelOpen && selectedSidePanelTab === SidePanelTab.Info) {
-                    closeSidePanel(SidePanelTab.Info)
+            const autoOpenedSurveyId = autoOpenedDraftPanelForSurveyIdRef.current
+            if (autoOpenedSurveyId) {
+                if (isRemovingSidePanel) {
+                    if (sidePanelOpen && selectedSidePanelTab === SidePanelTab.Info) {
+                        closeSidePanel(SidePanelTab.Info)
+                    }
+                    setScenePanelOpen(false)
+                } else {
+                    setScenePanelOpen(false)
                 }
-                setScenePanelOpen(false)
             }
             autoOpenedDraftPanelForSurveyIdRef.current = null
             return
         }
 
-        const surveyId = String(survey.id)
-        if (autoOpenedDraftPanelForSurveyIdRef.current === surveyId) {
+        const surveyId = survey?.id ? String(survey.id) : null
+        if (!surveyId || autoOpenedDraftPanelForSurveyIdRef.current === surveyId) {
             return
         }
 
         autoOpenedDraftPanelForSurveyIdRef.current = surveyId
+
+        const tabFromUrl = searchParams[panelTabSearchParam]
+        const draftTab =
+            typeof tabFromUrl === 'string' && validPanelTabKeys.includes(tabFromUrl) ? tabFromUrl : 'details'
+        setPanelTab(draftTab, false)
 
         if (isRemovingSidePanel) {
             openSidePanel(SidePanelTab.Info)
@@ -206,9 +216,12 @@ export function SurveyViewRedesign(): JSX.Element {
         closeSidePanel,
         openSidePanel,
         selectedSidePanelTab,
+        searchParams,
+        setPanelTab,
         setScenePanelOpen,
         sidePanelOpen,
-        survey.id,
+        survey?.id,
+        validPanelTabKeys,
     ])
 
     if (isInitialSurveyLoad) {
