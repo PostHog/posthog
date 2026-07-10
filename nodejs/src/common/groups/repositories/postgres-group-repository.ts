@@ -125,13 +125,22 @@ export class PostgresGroupRepository
             return []
         }
 
+        // Sort by row identity so concurrent flushes lock overlapping rows in
+        // the same order. Postgres doesn't guarantee lock order for
+        // UPDATE ... FROM, but with small batches it nested-loops over the
+        // UNNEST in input order, so this removes the practical deadlock risk
+        // between pods; the residue degrades to the individual-write fallback.
+        const sortedUpdates = [...updates].sort(
+            (a, b) => a.teamId - b.teamId || a.groupTypeIndex - b.groupTypeIndex || a.groupKey.localeCompare(b.groupKey)
+        )
+
         const teamIds: number[] = []
         const groupTypeIndexes: number[] = []
         const groupKeys: string[] = []
         const propertiesToSet: string[] = []
         const createdAts: string[] = []
 
-        for (const update of updates) {
+        for (const update of sortedUpdates) {
             teamIds.push(update.teamId)
             groupTypeIndexes.push(update.groupTypeIndex)
             groupKeys.push(update.groupKey)
