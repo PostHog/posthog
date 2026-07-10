@@ -89,7 +89,6 @@ class MaterializedPropertySource:
     has_ngram_lower_index: bool = False
     has_bloom_filter_index: bool = False
     has_bloom_filter_lower_index: bool = False
-    json_value_type: str | None = None
     # Mat-column parity for typed JSON subcolumns: declared-String properties scrub '' to NULL like a
     # non-nullable materialized column; declared-Nullable ones read bare.
     scrub_empty: bool = False
@@ -366,12 +365,11 @@ def _json_subcolumn_access(
     source: MaterializedPropertySource,
     is_nullable: bool,
     access_type: Literal["path", "sub_object"] = "path",
-) -> ast.JSONSubcolumnAccess:
-    return ast.JSONSubcolumnAccess(
+) -> ast.JsonSubcolumnAccess:
+    return ast.JsonSubcolumnAccess(
         expr=ast.Field(chain=[field_type.name], type=field_type),
         keys=keys,
         access_type=access_type,
-        value_type=source.json_value_type,
         type=_column_constant_type_for_read(source, is_nullable=is_nullable),
     )
 

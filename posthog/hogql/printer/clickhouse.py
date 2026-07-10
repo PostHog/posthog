@@ -18,12 +18,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
-from posthog.hogql.escape_sql import (
-    escape_clickhouse_identifier,
-    escape_clickhouse_json_subcolumn_identifier,
-    escape_clickhouse_string,
-    safe_identifier,
-)
+from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
@@ -166,7 +161,7 @@ class ClickHousePrinter(BasePrinter):
                         args.append(f"ifNull({self.visit(arg)}, '')")
                 else:
                     args.append(f"ifNull(toString({self.visit(arg)}), '')")
-        elif node.name in ("JSONAllPaths", "toJSONString"):
+        elif node.name == "toJSONString":
             args = [self._visit_json_function_argument(arg) for arg in node_args]
         else:
             args = [self.visit(arg) for arg in node_args]
@@ -589,7 +584,7 @@ class ClickHousePrinter(BasePrinter):
         ):
             table_type = expr_type.field_type.table_type
         elif (
-            isinstance(node, ast.JSONSubcolumnAccess)
+            isinstance(node, ast.JsonSubcolumnAccess)
             and node.keys == ["$session_id"]
             and isinstance(resolve_field_type(node.expr), ast.FieldType)
         ):
@@ -1104,14 +1099,12 @@ class ClickHousePrinter(BasePrinter):
 
         return super().visit_property_type(type)
 
-    def visit_json_subcolumn_access(self, node: ast.JSONSubcolumnAccess) -> str:
+    def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess) -> str:
         if isinstance(node.expr, ast.Field) and isinstance(node.expr.type, ast.FieldType):
             expr = super().visit_field_type(node.expr.type)
         else:
             expr = self.visit(node.expr)
         for index, key in enumerate(node.keys):
             separator = ".^" if node.access_type == "sub_object" and index == 0 else "."
-            expr = f"{expr}{separator}{escape_clickhouse_json_subcolumn_identifier(key)}"
-        if node.value_type is not None:
-            expr = f"{expr}.:{node.value_type}"
+            expr = f"{expr}{separator}{escape_clickhouse_identifier(key)}"
         return expr

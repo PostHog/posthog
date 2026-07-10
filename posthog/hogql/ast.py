@@ -1014,7 +1014,7 @@ class PropertyAccess(Expr):
 
 
 @dataclass(kw_only=True, slots=True)
-class JSONSubcolumnAccess(Expr):
+class JsonSubcolumnAccess(Expr):
     """ClickHouse JSON subcolumn read emitted after property lowering.
 
     This is ClickHouse-specific and is only created by the physical property-resolution pass. The logical
@@ -1024,7 +1024,6 @@ class JSONSubcolumnAccess(Expr):
 
     expr: Expr
     keys: list[str]
-    value_type: str | None = None
     access_type: Literal["path", "sub_object"] = "path"
 
 

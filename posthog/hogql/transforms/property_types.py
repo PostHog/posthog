@@ -434,7 +434,7 @@ class PropertySwapper(CloningVisitor):
         field_type: ast.FieldType,
         property_path: list[str],
     ) -> ast.Expr | None:
-        property_field = ast.JSONSubcolumnAccess(
+        property_field = ast.JsonSubcolumnAccess(
             start=node.start,
             end=node.end,
             expr=ast.Field(chain=[field_type.name], type=field_type),

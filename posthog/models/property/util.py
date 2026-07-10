@@ -10,7 +10,7 @@ from rest_framework import exceptions
 
 from posthog.hogql import ast
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.escape_sql import escape_clickhouse_json_subcolumn_identifier
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
@@ -698,7 +698,7 @@ def _json_events_property_expr(
         else PERSON_PROPERTIES_JSON_SUBCOLUMNS
     )
     if property_name in subcolumns:
-        escaped = escape_clickhouse_json_subcolumn_identifier(property_name)
+        escaped = escape_clickhouse_identifier(property_name)
         return f"ifNull({column_ref}.{escaped}, '')", True
     return trim_quotes_expr(f"JSONExtractRaw(toJSONString({column_ref}), {var})"), False
 

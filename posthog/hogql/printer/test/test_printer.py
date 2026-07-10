@@ -50,7 +50,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
-from posthog.hogql.escape_sql import escape_clickhouse_json_subcolumn_identifier, escape_clickhouse_string
+from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 from posthog.hogql.hogqlx import convert_tag_to_hx
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
@@ -163,7 +163,7 @@ class TestPrinter(BaseTest):
         return self._json_dynamic_subcolumn_path_expr(root, [property_name])
 
     def _json_dynamic_subcolumn_path_expr(self, root: str, property_path: list[str]) -> str:
-        escaped = [escape_clickhouse_json_subcolumn_identifier(key) for key in property_path]
+        escaped = [escape_clickhouse_identifier(key) for key in property_path]
         field = ".".join([root, *escaped])
         sub_object = f"{root}.^" + ".".join(escaped)
         object_read = f"toJSONString({sub_object})"
@@ -216,10 +216,6 @@ class TestPrinter(BaseTest):
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
-
-    def test_escape_clickhouse_json_subcolumn_identifier_rejects_percent(self) -> None:
-        with pytest.raises(QueryError, match="%"):
-            escape_clickhouse_json_subcolumn_identifier("bad%key")
 
     def _pretty(self, query: str):
         printed, _ = prepare_and_print_ast(
@@ -1313,6 +1309,10 @@ class TestPrinter(BaseTest):
             sql = self._select("SELECT event FROM events")
         if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             self.assertNotIn("FROM events_json", sql)
+
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "invalid"):
+            with pytest.raises(ValueError):
+                self._select("SELECT event FROM events")
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_json_has_rejects_percent_property_key(self) -> None:
@@ -5080,7 +5080,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             sync_execute(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")
 
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str) -> str:
-        escaped = escape_clickhouse_json_subcolumn_identifier(property_name)
+        escaped = escape_clickhouse_identifier(property_name)
         field = f"{root}.{escaped}"
         object_read = f"toJSONString({root}.^{escaped})"
         scalar_read = (

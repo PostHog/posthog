@@ -136,7 +136,7 @@ class TraversingVisitor(Visitor[None]):
     def visit_property_access(self, node: ast.PropertyAccess):
         self.visit(node.expr)
 
-    def visit_json_subcolumn_access(self, node: ast.JSONSubcolumnAccess):
+    def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess):
         self.visit(node.expr)
 
     def visit_lambda(self, node: ast.Lambda):
@@ -724,14 +724,13 @@ class CloningVisitor(Visitor[Any]):
             keys=list(node.keys),
         )
 
-    def visit_json_subcolumn_access(self, node: ast.JSONSubcolumnAccess):
-        return ast.JSONSubcolumnAccess(
+    def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess):
+        return ast.JsonSubcolumnAccess(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
             keys=list(node.keys),
-            value_type=node.value_type,
             access_type=node.access_type,
         )
 

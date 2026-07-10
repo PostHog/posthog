@@ -3,6 +3,8 @@ from functools import cache
 
 from django.conf import settings
 
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
+
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
@@ -18,32 +20,6 @@ from posthog.clickhouse.kafka_engine import (
 from posthog.clickhouse.property_groups import property_groups
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
-
-_CLICKHOUSE_SIMPLE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_BACKQUOTE_ESCAPE_CHARS_MAP = {
-    "\b": "\\b",
-    "\f": "\\f",
-    "\r": "\\r",
-    "\n": "\\n",
-    "\t": "\\t",
-    "\0": "\\0",
-    "\a": "\\a",
-    "\v": "\\v",
-    "\\": "\\\\",
-    "`": "\\`",
-}
-
-
-def _escape_clickhouse_identifier(identifier: str) -> str:
-    if "%" in identifier:
-        raise ValueError(f'ClickHouse identifier "{identifier}" is not permitted as it contains the "%" character')
-    if _CLICKHOUSE_SIMPLE_IDENTIFIER_RE.match(identifier):
-        return identifier
-    return "`{}`".format("".join(_BACKQUOTE_ESCAPE_CHARS_MAP.get(char, char) for char in identifier))
-
-
-def _quote_clickhouse_string_literal(value: str) -> str:
-    return "'{}'".format(value.replace("\\", "\\\\").replace("'", "\\'"))
 
 
 def EVENTS_DATA_TABLE():
@@ -199,7 +175,7 @@ PERSON_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = _nullable_json_subcolumn_typ
 
 def _json_column_type(max_dynamic_types: int, max_dynamic_paths: int, subcolumns: dict[str, str]) -> str:
     explicit_paths = ", ".join(
-        f"{_escape_clickhouse_identifier(name)} {column_type}" for name, column_type in subcolumns.items()
+        f"{escape_clickhouse_identifier(name)} {column_type}" for name, column_type in subcolumns.items()
     )
     return f"JSON(max_dynamic_types = {max_dynamic_types}, max_dynamic_paths = {max_dynamic_paths}, {explicit_paths})"
 
@@ -225,8 +201,8 @@ def json_property_presence_expr(column: str, prop: str) -> str:
         raise ValueError(f"unsupported JSON events column: {column}")
     subcolumns = EVENTS_PROPERTIES_JSON_SUBCOLUMNS if column == "properties" else PERSON_PROPERTIES_JSON_SUBCOLUMNS
     parts = prop.split(".")
-    column_sql = _escape_clickhouse_identifier(column)
-    path_sql = ".".join(_escape_clickhouse_identifier(part) for part in parts)
+    column_sql = escape_clickhouse_identifier(column)
+    path_sql = ".".join(escape_clickhouse_identifier(part) for part in parts)
     scalar = f"{column_sql}.{path_sql}"
     if len(parts) == 1 and prop in subcolumns:
         if not _json_subcolumn_type_supports_nullable(subcolumns[prop]):
@@ -366,7 +342,7 @@ def EVENTS_JSON_DATA_TABLE_ENGINE():
 
 
 def _json_subcolumn(column: str, path: str) -> str:
-    return f"{_escape_clickhouse_identifier(column)}.{_escape_clickhouse_identifier(path)}"
+    return f"{escape_clickhouse_identifier(column)}.{escape_clickhouse_identifier(path)}"
 
 
 EVENTS_JSON_DATA_COMPATIBILITY_COLUMNS = f"""

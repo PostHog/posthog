@@ -34,5 +34,4 @@ def events_read_table(use_new_events_schema: bool) -> str:
 
 def _allowlisted_team_ids() -> set[int]:
     raw = str(get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS") or "")
-    # Tolerate stray whitespace and non-numeric tokens — a typo in the setting must not break queries.
-    return {int(part) for part in (piece.strip() for piece in raw.split(",")) if part.isdigit()}
+    return {int(part) for part in raw.split(",") if part.strip()}
