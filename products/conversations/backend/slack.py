@@ -24,7 +24,6 @@ import posthoganalytics
 from slack_sdk import WebClient
 
 from posthog.event_usage import groups, report_team_action
-from posthog.llm.gateway_client import get_llm_client
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -845,6 +844,11 @@ def _nudge_classifier_verdict(team: Team, text: str, files: list[dict] | None) -
         return "skipped"
     if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
         return "skipped"
+
+    # slack.py loads at django.setup() via the conversations wiring, and the gateway client
+    # drags the openai/anthropic SDKs (~200ms) in — only pay that once a message actually
+    # reaches the classifier.
+    from posthog.llm.gateway_client import get_llm_client  # noqa: PLC0415 — keeps heavy SDKs off the setup path
 
     team_id = _get_team_id(team)
     content = (text or "")[:NUDGE_CLASSIFIER_MAX_TEXT_CHARS]
