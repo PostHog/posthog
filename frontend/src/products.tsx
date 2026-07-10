@@ -156,11 +156,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
-    Subscriptions: () => import('../../products/subscriptions/frontend/scenes/SubscriptionsScene'),
-    Subscription: () => import('../../products/subscriptions/frontend/scenes/SubscriptionScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
-    TracingOperation: () => import('../../products/tracing/frontend/TracingOperationScene'),
     UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
     UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
     UserInterviewResponse: () => import('../../products/user_interviews/frontend/UserInterviewResponse'),
@@ -315,13 +312,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills': ['Skills', 'skills'],
     '/skills/scouts': ['Skills', 'skillsScouts'],
     '/skills/:name': ['Skill', 'skill'],
-    '/subscriptions': ['Subscriptions', 'subscriptions'],
-    '/subscriptions/new': ['Subscriptions', 'subscriptionNew'],
-    '/subscriptions/:subscriptionId/edit': ['Subscriptions', 'subscriptionEdit'],
-    '/subscriptions/:subscriptionId': ['Subscription', 'subscription'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/tracing': ['Tracing', 'tracing'],
-    '/tracing/operation': ['TracingOperation', 'tracingOperation'],
     '/user_research': ['UserInterviews', 'userInterviews'],
     '/user_research/:topicId/response/:responseId': ['UserInterviewResponse', 'userInterviewResponse'],
     '/user_research/:id': ['UserInterview', 'userInterview'],
@@ -886,18 +878,6 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
-    Subscriptions: {
-        projectBased: true,
-        name: 'Subscriptions',
-        iconType: 'inbox',
-        description: 'View and manage scheduled insight and dashboard subscriptions for this project.',
-    },
-    Subscription: {
-        projectBased: true,
-        name: 'Subscription',
-        iconType: 'inbox',
-        description: 'View subscription details and delivery history for this project.',
-    },
     SlackTaskContext: { name: 'Slack task context', projectBased: true },
     Toolbar: {
         name: 'Toolbar',
@@ -911,14 +891,6 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         activityScope: 'Tracing',
         description: 'Monitor and analyze distributed traces to understand service performance and debug issues.',
-        iconType: 'tracing',
-    },
-    TracingOperation: {
-        name: 'Operation',
-        projectBased: true,
-        layout: 'app-container',
-        activityScope: 'Tracing',
-        description: 'Latency distribution and sample traces for a single operation.',
         iconType: 'tracing',
     },
     UserInterviews: {
@@ -1361,10 +1333,6 @@ export const productUrls = {
             version?: number
         }
     ): string => combineUrl(`/skills/${name}`, params).url,
-    subscriptions: (): string => '/subscriptions',
-    subscription: (id: string | number): string => `/subscriptions/${id}`,
-    subscriptionNew: (): string => '/subscriptions/new',
-    subscriptionEdit: (id: string | number): string => `/subscriptions/${id}/edit`,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
@@ -1373,8 +1341,6 @@ export const productUrls = {
     slackTaskContext: (): string => '/slack-task-context',
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
-    tracingOperation: (serviceName: string, spanName: string): string =>
-        combineUrl('/tracing/operation', { service: serviceName, name: spanName }).url,
     userInterviews: (): string => '/user_research',
     userInterview: (id: string): string => `/user_research/${id}`,
     userInterviewResponse: (topicId: string, responseId: string): string =>
@@ -2299,7 +2265,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.TRACING,
         tags: ['alpha'],
         sceneKey: 'Tracing',
-        sceneKeys: ['Tracing', 'TracingOperation'],
+        sceneKeys: ['Tracing'],
     },
     {
         path: 'User research',
