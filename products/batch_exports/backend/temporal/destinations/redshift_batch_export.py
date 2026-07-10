@@ -1355,17 +1355,11 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                 ),
             ]
 
-            aws_access_key_id, aws_secret_access_key, aws_session_token = await get_credentials_using_user_aws_role(
+            credentials = await get_credentials_using_user_aws_role(
                 inputs.copy.s3_bucket.credentials,
                 organization_id,
                 session_name=f"PostHog-batch-exports-{inputs.batch_export.batch_export_id}",
                 policy_statements=policy_statements,
-            )
-
-            credentials = AWSCredentials(
-                aws_access_key_id=aws_access_key_id,
-                aws_secret_access_key=aws_secret_access_key,
-                aws_session_token=aws_session_token,
             )
         else:
             credentials = inputs.copy.s3_bucket.credentials

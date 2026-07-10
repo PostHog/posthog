@@ -37,6 +37,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.service import (
+    AWSCredentials,
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
@@ -360,9 +361,6 @@ class S3BatchExportResult(BatchExportResult):
     files_uploaded: list[str] = dataclasses.field(default_factory=list)
 
 
-AWSCredentials = tuple[str, str, str]
-
-
 class PolicyStatement(typing.TypedDict):
     Effect: typing.Literal["Allow", "Deny"]
     Action: list[str]
@@ -482,10 +480,10 @@ async def get_credentials_using_user_aws_role(
         else:
             break
 
-    return (
-        second_response["Credentials"]["AccessKeyId"],
-        second_response["Credentials"]["SecretAccessKey"],
-        second_response["Credentials"]["SessionToken"],
+    return AWSCredentials(
+        aws_access_key_id=second_response["Credentials"]["AccessKeyId"],
+        aws_secret_access_key=second_response["Credentials"]["SecretAccessKey"],
+        aws_session_token=second_response["Credentials"]["SessionToken"],
     )
 
 
@@ -623,11 +621,16 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
                         )
                     )
 
-                aws_access_key_id, aws_secret_access_key, aws_session_token = await get_credentials_using_user_aws_role(
+                credentials = await get_credentials_using_user_aws_role(
                     integration.aws_role_arn,
                     organization_id,
                     session_name=f"PostHog-batch-exports-{inputs.batch_export_id}",
                     policy_statements=policy_statements,
+                )
+                aws_access_key_id, aws_secret_access_key, aws_session_token = (
+                    credentials.aws_access_key_id,
+                    credentials.aws_secret_access_key,
+                    credentials.aws_session_token,
                 )
 
             if isinstance(integration, S3CompatibleIntegration):
