@@ -154,6 +154,20 @@ class TestPersonalSpendValidation(APIBaseTest):
         response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&bucket_minutes=7")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @parameterized.expand(
+        [
+            # 25 days is exactly 600 hourly buckets of duration, but the half-hour offset
+            # touches 601 bucket starts; a duration-only check would let 601 rows through.
+            ("unaligned_at_cap", "2026-06-01T00:30:00", "2026-06-26T00:30:00", status.HTTP_400_BAD_REQUEST),
+            ("aligned_under_cap", "2026-06-01T00:00:00", "2026-06-25T23:30:00", status.HTTP_200_OK),
+        ]
+    )
+    def test_bucket_cap_counts_partial_edge_buckets(
+        self, _label: str, date_from: str, date_to: str, expected: int
+    ) -> None:
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from={date_from}&date_to={date_to}&bucket_minutes=60")
+        assert response.status_code == expected
+
     def test_product_too_long_rejected(self) -> None:
         response = self.client.get(f"{ENDPOINT}?product={'x' * 100}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST

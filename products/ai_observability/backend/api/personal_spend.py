@@ -65,7 +65,7 @@ MAX_WINDOW_DAYS = 90
 BY_DAY_MAX_ROWS = MAX_WINDOW_DAYS + 1
 # Sub-day series are only useful (and cheap) over short windows; a "last 24h"
 # view is the intended consumer. The cap bounds the series length regardless of
-# bucket size: 600 buckets covers 48h at 5-minute buckets and 8+ days hourly.
+# bucket size: 600 buckets is 50 hours at 5-minute buckets and 25 days hourly.
 BUCKET_MINUTES_CHOICES = [5, 15, 30, 60]
 MAX_TIME_BUCKETS = 600
 _RELATIVE_DATE_RE = re.compile(r"^-?\d+[hdwmqyHDWMQY](Start|End)?$")
@@ -165,17 +165,18 @@ class _SpendQueryParamsSerializer(serializers.Serializer):
         default=False,
         help_text="If true, bypass the result cache and re-run the underlying queries against ClickHouse.",
     )
+    # No allow_null: nullable would make generated clients advertise `bucket_minutes: null`,
+    # which serializes to the literal string "null" in a GET query and gets rejected.
     bucket_minutes = serializers.ChoiceField(
         choices=BUCKET_MINUTES_CHOICES,
         required=False,
         default=None,
-        allow_null=True,
         help_text=(
             "When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for "
             "the scoped product at this bucket size in minutes, with per-bucket cost split into uncached "
             "input / output / cache read / cache creation components plus the matching token sums. "
             f"Supported bucket sizes: {', '.join(str(c) for c in BUCKET_MINUTES_CHOICES)}. The window may "
-            f"span at most {MAX_TIME_BUCKETS} buckets of the chosen size (e.g. 48 hours at 5-minute "
+            f"span at most {MAX_TIME_BUCKETS} buckets of the chosen size (e.g. 50 hours at 5-minute "
             "buckets)."
         ),
     )
@@ -258,7 +259,7 @@ class _BucketBreakdownRowSerializer(serializers.Serializer):
         help_text=(
             "Total cost in USD in this bucket (sum of `$ai_total_cost_usd`). Authoritative: the component "
             "columns below can sum to less than this when the cost breakdown was unavailable for some "
-            "events — render any remainder as uncategorized rather than assuming the components reconcile."
+            "events; render any remainder as uncategorized rather than assuming the components reconcile."
         )
     )
     input_cost_usd = serializers.FloatField(
@@ -374,11 +375,11 @@ class _BucketBreakdownSerializer(serializers.Serializer):
         many=True,
         help_text=(
             "One row per UTC time bucket that has events, ordered by bucket start ascending. Buckets with "
-            "no events are omitted — zero-fill client-side when rendering a continuous series."
+            "no events are omitted; zero-fill client-side when rendering a continuous series."
         ),
     )
     bucket_minutes = serializers.IntegerField(
-        help_text="Bucket size in minutes the series was computed at — echoes the request `bucket_minutes`."
+        help_text="Bucket size in minutes the series was computed at; echoes the request `bucket_minutes`."
     )
     truncated = serializers.BooleanField(
         help_text=(
@@ -718,7 +719,7 @@ def _fetch_by_bucket(
     bucket_minutes: int,
 ) -> dict[str, Any]:
     # Cost components come from LiteLLM's cost_breakdown forwarded by the LLM gateway
-    # ($ai_input_cost_usd is uncached input only — cache read/creation are priced
+    # ($ai_input_cost_usd is uncached input only; cache read/creation are priced
     # separately). Events that went through the token-estimation fallback carry only
     # $ai_total_cost_usd, so the components can undershoot cost_usd; the serializer
     # help_text tells clients to render the remainder as uncategorized.
@@ -754,8 +755,8 @@ def _fetch_by_bucket(
             "product_filter": _product_filter(product),
             "email_filter": _email_filter(email),
             "timestamp_filter": _timestamp_filter(from_dt, to_dt),
-            # Not the request `limit` — same reasoning as by_day. +1 is the truncation probe row.
-            "limit": ast.Constant(value=MAX_TIME_BUCKETS + 2),
+            # Not the request `limit`; same reasoning as by_day. +1 is the truncation probe row.
+            "limit": ast.Constant(value=MAX_TIME_BUCKETS + 1),
         },
         team=team,
         # Buckets are documented as UTC; pin them like by_day does.
@@ -778,8 +779,7 @@ def _fetch_by_bucket(
         }
         for row in (result.results or [])
     ]
-    # +1: a MAX_TIME_BUCKETS-sized window can touch one extra partial bucket at the edge.
-    return {**_truncate(rows, MAX_TIME_BUCKETS + 1), "bucket_minutes": bucket_minutes}
+    return {**_truncate(rows, MAX_TIME_BUCKETS), "bucket_minutes": bucket_minutes}
 
 
 def _compute_spend_analysis(
@@ -795,16 +795,22 @@ def _compute_spend_analysis(
     """Cached, email-scoped spend analysis shared by the US viewset and the
     cross-region receiver. Expects already-validated params."""
     from_dt, to_dt = _resolve_window(date_from, date_to)
-    if bucket_minutes is not None and (to_dt - from_dt).total_seconds() > bucket_minutes * 60 * MAX_TIME_BUCKETS:
-        max_hours = bucket_minutes * MAX_TIME_BUCKETS // 60
-        raise exceptions.ValidationError(
-            {
-                "bucket_minutes": (
-                    f"A window this large would exceed {MAX_TIME_BUCKETS} buckets at {bucket_minutes}-minute "
-                    f"resolution — narrow the window to {max_hours} hours or less, or pick a larger bucket size."
-                )
-            }
-        )
+    if bucket_minutes is not None:
+        bucket_seconds = bucket_minutes * 60
+        # Count the bucket starts the window touches (unaligned edges add partial
+        # buckets), so `by_bucket` can never return more than MAX_TIME_BUCKETS rows.
+        n_buckets = int(to_dt.timestamp() // bucket_seconds) - int(from_dt.timestamp() // bucket_seconds) + 1
+        if n_buckets > MAX_TIME_BUCKETS:
+            max_hours = bucket_minutes * MAX_TIME_BUCKETS // 60
+            raise exceptions.ValidationError(
+                {
+                    "bucket_minutes": (
+                        f"A window this large would span more than {MAX_TIME_BUCKETS} buckets at "
+                        f"{bucket_minutes}-minute resolution; narrow the window to under {max_hours} hours, "
+                        "or pick a larger bucket size."
+                    )
+                }
+            )
 
     cache_key = _cache_key(email, date_from, date_to, product, limit, bucket_minutes)
 
@@ -1088,7 +1094,9 @@ class PersonalSpendEUProxyViewSet(_PersonalSpendUserViewSet):
             if cached is not None:
                 return Response(cached, status=status.HTTP_200_OK)
 
-        body = json.dumps({**data, "email": email}).encode("utf-8")
+        # Omit None-valued params (serializer defaults) so the internal receiver's
+        # non-nullable fields (e.g. bucket_minutes) accept the payload.
+        body = json.dumps({**{k: v for k, v in data.items() if v is not None}, "email": email}).encode("utf-8")
         signature, ts = sign_cross_region_spend_request(body, secret)
         try:
             upstream = requests.post(
