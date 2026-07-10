@@ -114,6 +114,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskWriteSerializer,
     WarmTaskRequestSerializer,
     WarmTaskResponseSerializer,
+    WizardCloudRunHandleSerializer,
 )
 
 from ee.hogai.utils.aio import async_to_sync
@@ -321,6 +322,35 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         repositories = tasks_facade.list_task_repositories(self.team_id, self._user_id())
         serializer = TaskRepositoriesResponseSerializer({"repositories": repositories})
         return Response(serializer.data)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=WizardCloudRunHandleSerializer,
+                description="The team's active onboarding wizard cloud run.",
+            ),
+            204: OpenApiResponse(description="No active onboarding wizard cloud run for this project."),
+        },
+        summary="Get the team's active onboarding wizard cloud run",
+        description=(
+            "Returns the most recent onboarding wizard cloud run for the current project when it is "
+            "still running (or completed within the last day), so the setup-progress FAB can rehydrate "
+            "after a drop-flow signup that started the run server-side. Returns 204 when there is none."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="active_wizard_run",
+        required_scopes=["task:read"],
+        pagination_class=None,
+        filter_backends=[],
+    )
+    def active_wizard_run(self, request, **kwargs):
+        handle = tasks_facade.get_active_wizard_cloud_run(self.team_id)
+        if handle is None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response(WizardCloudRunHandleSerializer(handle).data)
 
     @validated_request(
         request_serializer=TaskSummariesRequestSerializer,

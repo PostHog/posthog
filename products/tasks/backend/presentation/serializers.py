@@ -33,6 +33,7 @@ from products.tasks.backend.facade.contracts import (
     TaskSummaryDTO,
     TaskThreadMessageDTO,
     TaskUserBasicInfo,
+    WizardCloudRunHandleDTO,
 )
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -306,6 +307,22 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "updated_at",
             "completed_at",
         ]
+
+
+class WizardCloudRunHandleSerializer(DataclassSerializer):
+    """Minimal handle for the team's active onboarding wizard cloud run, used to rehydrate
+    the setup-progress FAB when the run was started server-side (drop flow)."""
+
+    task_id = serializers.UUIDField(help_text="Id of the onboarding wizard task.")
+    run_id = serializers.UUIDField(help_text="Id of the task's latest run, for reconnecting to its progress stream.")
+    status = serializers.CharField(help_text="Latest run status (e.g. queued, in_progress, completed, failed).")
+    started_at = serializers.DateTimeField(
+        allow_null=True, required=False, help_text="When the run was created, for the FAB's elapsed timer."
+    )
+
+    class Meta:
+        dataclass = WizardCloudRunHandleDTO
+        fields = ["task_id", "run_id", "status", "started_at"]
 
 
 # The relationship a client asserts between a task and a signal report when creating a task from the

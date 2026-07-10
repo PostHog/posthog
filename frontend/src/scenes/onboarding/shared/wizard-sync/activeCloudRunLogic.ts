@@ -1,6 +1,9 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { projectLogic } from 'scenes/projectLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { tasksActiveWizardRunRetrieve } from 'products/tasks/frontend/generated/api'
 
 import type { activeCloudRunLogicType } from './activeCloudRunLogicType'
 
@@ -34,7 +37,7 @@ export function scopedCloudRun(handle: CloudRunHandle | null, currentProjectId: 
 export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
     path(['scenes', 'onboarding', 'activeCloudRunLogic']),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId']],
+        values: [projectLogic, ['currentProjectId'], userLogic, ['isProvisionedUser']],
     })),
     actions({
         setActiveCloudRun: (taskId: string, runId: string, startedAt: string, projectId: number) => ({
@@ -49,6 +52,9 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
         // Last-writer-wins boolean, not a refcount: at most ONE inline view may be mounted at a time,
         // or the first unmount un-hides the FAB while the second view is still on screen.
         setPanelMounted: (mounted: boolean) => ({ mounted }),
+        // Ask the server whether the current project has an active wizard cloud run, seeding the
+        // handle when the drop flow started the run server-side (so no local handle was ever written).
+        hydrateFromServer: true,
     }),
     reducers({
         persistedCloudRun: [
@@ -77,5 +83,38 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
             (persistedCloudRun, currentProjectId): CloudRunHandle | null =>
                 scopedCloudRun(persistedCloudRun, currentProjectId),
         ],
+    }),
+    listeners(({ actions, values }) => ({
+        hydrateFromServer: async () => {
+            // The drop flow starts the run server-side, so a freshly-signed-in provisioned user has
+            // no localStorage handle. Only they need the extra request; everyone else already has a
+            // client-written handle if a run exists.
+            if (!values.isProvisionedUser) {
+                return
+            }
+            const projectId = values.currentProjectId
+            if (projectId == null || values.activeCloudRun) {
+                // Never clobber a fresher local handle — server hydration is a fallback only.
+                return
+            }
+            try {
+                const handle = await tasksActiveWizardRunRetrieve(String(projectId))
+                // 204 → void; nothing to surface.
+                if (!handle || values.activeCloudRun) {
+                    return
+                }
+                actions.setActiveCloudRun(
+                    handle.task_id,
+                    handle.run_id,
+                    handle.started_at ?? new Date().toISOString(),
+                    projectId
+                )
+            } catch {
+                // Best-effort: a failed hydration just means no FAB, same as before.
+            }
+        },
+    })),
+    afterMount(({ actions }) => {
+        actions.hydrateFromServer()
     }),
 ])

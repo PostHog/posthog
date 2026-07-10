@@ -145,6 +145,7 @@ __all__ = [
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
+    "get_active_wizard_cloud_run",
     "get_code_home",
     "get_code_workflow_config",
     "get_conversation_task_dtos",
@@ -622,6 +623,39 @@ def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contract
         .distinct("task_id")
     )
     return {str(run.task_id): _task_run_to_dto(run) for run in runs}
+
+
+def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunHandleDTO | None:
+    """The team's active onboarding wizard cloud run, for rehydrating the setup FAB.
+
+    The drop flow starts the wizard cloud run server-side (``create_wizard_cloud_run``),
+    so a freshly-signed-in user has no client-side handle. Returns the most recent
+    onboarding (``ORIGIN_PRODUCT == ONBOARDING``) task's latest run when it's still
+    running, or completed within the last day (so we can show "PostHog is wired up" +
+    the PR); otherwise ``None``. Team-scoped.
+    """
+    task = (
+        Task.objects.filter(team_id=team_id, origin_product=Task.OriginProduct.ONBOARDING, archived=False)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    if task is None:
+        return None
+    run = TaskRun.objects.filter(task_id=task.id).order_by("-created_at", "-id").first()
+    if run is None:
+        return None
+    # Non-terminal runs always surface; terminal ones only while the result is still
+    # fresh enough to be worth showing on first landing.
+    if run.is_terminal:
+        anchor = run.updated_at or run.created_at
+        if anchor is None or anchor < django_timezone.now() - timedelta(days=1):
+            return None
+    return contracts.WizardCloudRunHandleDTO(
+        task_id=task.id,
+        run_id=run.id,
+        status=run.status,
+        started_at=run.created_at,
+    )
 
 
 def get_stale_queued_task_run_ids(
