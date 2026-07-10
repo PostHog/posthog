@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Generator
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -8,6 +9,7 @@ from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import initial_datetime
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -19,10 +21,64 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads
 
 logger = structlog.get_logger(__name__)
 
+REDDIT_ADS_BASE_URL = "https://ads-api.reddit.com/api/v3"
+# Reddit allows one request per second per advertiser, and listing accounts costs one call per
+# business, so a runaway `next_url` chain would be slow as well as wrong. Raise instead of
+# returning a truncated list.
+MAX_LISTING_PAGES = 50
+
 
 @dataclasses.dataclass
 class RedditAdsResumeConfig:
     next_url: str
+
+
+class RedditAdsApiError(Exception):
+    """A failed Reddit Ads API response. `api_status_code` lets callers branch on the failure (401/403
+    is a customer-side credential problem) without parsing the message.
+
+    Deliberately not named `status_code`: drf-exceptions-hog reads that attribute off any escaping
+    exception and would render Reddit's status as PostHog's HTTP response status.
+    """
+
+    def __init__(self, message: str, api_status_code: int) -> None:
+        super().__init__(message)
+        self.api_status_code = api_status_code
+
+
+def _iter_pages(path: str, access_token: str) -> Generator[list[dict]]:
+    """Yield each page of a Reddit Ads list endpoint, following `pagination.next_url` (an absolute
+    URL) until it runs out."""
+    session = make_tracked_session()
+    url = f"{REDDIT_ADS_BASE_URL}{path}"
+
+    for _ in range(MAX_LISTING_PAGES):
+        response = session.get(url, headers={"Authorization": f"Bearer {access_token}"})
+        if response.status_code != 200:
+            raise RedditAdsApiError(
+                f"Reddit Ads API error ({response.status_code}): {response.text}", response.status_code
+            )
+
+        body = response.json()
+        yield body.get("data") or []
+
+        next_url = (body.get("pagination") or {}).get("next_url")
+        if not next_url:
+            return
+        url = next_url
+
+    raise Exception(f"Reddit returned more than {MAX_LISTING_PAGES} pages for {path}")
+
+
+def list_businesses(access_token: str) -> list[dict]:
+    """Every business the authorized Reddit member belongs to."""
+    return [business for page in _iter_pages("/me/businesses", access_token) for business in page]
+
+
+def list_business_ad_accounts(access_token: str, business_id: str) -> list[dict]:
+    """Every ad account under one business. Reddit has no endpoint for "all ad accounts I can reach",
+    so callers walk the businesses from `list_businesses` themselves."""
+    return [account for page in _iter_pages(f"/businesses/{business_id}/ad_accounts", access_token) for account in page]
 
 
 def _get_incremental_date_range(
@@ -176,7 +232,7 @@ def reddit_ads_source(
 ):
     config: RESTAPIConfig = {
         "client": {
-            "base_url": "https://ads-api.reddit.com/api/v3",
+            "base_url": REDDIT_ADS_BASE_URL,
             "auth": {
                 "type": "bearer",
                 "token": access_token,

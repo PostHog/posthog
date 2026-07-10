@@ -7,9 +7,12 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.reddit_ads import (
+    RedditAdsApiError,
     RedditAdsPaginator,
     _get_incremental_date_range,
     get_resource,
+    list_business_ad_accounts,
+    list_businesses,
 )
 
 
@@ -237,3 +240,54 @@ class TestRedditAdsPaginator:
             assert mock_request.url == seed_url
         else:
             assert mock_request.url == original_url
+
+
+class TestListBusinessesAndAdAccounts:
+    MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.reddit_ads"
+
+    @staticmethod
+    def _response(status: int, body: dict) -> mock.MagicMock:
+        response = mock.MagicMock()
+        response.status_code = status
+        response.json.return_value = body
+        response.text = ""
+        return response
+
+    def test_follows_next_url_across_pages(self):
+        session = mock.MagicMock()
+        session.get.side_effect = [
+            self._response(
+                200,
+                {
+                    "data": [{"id": "b1"}],
+                    "pagination": {"next_url": "https://ads-api.reddit.com/api/v3/me/businesses?page=2"},
+                },
+            ),
+            self._response(200, {"data": [{"id": "b2"}], "pagination": {"next_url": None}}),
+        ]
+
+        with mock.patch(f"{self.MODULE}.make_tracked_session", return_value=session):
+            businesses = list_businesses("token")
+
+        assert [business["id"] for business in businesses] == ["b1", "b2"]
+        assert session.get.call_args_list[1][0][0] == "https://ads-api.reddit.com/api/v3/me/businesses?page=2"
+
+    def test_ad_accounts_are_requested_per_business(self):
+        session = mock.MagicMock()
+        session.get.return_value = self._response(200, {"data": [{"id": "a2_1"}], "pagination": {}})
+
+        with mock.patch(f"{self.MODULE}.make_tracked_session", return_value=session):
+            accounts = list_business_ad_accounts("token", "biz-1")
+
+        assert [account["id"] for account in accounts] == ["a2_1"]
+        assert session.get.call_args[0][0] == "https://ads-api.reddit.com/api/v3/businesses/biz-1/ad_accounts"
+
+    def test_error_response_carries_the_api_status_code(self):
+        session = mock.MagicMock()
+        session.get.return_value = self._response(401, {})
+
+        with mock.patch(f"{self.MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(RedditAdsApiError) as excinfo:
+                list_businesses("token")
+
+        assert excinfo.value.api_status_code == 401

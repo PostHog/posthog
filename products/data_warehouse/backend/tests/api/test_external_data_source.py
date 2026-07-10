@@ -10741,6 +10741,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
     _BING_LIST_ACCOUNTS = (
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
     )
+    _REDDIT_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source"
 
     def setUp(self):
         super().setUp()
@@ -10809,6 +10810,53 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # raises NotImplementedError — it must surface as a 400, not an unhandled 500.
         response = self.client.get(self._url("Salesforce", 1))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_reddit_ads_groups_ad_accounts_under_their_business(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="reddit-ads",
+            config={},
+            sensitive_config={"access_token": "token", "refresh_token": "refresh"},
+            integration_id="reddit_test",
+            created_by=self.user,
+        )
+        ad_accounts = {
+            "biz-1": [{"id": "a2_one", "name": "Acme Ads", "suspension_reason": None}],
+            "biz-2": [{"id": "a2_two", "name": "Blocked Ads", "suspension_reason": "PAYMENT_FAILURE"}],
+        }
+        with (
+            patch(f"{self._REDDIT_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(
+                f"{self._REDDIT_ADS_MODULE}.list_businesses",
+                return_value=[{"id": "biz-1", "name": "Acme"}, {"id": "biz-2", "name": "Globex"}],
+            ),
+            patch(
+                f"{self._REDDIT_ADS_MODULE}.list_business_ad_accounts",
+                side_effect=lambda _token, business_id: ad_accounts[business_id],
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("RedditAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "a2_one",
+                "display_name": "Acme Ads",
+                "is_primary": False,
+                "badges": [],
+                "group": "Acme",
+                "secondary_text": None,
+            },
+            {
+                "value": "a2_two",
+                "display_name": "Blocked Ads",
+                "is_primary": False,
+                "badges": ["Suspended"],
+                "group": "Globex",
+                "secondary_text": None,
+            },
+        ]
 
     def test_gsc_success_maps_sites_to_accounts(self):
         integration = self._gsc_integration()
