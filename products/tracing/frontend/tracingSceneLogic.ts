@@ -1,7 +1,6 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
-import posthog from 'posthog-js'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
@@ -10,7 +9,7 @@ import { Params } from 'scenes/sceneTypes'
 
 import { Breadcrumb } from '~/types'
 
-import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
+import { tracingDataLogic } from './tracingDataLogic'
 import {
     DEFAULT_CUSTOM_COMPARISON,
     DEFAULT_DATE_RANGE,
@@ -25,12 +24,15 @@ import {
     tracingFiltersLogic,
 } from './tracingFiltersLogic'
 import type { tracingSceneLogicType } from './tracingSceneLogicType'
-import type { Span } from './types'
+import { tracingViewerLogic } from './tracingViewerLogic'
 
 export const tracingSceneLogic = kea<tracingSceneLogicType>([
     path(['products', 'tracing', 'frontend', 'tracingSceneLogic']),
 
-    // The scene binds to the viewer-default instances of the keyed filter/data logics.
+    // The scene binds to the viewer-default instances of the keyed filter/data/viewer logics.
+    // It owns ALL URL sync — the keyed logics are URL-free so they can be embedded anywhere;
+    // this logic translates URL params to their actions and their actions back to URL writes.
+    // Mirrors the logsSceneLogic / logsViewerLogic boundary.
     connect(() => ({
         values: [
             tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }),
@@ -59,6 +61,18 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             ],
             tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }),
             ['filters', 'utcDateRange', 'sparklineWindowMs', 'currentWindowMs', 'previousWindowMs', 'compareActive'],
+            tracingViewerLogic({ id: TRACING_SCENE_VIEWER_ID }),
+            [
+                'selectedTraceId',
+                'selectedSpanId',
+                'selectedTraceTs',
+                'isTraceOpen',
+                'openTraceSpans',
+                'isLoadingFullTrace',
+                'canLoadMoreTraceSpans',
+                'compareFlameSpanName',
+                'compareFlameServiceName',
+            ],
         ],
         actions: [
             tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }),
@@ -70,6 +84,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'fetchAggregation',
                 'fetchSpanTree',
                 'setVisibleRowRange',
+                'handleFilterChange',
             ],
             tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }),
             [
@@ -82,63 +97,17 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'updateComparisonWindows',
                 'setFilters',
             ],
+            tracingViewerLogic({ id: TRACING_SCENE_VIEWER_ID }),
+            ['openTrace', 'selectSpan', 'closeTrace', 'openCompareFlame', 'closeCompareFlame'],
         ],
     })),
 
     actions({
-        openTrace: (traceId: string, options?: { spanId?: string | null; ts?: string | null }) => ({
-            traceId,
-            spanId: options?.spanId ?? null,
-            ts: options?.ts ?? null,
-        }),
-        selectSpan: (spanId: string | null) => ({ spanId }),
-        closeTrace: true,
-        openCompareFlame: (spanName: string, serviceName: string) => ({ spanName, serviceName }),
-        closeCompareFlame: true,
-        syncUrlAndRunQuery: true,
-        handleFilterChange: (filterType: string, extraProps?: Record<string, unknown>) => ({ filterType, extraProps }),
+        syncUrl: true,
         setActiveTracingTab: (tab: 'traces' | 'operations') => ({ tab }),
     }),
 
     reducers({
-        selectedTraceId: [
-            null as string | null,
-            {
-                openTrace: (_, { traceId }) => traceId,
-                closeTrace: () => null,
-            },
-        ],
-        selectedSpanId: [
-            null as string | null,
-            {
-                openTrace: (_, { spanId }) => spanId,
-                selectSpan: (_, { spanId }) => spanId,
-                closeTrace: () => null,
-            },
-        ],
-        // Timestamp hint for the open trace — echoed into copy-links so cold loads can bound the
-        // ClickHouse lookup (the spans table is time-keyed; OTel ids embed no timestamp).
-        selectedTraceTs: [
-            null as string | null,
-            {
-                openTrace: (_, { ts }) => ts,
-                closeTrace: () => null,
-            },
-        ],
-        compareFlameSpanName: [
-            null as string | null,
-            {
-                openCompareFlame: (_, { spanName }) => spanName,
-                closeCompareFlame: () => null,
-            },
-        ],
-        compareFlameServiceName: [
-            null as string | null,
-            {
-                openCompareFlame: (_, { serviceName }) => serviceName,
-                closeCompareFlame: () => null,
-            },
-        ],
         activeTracingTab: [
             'traces' as 'traces' | 'operations',
             {
@@ -148,39 +117,6 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
     }),
 
     selectors({
-        isTraceOpen: [
-            (s) => [s.selectedTraceId],
-            (selectedTraceId: string | null): boolean => selectedTraceId !== null,
-        ],
-        openTraceSpans: [
-            (s) => [s.selectedTraceId, s.spans, s.traceSpans],
-            (selectedTraceId: string | null, spans: Span[], traceSpans: Span[]): Span[] => {
-                if (!selectedTraceId) {
-                    return []
-                }
-                const filteredTraceSpans = traceSpans.filter((s) => s.trace_id === selectedTraceId)
-                if (filteredTraceSpans.length > 0) {
-                    return filteredTraceSpans
-                }
-                return spans.filter((s) => s.trace_id === selectedTraceId)
-            },
-        ],
-        // The drawer's full-trace overlay should only show on the initial fetch — paging in more
-        // spans (loadMoreTraceSpans) keeps the waterfall visible with its own bottom spinner.
-        isLoadingFullTrace: [
-            (s) => [s.traceSpansLoading, s.traceSpansLoadingMore],
-            (traceSpansLoading: boolean, traceSpansLoadingMore: boolean): boolean =>
-                traceSpansLoading && !traceSpansLoadingMore,
-        ],
-        // Only offer "load more" when the full-fetched spans for the open trace are what's displayed
-        // — never for the small prefetch fallback, which is already the trace's complete span set.
-        canLoadMoreTraceSpans: [
-            (s) => [s.traceSpansHasMore, s.traceSpans, s.selectedTraceId],
-            (traceSpansHasMore: boolean, traceSpans: Span[], selectedTraceId: string | null): boolean =>
-                traceSpansHasMore &&
-                !!selectedTraceId &&
-                traceSpans.some((span: Span) => span.trace_id === selectedTraceId),
-        ],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -194,60 +130,26 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        openTrace: ({ traceId, ts }) => {
-            posthog.capture('tracing trace opened')
-            const prefetchedSpans = values.spans.filter((s: Span) => s.trace_id === traceId)
-            // Zero prefetched spans = the trace isn't in the loaded list (cold link) — fetch it by
-            // id. A full prefetch batch (>= PREFETCH_SPANS) may be truncated — fetch the rest.
-            if (prefetchedSpans.length === 0 || prefetchedSpans.length >= PREFETCH_SPANS) {
-                actions.loadTraceSpans({ traceId, ts })
-            }
-        },
-        openCompareFlame: ({ spanName, serviceName }) => {
-            actions.fetchSpanTree({ spanName, serviceName })
-        },
-        handleFilterChange: ({ filterType, extraProps }) => {
-            posthog.capture('tracing filter changed', { filter_type: filterType, ...extraProps })
-            actions.syncUrlAndRunQuery()
+        // The keyed data logic already captured the interaction and re-ran the query;
+        // the scene's jobs are the URL write and scene-tab side effects.
+        handleFilterChange: () => {
+            actions.syncUrl()
             // Keep the Operations aggregate in sync with filters/date while that tab is active.
             // Full range: the Operations view always covers the whole selected range, even while
             // a (traces-tab) comparison is active.
             //
-            // This MUST stay after syncUrlAndRunQuery. When a comparison is active, that call
-            // synchronously runs runQuery, whose listener fires a windowed fetchAggregation();
-            // every fetchAggregation aborts the previous one, so the last dispatched wins. Keeping
-            // the full-range fetch last makes it beat the windowed one deterministically —
+            // This MUST run after the data logic's handleFilterChange listener. When a comparison
+            // is active, that listener synchronously runs runQuery, whose listener fires a windowed
+            // fetchAggregation(); every fetchAggregation aborts the previous one, so the last
+            // dispatched wins. The data logic mounts before this scene logic, so its listener runs
+            // first and the full-range fetch here beats the windowed one deterministically —
             // otherwise the Operations table would divide by the narrow compare sub-window.
             if (values.activeTracingTab === 'operations') {
                 actions.fetchAggregation({ fullRange: true })
             }
         },
-        setDateRange: () => actions.handleFilterChange('date_range'),
-        setServiceNames: () => actions.handleFilterChange('service_names'),
-        setFilterGroup: () => actions.handleFilterChange('filter_group'),
-        setSort: ({ orderBy, orderDirection }) =>
-            actions.handleFilterChange('sort', { column: orderBy, direction: orderDirection }),
-        setViewMode: ({ viewMode }) => actions.handleFilterChange('view_mode', { mode: viewMode }),
-        setComparison: ({ comparison }) =>
-            actions.handleFilterChange('comparison', {
-                enabled: comparison !== null,
-                mode: comparison?.mode ?? null,
-                preset: comparison?.mode === 'time' ? comparison.preset : null,
-            }),
-        updateComparisonWindows: () => {
-            // Overlay drags only refetch the aggregation — the sparkline canvas range
-            // stays fixed while the user moves windows around within it. If the compare-flame
-            // modal is open we also refetch its tree so it doesn't display stale windows.
-            actions.fetchAggregation()
-            if (values.compareFlameSpanName && values.compareFlameServiceName) {
-                actions.fetchSpanTree({
-                    spanName: values.compareFlameSpanName,
-                    serviceName: values.compareFlameServiceName,
-                })
-            }
-        },
         setFilters: () => {
-            actions.syncUrlAndRunQuery()
+            actions.syncUrl()
         },
         setActiveTracingTab: ({ tab }) => {
             if (tab === 'operations') {
@@ -379,7 +281,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         },
     })),
 
-    trackedActionToUrl(({ values, actions }) => {
+    trackedActionToUrl(({ values }) => {
         // The drawer params (trace/span/ts) live alongside the filter params. They're written by
         // their own handlers below (which must NOT re-run the list query), and preserved by
         // buildUrl so a filter change doesn't silently strip an open drawer from the URL.
@@ -423,7 +325,6 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 searchParams.view = values.filters.viewMode
             }
 
-            actions.runQuery()
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         }
 
@@ -441,7 +342,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         }
 
         return {
-            syncUrlAndRunQuery: () => buildUrl(),
+            syncUrl: () => buildUrl(),
             openTrace: () => drawerUrl(false),
             selectSpan: () => drawerUrl(true),
             closeTrace: () => drawerUrl(false),

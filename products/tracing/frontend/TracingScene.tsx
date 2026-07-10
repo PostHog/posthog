@@ -32,6 +32,7 @@ import { TracingFilterBar } from './TracingFilterBar'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingSceneLogic } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
+import { tracingViewerLogic } from './tracingViewerLogic'
 import type { Span } from './types'
 
 const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
@@ -45,9 +46,10 @@ export const scene: SceneExport = {
 
 export default function TracingScene(): JSX.Element {
     const sceneLogic = tracingSceneLogic()
-    // Keep filters + data logic alive across React unmounts by attaching them to the scene root.
+    // Keep filters + data + viewer logic alive across React unmounts by attaching them to the scene root.
     useAttachedLogic(tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
+    useAttachedLogic(tracingViewerLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
 
     // Bind the scene's keyed instances so nested components (filter bar, sparkline, ...)
     // resolve them from context — the same components work inside an embedded viewer
@@ -55,7 +57,9 @@ export default function TracingScene(): JSX.Element {
     return (
         <BindLogic logic={tracingFiltersLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
             <BindLogic logic={tracingDataLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
-                <TracingSceneContents />
+                <BindLogic logic={tracingViewerLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
+                    <TracingSceneContents />
+                </BindLogic>
             </BindLogic>
         </BindLogic>
     )
