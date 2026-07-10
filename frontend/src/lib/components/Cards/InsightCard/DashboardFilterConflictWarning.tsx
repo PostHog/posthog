@@ -33,7 +33,7 @@ export function DashboardFilterConflictWarning({
                     propertyFilterTypeToPropertyDefinitionType(item.type),
                     (item as GroupPropertyFilter).group_type_index as GroupTypeIndex | undefined
                 )?.toString() || '?'
-        )
+        ).trim()
 
     return (
         <Tooltip
