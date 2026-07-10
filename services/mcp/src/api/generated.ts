@@ -11915,6 +11915,16 @@ export namespace Schemas {
       BigQuery: 'BigQuery',
     } as const;
 
+    /**
+     * * `email` - email
+     */
+    export type DedupeKeyEnum = typeof DedupeKeyEnum[keyof typeof DedupeKeyEnum];
+
+
+    export const DedupeKeyEnum = {
+      Email: 'email',
+    } as const;
+
     export interface BlastRadius {
       /** Number of users matching the filters */
       affected: number;
@@ -11922,6 +11932,10 @@ export namespace Schemas {
       total: number;
       /** Maximum allowed audience size for batch triggers for this team. */
       limit: number;
+      /** The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.
+       *
+       * * `email` - email */
+      dedupe_key: DedupeKeyEnum | null;
     }
 
     /**
@@ -11937,6 +11951,10 @@ export namespace Schemas {
          * @nullable
          */
       group_type_index?: number | null;
+      /** When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.
+       *
+       * * `email` - email */
+      dedupe_key?: DedupeKeyEnum | null;
     }
 
     export interface BooleanScoreDefinitionConfig {
