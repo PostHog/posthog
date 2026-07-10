@@ -111,17 +111,27 @@ class TestTopHogAdminHelpers(BaseTest):
                 [],
                 False,
             ),
-            ("pipeline_overlap", {}, {}, ["analytics", "session_recordings"], True),
+            ("pipeline_covered", {}, {}, ["analytics"], True),
             ("pipeline_disjoint", {"pipelines": ["errortracking"]}, {}, ["analytics"], False),
+            ("unmapped_pipeline_never_covered", {}, {}, ["ai"], False),
+            ("partially_unmapped_never_covered", {}, {}, ["analytics", "ai"], False),
+            ("partial_pipeline_coverage_not_covered", {}, {}, ["analytics", "sessionreplay"], False),
+            (
+                "full_pipeline_coverage",
+                {"pipelines": ["analytics", "session_recordings"]},
+                {},
+                ["analytics", "sessionreplay"],
+                True,
+            ),
         ]
     )
-    def test_restriction_matches(self, _name, config_kwargs, key, restriction_pipelines, expected):
+    def test_restriction_matches(self, _name, config_kwargs, key, tophog_pipelines, expected):
         restriction = EventIngestionRestrictionConfig(
             token="phc_abc",
             restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
             **{"pipelines": ["analytics"], **config_kwargs},
         )
-        self.assertEqual(_restriction_matches(restriction, key, restriction_pipelines), expected)
+        self.assertEqual(_restriction_matches(restriction, key, tophog_pipelines), expected)
 
     def test_extend_restriction_appends_only_to_nonempty_lists(self):
         restriction = EventIngestionRestrictionConfig.objects.create(

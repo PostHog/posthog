@@ -116,18 +116,26 @@ def _create_restriction_url(token: str, key: dict[str, str], restriction_pipelin
 
 
 def _restriction_matches(
-    restriction: EventIngestionRestrictionConfig, key: dict[str, str], restriction_pipelines: list[str]
+    restriction: EventIngestionRestrictionConfig, key: dict[str, str], tophog_pipelines: list[str]
 ) -> bool:
     """Whether an existing restriction already covers the tophog entry described by key and pipelines.
 
     Mirrors the ingestion matching semantics: an empty filter list matches everything,
     a non-empty list matches if it contains the entry's value (fields combine with AND).
     Key fields absent from the tophog entry don't disqualify a restriction.
+
+    Pipelines require full coverage: every one of the entry's pipelines must map to a
+    restriction pipeline the restriction applies to. Unmapped pipelines (e.g. ai, heatmaps)
+    can't be restricted at all, so an entry that includes one is never covered.
     """
     if _extendable_fields(restriction, key):
         return False
-    if restriction_pipelines and restriction.pipelines and not set(restriction_pipelines) & set(restriction.pipelines):
-        return False
+    if tophog_pipelines:
+        mapped = [TOPHOG_TO_RESTRICTION_PIPELINE.get(p) for p in tophog_pipelines]
+        if None in mapped:
+            return False
+        if restriction.pipelines and not set(mapped) <= set(restriction.pipelines):
+            return False
     return True
 
 
@@ -268,7 +276,7 @@ def tophog_restrictions_view(request):
     entries = [
         {
             "restriction": restriction,
-            "matches": _restriction_matches(restriction, key, restriction_pipelines),
+            "matches": _restriction_matches(restriction, key, tophog_pipelines),
             "extendable_fields": _extendable_fields(restriction, key),
             "edit_url": reverse("admin:posthog_eventingestionrestrictionconfig_change", args=[restriction.pk]),
         }
