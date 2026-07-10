@@ -134,6 +134,96 @@ fn open_plaintext_stream_from_bytes(data: &[u8]) -> batch_import_worker::staging
 /// temp-bucket mode downloads from an httpmock origin, ingests via the pipeline into
 /// live SeaweedFS, serves ranged reads back, resumes without re-download, and sweeps
 /// its job prefix on cleanup.
+/// A data-error pause must quarantine the staged plaintext (the exact bytes the
+/// failing offset points into) rather than delete it: the resume re-downloads a
+/// clean copy from the origin, while support can still read the failing bytes
+/// from the quarantine location. Terminal cleanup sweeps quarantine with the
+/// rest of the job prefix.
+#[tokio::test]
+async fn test_data_error_pause_quarantines_staged_part_and_resume_redownloads() {
+    let store = seaweedfs_store();
+    if !seaweedfs_reachable(&store).await {
+        eprintln!("SeaweedFS unreachable at {SEAWEEDFS_ENDPOINT}, skipping test");
+        return;
+    }
+
+    let body = b"{\"event\":\"a\"}\nnot valid json\n{\"event\":\"c\"}";
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(httpmock::Method::GET).path("/export");
+        then.status(200).body(gzip(body));
+    });
+
+    let job_id = format!("job-{}", Uuid::now_v7());
+    let build = |staging: &std::path::Path| {
+        DateRangeExportSource::builder(
+            server.url("/export"),
+            Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap(),
+            3600,
+            ExtractorType::PlainGzip.create_extractor(),
+            staging.to_path_buf(),
+        )
+        .with_auth(AuthConfig::None)
+        .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
+        .with_headers(HashMap::new())
+        .with_remote_staging(Some(RemoteStaging {
+            backend: Arc::new(TempBucketBackend::new(
+                Arc::clone(&store),
+                "batch-import-staging/",
+                job_id.clone(),
+            )),
+            extractor_type: ExtractorType::PlainGzip,
+            max_plaintext_bytes: 0,
+        }))
+        .build()
+        .unwrap()
+    };
+
+    // Stage the part and read a chunk, like a job that then hits the bad line.
+    let staging = tempfile::TempDir::new().unwrap();
+    let source = build(staging.path());
+    source.prepare_for_job().await.unwrap();
+    let key = source.keys().await.unwrap().remove(0);
+    source.prepare_key(&key).await.unwrap();
+    assert!(!source.get_chunk(&key, 0, 14).await.unwrap().is_empty());
+    assert_eq!(mock.hits(), 1);
+
+    // The data-error pause path.
+    source.cleanup_after_data_error().await.unwrap();
+
+    // Support can read the exact staged bytes that failed to parse (the
+    // pipeline appends the trailing newline, matching what the offsets index).
+    let quarantine_path = object_store::path::Path::from(format!(
+        "batch-import-staging/{job_id}/quarantine/{}.data",
+        key.replace([':', '/'], "_")
+    ));
+    let quarantined = store
+        .get(&quarantine_path)
+        .await
+        .expect("staged part must be quarantined, not deleted")
+        .bytes()
+        .await
+        .unwrap();
+    let mut expected = body.to_vec();
+    expected.push(b'\n');
+    assert_eq!(quarantined.as_ref(), expected.as_slice());
+
+    // The resume cannot attach to the stale copy: a fresh source re-downloads.
+    let staging_b = tempfile::TempDir::new().unwrap();
+    let resumed = build(staging_b.path());
+    resumed.prepare_for_job().await.unwrap();
+    resumed.prepare_key(&key).await.unwrap();
+    assert_eq!(mock.hits(), 2, "resume after a data error must re-download");
+
+    // Terminal cleanup sweeps the quarantined evidence with the job prefix.
+    resumed.cleanup_after_job().await.unwrap();
+    assert!(
+        store.get(&quarantine_path).await.is_err(),
+        "cleanup_after_job must sweep quarantine"
+    );
+}
+
 #[tokio::test]
 async fn test_remote_staged_source_round_trip_on_seaweedfs() {
     let store = seaweedfs_store();

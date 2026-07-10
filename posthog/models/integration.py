@@ -779,6 +779,7 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+                timeout=10,
             )
         # Pinterest uses HTTP Basic Auth for token exchange (base64-encoded client_id:client_secret)
         elif kind == "pinterest-ads":
@@ -790,6 +791,7 @@ class OauthIntegration:
                     "redirect_uri": OauthIntegration.redirect_uri(kind),
                     "grant_type": "authorization_code",
                 },
+                timeout=10,
             )
         elif kind == "tiktok-ads":
             # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
@@ -801,6 +803,7 @@ class OauthIntegration:
                     "auth_code": params["code"],
                 },
                 headers={"Content-Type": "application/json"},
+                timeout=10,
             )
         elif kind == "stripe":
             # Stripe Apps OAuth authenticates with the developer secret key as HTTP Basic
@@ -813,6 +816,7 @@ class OauthIntegration:
                     "code": params["code"],
                     "grant_type": "authorization_code",
                 },
+                timeout=10,
             )
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
@@ -825,6 +829,7 @@ class OauthIntegration:
                     "redirect_uri": redirect_uri,
                     "grant_type": "authorization_code",
                 },
+                timeout=10,
             )
 
         try:
@@ -854,6 +859,7 @@ class OauthIntegration:
                         "redirect_uri": OauthIntegration.redirect_uri(kind),
                         "grant_type": "authorization_code",
                     },
+                    timeout=10,
                 )
 
                 try:
@@ -888,11 +894,13 @@ class OauthIntegration:
                     oauth_config.token_info_url,
                     headers={"Authorization": f"Bearer {config['access_token']}"},
                     json={"query": oauth_config.token_info_graphql_query},
+                    timeout=10,
                 )
             else:
                 token_info_res = requests.get(
                     oauth_config.token_info_url.replace(":access_token", config["access_token"]),
                     headers={"Authorization": f"Bearer {config['access_token']}"},
+                    timeout=10,
                 )
 
             if token_info_res.status_code == 200:
@@ -1111,6 +1119,7 @@ class OauthIntegration:
                 },
                 # If I use a standard User-Agent, it will throw a 429 too many requests error
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+                timeout=10,
             )
         # Pinterest uses HTTP Basic Auth for token refresh
         elif self.integration.kind == "pinterest-ads":
@@ -1121,6 +1130,7 @@ class OauthIntegration:
                     "refresh_token": self.integration.sensitive_config["refresh_token"],
                     "grant_type": "refresh_token",
                 },
+                timeout=10,
             )
         elif self.integration.kind == "tiktok-ads":
             res = requests.post(
@@ -1132,6 +1142,7 @@ class OauthIntegration:
                     "grant_type": "refresh_token",
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=10,
             )
         elif self.integration.kind == "bing-ads":
             # Microsoft Azure AD requires scope parameter on token refresh
@@ -1144,6 +1155,7 @@ class OauthIntegration:
                     "grant_type": "refresh_token",
                     "scope": oauth_config.scope,
                 },
+                timeout=10,
             )
         elif self.integration.kind == "stripe":
             # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
@@ -1154,6 +1166,7 @@ class OauthIntegration:
                     "refresh_token": self.integration.sensitive_config["refresh_token"],
                     "grant_type": "refresh_token",
                 },
+                timeout=10,
             )
         else:
             res = requests.post(
@@ -1164,6 +1177,7 @@ class OauthIntegration:
                     "refresh_token": self.integration.sensitive_config["refresh_token"],
                     "grant_type": "refresh_token",
                 },
+                timeout=10,
             )
 
         config: dict = res.json()
@@ -1402,6 +1416,7 @@ class GoogleAdsIntegration:
                 "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
                 **({"login-customer-id": parent_id} if parent_id else {}),
             },
+            timeout=10,
         )
 
         if response.status_code == 401:
@@ -1442,6 +1457,7 @@ class GoogleAdsIntegration:
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
             },
+            timeout=10,
         )
 
         if response.status_code == 401:
@@ -1485,6 +1501,7 @@ class GoogleAdsIntegration:
                     "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
                     **({"login-customer-id": parent_id} if parent_id else {}),
                 },
+                timeout=10,
             )
 
             if response.status_code != 200:
@@ -1941,6 +1958,7 @@ class LinkedInAdsIntegration:
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "LinkedIn-Version": "202508",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing conversion rules")
@@ -1955,6 +1973,7 @@ class LinkedInAdsIntegration:
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "LinkedIn-Version": "202508",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing ad accounts")
@@ -1997,6 +2016,7 @@ class ClickUpIntegration:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing spaces")
@@ -2014,6 +2034,7 @@ class ClickUpIntegration:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing lists")
@@ -2031,6 +2052,7 @@ class ClickUpIntegration:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing folders")
@@ -2045,6 +2067,7 @@ class ClickUpIntegration:
             "GET",
             "https://api.clickup.com/api/v2/team",
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing workspaces")
@@ -2248,6 +2271,7 @@ class LinearIntegration:
             "https://api.linear.app/graphql",
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
             json={"query": query, "variables": variables or {}},
+            timeout=10,
         )
         return response.json()
 
@@ -2317,6 +2341,7 @@ class JiraIntegration:
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "Accept": "application/json",
             },
+            timeout=10,
         )
         body = response.json()
         projects = body.get("values", [])
@@ -2361,6 +2386,7 @@ class JiraIntegration:
                 "Content-Type": "application/json",
             },
             json=payload,
+            timeout=10,
         )
 
         issue = response.json()
@@ -2946,6 +2972,7 @@ class GitLabIntegration:
             headers={"PRIVATE-TOKEN": project_access_token},
             # disallow redirects to prevent SSRF on redirected host
             allow_redirects=False,
+            timeout=10,
         )
 
         return response.json()
@@ -2963,6 +2990,7 @@ class GitLabIntegration:
             headers={"PRIVATE-TOKEN": project_access_token},
             # disallow redirects to prevent SSRF on redirected host
             allow_redirects=False,
+            timeout=10,
         )
 
         return response.json()
@@ -3050,6 +3078,7 @@ class MetaAdsIntegration:
                 "grant_type": "fb_exchange_token",
                 "set_token_expires_in_60_days": True,
             },
+            timeout=10,
         )
 
         config: dict = res.json()
