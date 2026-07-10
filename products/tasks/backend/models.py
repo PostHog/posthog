@@ -103,6 +103,9 @@ class Channel(TeamScopedRootMixin):
 
 
 SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
+PR_READY_EMAIL_QUEUED_AT_STATE_KEY = "pr_ready_email_queued_at"
+PR_READY_EMAIL_SENT_AT_STATE_KEY = "pr_ready_email_sent_at"
+PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
 
 
 class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
@@ -390,6 +393,36 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
             state = dict(task.state or {})
             state[SLACK_NOTIFIED_PR_URL_STATE_KEY] = pr_url
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
+        self.state = state
+
+    @property
+    def pr_ready_email_sent_at(self) -> str | None:
+        return (self.state or {}).get(PR_READY_EMAIL_SENT_AT_STATE_KEY)
+
+    def mark_pr_ready_email_queued(self, pr_url: str, *, queued_at: datetime | None = None) -> bool:
+        """Record that this task's PR-ready email task was queued, preserving other state keys."""
+        with transaction.atomic():
+            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
+            state = dict(task.state or {})
+            if state.get(PR_READY_EMAIL_QUEUED_AT_STATE_KEY) or state.get(PR_READY_EMAIL_SENT_AT_STATE_KEY):
+                self.state = state
+                return False
+            state[PR_READY_EMAIL_QUEUED_AT_STATE_KEY] = (queued_at or django_timezone.now()).isoformat()
+            state[PR_READY_EMAIL_PR_URL_STATE_KEY] = pr_url
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
+        self.state = state
+        return True
+
+    def mark_pr_ready_email_sent(self, pr_url: str, *, sent_at: datetime | None = None) -> None:
+        """Record confirmed PR-ready email delivery, preserving other state keys."""
+        with transaction.atomic():
+            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
+            state = dict(task.state or {})
+            state[PR_READY_EMAIL_SENT_AT_STATE_KEY] = (sent_at or django_timezone.now()).isoformat()
+            state[PR_READY_EMAIL_PR_URL_STATE_KEY] = pr_url
             task.state = state
             task.save(update_fields=["state", "updated_at"])
         self.state = state
@@ -1536,6 +1569,62 @@ class TaskRun(models.Model):
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
+
+
+class TaskArtifact(TeamScopedRootMixin, UUIDModel):
+    class ArtifactType(models.TextChoices):
+        SLACK_MESSAGE = "slack_message", "Slack message"
+        SLACK_CANVAS = "slack_canvas", "Slack canvas"
+        DOCUMENT = "document", "Document"
+        SPREADSHEET = "spreadsheet", "Spreadsheet"
+        DASHBOARD = "dashboard", "Dashboard"
+        FILE = "file", "File"
+        GITHUB_PR = "github_pr", "GitHub PR"
+
+    class Adapter(models.TextChoices):
+        SLACK_MESSAGE = "slack_message", "Slack message"
+        SLACK_CANVAS = "slack_canvas", "Slack canvas"
+        SLACK_FILE = "slack_file", "Slack file"
+        DOCUMENT_CONNECTOR = "document_connector", "Document connector"
+        GITHUB_PR = "github_pr", "GitHub PR"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        FAILED = "failed", "Failed"
+
+    # App-level scoping is enforced by TeamScopedRootMixin; avoid locking the hot Team/User tables.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="living_artifacts")
+    task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="living_artifacts")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    name = models.CharField(max_length=255)
+    artifact_type = models.CharField(max_length=32, choices=ArtifactType)
+    adapter = models.CharField(max_length=32, choices=Adapter)
+    status = models.CharField(max_length=16, choices=Status, default=Status.ACTIVE, db_default=Status.ACTIVE)
+    location = models.JSONField(
+        default=dict, db_default=models.Value("{}"), help_text="Adapter-specific location data."
+    )
+    metadata = models.JSONField(
+        default=dict, db_default=models.Value("{}"), help_text="Adapter-specific artifact metadata."
+    )
+    versions = models.JSONField(
+        default=list, db_default=models.Value("[]"), help_text="Chronological artifact versions."
+    )
+    current_version = models.PositiveIntegerField(default=1, db_default=1)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_artifact"
+        indexes = [
+            models.Index(fields=["team", "task", "-updated_at"], name="task_artifact_team_task_idx"),
+            models.Index(fields=["team", "task_run", "-updated_at"], name="task_artifact_team_run_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.artifact_type})"
 
 
 class SandboxSnapshot(UUIDModel):

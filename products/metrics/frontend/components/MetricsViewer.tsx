@@ -2,6 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
+    LemonButton,
     LemonBanner,
     LemonInputSelect,
     LemonSegmentedButton,
@@ -27,6 +28,8 @@ import { DateMappingOption, FilterLogicalOperator, UniversalFiltersGroup, Univer
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { MetricsChartLegend } from './MetricsChartLegend'
+import { metricsSamplesLogic } from './metricsSamplesLogic'
+import { MetricsSamplesPanel } from './MetricsSamplesPanel'
 import { MetricStatPanel } from './MetricStatPanel'
 import {
     LIVE_REFRESH_MS,
@@ -37,9 +40,9 @@ import {
     RECOMMENDED_AGGREGATION_BY_TYPE,
 } from './metricsViewerLogic'
 
-const VIEW_MODE_OPTIONS: { value: MetricsViewMode; label: string }[] = [
-    { value: 'chart', label: 'Chart' },
-    { value: 'stat', label: 'Stat' },
+const VIEW_MODE_OPTIONS: { value: MetricsViewMode; label: string; 'data-attr': string }[] = [
+    { value: 'chart', label: 'Chart', 'data-attr': 'metrics-viewer-view-mode-chart' },
+    { value: 'stat', label: 'Stat', 'data-attr': 'metrics-viewer-view-mode-stat' },
 ]
 
 // How the stat card summarizes the series into one headline value.
@@ -98,6 +101,9 @@ export const MetricsViewer = (): JSX.Element => {
     // Keep the picker logic mounted alongside the viewer so the chosen metric's
     // metric_type stays available for the aggregation hint after the dropdown closes.
     const pickerLogic = useMountedLogic(metricNamePickerLogic())
+    // The side panel's logic listens to this viewer's filter changes; mounting it
+    // here keeps samples in sync even while the panel itself is off-screen.
+    useMountedLogic(metricsSamplesLogic())
     const {
         metricName,
         aggregation,
@@ -116,6 +122,7 @@ export const MetricsViewer = (): JSX.Element => {
         liveRefresh,
         queryResultsLoading,
         queryError,
+        savedInsightLoading,
         hasMetricName,
     } = useValues(logic)
     const {
@@ -131,6 +138,7 @@ export const MetricsViewer = (): JSX.Element => {
         fetchQueryResults,
         fetchAnomaly,
         clearAnomaly,
+        saveAsInsight,
     } = useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
 
@@ -214,6 +222,7 @@ export const MetricsViewer = (): JSX.Element => {
                     value={aggregation}
                     options={AGGREGATION_OPTIONS}
                     onChange={(value) => setAggregation(value as MetricAggregation)}
+                    data-attr="metrics-viewer-aggregation"
                 />
                 <LemonInputSelect
                     mode="multiple"
@@ -224,6 +233,7 @@ export const MetricsViewer = (): JSX.Element => {
                     options={[]}
                     placeholder="Group by attribute…"
                     className="min-w-[12rem]"
+                    data-attr="metrics-viewer-group-by"
                 />
                 <UniversalFilters
                     rootKey="metrics-viewer-filters"
@@ -260,6 +270,7 @@ export const MetricsViewer = (): JSX.Element => {
                         value={statSummary}
                         options={SUMMARY_OPTIONS}
                         onChange={(value) => setStatSummary(value)}
+                        data-attr="metrics-viewer-stat-summary"
                     />
                 )}
                 <LemonSwitch
@@ -268,46 +279,65 @@ export const MetricsViewer = (): JSX.Element => {
                     onChange={setLiveRefresh}
                     tooltip={`Auto-refresh every ${LIVE_REFRESH_MS / 1000}s`}
                     bordered
+                    data-attr="metrics-viewer-live-toggle"
                 />
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={() => saveAsInsight()}
+                    loading={savedInsightLoading}
+                    disabledReason={!hasMetricName ? 'Pick a metric first' : undefined}
+                >
+                    Save as insight
+                </LemonButton>
             </div>
-            <div className="relative h-[360px] border rounded p-3">
-                {!hasMetricName ? (
-                    <div className="h-full flex items-center justify-center text-secondary text-sm">
-                        Pick a metric to see its time series.
+            <div className="flex flex-col xl:flex-row gap-3 items-stretch">
+                <div className="flex-1 min-w-0">
+                    <div className="relative h-[360px] border rounded p-3">
+                        {!hasMetricName ? (
+                            <div className="h-full flex items-center justify-center text-secondary text-sm">
+                                Pick a metric to see its time series.
+                            </div>
+                        ) : queryError ? (
+                            <div className="h-full flex items-center justify-center">
+                                <LemonBanner type="error" className="max-w-md">
+                                    {queryError}
+                                </LemonBanner>
+                            </div>
+                        ) : hasResults && viewMode === 'stat' ? (
+                            <MetricStatPanel
+                                title={metricName}
+                                summary={statSummary}
+                                aggregation={aggregation}
+                                total={statTotal}
+                                values={sparklineValues}
+                                labels={sparklineLabels.map(renderLabel)}
+                                anomaly={anomalyBadge}
+                            />
+                        ) : hasResults ? (
+                            <Sparkline
+                                type="line"
+                                data={chartSeries}
+                                labels={sparklineLabels}
+                                className="w-full h-full"
+                                withXScale={withXScale}
+                                renderLabel={renderLabel}
+                            />
+                        ) : !queryResultsLoading ? (
+                            <div className="h-full flex items-center justify-center text-secondary text-sm">
+                                No data for this metric in the selected range.
+                            </div>
+                        ) : null}
+                        {queryResultsLoading && <SpinnerOverlay />}
                     </div>
-                ) : queryError ? (
-                    <div className="h-full flex items-center justify-center">
-                        <LemonBanner type="error" className="max-w-md">
-                            {queryError}
-                        </LemonBanner>
+                    {viewMode === 'chart' && hasResults && <MetricsChartLegend series={chartSeries} />}
+                </div>
+                {viewMode === 'chart' && hasMetricName && (
+                    <div className="xl:w-[26rem] shrink-0 xl:max-h-[360px] flex flex-col">
+                        <MetricsSamplesPanel />
                     </div>
-                ) : hasResults && viewMode === 'stat' ? (
-                    <MetricStatPanel
-                        title={metricName}
-                        summary={statSummary}
-                        aggregation={aggregation}
-                        total={statTotal}
-                        values={sparklineValues}
-                        labels={sparklineLabels.map(renderLabel)}
-                        anomaly={anomalyBadge}
-                    />
-                ) : hasResults ? (
-                    <Sparkline
-                        type="line"
-                        data={chartSeries}
-                        labels={sparklineLabels}
-                        className="w-full h-full"
-                        withXScale={withXScale}
-                        renderLabel={renderLabel}
-                    />
-                ) : !queryResultsLoading ? (
-                    <div className="h-full flex items-center justify-center text-secondary text-sm">
-                        No data for this metric in the selected range.
-                    </div>
-                ) : null}
-                {queryResultsLoading && <SpinnerOverlay />}
+                )}
             </div>
-            {viewMode === 'chart' && hasResults && <MetricsChartLegend series={chartSeries} />}
         </div>
     )
 }
