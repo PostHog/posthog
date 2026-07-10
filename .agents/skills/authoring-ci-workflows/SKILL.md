@@ -137,8 +137,11 @@ A dedicated GitHub App installation is its own bucket — rate-limit headroom pl
   with:
     client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
     private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-  # consumer step:
-  token: ${{ steps.app-token.outputs.token || github.token }}
+
+# a later step consumes the token (falling back to github.token on forks):
+- uses: some-action@<sha>
+  with:
+    token: ${{ steps.app-token.outputs.token || github.token }}
 ```
 
 - **Right-size, don't over-isolate.** One heavy consumer (change detection on a hot matrix) deserves its own app; a long tail of light workflows can share `GITHUB_TOKEN`.
