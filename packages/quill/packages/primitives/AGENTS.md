@@ -680,6 +680,7 @@ Vertical: `<ButtonGroup orientation="vertical">`
 
 Item variants: default, outline, pressable, muted, menuItem
 Item sizes: default, sm, xs
+`<ItemGroup>` spaces items with a gap by default; pass `combined` to merge them into one flush list (no gap, squared interior corners, collapsed shared borders, rounded outer corners — like CardGroup)
 Item tones (the `tone` prop — named `tone`, not `color`, to avoid colliding with the DOM `color` attribute when Base UI render props are spread onto ItemCheckbox/ItemRadio): default, info, success, warning, completed, destructive — a semantic tint orthogonal to `variant`, designed to pair with `variant="pressable"` for colored clickable rows (e.g. `<Item variant="pressable" tone="success" render={<a href="…" />}>`)
 
 ### Avatar

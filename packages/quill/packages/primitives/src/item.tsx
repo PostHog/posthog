@@ -9,13 +9,19 @@ import { cn } from './lib/utils'
 import { RadioIndicator } from './radio-group'
 import { Separator } from './separator'
 
-function ItemGroup({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+function ItemGroup({
+    className,
+    combined = false,
+    ...props
+}: React.ComponentProps<'div'> & { combined?: boolean }): React.ReactElement {
     return (
         <div
             role="list"
             data-slot="item-group"
+            data-combined={combined ? '' : undefined}
             className={cn(
-                'quill-item-group group/item-group flex w-full flex-col gap-4 has-data-[size=sm]:gap-2.5 has-data-[size=xs]:gap-2',
+                'quill-item-group group/item-group flex w-full flex-col',
+                combined ? 'gap-0' : 'gap-4 has-data-[size=sm]:gap-2.5 has-data-[size=xs]:gap-2',
                 className
             )}
             {...props}

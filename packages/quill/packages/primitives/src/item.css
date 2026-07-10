@@ -34,6 +34,29 @@
         border: none;
     }
 
+    /*
+     * Combined ItemGroup — items sit flush as one merged list: no gap (set in
+     * JSX), interior corners squared, adjacent 1px borders collapsed into a
+     * single seam, and only the outer corners rounded. Mirrors CardGroup.
+     */
+    .quill-item-group[data-combined] > .quill-item {
+        border-radius: 0;
+    }
+
+    .quill-item-group[data-combined] > .quill-item:not(:first-child) {
+        margin-top: -1px;
+    }
+
+    .quill-item-group[data-combined] > .quill-item:first-child {
+        border-start-start-radius: var(--radius-sm);
+        border-start-end-radius: var(--radius-sm);
+    }
+
+    .quill-item-group[data-combined] > .quill-item:last-child {
+        border-end-start-radius: var(--radius-sm);
+        border-end-end-radius: var(--radius-sm);
+    }
+
     /* Variants */
     .quill-item--variant-default {
         border-color: var(--card);

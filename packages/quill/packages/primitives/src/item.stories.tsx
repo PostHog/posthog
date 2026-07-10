@@ -128,7 +128,7 @@ export const Tones: Story = {
 export const Group: Story = {
     render: () => (
         <ItemGroup>
-            <ItemGroup>
+            <ItemGroup combined>
                 <Item variant="outline">
                     <ItemContent>
                         <ItemTitle>Basic Item</ItemTitle>
