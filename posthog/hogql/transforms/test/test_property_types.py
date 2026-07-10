@@ -926,6 +926,18 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         hogql = "SELECT count() FROM events WHERE event = 'lhi_test' AND timestamp >= '2024-01-16' AND timestamp < '2024-01-17'"
         self._assert_correct_results(hogql, timezone="Australia/Lord_Howe", expected_count=2)
 
+    @parameterized.expand(["UTC", "America/New_York", "Asia/Tokyo"])
+    def test_iso8601_z_suffixed_filter_value_does_not_error(self, tz):
+        """ISO 8601 filter values with a trailing `Z` must parse (not hit the strict
+        toDateTime64 parser, which throws) and honor the UTC offset regardless of the
+        team timezone — so all three timezones select the same three UTC instants."""
+        hogql = (
+            "SELECT count() FROM events WHERE event = '$pageview' "
+            "AND timestamp >= '2024-03-12T00:00:00.000Z' "
+            "AND timestamp < '2024-03-15T00:00:00.000Z'"
+        )
+        self._assert_correct_results(hogql, timezone=tz, expected_count=3)
+
     def test_constant_gets_timezone_annotation(self):
         """Bare string constants get wrapped with toDateTime64(..., 6, tz)."""
         sql, values = self._compile_hogql(

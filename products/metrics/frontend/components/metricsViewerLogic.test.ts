@@ -99,6 +99,7 @@ describe('metricsViewerLogic', () => {
                     name: 'a',
                     metricName: 'request_duration',
                     aggregation: 'quantile',
+                    metricType: 'histogram',
                     quantile: 0.95,
                     filters: [{ key: 'namespace', op: 'eq', value: 'posthog' }],
                     groupBy: [{ key: 'container' }],
@@ -110,6 +111,30 @@ describe('metricsViewerLogic', () => {
 
     it('produces no MetricsQuery node without a metric name', () => {
         expect(logic.values.metricsQueryNode).toBeNull()
+    })
+
+    // A type outside the API enum (or a metric missing from the picker list) must be
+    // omitted, not persisted — the backend rejects unknown metric types.
+    it('omits metricType from the node when the picked type is unknown', () => {
+        logic.actions.setMetricName('mystery_metric')
+        expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
+    })
+
+    // The picker's items are live search results: typing a new search after picking
+    // a metric replaces them. The picked type must be latched, not derived, or a
+    // save at that moment silently persists an untyped (blendable) query.
+    it('keeps the picked metric type when the picker search results change', () => {
+        logic.actions.setMetricName('queue_depth')
+        metricNamePickerLogic.actions.loadItemsSuccess([{ name: 'http_requests', metric_type: 'sum' }] as any)
+        expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+    })
+
+    it('backfills the metric type when the picker loads after the metric was set', () => {
+        metricNamePickerLogic.actions.loadItemsSuccess([])
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
+        metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
+        expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
     })
 
     // A failed query (bad regex, 500) used to render the same "No data" empty state as a genuinely
