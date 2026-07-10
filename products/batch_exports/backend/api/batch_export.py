@@ -1181,9 +1181,16 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 # An Integration only makes sense for the integration-backed S3 types. Reject it on the
                 # legacy "S3" type
                 # TODO: remove this branch once the legacy "S3" destination type is fully removed
-                if destination_type not in S3_DESTINATION_TO_INTEGRATION_KIND:
+                try:
+                    kind = S3_DESTINATION_TO_INTEGRATION_KIND[destination_type]
+                except KeyError:
                     raise serializers.ValidationError(
                         f"{destination_type} destinations do not support integration-based credentials."
+                    )
+
+                if not integration.kind == kind:
+                    raise serializers.ValidationError(
+                        f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
                     )
 
             # JSONLines is the default file format for S3 exports for legacy reasons
