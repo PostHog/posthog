@@ -9,10 +9,15 @@ from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, MAX_ERROR_TRACE_CHARS, truncate_for_temporal_payload
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
+from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult, RecordExportFailureInputs
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.tasks.failure_handler import SYSTEM_ERROR_NAMES, TIMEOUT_ERROR_NAMES, ExportCancelled
+from products.exports.backend.tasks.failure_handler import (
+    SYSTEM_ERROR_NAMES,
+    TIMEOUT_ERROR_NAMES,
+    ExportCancelled,
+    classify_failure_type,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -72,3 +77,27 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             exported_asset_id=asset.id,
             success=asset.has_content,
         )
+
+
+@temporalio.activity.defn
+async def record_export_failure_activity(inputs: RecordExportFailureInputs) -> None:
+    """Persist a terminal export failure onto the asset as a safety net.
+
+    ``export_asset_direct`` records failures in-process, but a worker that is hard-killed
+    (OOM, activity timeout, pod eviction) never reaches that handler, leaving the asset
+    empty with no exception. The download endpoint can then only surface that silent
+    failure as a bare 404. Once the workflow has exhausted its retries the export is
+    terminally failed, so we record that here. Idempotent: never overwrites content or a
+    more specific exception already recorded in-process.
+    """
+
+    def _record() -> None:
+        asset = ExportedAsset.objects_including_ttl_deleted.get(pk=inputs.exported_asset_id)
+        if asset.has_content or asset.exception:
+            return
+        asset.exception = inputs.message
+        asset.exception_type = inputs.exception_type
+        asset.failure_type = classify_failure_type(inputs.exception_type)
+        asset.save(update_fields=["exception", "exception_type", "failure_type"])
+
+    await database_sync_to_async(_record, thread_sensitive=False)()

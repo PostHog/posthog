@@ -17,9 +17,9 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.exports.activities import export_asset_activity
+from posthog.temporal.exports.activities import export_asset_activity, record_export_failure_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
-from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
+from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult, RecordExportFailureInputs
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded, ExportCancelled
@@ -145,3 +145,53 @@ async def test_export_asset_activity_timeout_errors_are_retryable(
         await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
 
     assert exc_info.value.non_retryable is expected_non_retryable
+
+
+async def test_record_export_failure_activity_records_on_empty_asset(activity_environment, team):
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        export_format=ExportedAsset.ExportFormat.CSV,
+    )
+
+    await activity_environment.run(
+        record_export_failure_activity,
+        RecordExportFailureInputs(
+            exported_asset_id=asset.id,
+            message="Export failed to complete",
+            exception_type="TimeoutError",
+        ),
+    )
+
+    await sync_to_async(asset.refresh_from_db)()
+    assert asset.exception == "Export failed to complete"
+    assert asset.exception_type == "TimeoutError"
+    # TimeoutError classifies as a generation timeout via failure_handler
+    assert asset.failure_type == "timeout_generation"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"exception": "the real error", "exception_type": "QueryError"},
+        {"content": b"already-has-bytes"},
+    ],
+    ids=["existing_exception", "has_content"],
+)
+async def test_record_export_failure_activity_does_not_clobber_terminal_state(activity_environment, team, kwargs):
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        export_format=ExportedAsset.ExportFormat.CSV,
+        **kwargs,
+    )
+
+    await activity_environment.run(
+        record_export_failure_activity,
+        RecordExportFailureInputs(
+            exported_asset_id=asset.id,
+            message="should not overwrite",
+            exception_type="TimeoutError",
+        ),
+    )
+
+    await sync_to_async(asset.refresh_from_db)()
+    assert asset.exception == kwargs.get("exception")

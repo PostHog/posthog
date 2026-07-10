@@ -683,6 +683,58 @@ class TestExports(APIBaseTest):
         stuck_export.refresh_from_db()
         self.assertIsNone(stuck_export.exception)
 
+    def test_content_download_of_failed_export_surfaces_error_not_bare_404(self) -> None:
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard_id=self.dashboard.id,
+            export_format="text/csv",
+            created_by=self.user,
+            content=None,
+            content_location=None,
+            exception="Query exceeded memory limit",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{export.id}/content")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["code"], "export_failed")
+        self.assertIn("Query exceeded memory limit", body["detail"])
+
+    def test_content_download_of_silently_stuck_export_surfaces_error_not_bare_404(self) -> None:
+        with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
+            export = ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.dashboard.id,
+                export_format="text/csv",
+                created_by=self.user,
+                created_at=now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
+                content=None,
+                content_location=None,
+                exception=None,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{export.id}/content")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "export_failed")
+
+    def test_content_download_of_in_progress_export_is_not_ready_not_404(self) -> None:
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard_id=self.dashboard.id,
+            export_format="text/csv",
+            created_by=self.user,
+            content=None,
+            content_location=None,
+            exception=None,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{export.id}/content")
+
+        self.assertEqual(response.status_code, status.HTTP_425_TOO_EARLY)
+        self.assertEqual(response.json()["code"], "export_not_ready")
+
     @parameterized.expand(
         [
             ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
