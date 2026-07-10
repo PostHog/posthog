@@ -1,6 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonTag, Spinner } from '@posthog/lemon-ui'
+import { IconPeople } from '@posthog/icons'
+import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { BarChart } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -48,6 +49,56 @@ function PanelEmpty({ loading, message }: { loading: boolean; message: string })
         )
     }
     return <div className="text-muted text-sm">{message}</div>
+}
+
+function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { scanner, scannerImpact, scannerImpactLoading, affectedCohortLoading } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
+    const { saveAffectedCohort } = useActions(replayScannerLogic({ id: scannerId }))
+
+    // Impact needs a per-type predicate; only the monitor one (verdict-yes) exists without a qualifier.
+    if (scanner?.scanner_type !== 'monitor') {
+        return null
+    }
+    if (!scannerImpact || scannerImpact.affected_sessions === 0) {
+        return (
+            <OverviewPanel title="Impact">
+                <PanelEmpty
+                    loading={scannerImpactLoading}
+                    message={
+                        scannerImpact
+                            ? `No affected sessions in the last ${scannerImpact.window_days} days.`
+                            : "Couldn't load impact counts."
+                    }
+                />
+            </OverviewPanel>
+        )
+    }
+    return (
+        <OverviewPanel title="Impact" subtitle={`last ${scannerImpact.window_days} days`}>
+            <div className="text-sm">
+                Flagged <strong className="tabular-nums">{scannerImpact.affected_sessions.toLocaleString()}</strong>{' '}
+                session{scannerImpact.affected_sessions === 1 ? '' : 's'} from{' '}
+                <strong className="tabular-nums">{scannerImpact.affected_users.toLocaleString()}</strong> user
+                {scannerImpact.affected_users === 1 ? '' : 's'}
+                {scannerImpact.sessions_without_user > 0 && (
+                    <span className="text-muted"> ({scannerImpact.sessions_without_user} without a user)</span>
+                )}
+            </div>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPeople />}
+                onClick={() => saveAffectedCohort()}
+                loading={affectedCohortLoading}
+                disabledReason={scannerImpact.affected_users === 0 ? 'No users to save' : undefined}
+                data-attr="vision-save-affected-cohort"
+            >
+                Save as cohort
+            </LemonButton>
+        </OverviewPanel>
+    )
 }
 
 function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
@@ -100,9 +151,15 @@ function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
 }
 
 function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const { scanner, classifierTagStats, hasActiveObservationFilters, observationStatsApiLoading } = useValues(
-        replayScannerLogic({ id: scannerId })
-    )
+    const {
+        scanner,
+        classifierTagStats,
+        hasActiveObservationFilters,
+        observationStatsApiLoading,
+        affectedCohortLoading,
+        savingCohortTag,
+    } = useValues(replayScannerLogic({ id: scannerId }))
+    const { saveAffectedCohort } = useActions(replayScannerLogic({ id: scannerId }))
     const { fixedRanked, freeformRanked } = classifierTagStats
     // Wait for the scanner config — without it `freeformAllowed` defaults to `false` and the panel flashes the
     // "disabled" copy while the config is still loading.
@@ -135,6 +192,19 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                         <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
                             {count.toLocaleString()}
                         </span>
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconPeople />}
+                            tooltip={`Save users tagged "${tag}" as a cohort`}
+                            onClick={() => saveAffectedCohort(tag)}
+                            loading={affectedCohortLoading && savingCohortTag === tag}
+                            disabledReason={
+                                affectedCohortLoading && savingCohortTag !== tag
+                                    ? 'Another cohort is being created'
+                                    : undefined
+                            }
+                            data-attr="vision-save-tag-cohort"
+                        />
                     </div>
                 ))}
             </div>
@@ -234,13 +304,21 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
                 </div>
                 {/* The histogram fills to match the taller line chart, so the row has no dead space (stretch is the grid default). */}
                 <div className="min-w-0">{typeOverview}</div>
+                <div className="min-w-0">
+                    <ImpactOverview scannerId={scannerId} />
+                </div>
             </div>
         )
     }
     return (
         <div className="space-y-4">
             {showChart && <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />}
-            {typeOverview}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {typeOverview && <div className="min-w-0">{typeOverview}</div>}
+                <div className="min-w-0">
+                    <ImpactOverview scannerId={scannerId} />
+                </div>
+            </div>
         </div>
     )
 }
