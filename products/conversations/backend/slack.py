@@ -766,10 +766,13 @@ NUDGE_CLASSIFIER_FLAG = "product-support-nudge-llm-classifier"
 # "skipped" = a gate was closed (AI consent, rollout flag, gateway config) so the classifier
 # never ran; "error" = it ran but the gateway call failed and we fell back to heuristics.
 NudgeClassifierVerdict = Literal["yes", "no", "skipped", "error"]
+# The funnel events additionally see "unknown": button clicks echo the verdict back from
+# Slack, and prompts posted before the verdict was stamped into the button value lack it.
+NudgeFunnelVerdict = NudgeClassifierVerdict | Literal["unknown"]
 
 
 def nudge_event_properties(
-    slack_channel_id: str, slack_thread_ts: str, slack_user_id: str, classifier_verdict: str
+    slack_channel_id: str, slack_thread_ts: str, slack_user_id: str, classifier_verdict: NudgeFunnelVerdict
 ) -> dict[str, Any]:
     """Shared property shape for the nudge funnel events ("support nudge sent" /
     "support nudge suppressed" / the button-click events). ``slack_thread_ts`` is the

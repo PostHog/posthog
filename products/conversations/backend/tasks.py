@@ -4,7 +4,7 @@ import html as html_mod
 import json
 from datetime import datetime, timedelta
 from email.utils import formataddr
-from typing import Any, cast
+from typing import Any, cast, get_args
 from urllib.parse import quote, urlparse
 from uuid import UUID
 
@@ -59,6 +59,8 @@ from products.conversations.backend.services.attachments import CONVERSATIONS_MA
 from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
+    NudgeClassifierVerdict,
+    NudgeFunnelVerdict,
     capture_nudge_event,
     create_ticket_from_confirmation,
     get_bot_user_id,
@@ -259,12 +261,16 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
             value = {}
         source_channel = value.get("channel", "")
         source_message_ts = value.get("message_ts", "")
-        # Echoed back from the prompt's button value; "unknown" for prompts posted before
-        # the verdict was stamped in. slack_user_id here is the clicker, not necessarily
+        # Echoed back from the prompt's button value, normalized at the trust boundary: the
+        # value round-trips through Slack, and prompts posted before the verdict was stamped
+        # in lack the key entirely — anything off-vocabulary becomes "unknown" so the funnel
+        # property never carries junk. slack_user_id here is the clicker, not necessarily
         # the nudged author — buttons are clickable by anyone in the channel.
-        click_properties = nudge_event_properties(
-            source_channel, source_message_ts, clicker, value.get("classifier") or "unknown"
+        raw_verdict = value.get("classifier")
+        classifier_verdict: NudgeFunnelVerdict = (
+            raw_verdict if raw_verdict in get_args(NudgeClassifierVerdict) else "unknown"
         )
+        click_properties = nudge_event_properties(source_channel, source_message_ts, clicker, classifier_verdict)
 
         if action_id == TICKET_CONFIRM_ACTION_DISMISS:
             _delete_supporthog_prompt(team, prompt_channel, prompt_ts)
