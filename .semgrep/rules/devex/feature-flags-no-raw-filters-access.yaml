@@ -1,0 +1,63 @@
+rules:
+    - id: feature-flags-no-raw-filters-access
+      message: |
+          Raw access to `FeatureFlag.filters` internals outside `products/feature_flags/`.
+          The `filters` JSON shape (groups, multivariate, payloads, super_groups, holdout_groups)
+          is owned by the feature flags product and is changing with rule-level flags (RFC #1097).
+
+          Read through the model's public accessors (`flag.variants`,
+          `flag.aggregation_group_type_index`, `flag.get_payload(...)`) or a facade capability in
+          `products/feature_flags/backend/facade/` instead of digging into the JSON, and write
+          through the facade's gated write path instead of mutating `flag.filters` directly.
+
+          Files listed under `paths.exclude` are the pre-existing offender baseline being migrated
+          behind the facade — do not add new ones. For a genuine exception, add
+          `# nosemgrep: feature-flags-no-raw-filters-access -- <reason>` on the line.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - 'common/**/*.py'
+              - 'ee/**/*.py'
+              - 'posthog/**/*.py'
+              - 'products/**/*.py'
+          exclude:
+              # The flag product owns the filters schema
+              - '**/products/feature_flags/**'
+              # Test fixtures may build filters directly
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/conftest*.py'
+              - '**/migrations/**'
+              # Baseline: pre-existing offenders being migrated behind the flag
+              # facade. Shrink this list — never grow it.
+              - '/ee/hogai/context/experiment/context.py'
+              - '/posthog/api/web_experiment.py'
+              - '/posthog/management/commands/fix_invalid_flag_property_types.py'
+              - '/posthog/models/product_intent/product_intent.py'
+              - '/posthog/tasks/update_survey_adaptive_sampling.py'
+              - '/posthog/tasks/update_survey_iteration.py'
+              - '/products/early_access_features/backend/api.py'
+              - '/products/early_access_features/backend/apps.py'
+              - '/products/experiments/backend/experiment_service.py'
+              - '/products/experiments/backend/experiment_summary_data_service.py'
+              - '/products/experiments/backend/hogql_queries/experiment_query_runner.py'
+              - '/products/experiments/backend/max_tools.py'
+              - '/products/product_tours/backend/api/product_tour.py'
+      patterns:
+          - pattern-either:
+                - pattern: $FLAG.filters[$KEY]
+                - pattern: $FLAG.filters.get(...)
+                - pattern: $FLAG.filters.setdefault(...)
+                - pattern: $FLAG.filters.pop(...)
+                - pattern: $FLAG.filters.update(...)
+                - pattern: $FLAG.filters = $V
+          - metavariable-regex:
+                metavariable: $FLAG
+                regex: (?i)^(.*flag.*|ff)$
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit
