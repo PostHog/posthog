@@ -157,9 +157,14 @@ class TestPrinter(BaseTest):
 
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str) -> str:
         if "%" in property_name:
-            # '%' cannot appear in a subcolumn identifier, so the read falls back to a JSON extract
-            # over the reconstructed properties blob.
-            return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({self._json_reconstructed_blob(root)}, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
+            subcolumns = [f"getSubcolumn({root}, %(hogql_val_{index})s)" for index in range(10)]
+            return (
+                f"if(notEquals(toJSONString({subcolumns[0]}), '{{}}'), toJSONString({subcolumns[1]}), "
+                f"if(isNull({subcolumns[2]}), NULL, if(startsWith(dynamicType({subcolumns[3]}), 'DateTime'), "
+                f"replaceOne(toString({subcolumns[4]}), ' ', 'T'), if(or(startsWith(dynamicType({subcolumns[5]}), "
+                f"'Array'), startsWith(dynamicType({subcolumns[6]}), 'Map'), startsWith(dynamicType({subcolumns[7]}), "
+                f"'Tuple')), toJSONString({subcolumns[8]}), toString({subcolumns[9]})))))"
+            )
         return self._json_dynamic_subcolumn_path_expr(root, [property_name])
 
     def _json_dynamic_subcolumn_path_expr(self, root: str, property_path: list[str]) -> str:
@@ -170,7 +175,9 @@ class TestPrinter(BaseTest):
         scalar_read = (
             f"if(isNull({field}), NULL, "
             f"if(startsWith(dynamicType({field}), 'DateTime'), "
-            f"replaceOne(toString({field}), ' ', 'T'), toString({field})))"
+            f"replaceOne(toString({field}), ' ', 'T'), "
+            f"if(or(startsWith(dynamicType({field}), 'Array'), startsWith(dynamicType({field}), 'Map'), "
+            f"startsWith(dynamicType({field}), 'Tuple')), toJSONString({field}), toString({field}))))"
         )
         return f"if(notEquals({object_read}, '{{}}'), {object_read}, {scalar_read})"
 
@@ -1307,20 +1314,21 @@ class TestPrinter(BaseTest):
             sql = self._select("SELECT event FROM events")
         self.assertIn("FROM events_json", sql)
 
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_instance_setting_team_allowlist_enables_new_events_schema(self) -> None:
-        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", f" 999999, {self.team.pk} "):
-            sql = self._select("SELECT event FROM events")
-        self.assertIn("FROM events_json", sql)
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False):
+            with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", f" 999999, {self.team.pk} "):
+                sql = self._select("SELECT event FROM events")
+            self.assertIn("FROM events_json", sql)
 
-        # A list naming only other teams must not flip this team.
-        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "999999"):
-            sql = self._select("SELECT event FROM events")
-        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            # A list naming only other teams must not flip this team.
+            with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "999999"):
+                sql = self._select("SELECT event FROM events")
             self.assertNotIn("FROM events_json", sql)
 
-        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "invalid"):
-            with pytest.raises(ValueError):
-                self._select("SELECT event FROM events")
+            with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "invalid"):
+                with pytest.raises(ValueError):
+                    self._select("SELECT event FROM events")
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_percent_property_keys_use_bound_subcolumns(self) -> None:
@@ -5097,19 +5105,30 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             sync_execute(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")
 
-    def _json_dynamic_subcolumn_expr(self, root: str, property_name: str) -> str:
+    def _json_dynamic_subcolumn_expr(self, root: str, property_name: str, *, as_json: bool = False) -> str:
         escaped = escape_clickhouse_identifier(property_name)
         field = f"{root}.{escaped}"
         object_read = f"toJSONString({root}.^{escaped})"
-        scalar_read = (
-            f"if(isNull({field}), NULL, "
-            f"if(startsWith(dynamicType({field}), 'DateTime'), "
-            f"replaceOne(toString({field}), ' ', 'T'), toString({field})))"
+        scalar_value = (
+            f"concat('\"', ifNull(toString(replaceOne(toString({field}), ' ', 'T')), ''), '\"')"
+            if as_json
+            else f"replaceOne(toString({field}), ' ', 'T')"
         )
+        fallback_value = (
+            f"toJSONString({field})"
+            if as_json
+            else (
+                f"if(or(startsWith(dynamicType({field}), 'Array'), startsWith(dynamicType({field}), 'Map'), "
+                f"startsWith(dynamicType({field}), 'Tuple')), toJSONString({field}), toString({field}))"
+            )
+        )
+        scalar_read = f"if(isNull({field}), NULL, if(startsWith(dynamicType({field}), 'DateTime'), {scalar_value}, {fallback_value}))"
         return f"if(notEquals({object_read}, '{{}}'), {object_read}, {scalar_read})"
 
-    def _json_dynamic_property_expr(self, property_name: str, table_alias: str = "events") -> str:
-        return self._json_dynamic_subcolumn_expr(f"{table_alias}.properties", property_name)
+    def _json_dynamic_property_expr(
+        self, property_name: str, table_alias: str = "events", *, as_json: bool = False
+    ) -> str:
+        return self._json_dynamic_subcolumn_expr(f"{table_alias}.properties", property_name, as_json=as_json)
 
     def _expr(
         self,
@@ -6367,7 +6386,9 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             printed = self._expr("JSONExtractString(properties, 'test_prop')")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                assert printed == self._json_dynamic_property_expr("test_prop")
+                assert printed == (
+                    f"JSONExtractString(ifNull({self._json_dynamic_property_expr('test_prop', as_json=True)}, ''))"
+                )
                 assert mat_col.name not in printed
             else:
                 assert printed == f"nullIf(nullIf(events.{mat_col.name}, ''), 'null')"
@@ -6391,7 +6412,9 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
         assert "mat_numeric_prop" not in printed
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert printed == self._json_dynamic_property_expr("numeric_prop")
+            assert printed == (
+                f"JSONExtractString(ifNull({self._json_dynamic_property_expr('numeric_prop', as_json=True)}, ''))"
+            )
         else:
             assert "JSONExtractString(events.properties" in printed
 

@@ -1354,7 +1354,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "if(isNull(events.properties.string), NULL, "
                     "if(startsWith(dynamicType(events.properties.string), 'DateTime'), "
                     "replaceOne(toString(events.properties.string), ' ', 'T'), "
-                    "toString(events.properties.string)))) AS string",
+                    "if(or(startsWith(dynamicType(events.properties.string), 'Array'), "
+                    "startsWith(dynamicType(events.properties.string), 'Map'), "
+                    "startsWith(dynamicType(events.properties.string), 'Tuple')), "
+                    "toJSONString(events.properties.string), toString(events.properties.string))))) AS string",
                     clickhouse,
                 )
                 self.assertNotIn("JSONExtractRaw(events.properties,", clickhouse)

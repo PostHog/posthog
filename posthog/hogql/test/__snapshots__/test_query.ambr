@@ -251,7 +251,7 @@
   -- ClickHouse
   SELECT events.event AS event, events.distinct_id AS distinct_id 
   FROM events_json AS events 
-  WHERE and(equals(events.team_id, 99999), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))), %(hogql_val_1)s), 0), less(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')))) 
+  WHERE and(equals(events.team_id, 99999), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.index), 'Array'), startsWith(dynamicType(events.properties.index), 'Map'), startsWith(dynamicType(events.properties.index), 'Tuple')), toJSONString(events.properties.index), toString(events.properties.index))))), %(hogql_val_1)s), 0), less(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')))) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -276,7 +276,7 @@
   -- ClickHouse
   SELECT events.event AS event, events.distinct_id AS distinct_id 
   FROM events_json AS events 
-  WHERE and(equals(events.team_id, 99999), equals(events.distinct_id, %(hogql_val_0)s), ifNull(equals(if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))), %(hogql_val_1)s), 0)) 
+  WHERE and(equals(events.team_id, 99999), equals(events.distinct_id, %(hogql_val_0)s), ifNull(equals(if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.index), 'Array'), startsWith(dynamicType(events.properties.index), 'Map'), startsWith(dynamicType(events.properties.index), 'Tuple')), toJSONString(events.properties.index), toString(events.properties.index))))), %(hogql_val_1)s), 0)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -308,7 +308,7 @@
   -- ClickHouse
   SELECT e.event AS event, e.distinct_id AS distinct_id 
   FROM events_json AS e 
-  WHERE and(equals(e.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(e.properties.^random_uuid), '{}'), toJSONString(e.properties.^random_uuid), if(isNull(e.properties.random_uuid), NULL, if(startsWith(dynamicType(e.properties.random_uuid), 'DateTime'), replaceOne(toString(e.properties.random_uuid), ' ', 'T'), toString(e.properties.random_uuid)))), %(hogql_val_0)s), 0)) 
+  WHERE and(equals(e.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(e.properties.^random_uuid), '{}'), toJSONString(e.properties.^random_uuid), if(isNull(e.properties.random_uuid), NULL, if(startsWith(dynamicType(e.properties.random_uuid), 'DateTime'), replaceOne(toString(e.properties.random_uuid), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.random_uuid), 'Array'), startsWith(dynamicType(e.properties.random_uuid), 'Map'), startsWith(dynamicType(e.properties.random_uuid), 'Tuple')), toJSONString(e.properties.random_uuid), toString(e.properties.random_uuid))))), %(hogql_val_0)s), 0)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -440,7 +440,7 @@
 # name: TestQuery.test_hogql_unnecessary_ifnull[new_events_schema]
   '''
   -- ClickHouse
-  SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, ifNull(accurateCastOrNull(events.properties.field, %(hogql_val_1)s), 0) AS json_int 
+  SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, JSONExtractInt(ifNull(if(notEquals(toJSONString(events.properties.^field), '{}'), toJSONString(events.properties.^field), if(isNull(events.properties.field), NULL, if(startsWith(dynamicType(events.properties.field), 'DateTime'), concat('"', ifNull(toString(replaceOne(toString(events.properties.field), ' ', 'T')), ''), '"'), toJSONString(events.properties.field)))), '')) AS json_int 
   FROM events_json AS events 
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(timestamp, addDays(today(), -10)), equals(json_int, 17)) 
   LIMIT 1 
@@ -563,9 +563,9 @@
   -- ClickHouse
   SELECT e.event AS event, s.session_id AS session_id 
   FROM (
-    SELECT e.event AS event, if(notEquals(toJSONString(e.properties.^`$$$session_id`), '{}'), toJSONString(e.properties.^`$$$session_id`), if(isNull(e.properties.`$$$session_id`), NULL, if(startsWith(dynamicType(e.properties.`$$$session_id`), 'DateTime'), replaceOne(toString(e.properties.`$$$session_id`), ' ', 'T'), toString(e.properties.`$$$session_id`)))) AS `properties__$$$session_id` 
+    SELECT e.event AS event, if(notEquals(toJSONString(e.properties.^`$$$session_id`), '{}'), toJSONString(e.properties.^`$$$session_id`), if(isNull(e.properties.`$$$session_id`), NULL, if(startsWith(dynamicType(e.properties.`$$$session_id`), 'DateTime'), replaceOne(toString(e.properties.`$$$session_id`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$$$session_id`), 'Array'), startsWith(dynamicType(e.properties.`$$$session_id`), 'Map'), startsWith(dynamicType(e.properties.`$$$session_id`), 'Tuple')), toJSONString(e.properties.`$$$session_id`), toString(e.properties.`$$$session_id`))))) AS `properties__$$$session_id` 
     FROM events_json AS e 
-    WHERE and(equals(e.team_id, 99999), isNotNull(if(notEquals(toJSONString(e.properties.^`$$$session_id`), '{}'), toJSONString(e.properties.^`$$$session_id`), if(isNull(e.properties.`$$$session_id`), NULL, if(startsWith(dynamicType(e.properties.`$$$session_id`), 'DateTime'), replaceOne(toString(e.properties.`$$$session_id`), ' ', 'T'), toString(e.properties.`$$$session_id`)))))) 
+    WHERE and(equals(e.team_id, 99999), isNotNull(if(notEquals(toJSONString(e.properties.^`$$$session_id`), '{}'), toJSONString(e.properties.^`$$$session_id`), if(isNull(e.properties.`$$$session_id`), NULL, if(startsWith(dynamicType(e.properties.`$$$session_id`), 'DateTime'), replaceOne(toString(e.properties.`$$$session_id`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$$$session_id`), 'Array'), startsWith(dynamicType(e.properties.`$$$session_id`), 'Map'), startsWith(dynamicType(e.properties.`$$$session_id`), 'Tuple')), toJSONString(e.properties.`$$$session_id`), toString(e.properties.`$$$session_id`))))))) 
     LIMIT 10) AS e LEFT JOIN (
     SELECT session_replay_events.session_id AS session_id 
     FROM session_replay_events 
@@ -836,7 +836,7 @@
   -- ClickHouse
   SELECT count() AS `count()`, events.event AS event 
   FROM events_json AS events 
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^random_uuid), '{}'), toJSONString(events.properties.^random_uuid), if(isNull(events.properties.random_uuid), NULL, if(startsWith(dynamicType(events.properties.random_uuid), 'DateTime'), replaceOne(toString(events.properties.random_uuid), ' ', 'T'), toString(events.properties.random_uuid)))), %(hogql_val_0)s), 0)) 
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^random_uuid), '{}'), toJSONString(events.properties.^random_uuid), if(isNull(events.properties.random_uuid), NULL, if(startsWith(dynamicType(events.properties.random_uuid), 'DateTime'), replaceOne(toString(events.properties.random_uuid), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.random_uuid), 'Array'), startsWith(dynamicType(events.properties.random_uuid), 'Map'), startsWith(dynamicType(events.properties.random_uuid), 'Tuple')), toJSONString(events.properties.random_uuid), toString(events.properties.random_uuid))))), %(hogql_val_0)s), 0)) 
   GROUP BY events.event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
@@ -1698,7 +1698,7 @@
 # name: TestQuery.test_query_select_person_with_poe_without_joins[new_events_schema]
   '''
   -- ClickHouse
-  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.person_id AS id, if(notEquals(toJSONString(events.person_properties.^sneaky_mail), '{}'), toJSONString(events.person_properties.^sneaky_mail), if(isNull(events.person_properties.sneaky_mail), NULL, if(startsWith(dynamicType(events.person_properties.sneaky_mail), 'DateTime'), replaceOne(toString(events.person_properties.sneaky_mail), ' ', 'T'), toString(events.person_properties.sneaky_mail)))) AS sneaky_mail 
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.person_id AS id, if(notEquals(toJSONString(events.person_properties.^sneaky_mail), '{}'), toJSONString(events.person_properties.^sneaky_mail), if(isNull(events.person_properties.sneaky_mail), NULL, if(startsWith(dynamicType(events.person_properties.sneaky_mail), 'DateTime'), replaceOne(toString(events.person_properties.sneaky_mail), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.sneaky_mail), 'Array'), startsWith(dynamicType(events.person_properties.sneaky_mail), 'Map'), startsWith(dynamicType(events.person_properties.sneaky_mail), 'Tuple')), toJSONString(events.person_properties.sneaky_mail), toString(events.person_properties.sneaky_mail))))) AS sneaky_mail 
   FROM events_json AS events 
   WHERE equals(events.team_id, 99999) 
   LIMIT 10 
@@ -1730,10 +1730,10 @@
 # name: TestQuery.test_select_person_on_events[new_events_schema]
   '''
   -- ClickHouse
-  SELECT if(notEquals(toJSONString(s.person_properties.^sneaky_mail), '{}'), toJSONString(s.person_properties.^sneaky_mail), if(isNull(s.person_properties.sneaky_mail), NULL, if(startsWith(dynamicType(s.person_properties.sneaky_mail), 'DateTime'), replaceOne(toString(s.person_properties.sneaky_mail), ' ', 'T'), toString(s.person_properties.sneaky_mail)))) AS sneaky_mail, count() AS `count()` 
+  SELECT if(notEquals(toJSONString(s.person_properties.^sneaky_mail), '{}'), toJSONString(s.person_properties.^sneaky_mail), if(isNull(s.person_properties.sneaky_mail), NULL, if(startsWith(dynamicType(s.person_properties.sneaky_mail), 'DateTime'), replaceOne(toString(s.person_properties.sneaky_mail), ' ', 'T'), if(or(startsWith(dynamicType(s.person_properties.sneaky_mail), 'Array'), startsWith(dynamicType(s.person_properties.sneaky_mail), 'Map'), startsWith(dynamicType(s.person_properties.sneaky_mail), 'Tuple')), toJSONString(s.person_properties.sneaky_mail), toString(s.person_properties.sneaky_mail))))) AS sneaky_mail, count() AS `count()` 
   FROM events_json AS s 
   WHERE equals(s.team_id, 99999) 
-  GROUP BY if(notEquals(toJSONString(s.person_properties.^sneaky_mail), '{}'), toJSONString(s.person_properties.^sneaky_mail), if(isNull(s.person_properties.sneaky_mail), NULL, if(startsWith(dynamicType(s.person_properties.sneaky_mail), 'DateTime'), replaceOne(toString(s.person_properties.sneaky_mail), ' ', 'T'), toString(s.person_properties.sneaky_mail)))) 
+  GROUP BY if(notEquals(toJSONString(s.person_properties.^sneaky_mail), '{}'), toJSONString(s.person_properties.^sneaky_mail), if(isNull(s.person_properties.sneaky_mail), NULL, if(startsWith(dynamicType(s.person_properties.sneaky_mail), 'DateTime'), replaceOne(toString(s.person_properties.sneaky_mail), ' ', 'T'), if(or(startsWith(dynamicType(s.person_properties.sneaky_mail), 'Array'), startsWith(dynamicType(s.person_properties.sneaky_mail), 'Map'), startsWith(dynamicType(s.person_properties.sneaky_mail), 'Tuple')), toJSONString(s.person_properties.sneaky_mail), toString(s.person_properties.sneaky_mail))))) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -1775,7 +1775,7 @@
   FROM (
     SELECT count() AS cnt, events.event AS event 
     FROM events_json AS events 
-    WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^random_uuid), '{}'), toJSONString(events.properties.^random_uuid), if(isNull(events.properties.random_uuid), NULL, if(startsWith(dynamicType(events.properties.random_uuid), 'DateTime'), replaceOne(toString(events.properties.random_uuid), ' ', 'T'), toString(events.properties.random_uuid)))), %(hogql_val_0)s), 0)) 
+    WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^random_uuid), '{}'), toJSONString(events.properties.^random_uuid), if(isNull(events.properties.random_uuid), NULL, if(startsWith(dynamicType(events.properties.random_uuid), 'DateTime'), replaceOne(toString(events.properties.random_uuid), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.random_uuid), 'Array'), startsWith(dynamicType(events.properties.random_uuid), 'Map'), startsWith(dynamicType(events.properties.random_uuid), 'Tuple')), toJSONString(events.properties.random_uuid), toString(events.properties.random_uuid))))), %(hogql_val_0)s), 0)) 
     GROUP BY events.event) 
   GROUP BY cnt, event 
   LIMIT 100 
@@ -1823,7 +1823,7 @@
   FROM (
     SELECT count(*) AS cnt, events.event AS event 
     FROM events_json AS events 
-    WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^random_uuid), '{}'), toJSONString(events.properties.^random_uuid), if(isNull(events.properties.random_uuid), NULL, if(startsWith(dynamicType(events.properties.random_uuid), 'DateTime'), replaceOne(toString(events.properties.random_uuid), ' ', 'T'), toString(events.properties.random_uuid)))), %(hogql_val_0)s), 0)) 
+    WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^random_uuid), '{}'), toJSONString(events.properties.^random_uuid), if(isNull(events.properties.random_uuid), NULL, if(startsWith(dynamicType(events.properties.random_uuid), 'DateTime'), replaceOne(toString(events.properties.random_uuid), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.random_uuid), 'Array'), startsWith(dynamicType(events.properties.random_uuid), 'Map'), startsWith(dynamicType(events.properties.random_uuid), 'Tuple')), toJSONString(events.properties.random_uuid), toString(events.properties.random_uuid))))), %(hogql_val_0)s), 0)) 
     GROUP BY events.event) AS c 
   GROUP BY c.cnt, c.event 
   LIMIT 100 
@@ -1878,10 +1878,10 @@
   FROM (
     SELECT col_a AS col_a, groupArray(tuple(col_b, col_c)) AS g 
     FROM (
-      SELECT if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))) AS col_a, events.event AS col_b, count() AS col_c 
+      SELECT if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.index), 'Array'), startsWith(dynamicType(events.properties.index), 'Map'), startsWith(dynamicType(events.properties.index), 'Tuple')), toJSONString(events.properties.index), toString(events.properties.index))))) AS col_a, events.event AS col_b, count() AS col_c 
       FROM events_json AS events 
       WHERE equals(events.team_id, 99999) 
-      GROUP BY if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))), events.event) 
+      GROUP BY if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.index), 'Array'), startsWith(dynamicType(events.properties.index), 'Map'), startsWith(dynamicType(events.properties.index), 'Tuple')), toJSONString(events.properties.index), toString(events.properties.index))))), events.event) 
     GROUP BY col_a) 
   GROUP BY col_a 
   ORDER BY col_a ASC 
@@ -1943,10 +1943,10 @@
   '''
   -- ClickHouse
   WITH PIVOT_TABLE_COL_ABC AS (
-    SELECT if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))) AS col_a, events.event AS col_b, count() AS col_c 
+    SELECT if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.index), 'Array'), startsWith(dynamicType(events.properties.index), 'Map'), startsWith(dynamicType(events.properties.index), 'Tuple')), toJSONString(events.properties.index), toString(events.properties.index))))) AS col_a, events.event AS col_b, count() AS col_c 
     FROM events_json AS events 
     WHERE equals(events.team_id, 99999) 
-    GROUP BY if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))), events.event), PIVOT_FUNCTION_1 AS (
+    GROUP BY if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.index), 'Array'), startsWith(dynamicType(events.properties.index), 'Map'), startsWith(dynamicType(events.properties.index), 'Tuple')), toJSONString(events.properties.index), toString(events.properties.index))))), events.event), PIVOT_FUNCTION_1 AS (
     SELECT PIVOT_TABLE_COL_ABC.col_a AS col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
     FROM PIVOT_TABLE_COL_ABC 
     GROUP BY PIVOT_TABLE_COL_ABC.col_a), PIVOT_FUNCTION_2 AS (
@@ -2021,10 +2021,10 @@
   '''
   -- ClickHouse
   WITH PIVOT_TABLE_COL_ABC AS (
-    SELECT if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))) AS col_a, events.event AS col_b, count() AS col_c 
+    SELECT if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.index), 'Array'), startsWith(dynamicType(events.properties.index), 'Map'), startsWith(dynamicType(events.properties.index), 'Tuple')), toJSONString(events.properties.index), toString(events.properties.index))))) AS col_a, events.event AS col_b, count() AS col_c 
     FROM events_json AS events 
     WHERE equals(events.team_id, 99999) 
-    GROUP BY if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))), events.event), PIVOT_FUNCTION_1 AS (
+    GROUP BY if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.index), 'Array'), startsWith(dynamicType(events.properties.index), 'Map'), startsWith(dynamicType(events.properties.index), 'Tuple')), toJSONString(events.properties.index), toString(events.properties.index))))), events.event), PIVOT_FUNCTION_1 AS (
     SELECT PIVOT_TABLE_COL_ABC.col_a AS col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
     FROM PIVOT_TABLE_COL_ABC 
     GROUP BY PIVOT_TABLE_COL_ABC.col_a), PIVOT_FUNCTION_2 AS (

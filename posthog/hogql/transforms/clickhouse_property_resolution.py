@@ -413,7 +413,7 @@ def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.E
                     exprs=[
                         ast.Call(
                             name="startsWith",
-                            args=[clone_expr(dynamic_type), _const(family)],
+                            args=[clone_expr(dynamic_type), _sentinel(family)],
                             type=ast.BooleanType(nullable=False),
                         )
                         for family in ("Array", "Map", "Tuple")

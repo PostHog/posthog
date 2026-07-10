@@ -93,10 +93,11 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
 # fixed scrubbing markers property resolution emits — the nullIf ''/'null' sentinels, the quote-trim regex, and the
 # 'true'/'false' the property-group map stores booleans as. The printer refuses to inline anything else, so the flag can
 # never be turned into an unparameterized read of arbitrary (e.g. user-supplied) text.
-# The last five are the structural literals of the dynamic-JSON property read (object-arm empty check,
-# DateTime detection/ISO compensation, and JSON quoting) — fixed strings, inlined to keep the printed
-# expression stable instead of burning four parameters per property read.
-INLINE_SENTINEL_LITERALS = frozenset({"", "null", "true", "false", '^"|"$', "{}", "DateTime", " ", "T", '"'})
+# The remaining values are structural literals of the dynamic-JSON property read, inlined to keep the printed
+# expression stable instead of burning parameters per property read.
+INLINE_SENTINEL_LITERALS = frozenset(
+    {"", "null", "true", "false", '^"|"$', "{}", "DateTime", "Array", "Map", "Tuple", " ", "T", '"'}
+)
 
 
 class ClickHousePrinter(BasePrinter):

@@ -122,7 +122,7 @@
 # name: TestPropertyTypes.test_resolve_property_types_event[new_events_schema]
   '''
   
-  SELECT multiply(accurateCastOrNull(nullIf(nullIf(events.properties.`$screen_width`, ''), 'null'), %(hogql_val_0)s), accurateCastOrNull(nullIf(nullIf(events.properties.`$screen_height`, ''), 'null'), %(hogql_val_1)s)), accurateCastOrNull(transform(toString(if(notEquals(toJSONString(events.properties.^bool), '{}'), toJSONString(events.properties.^bool), if(isNull(events.properties.bool), NULL, if(startsWith(dynamicType(events.properties.bool), 'DateTime'), replaceOne(toString(events.properties.bool), ' ', 'T'), toString(events.properties.bool))))), %(hogql_val_2)s, %(hogql_val_3)s, NULL), %(hogql_val_4)s) AS bool
+  SELECT multiply(accurateCastOrNull(nullIf(nullIf(events.properties.`$screen_width`, ''), 'null'), %(hogql_val_0)s), accurateCastOrNull(nullIf(nullIf(events.properties.`$screen_height`, ''), 'null'), %(hogql_val_1)s)), accurateCastOrNull(transform(toString(if(notEquals(toJSONString(events.properties.^bool), '{}'), toJSONString(events.properties.^bool), if(isNull(events.properties.bool), NULL, if(startsWith(dynamicType(events.properties.bool), 'DateTime'), replaceOne(toString(events.properties.bool), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.bool), 'Array'), startsWith(dynamicType(events.properties.bool), 'Map'), startsWith(dynamicType(events.properties.bool), 'Tuple')), toJSONString(events.properties.bool), toString(events.properties.bool)))))), %(hogql_val_2)s, %(hogql_val_3)s, NULL), %(hogql_val_4)s) AS bool
   FROM events_json AS events
   WHERE equals(events.team_id, 420)
   LIMIT 50000
@@ -182,7 +182,7 @@
 # name: TestPropertyTypes.test_resolve_property_types_event_person_poe_on[new_events_schema]
   '''
   
-  SELECT parseDateTime64BestEffortOrNull(if(notEquals(toJSONString(events.person_properties.^provided_timestamp), '{}'), toJSONString(events.person_properties.^provided_timestamp), if(isNull(events.person_properties.provided_timestamp), NULL, if(startsWith(dynamicType(events.person_properties.provided_timestamp), 'DateTime'), replaceOne(toString(events.person_properties.provided_timestamp), ' ', 'T'), toString(events.person_properties.provided_timestamp)))), 6, %(hogql_val_0)s) AS provided_timestamp
+  SELECT parseDateTime64BestEffortOrNull(if(notEquals(toJSONString(events.person_properties.^provided_timestamp), '{}'), toJSONString(events.person_properties.^provided_timestamp), if(isNull(events.person_properties.provided_timestamp), NULL, if(startsWith(dynamicType(events.person_properties.provided_timestamp), 'DateTime'), replaceOne(toString(events.person_properties.provided_timestamp), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.provided_timestamp), 'Array'), startsWith(dynamicType(events.person_properties.provided_timestamp), 'Map'), startsWith(dynamicType(events.person_properties.provided_timestamp), 'Tuple')), toJSONString(events.person_properties.provided_timestamp), toString(events.person_properties.provided_timestamp))))), 6, %(hogql_val_0)s) AS provided_timestamp
   FROM events_json AS events
   WHERE equals(events.team_id, 420)
   LIMIT 50000
