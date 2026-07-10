@@ -28,8 +28,13 @@ def get_s3_client():
 
 @contextlib.asynccontextmanager
 async def aget_s3_client():
-    # Defaults for localhost dev and test suites
+    # skip_instance_cache everywhere: the fsspec instance cache would hand every caller the same
+    # S3FileSystem regardless of event loop. Callers driven via async_to_sync each run on a fresh,
+    # short-lived loop, so a cached instance keeps an aiobotocore client bound to an already-closed
+    # loop ("Event loop is closed") and a dircache that goes stale whenever delta-rs writes to S3
+    # through its own object store behind s3fs's back.
     if settings.USE_LOCAL_SETUP:
+        # Defaults for localhost dev and test suites
         s3 = s3fs.S3FileSystem(
             key=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
             secret=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
@@ -38,11 +43,19 @@ async def aget_s3_client():
             asynchronous=True,
         )
     else:
-        s3 = s3fs.S3FileSystem(asynchronous=True)
+        s3 = s3fs.S3FileSystem(asynchronous=True, skip_instance_cache=True)
 
     await s3.set_session()
 
-    yield s3
+    try:
+        yield s3
+    finally:
+        # Uncached instances aren't finalized by the fsspec registry, so close the aiobotocore client
+        # explicitly (s3fs's set_session docs: "to be closed later with await .close()") to avoid
+        # leaking HTTP connections in long-lived workers.
+        with contextlib.suppress(Exception):
+            if s3._s3 is not None:
+                await s3._s3.close()
 
 
 def get_size_of_folder(path: str) -> float:
