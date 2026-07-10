@@ -28,7 +28,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, tag_queries
 from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -93,7 +93,11 @@ REVALIDATION_TRIGGER = "webAnalyticsStaleRevalidation"
 
 # Requests tagged with any of these triggers ARE the refresh mechanism: they must never
 # be served stale (they'd freeze the cache serving stale to themselves) and they keep
-# the framework's full wait budget.
+# the framework's full wait budget. This named set is the belt; the primary gate in
+# `is_background_warming_request` is the CACHE_WARMUP feature tag, which classifies
+# refreshers by category — including warmers this module doesn't know by name (e.g.
+# the generic insight cache warmer, trigger "warmingV2"), which would otherwise be
+# served stale and persist it into the insight cache under a fresh timestamp.
 BACKGROUND_WARMING_TRIGGERS = frozenset(
     {
         "webAnalyticsEagerBaselineWarming",
@@ -123,20 +127,40 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_REVALIDATION_ENQUEUED = Counter(
     labelnames=["family"],
 )
 
+WEB_ANALYTICS_LAZY_PRECOMPUTE_REVALIDATION_ENQUEUE_FAILED = Counter(
+    "web_analytics_lazy_precompute_revalidation_enqueue_failed_total",
+    "Revalidation enqueues that failed (e.g. broker unavailable); the stale read is still served.",
+    labelnames=["family"],
+)
+
 
 def is_background_warming_request() -> bool:
+    if get_query_tag_value("feature") == Feature.CACHE_WARMUP:
+        return True
     return get_query_tag_value("trigger") in BACKGROUND_WARMING_TRIGGERS
 
 
 def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
-    """Enqueue a background re-run of `query` so a stale-served read gets fresh data next time."""
+    """Enqueue a background re-run of `query` so a stale-served read gets fresh data next time.
+
+    Best-effort: this runs on the user-facing read path before the stale rows are read,
+    so a broker outage must degrade to "serve stale, warmer converges" — never abort the
+    read into the expensive live fallback.
+    """
     # The task module imports this module (for the trigger constant), so the reverse
     # import must stay local to avoid a cycle.
     from products.web_analytics.backend.tasks.lazy_precompute_revalidation import (  # noqa: PLC0415
         revalidate_web_analytics_precompute,
     )
 
-    revalidate_web_analytics_precompute.delay(team_id=team.id, query=query.model_dump(mode="json", exclude_none=True))
+    try:
+        revalidate_web_analytics_precompute.delay(
+            team_id=team.id, query=query.model_dump(mode="json", exclude_none=True)
+        )
+    except Exception:
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_REVALIDATION_ENQUEUE_FAILED.labels(family=family).inc()
+        logger.warning("web_precompute.swr_revalidation_enqueue_failed", team_id=team.id, family=family, exc_info=True)
+        return
     WEB_ANALYTICS_LAZY_PRECOMPUTE_REVALIDATION_ENQUEUED.labels(family=family).inc()
     logger.info("web_precompute.swr_revalidation_enqueued", team_id=team.id, family=family)
 

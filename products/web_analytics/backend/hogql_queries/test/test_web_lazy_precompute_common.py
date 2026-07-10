@@ -21,7 +21,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags, tags_context
+from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tags_context
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -445,27 +445,32 @@ class TestWebEnsurePrecomputed(BaseTest):
     @parameterized.expand(
         [
             ("user_request", None),
-            ("eager_warmer", "webAnalyticsEagerBaselineWarming"),
-            ("replay_warmer", "webAnalyticsQueryWarming"),
+            ("eager_warmer", {"trigger": "webAnalyticsEagerBaselineWarming"}),
+            ("replay_warmer", {"trigger": "webAnalyticsQueryWarming"}),
             # The revalidation task itself must never get the grace — a re-run that can
             # be served stale would never refresh anything and freeze the cache.
-            ("stale_revalidation", REVALIDATION_TRIGGER),
+            ("stale_revalidation", {"trigger": REVALIDATION_TRIGGER}),
+            # The generic insight cache warmer isn't in the named trigger set — the
+            # CACHE_WARMUP feature gate must classify it as background, or it would
+            # persist stale rows into the insight cache under a fresh timestamp.
+            ("insight_warmer", {"trigger": "warmingV2", "feature": Feature.CACHE_WARMUP}),
+            ("unknown_future_warmer", {"feature": Feature.CACHE_WARMUP}),
         ]
     )
     @mock.patch(f"{_COMMON}.ensure_precomputed")
-    def test_stale_while_revalidate_grace_by_trigger(self, _name, trigger, mock_ensure):
+    def test_stale_while_revalidate_grace_by_trigger(self, _name, tags, mock_ensure):
         mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
         reset_query_tags()
-        if trigger is not None:
-            with tags_context(trigger=trigger):
+        if tags is not None:
+            with tags_context(**tags):
                 web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         else:
             web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         grace = mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"]
-        if trigger is None:
+        if tags is None:
             assert grace == STALE_WHILE_REVALIDATE_SECONDS
         else:
-            assert grace is None, f"background trigger {trigger} must not be served stale"
+            assert grace is None, f"background context {tags} must not be served stale"
 
 
 class TestStaleRevalidationEnqueue(BaseTest):
@@ -496,3 +501,14 @@ class TestStaleRevalidationEnqueue(BaseTest):
         payload = delay.call_args.kwargs
         assert payload["team_id"] == self.team.pk
         assert payload["query"]["kind"] == "WebOverviewQuery"
+
+    def test_broker_failure_does_not_break_the_stale_read_path(self):
+        # handle_stale_served runs inside the families' read try/except before the stale
+        # rows are read — a broker outage raising out of it would discard the stale
+        # result and fall back to the expensive live query, inverting SWR's purpose.
+        runner = WebOverviewQueryRunner(team=self.team, query=self.query)
+        reset_query_tags()
+        with self._delay_patch() as delay:
+            delay.side_effect = Exception("broker down")
+            handle_stale_served(runner=runner, family="web_overview")
+        assert get_query_tag_value("precompute_stale") is True
