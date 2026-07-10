@@ -5,7 +5,7 @@ import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { TeamIdContext } from './builders/batch-pipeline-builders'
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 
-export class IngestionWarningHandlingBatchPipeline<
+export class IngestionWarningHandlingChunkPipeline<
     TInput,
     TOutput,
     CInput extends TeamIdContext,

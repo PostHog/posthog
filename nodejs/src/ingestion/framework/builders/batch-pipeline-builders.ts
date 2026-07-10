@@ -13,7 +13,7 @@ import {
 } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
 import { FilterMapChunkPipeline, FilterMapMappingFunction } from '~/ingestion/framework/filter-map-chunk-pipeline'
 import { GatheringChunkPipeline } from '~/ingestion/framework/gathering-chunk-pipeline'
-import { IngestionWarningHandlingBatchPipeline } from '~/ingestion/framework/ingestion-warning-handling-batch-pipeline'
+import { IngestionWarningHandlingChunkPipeline } from '~/ingestion/framework/ingestion-warning-handling-chunk-pipeline'
 import { Pipeline } from '~/ingestion/framework/pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
 import { RetryOptions, withChunkRetry } from '~/ingestion/framework/retry'
@@ -258,6 +258,6 @@ export class TeamAwareBatchPipelineBuilder<
     handleIngestionWarnings(
         outputs: IngestionOutputs<IngestionWarningsOutput>
     ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
-        return new BatchPipelineBuilder(new IngestionWarningHandlingBatchPipeline(outputs, this.pipeline))
+        return new BatchPipelineBuilder(new IngestionWarningHandlingChunkPipeline(outputs, this.pipeline))
     }
 }

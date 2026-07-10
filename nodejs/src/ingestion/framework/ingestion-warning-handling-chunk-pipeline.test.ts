@@ -7,7 +7,7 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
 import { Team } from '~/types'
 
 import { createContext, createNewBatchPipeline, createOkContext } from './helpers'
-import { IngestionWarningHandlingBatchPipeline } from './ingestion-warning-handling-batch-pipeline'
+import { IngestionWarningHandlingChunkPipeline } from './ingestion-warning-handling-chunk-pipeline'
 import { ok } from './results'
 
 jest.mock('~/ingestion/common/ingestion-warnings')
@@ -51,7 +51,7 @@ function createTestTeam(overrides: Partial<Team> = {}): Team {
     }
 }
 
-describe('IngestionWarningHandlingBatchPipeline', () => {
+describe('IngestionWarningHandlingChunkPipeline', () => {
     let mockOutputs: jest.Mocked<IngestionOutputs<IngestionWarningsOutput>>
     let mockEmitIngestionWarning: jest.MockedFunction<typeof ingestionWarnings.emitIngestionWarning>
 
@@ -87,7 +87,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             ]
 
             const rootPipeline = createNewBatchPipeline<{ message: Message; team: Team }, { team: Team }>().build()
-            const pipeline = new IngestionWarningHandlingBatchPipeline(mockOutputs, rootPipeline)
+            const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
@@ -116,7 +116,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
 
         it('should handle empty batch', async () => {
             const rootPipeline = createNewBatchPipeline<{ message: Message; team: Team }, { team: Team }>().build()
-            const pipeline = new IngestionWarningHandlingBatchPipeline(mockOutputs, rootPipeline)
+            const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, rootPipeline)
 
             pipeline.feed([])
             const results = await pipeline.next()
@@ -146,7 +146,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             ]
 
             const rootPipeline = createNewBatchPipeline<{ message: Message; team: Team }, { team: Team }>().build()
-            const pipeline = new IngestionWarningHandlingBatchPipeline(mockOutputs, rootPipeline)
+            const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
@@ -182,7 +182,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             ]
 
             const rootPipeline = createNewBatchPipeline<{ message: Message; team: Team }, { team: Team }>().build()
-            const pipeline = new IngestionWarningHandlingBatchPipeline(mockOutputs, rootPipeline)
+            const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
@@ -215,7 +215,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             ]
 
             const rootPipeline = createNewBatchPipeline<{ message: Message; team: Team }, { team: Team }>().build()
-            const pipeline = new IngestionWarningHandlingBatchPipeline(mockOutputs, rootPipeline)
+            const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
@@ -268,7 +268,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             ]
 
             const rootPipeline = createNewBatchPipeline<{ message: Message; team: Team }, { team: Team }>().build()
-            const pipeline = new IngestionWarningHandlingBatchPipeline(mockOutputs, rootPipeline)
+            const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
@@ -309,7 +309,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             ]
 
             const rootPipeline = createNewBatchPipeline<{ message: Message; team: Team }, { team: Team }>().build()
-            const pipeline = new IngestionWarningHandlingBatchPipeline(mockOutputs, rootPipeline)
+            const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, rootPipeline)
 
             pipeline.feed(batch)
             await pipeline.next()
@@ -361,7 +361,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
                 ]),
             }
 
-            const pipeline = new IngestionWarningHandlingBatchPipeline(mockOutputs, previousPipeline as any)
+            const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, previousPipeline as any)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
