@@ -1544,6 +1544,26 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
         payload.update(overrides)
         return self.client.post(self.endpoint_base, payload, format="json")
 
+    def test_values_returns_suggestions_envelope(self):
+        created = self._create(
+            name="Tier",
+            display_type="select",
+            is_big_number=False,
+            options=[
+                {"label": "Enterprise", "color": "preset-1"},
+                {"label": "Startup", "color": "preset-2"},
+            ],
+        )
+        definition_id = created.json()["id"]
+
+        response = self.client.get(f"{self.endpoint_base}values/?key={definition_id}&value=ent")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [{"name": "Enterprise"}], "refreshing": False})
+
+        missing_key = self.client.get(f"{self.endpoint_base}values/")
+        self.assertEqual(missing_key.status_code, status.HTTP_200_OK)
+        self.assertEqual(missing_key.json(), {"results": [], "refreshing": False})
+
     def test_create_success(self):
         response = self._create()
 

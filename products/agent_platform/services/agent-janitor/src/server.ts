@@ -6,7 +6,7 @@
  * Endpoints (grouped):
  *
  *   Session lifecycle (existing):
- *     GET    /sessions?application_id=  list sessions for one application (newest first)
+ *     GET    /sessions?application_id=  list sessions for one application (most recently active first)
  *     GET    /sessions/:id              full session state
  *     POST   /sessions/:id/cancel       mark failed
  *     POST   /sweep                     trigger a sweep (tests / debug)

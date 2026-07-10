@@ -6,6 +6,7 @@ import { IconBell, IconClock, IconDownload, IconLeave, IconNotification } from '
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { toSentenceCase } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -88,6 +89,7 @@ const fileSystemEntryToSearchItem = (
         lastViewedAt: item.last_viewed_at ?? null,
         itemType,
         record: { ...item, iconColor: productIconColor },
+        disabledReason: getEntryAccessDisabledReason(item),
         ...overrides,
     }
 }
@@ -111,6 +113,9 @@ export interface SearchItem {
     searchKeywords?: string[]
     record?: Record<string, unknown>
     rank?: number | null // PostgreSQL full-text search rank (from unified search API)
+    /** When set, the item is shown greyed out and non-clickable, with this reason as tooltip
+     * (e.g. the user has no access to the product or resource). */
+    disabledReason?: string
 }
 
 export interface SearchCategory {
@@ -397,6 +402,7 @@ export const searchLogic = kea<searchLogicType>([
                     itemType: product.iconType || product.type || null,
                     tags: product.tags,
                     lastViewedAt: product.sceneKey ? (sceneLogViewsByRef[product.sceneKey] ?? null) : null,
+                    disabledReason: getProductAccessDisabledReason(product),
                     record: {
                         type: product.type || product.iconType,
                         iconType: product.iconType,
@@ -465,6 +471,7 @@ export const searchLogic = kea<searchLogicType>([
                     tags: item.tags,
                     searchKeywords: item.category ? categorySearchKeywords[item.category] : undefined,
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
+                    disabledReason: getProductAccessDisabledReason(item),
                     record: {
                         type: item.type || item.iconType,
                         iconType: item.iconType,
@@ -626,6 +633,7 @@ export const searchLogic = kea<searchLogicType>([
                         category: 'session_recording_playlist',
                         href: item.href || '#',
                         itemType: 'session_recording_playlist',
+                        disabledReason: getEntryAccessDisabledReason(item),
                         record: item as unknown as Record<string, unknown>,
                     }
                 })
@@ -864,6 +872,7 @@ export const searchLogic = kea<searchLogicType>([
                         href,
                         itemType: result.type,
                         rank: result.rank,
+                        disabledReason: getEntryAccessDisabledReason(result),
                         record: {
                             type: result.type,
                             ...result.extra_fields,

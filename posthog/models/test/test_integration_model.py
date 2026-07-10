@@ -66,6 +66,13 @@ def update_db_field_value(field, model_id, value):
     cursor.execute(f"update posthog_integration set {field}='{value}' where id='{model_id}';")
 
 
+def test_slack_oauth_scope_includes_canvas_scope_for_local_installs():
+    from posthog.models.integration import POSTHOG_SLACK_SCOPE
+
+    assert "canvases:write" in set(POSTHOG_SLACK_SCOPE.split(","))
+    assert "files:write" in set(POSTHOG_SLACK_SCOPE.split(","))
+
+
 class TestIntegrationModel(BaseTest):
     def create_integration(
         self, kind: str, config: Optional[dict] = None, sensitive_config: Optional[dict] = None
@@ -2242,6 +2249,84 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         integration = self._create_integration()
         with pytest.raises(ValueError, match="must start with"):
             GitHubIntegration(integration)._gh_api_get("repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+
+
+class TestGitHubIntegrationGraphQL(BaseTest):
+    def _create_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            sensitive_config={"access_token": "ACCESS_TOKEN"},
+        )
+
+    @staticmethod
+    def _graphql_response(body: dict) -> MagicMock:
+        # GitHub returns transient GraphQL server errors as an HTTP 200 with an ``errors`` body,
+        # so the retry decision hinges on the body, not the status code.
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = body
+        return resp
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_retries_transient_server_error_and_returns_data(self, _mock_expired, mock_request):
+        # A 200-with-`errors` "Something went wrong" server error must be retried, not raised —
+        # otherwise a transient GitHub blip permanently kills the in-flight follow-up run.
+        transient = self._graphql_response(
+            {"data": None, "errors": [{"message": "Something went wrong while executing your query. (abc123)"}]}
+        )
+        ok = self._graphql_response({"data": {"repository": {"name": "posthog"}}})
+        mock_request.side_effect = [transient, ok]
+
+        github = GitHubIntegration(self._create_integration())
+        data = github._gh_graphql("query {}", {}, endpoint="/graphql:test")
+        assert data == {"repository": {"name": "posthog"}}
+        assert mock_request.call_count == 2
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_gives_up_after_exhausting_transient_retries(self, _mock_expired, mock_request):
+        # Guards against both a run-killing single attempt and an unbounded retry loop.
+        transient = self._graphql_response(
+            {"data": None, "errors": [{"type": "SERVICE_UNAVAILABLE", "message": "unavailable"}]}
+        )
+        mock_request.return_value = transient
+
+        github = GitHubIntegration(self._create_integration())
+        with pytest.raises(GitHubIntegrationError):
+            github._gh_graphql("query {}", {}, endpoint="/graphql:test")
+        assert mock_request.call_count == GitHubIntegration._GRAPHQL_TRANSIENT_ATTEMPTS
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_does_not_retry_deterministic_error(self, _mock_expired, mock_request):
+        # A deterministic error (bad query, missing field, permission) will never succeed on
+        # retry, so it must raise on the first attempt rather than burn the retry budget.
+        mock_request.return_value = self._graphql_response(
+            {"data": None, "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}]}
+        )
+
+        github = GitHubIntegration(self._create_integration())
+        with pytest.raises(GitHubIntegrationError):
+            github._gh_graphql("query {}", {}, endpoint="/graphql:test")
+        assert mock_request.call_count == 1
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_returns_partial_data_with_field_errors(self, _mock_expired, mock_request):
+        # When GitHub returns usable data alongside field-level errors, keep the data rather
+        # than treating the response as a failure.
+        mock_request.return_value = self._graphql_response(
+            {"data": {"repository": {"name": "posthog"}}, "errors": [{"message": "field-level error"}]}
+        )
+
+        github = GitHubIntegration(self._create_integration())
+        data = github._gh_graphql("query {}", {}, endpoint="/graphql:test")
+        assert data == {"repository": {"name": "posthog"}}
+        assert mock_request.call_count == 1
 
 
 class TestDatabricksIntegrationModel(BaseTest):
