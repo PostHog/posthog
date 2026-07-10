@@ -97,9 +97,9 @@ describe('router-utils', () => {
         )
 
         it('does not keep a stale beta resource id even within the same project', () => {
-            expect(
-                getProjectSwitchTargetUrl('/project/111/replay-vision/018f-scanner-uuid', NEW_TEAM, 5, 5)
-            ).toEqual(`/project/${NEW_TEAM}`)
+            expect(getProjectSwitchTargetUrl('/project/111/replay-vision/018f-scanner-uuid', NEW_TEAM, 5, 5)).toEqual(
+                `/project/${NEW_TEAM}`
+            )
         })
 
         it('keeps settings routes on the same page in the new project', () => {
