@@ -14,6 +14,7 @@ class SlackSettingsAdmin(admin.ModelAdmin):
         "id",
         "slack_workspace_id",
         "slack_user_id",
+        "permission_modes",
         "default_integration",
         "updated_at",
     )

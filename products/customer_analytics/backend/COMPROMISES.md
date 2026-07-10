@@ -62,6 +62,22 @@ Cutover checklist — when done, the sync and this section are deleted:
 - [ ] Delete `sync_from_account_properties` + call sites; strip the three role keys from
       `AccountProperties`
 
+## External account `custom_properties` payload
+
+- **Every definition is emitted, unbounded.** `_to_external_account` includes every team
+  custom property definition keyed by name (`null` when unset) so workflow result paths are
+  deterministic. The hogflow executor caps all workflow variables at 5 KB of JSON combined and
+  the Get account node's default `account` variable stores the whole response body, so a team
+  with enough definitions (roughly 100–150 at typical name lengths, fewer with long names or
+  populated values) makes every Get account step throw and drop its variables — even in
+  workflows that never touch custom properties. If this bites: stop emitting unset definitions
+  as `null`, or drop the whole-body default variable in favor of path-scoped ones.
+- **Output variable suggestions read one page.** The workflow editor's suggestion chips fetch
+  custom property and relationship definitions without pagination (default page size 100), so
+  definitions past the first page silently never appear as suggestions — the value still exists
+  in the payload and can be mapped by hand. Follow `next` pages in
+  `getOutputMappingSuggestions` (workflows frontend registry) if teams that large show up.
+
 ## Tech debt
 
 - **Account property writes have no single choke point.** `Account._properties` is mutated from four

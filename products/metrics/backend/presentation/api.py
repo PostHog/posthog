@@ -24,6 +24,8 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 
 from products.metrics.backend.facade.api import (
     characterize_metric_anomaly,
+    list_metric_attribute_keys,
+    list_metric_attribute_values,
     list_metric_event_samples,
     list_metric_names,
     run_metric_query,
@@ -211,7 +213,10 @@ def _build_clause(data: dict, *, name: str) -> MetricQueryClause:
 
 class _MetricQueryPointSerializer(serializers.Serializer):
     time = serializers.CharField(help_text="Bucket start as ISO 8601 timestamp.")
-    value = serializers.FloatField(help_text="Aggregated value for the bucket.")
+    value = serializers.FloatField(
+        allow_null=True,
+        help_text="Aggregated value for the bucket. Null when the aggregate isn't representable (e.g. float overflow) — render as a gap.",
+    )
 
 
 class _MetricSeriesSerializer(serializers.Serializer):
@@ -364,6 +369,94 @@ class _MetricNamesResponseSerializer(serializers.Serializer):
     results = _MetricNameSerializer(many=True, help_text="Distinct metric names ordered by recent activity.")
 
 
+class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Substring filter (case-insensitive) applied to attribute keys.",
+    )
+    dateFrom = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 7 days ago.",
+    )
+    dateTo = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Upper bound (exclusive) of the window. ISO 8601. Defaults to now.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=1000,
+        help_text="Max number of keys to return. Defaults to 100; maximum 1000.",
+    )
+
+
+class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        max_length=255,
+        help_text="Attribute key to list values for (e.g. 'env'). 'service_name'/'service.name' list service names.",
+    )
+    value = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=1024,
+        help_text="Substring filter (case-insensitive) applied to values. Named 'value' to match the property-values autocomplete convention.",
+    )
+    dateFrom = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 7 days ago.",
+    )
+    dateTo = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Upper bound (exclusive) of the window. ISO 8601. Defaults to now.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=1000,
+        help_text="Max number of values to return. Defaults to 100; maximum 1000.",
+    )
+
+
+class _MetricAttributeKeySerializer(serializers.Serializer):
+    name = serializers.CharField(
+        help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
+    )
+
+
+class _MetricAttributeKeysResponseSerializer(serializers.Serializer):
+    results = _MetricAttributeKeySerializer(
+        many=True,
+        help_text="Distinct attribute keys (datapoint and resource attributes merged), most frequent first.",
+    )
+    count = serializers.IntegerField(help_text="Number of keys returned.")
+
+
+class _MetricAttributeValueSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="The attribute value (same as name; kept for picker compatibility).")
+    name = serializers.CharField(help_text="The attribute value.")
+    count = serializers.IntegerField(help_text="Number of data points observed with this value in the window.")
+
+
+class _MetricAttributeValuesResponseSerializer(serializers.Serializer):
+    results = _MetricAttributeValueSerializer(
+        many=True, help_text="Observed values for the requested key, most frequent first."
+    )
+
+
 class _MetricSamplesBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
         max_length=255,
@@ -380,7 +473,7 @@ class _MetricSamplesBodySerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         max_length=255,
-        help_text="Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.",
+        help_text="Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.",
     )
     limit = serializers.IntegerField(
         required=False,
@@ -414,9 +507,9 @@ class _MetricEventSampleSerializer(serializers.Serializer):
     is_monotonic = serializers.BooleanField(help_text="True for monotonically increasing counters.")
     service_name = serializers.CharField(help_text="Service that emitted the metric.")
     trace_id = serializers.CharField(
-        help_text="Trace this emission belongs to; empty if none. Use it to pivot to the trace.",
+        help_text="Trace this emission belongs to (hex, same form the tracing product uses); empty if none. Use it to pivot to the trace.",
     )
-    span_id = serializers.CharField(help_text="Span this emission belongs to; empty if none.")
+    span_id = serializers.CharField(help_text="Span this emission belongs to (hex); empty if none.")
     attributes = serializers.DictField(
         child=serializers.CharField(),
         help_text="Per-emission attributes (high-cardinality labels on the data point).",
@@ -475,6 +568,70 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             results = list_metric_names(
                 team=self.team, search=params.validated_data["value"], limit=params.validated_data["limit"]
+            )
+        except ValueError as exc:
+            raise ParseError(str(exc))
+
+        return Response({"results": results}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        parameters=[_MetricAttributeKeysParamsSerializer],
+        responses={200: _MetricAttributeKeysResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["GET"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def attributes(self, request: Request, *args, **kwargs) -> Response:
+        """Distinct attribute keys seen on the team's metrics (datapoint and
+        resource attributes merged), most frequent first. Backs the filter
+        bar's key autocomplete."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        params = _MetricAttributeKeysParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        try:
+            results = list_metric_attribute_keys(
+                team=self.team,
+                search=params.validated_data["search"],
+                date_from=params.validated_data["dateFrom"],
+                date_to=params.validated_data["dateTo"],
+                limit=params.validated_data["limit"],
+            )
+        except ValueError as exc:
+            raise ParseError(str(exc))
+
+        return Response({"results": results, "count": len(results)}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        parameters=[_MetricAttributeValuesParamsSerializer],
+        responses={200: _MetricAttributeValuesResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["GET"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def attribute_values(self, request: Request, *args, **kwargs) -> Response:
+        """Observed values for one metric attribute key, most frequent first.
+        Backs the filter bar's value autocomplete."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        params = _MetricAttributeValuesParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        try:
+            results = list_metric_attribute_values(
+                team=self.team,
+                key=params.validated_data["key"],
+                search=params.validated_data["value"],
+                date_from=params.validated_data["dateFrom"],
+                date_to=params.validated_data["dateTo"],
+                limit=params.validated_data["limit"],
             )
         except ValueError as exc:
             raise ParseError(str(exc))
