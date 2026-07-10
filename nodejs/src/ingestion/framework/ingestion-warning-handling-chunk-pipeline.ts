@@ -2,7 +2,7 @@ import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 
-import { TeamIdContext } from './builders/batch-pipeline-builders'
+import { TeamIdContext } from './builders/chunk-pipeline-builders'
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 
 export class IngestionWarningHandlingChunkPipeline<

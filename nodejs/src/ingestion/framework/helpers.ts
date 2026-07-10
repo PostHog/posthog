@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchPipelineBuilder, newBatchPipelineBuilder } from './builders'
+import { ChunkPipelineBuilder, newBatchPipelineBuilder } from './builders'
 import { ChunkPipelineUnwrapper } from './chunk-pipeline-unwrapper'
 import { ChunkPipeline } from './chunk-pipeline.interface'
 import { OkResultWithContext, PipelineWarning } from './pipeline.interface'
@@ -19,7 +19,7 @@ export function createNewPipeline<T = { message: Message }, C = DefaultContext>(
 /**
  * Helper function to create a new batch processing pipeline starting with a root pipeline
  */
-export function createNewBatchPipeline<T = { message: Message }, C = DefaultContext>(): BatchPipelineBuilder<T, T, C> {
+export function createNewBatchPipeline<T = { message: Message }, C = DefaultContext>(): ChunkPipelineBuilder<T, T, C> {
     return newBatchPipelineBuilder<T, C>()
 }
 

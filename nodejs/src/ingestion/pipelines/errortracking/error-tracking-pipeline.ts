@@ -36,7 +36,7 @@ import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
-import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
+import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { ChunkPipelineUnwrapper } from '~/ingestion/framework/chunk-pipeline-unwrapper'
 import { TopHogRegistry, count, countOk, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { createBatch, createUnwrapper } from '~/ingestion/framework/helpers'
@@ -121,9 +121,9 @@ export interface PostCymbalRateLimiterInput {
  * contravariant in T, so a narrower spec assigns into the wider chain context.
  */
 function applyKeyedRateLimiters<TInput, TOutput, CInput, COutput, R extends string>(
-    builder: BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R>,
+    builder: ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R>,
     specs: KeyedRateLimiterStepOptions<TOutput>[]
-): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
+): ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
     return specs.reduce((b, spec) => b.pipeBatch(createKeyedRateLimiterStep(spec)), builder)
 }
 

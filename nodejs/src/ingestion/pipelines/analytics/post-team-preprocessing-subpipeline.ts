@@ -22,7 +22,7 @@ import {
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
 import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
-import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
+import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
 import { processPersonlessDistinctIdsBatchStep } from '~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -54,7 +54,7 @@ export interface PostTeamPreprocessingSubpipelineConfig {
 }
 
 export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPreprocessingSubpipelineInput, TContext>(
-    builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>,
+    builder: ChunkPipelineBuilder<TInput, TInput, TContext, TContext>,
     config: PostTeamPreprocessingSubpipelineConfig
 ) {
     const {

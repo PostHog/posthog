@@ -44,7 +44,7 @@ export class GroupProcessingBuilder<
 > {
     // Holds a completion function instead of the grouping function and previous
     // pipeline directly: a groupingFn field would be contravariant in TOutput,
-    // making BatchPipelineBuilder invariant in TOutput and breaking covariant
+    // making ChunkPipelineBuilder invariant in TOutput and breaking covariant
     // subpipeline callbacks (e.g. in newBatchingPipeline). In this closure's
     // signature TOutput only appears in variance-neutral positions.
     constructor(
@@ -60,47 +60,47 @@ export class GroupProcessingBuilder<
      */
     sequentially<U, R2 extends string = never>(
         callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput, R2>
-    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
+    ): ChunkPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
-        return new BatchPipelineBuilder(this.buildGroupedPipeline(processor))
+        return new ChunkPipelineBuilder(this.buildGroupedPipeline(processor))
     }
 }
 
-export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R extends string = never> {
+export class ChunkPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R extends string = never> {
     constructor(protected pipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>) {}
 
     pipeBatch<U, R2 extends string = never>(
         step: ChunkProcessingStep<TOutput, U, R2>,
         options?: { retry?: RetryOptions }
-    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
+    ): ChunkPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         const wrappedStep = options?.retry ? withChunkRetry(step, options.retry) : step
-        return new BatchPipelineBuilder(new BaseChunkPipeline(wrappedStep, this.pipeline))
+        return new ChunkPipelineBuilder(new BaseChunkPipeline(wrappedStep, this.pipeline))
     }
 
     /**
-     * Process each item of the batch concurrently, emitting results in input (FIFO) order.
+     * Process each item of the chunk concurrently, emitting results in input (FIFO) order.
      *
      * @param options.maxConcurrency - Cap on how many items process at once. Omitted means unbounded.
      */
     concurrently<U, R2 extends string = never>(
         callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput, R2>,
         options?: { maxConcurrency?: number }
-    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
+    ): ChunkPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
-        return new BatchPipelineBuilder(
+        return new ChunkPipelineBuilder(
             new ConcurrentChunkProcessingPipeline(processor, this.pipeline, options?.maxConcurrency)
         )
     }
 
     sequentially<U, R2 extends string = never>(
         callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput, R2>
-    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
+    ): ChunkPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
-        return new BatchPipelineBuilder(new SequentialChunkPipeline(processor, this.pipeline))
+        return new ChunkPipelineBuilder(new SequentialChunkPipeline(processor, this.pipeline))
     }
 
-    gather(): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
-        return new BatchPipelineBuilder(new GatheringChunkPipeline(this.pipeline))
+    gather(): ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
+        return new ChunkPipelineBuilder(new GatheringChunkPipeline(this.pipeline))
     }
 
     /**
@@ -113,16 +113,16 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
     filterMap<TMapped, TSubOutput, CMapped = COutput, CSubOutput = CMapped, ROut extends string = never>(
         mappingFn: FilterMapMappingFunction<TOutput, TMapped, COutput, CMapped>,
         subpipelineCallback: (
-            builder: BatchPipelineBuilder<TMapped, TMapped, CMapped, CMapped>
-        ) => BatchPipelineBuilder<TMapped, TSubOutput, CMapped, CSubOutput, ROut>
-    ): BatchPipelineBuilder<TInput, TSubOutput, CInput, CSubOutput | COutput, R | ROut> {
-        const startBuilder = new BatchPipelineBuilder<TMapped, TMapped, CMapped, CMapped>(
+            builder: ChunkPipelineBuilder<TMapped, TMapped, CMapped, CMapped>
+        ) => ChunkPipelineBuilder<TMapped, TSubOutput, CMapped, CSubOutput, ROut>
+    ): ChunkPipelineBuilder<TInput, TSubOutput, CInput, CSubOutput | COutput, R | ROut> {
+        const startBuilder = new ChunkPipelineBuilder<TMapped, TMapped, CMapped, CMapped>(
             new BufferingChunkPipeline<TMapped, CMapped>()
         )
         const subpipelineBuilder = subpipelineCallback(startBuilder)
         const subPipeline = subpipelineBuilder.build()
 
-        return new BatchPipelineBuilder(
+        return new ChunkPipelineBuilder(
             new FilterMapChunkPipeline<
                 TInput,
                 TOutput,
@@ -152,9 +152,9 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
         groupingFn: GroupingFunction<TOutput, TKey>,
         callback: (
             group: GroupProcessingBuilder<TInput, TOutput, CInput, COutput, R>
-        ) => BatchPipelineBuilder<TInput, U, CInput, COutput, ROut>,
+        ) => ChunkPipelineBuilder<TInput, U, CInput, COutput, ROut>,
         options?: { maxConcurrency?: number }
-    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | ROut> {
+    ): ChunkPipelineBuilder<TInput, U, CInput, COutput, R | ROut> {
         return callback(
             new GroupProcessingBuilder(
                 <U2, R2 extends string>(processor: Pipeline<TOutput, U2, COutput, R2>) =>
@@ -166,22 +166,22 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
     handleSideEffects(
         promiseScheduler: PromiseScheduler,
         options: { await: boolean }
-    ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
-        return new BatchPipelineBuilder(new SideEffectHandlingPipeline(this.pipeline, promiseScheduler, options))
+    ): ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
+        return new ChunkPipelineBuilder(new SideEffectHandlingPipeline(this.pipeline, promiseScheduler, options))
     }
 
     messageAware<TOut, COut = COutput, ROut extends string = never>(
-        this: BatchPipelineBuilder<TInput, TOutput, CInput & { message: Message }, COutput & { message: Message }, R>,
+        this: ChunkPipelineBuilder<TInput, TOutput, CInput & { message: Message }, COutput & { message: Message }, R>,
         callback: (
-            builder: BatchPipelineBuilder<
+            builder: ChunkPipelineBuilder<
                 TInput,
                 TOutput,
                 CInput & { message: Message },
                 COutput & { message: Message },
                 R
             >
-        ) => BatchPipelineBuilder<TInput, TOut, CInput & { message: Message }, COut & { message: Message }, ROut>
-    ): MessageAwareBatchPipelineBuilder<
+        ) => ChunkPipelineBuilder<TInput, TOut, CInput & { message: Message }, COut & { message: Message }, ROut>
+    ): MessageAwareChunkPipelineBuilder<
         TInput,
         TOut,
         CInput & { message: Message },
@@ -189,17 +189,17 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
         ROut
     > {
         const builtPipeline = callback(this)
-        return new MessageAwareBatchPipelineBuilder(builtPipeline.build())
+        return new MessageAwareChunkPipelineBuilder(builtPipeline.build())
     }
 
     teamAware<TOut, COut = COutput, ROut extends string = never>(
-        this: BatchPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext, R>,
+        this: ChunkPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext, R>,
         callback: (
-            builder: BatchPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext, R>
-        ) => BatchPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext, ROut>
-    ): TeamAwareBatchPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext, ROut> {
+            builder: ChunkPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext, R>
+        ) => ChunkPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext, ROut>
+    ): TeamAwareChunkPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext, ROut> {
         const builtPipeline = callback(this)
-        return new TeamAwareBatchPipelineBuilder(builtPipeline.build())
+        return new TeamAwareChunkPipelineBuilder(builtPipeline.build())
     }
 
     build(): ChunkPipeline<TInput, TOutput, CInput, COutput, R> {
@@ -207,7 +207,7 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
     }
 }
 
-export class MessageAwareBatchPipelineBuilder<
+export class MessageAwareChunkPipelineBuilder<
     TInput,
     TOutput,
     CInput extends { message: Message },
@@ -218,8 +218,8 @@ export class MessageAwareBatchPipelineBuilder<
 
     handleResults<RConfig extends string = never>(
         config: PipelineConfig<R | RConfig>
-    ): ResultHandledBatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
-        return new ResultHandledBatchPipelineBuilder(new ResultHandlingPipeline(this.pipeline, config))
+    ): ResultHandledChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
+        return new ResultHandledChunkPipelineBuilder(new ResultHandlingPipeline(this.pipeline, config))
     }
 }
 
@@ -227,7 +227,7 @@ export class MessageAwareBatchPipelineBuilder<
  * Builder returned after handleResults(). Only allows handleSideEffects() to be called,
  * enforcing that side effects must be handled before building.
  */
-export class ResultHandledBatchPipelineBuilder<
+export class ResultHandledChunkPipelineBuilder<
     TInput,
     TOutput,
     CInput extends { message: Message },
@@ -239,25 +239,25 @@ export class ResultHandledBatchPipelineBuilder<
     handleSideEffects(
         promiseScheduler: PromiseScheduler,
         options: { await: boolean }
-    ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
-        return new BatchPipelineBuilder(new SideEffectHandlingPipeline(this.pipeline, promiseScheduler, options))
+    ): ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
+        return new ChunkPipelineBuilder(new SideEffectHandlingPipeline(this.pipeline, promiseScheduler, options))
     }
 }
 
-export class TeamAwareBatchPipelineBuilder<
+export class TeamAwareChunkPipelineBuilder<
     TInput,
     TOutput,
     CInput extends TeamIdContext,
     COutput extends TeamIdContext,
     R extends string = never,
-> extends BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
+> extends ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
     constructor(pipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>) {
         super(pipeline)
     }
 
     handleIngestionWarnings(
         outputs: IngestionOutputs<IngestionWarningsOutput>
-    ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
-        return new BatchPipelineBuilder(new IngestionWarningHandlingChunkPipeline(outputs, this.pipeline))
+    ): ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
+        return new ChunkPipelineBuilder(new IngestionWarningHandlingChunkPipeline(outputs, this.pipeline))
     }
 }
