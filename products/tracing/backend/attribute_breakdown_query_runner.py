@@ -114,7 +114,7 @@ class TraceSpansAttributeBreakdownQueryRunner(
             GROUP BY value
             ORDER BY """
             + order_column
-            + """ DESC
+            + """ DESC, value ASC
             LIMIT {limit}
             """,
             placeholders={
