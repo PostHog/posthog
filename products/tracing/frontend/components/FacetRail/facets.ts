@@ -36,6 +36,15 @@ export type FacetColumn = 'service_name' | 'status_code'
  */
 export type FacetSource = { type: 'column'; column: FacetColumn } | { type: 'resourceAttribute'; key: string }
 
+/**
+ * The sources whose selection lives in the filterGroup. `service_name` is deliberately excluded:
+ * its selection belongs in `tracingFiltersLogic.serviceNames` (the field the span queries read) —
+ * writing it as a filterGroup property filter would silently not scope the trace list.
+ */
+export type FilterGroupFacetSource =
+    | { type: 'column'; column: Exclude<FacetColumn, 'service_name'> }
+    | { type: 'resourceAttribute'; key: string }
+
 export interface FacetConfig {
     /** Stable id used for collapse state and data-attrs. */
     key: string
@@ -53,13 +62,6 @@ export interface FacetConfig {
     emptyLabel?: string
 }
 
-/** The breakdown request target for a facet — mirrors the backend's breakdownType routing. */
-export function facetBreakdownTarget(source: FacetSource): { breakdownKey: string; breakdownType: string } {
-    return source.type === 'column'
-        ? { breakdownKey: source.column, breakdownType: 'span' }
-        : { breakdownKey: source.key, breakdownType: 'span_resource_attribute' }
-}
-
 interface SpanFacetFilter {
     key: string
     type: PropertyFilterType.Span | PropertyFilterType.SpanResourceAttribute
@@ -67,22 +69,26 @@ interface SpanFacetFilter {
     value?: PropertyFilterValue
 }
 
-// The tracing filterGroup is always { AND, values: [{ AND, values: [<property filters>] }] } — the
-// editable property filters live in the single inner group.
-function innerFilters(group: UniversalFiltersGroup | undefined): SpanFacetFilter[] {
+/**
+ * The editable property filters of a tracing filterGroup, which is always
+ * { AND, values: [{ AND, values: [<property filters>] }] } — the filters live in the single inner group.
+ */
+export function innerFilters(group: UniversalFiltersGroup | undefined): SpanFacetFilter[] {
     return ((group?.values?.[0] as UniversalFiltersGroup | undefined)?.values ?? []) as SpanFacetFilter[]
 }
 
 /** The property filter home for a facet's selection: span filters for status_code, resource-attribute filters otherwise. */
-function facetFilterType(source: FacetSource): PropertyFilterType.Span | PropertyFilterType.SpanResourceAttribute {
+function facetFilterType(
+    source: FilterGroupFacetSource
+): PropertyFilterType.Span | PropertyFilterType.SpanResourceAttribute {
     return source.type === 'column' ? PropertyFilterType.Span : PropertyFilterType.SpanResourceAttribute
 }
 
-function facetFilterKey(source: FacetSource): string {
+function facetFilterKey(source: FilterGroupFacetSource): string {
     return source.type === 'column' ? source.column : source.key
 }
 
-function isFacetFilter(filter: SpanFacetFilter, source: FacetSource): boolean {
+function isFacetFilter(filter: SpanFacetFilter, source: FilterGroupFacetSource): boolean {
     return filter?.type === facetFilterType(source) && filter?.key === facetFilterKey(source)
 }
 
@@ -90,7 +96,7 @@ function isFacetFilter(filter: SpanFacetFilter, source: FacetSource): boolean {
  * Values currently selected for a facet whose selection lives in the filterGroup (status_code and
  * resource attributes — service_name reads the dedicated serviceNames field instead).
  */
-export function facetFilterValues(group: UniversalFiltersGroup | undefined, source: FacetSource): string[] {
+export function facetFilterValues(group: UniversalFiltersGroup | undefined, source: FilterGroupFacetSource): string[] {
     const existing = innerFilters(group).find((f) => isFacetFilter(f, source))
     const value = existing?.value
     if (Array.isArray(value)) {
@@ -105,7 +111,7 @@ export function facetFilterValues(group: UniversalFiltersGroup | undefined, sour
  */
 export function toggleFacetFilter(
     group: UniversalFiltersGroup | undefined,
-    source: FacetSource,
+    source: FilterGroupFacetSource,
     value: string
 ): UniversalFiltersGroup {
     const current = facetFilterValues(group, source)
@@ -126,9 +132,10 @@ export function toggleFacetFilter(
     return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
 }
 
-// OTel span status. Breakdown values arrive stringified ("0"/"1"/"2") since the backend
-// toString()s the Int16 column; the span filter layer accepts the same label strings the
-// filter UI uses ("Unset"/"Ok"/"Error"), translated server-side.
+// OTel span status. Values must stay the digit strings "0"/"1"/"2": breakdown rows arrive
+// stringified (the backend toString()s the Int16 column), so these are what counts key on.
+// Don't switch to the label strings — the server-side filter normaliser treats "OK" as
+// {Unset, OK}, which would silently widen a selection.
 const STATUS_OPTIONS: FacetOption[] = [
     { value: '0', label: 'Unset', count: 0 },
     { value: '1', label: 'OK', count: 0 },
@@ -196,48 +203,5 @@ export const FACETS: FacetConfig[] = [
     HOST_FACET,
 ]
 
-/**
- * Filter facets by a free-text query matching the field name or its group (case-insensitive
- * substring) — powers the rail's "search facets" box. A blank query returns everything, so
- * `facetsByGroup` then drops any group left with no matching facets for free.
- */
-export function filterFacetsByName(facets: FacetConfig[], query: string): FacetConfig[] {
-    const needle = query.trim().toLowerCase()
-    if (!needle) {
-        return facets
-    }
-    return facets.filter(
-        (facet) => facet.title.toLowerCase().includes(needle) || facet.group.toLowerCase().includes(needle)
-    )
-}
-
-/**
- * Ensure every selected value of a dynamic facet renders even when absent from the fetched list —
- * a filter from a URL or saved view can reference a value with no matches in the current scope
- * (or one below the top-N cutoff), and without a visible row it can't be seen or toggled off.
- * Missing values are prepended with a zero count. An active type-ahead search still applies to
- * injected rows, matching the server-side substring semantics of the fetched ones.
- */
-export function mergeSelectedIntoOptions(fetched: FacetOption[], selected: string[], search?: string): FacetOption[] {
-    const needle = (search ?? '').trim().toLowerCase()
-    const fetchedValues = new Set(fetched.map((option) => option.value))
-    const missing = selected
-        .filter((value) => !fetchedValues.has(value))
-        .filter((value) => !needle || value.toLowerCase().includes(needle))
-        .map((value) => ({ value, label: value, count: 0 }))
-    return missing.length > 0 ? [...missing, ...fetched] : fetched
-}
-
-/** Group facets by `group`, preserving first-appearance order of both groups and facets. */
-export function facetsByGroup(facets: FacetConfig[]): [string, FacetConfig[]][] {
-    const groups: [string, FacetConfig[]][] = []
-    for (const facet of facets) {
-        const existing = groups.find(([group]) => group === facet.group)
-        if (existing) {
-            existing[1].push(facet)
-        } else {
-            groups.push([facet.group, [facet]])
-        }
-    }
-    return groups
-}
+// List-shaping helpers for rendering the rail (grouping, name search, merging selected values
+// into fetched options) land with their consumer, the Facet/FacetRail components.

@@ -1,9 +1,9 @@
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
-import { FacetSource, facetFilterValues, toggleFacetFilter } from './facets'
+import { FilterGroupFacetSource, facetFilterValues, toggleFacetFilter } from './facets'
 
-const STATUS_SOURCE: FacetSource = { type: 'column', column: 'status_code' }
-const POD_SOURCE: FacetSource = { type: 'resourceAttribute', key: 'k8s.pod.name' }
+const STATUS_SOURCE: FilterGroupFacetSource = { type: 'column', column: 'status_code' }
+const POD_SOURCE: FilterGroupFacetSource = { type: 'resourceAttribute', key: 'k8s.pod.name' }
 
 function groupWith(values: object[]): UniversalFiltersGroup {
     return {
@@ -14,7 +14,7 @@ function groupWith(values: object[]): UniversalFiltersGroup {
 
 describe('facets', () => {
     describe('toggleFacetFilter / facetFilterValues', () => {
-        it.each<[string, FacetSource, PropertyFilterType]>([
+        it.each<[string, FilterGroupFacetSource, PropertyFilterType]>([
             ['column facet writes a span filter', STATUS_SOURCE, PropertyFilterType.Span],
             [
                 'resource-attribute facet writes a span_resource_attribute filter',

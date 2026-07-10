@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import { DateRange } from '~/queries/schema/schema-general'
 import { UniversalFiltersGroup } from '~/types'
 
 import {
@@ -15,15 +16,22 @@ import {
 import { tracingSpansAttributeBreakdownCreate, tracingSpansAttributesRetrieve } from '../../generated/api'
 import {
     _SpanPropertyFilterApi,
-    _TracingAttributeBreakdownQueryBodyApi,
     _TracingAttributeBreakdownRowApi,
     SpanPropertyTypeEnumApi,
+    TracingSpansAttributesRetrieveAttributeType,
 } from '../../generated/api.schemas'
 import type { facetCountsLogicType } from './facetCountsLogicType'
-import { FACETS, FacetConfig } from './facets'
+import { FACETS, FacetConfig, innerFilters } from './facets'
 
 export interface FacetCountsLogicProps {
     id: string
+}
+
+/** The query-relevant slice of filter state — the breakdown requests read exactly these three. */
+export interface BreakdownScope {
+    utcDateRange: DateRange
+    serviceNames: string[]
+    queryFilterGroup: UniversalFiltersGroup
 }
 
 /**
@@ -40,23 +48,13 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
     connect((props: FacetCountsLogicProps) => ({
         values: [
             tracingFiltersLogic({ id: props.id } as TracingFiltersLogicProps),
-            ['filters', 'utcDateRange', 'queryFilterGroup'],
+            ['serviceNames', 'utcDateRange', 'queryFilterGroup'],
             teamLogic,
             ['currentTeamId'],
         ],
     })),
 
     reducers({
-        // Facets being refreshed by a filter-change reload. Single-flight (one breakpoint), so the
-        // whole set clears together on settle. null arg = all facets.
-        loadingFacetKeys: [
-            [] as string[],
-            {
-                loadFacetValues: (_, facetKeys: string[] | null) => facetKeys ?? FACETS.map((f) => f.key),
-                loadFacetValuesSuccess: () => [],
-                loadFacetValuesFailure: () => [],
-            },
-        ],
         // Latches true once the presence probe settles (success or failure). Until then the value
         // fetch is deferred, so column facets aren't fetched on mount and then re-fetched once
         // presence resolves and the resource-attribute facets become visible.
@@ -74,12 +72,9 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
             if (!values.currentTeamId) {
                 return []
             }
-            // The endpoint takes the flat inner filter list (the editable filters live in the
-            // single inner group of the always-two-level tracing filterGroup).
-            const group = values.queryFilterGroup as UniversalFiltersGroup
-            const filterGroup = ((group?.values?.[0] as UniversalFiltersGroup | undefined)?.values ??
-                []) as unknown as _SpanPropertyFilterApi[]
-            const target: Pick<_TracingAttributeBreakdownQueryBodyApi, 'breakdownKey' | 'breakdownType'> =
+            // The endpoint takes the flat inner filter list.
+            const filterGroup = innerFilters(values.queryFilterGroup) as unknown as _SpanPropertyFilterApi[]
+            const target =
                 facet.source.type === 'column'
                     ? { breakdownKey: facet.source.column, breakdownType: SpanPropertyTypeEnumApi.Span }
                     : { breakdownKey: facet.source.key, breakdownType: SpanPropertyTypeEnumApi.SpanResourceAttribute }
@@ -88,7 +83,7 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                     ...target,
                     excludeBreakdownFilter: true,
                     dateRange: values.utcDateRange,
-                    serviceNames: values.filters.serviceNames ?? [],
+                    serviceNames: values.serviceNames ?? [],
                     filterGroup,
                 },
             })
@@ -138,7 +133,7 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                             return []
                         }
                         const response = await tracingSpansAttributesRetrieve(String(values.currentTeamId), {
-                            attribute_type: 'span_resource_attribute',
+                            attribute_type: TracingSpansAttributesRetrieveAttributeType.SpanResourceAttribute,
                             limit: 100,
                         })
                         return response.results.map((r) => r.name)
@@ -155,14 +150,15 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
             (presentResourceKeys): FacetConfig[] =>
                 FACETS.filter((f) => f.source.type === 'column' || presentResourceKeys.includes(f.source.key)),
         ],
-        // The subset of filter state the breakdown queries actually depend on. `filters` also carries
-        // presentation state (viewMode, orderBy, compareMode, overlay windows) — subscribing to this
-        // instead keeps a view-mode toggle from refetching every facet.
+        // The subset of filter state the breakdown queries actually depend on, built from the stable
+        // leaf values — not the `filters` roll-up, which also carries presentation state (viewMode,
+        // orderBy, compareMode, overlay windows) and gets a new identity whenever any of it changes.
+        // Subscribing to this keeps a view-mode or sort toggle from refetching every facet.
         breakdownScope: [
-            (s) => [s.utcDateRange, s.filters, s.queryFilterGroup],
-            (utcDateRange, filters, queryFilterGroup): Record<string, unknown> => ({
+            (s) => [s.utcDateRange, s.serviceNames, s.queryFilterGroup],
+            (utcDateRange, serviceNames, queryFilterGroup): BreakdownScope => ({
                 utcDateRange,
-                serviceNames: filters.serviceNames,
+                serviceNames,
                 queryFilterGroup,
             }),
         ],

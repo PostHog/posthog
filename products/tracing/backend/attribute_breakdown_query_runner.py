@@ -66,8 +66,10 @@ class TraceSpansAttributeBreakdownQueryRunner(
         if self.query.breakdownType == TraceSpanBreakdownType.SPAN:
             self.span_filters = [f for f in self.span_filters if f.key != key]
             if key == "service_name":
-                # The dedicated service filter targets the same column as the breakdown.
-                self.query.serviceNames = None
+                # The dedicated service filter targets the same column as the breakdown. Swap in a
+                # copy rather than mutating in place — the caller's query object must keep
+                # reflecting the request as made.
+                self.query = self.query.model_copy(update={"serviceNames": None})
         elif self.query.breakdownType == TraceSpanBreakdownType.SPAN_ATTRIBUTE:
             # Extraction suffixed the keys with their physical-map type (`__str` / `__float`).
             suffixed = {f"{key}__str", f"{key}__float"}
