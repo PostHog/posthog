@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPencil, IconPlay, IconTrash } from '@posthog/icons'
+import { IconPencil, IconPlay } from '@posthog/icons'
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -27,7 +28,7 @@ import {
     PublishReviewModal,
     cleanPromptSearchParams,
 } from './promptSceneComponents'
-import { openArchivePromptDialog } from './utils'
+import { openArchivePromptDialog, openDuplicatePromptDialog } from './utils'
 
 export const scene: SceneExport<PromptLogicProps> = {
     component: LLMPromptScene,
@@ -67,6 +68,7 @@ export function LLMPromptScene(): JSX.Element {
         submitPromptForm,
         requestPublish,
         deletePrompt,
+        duplicatePrompt,
         setMode,
         setPromptFormValues,
         loadMoreVersions,
@@ -137,21 +139,43 @@ export function LLMPromptScene(): JSX.Element {
                             </LemonButton>
                         </AccessControlAction>
 
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                type="secondary"
-                                status="danger"
-                                icon={<IconTrash />}
-                                onClick={() => openArchivePromptDialog(deletePrompt)}
-                                size="small"
-                                data-attr="llma-prompt-delete-button"
-                            >
-                                Archive
-                            </LemonButton>
-                        </AccessControlAction>
+                        <More
+                            size="small"
+                            overlay={
+                                <>
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.LlmAnalytics}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        <LemonButton
+                                            onClick={() => {
+                                                if (isPrompt(prompt)) {
+                                                    openDuplicatePromptDialog(prompt.name, duplicatePrompt)
+                                                }
+                                            }}
+                                            data-attr="llma-prompt-detail-duplicate"
+                                            fullWidth
+                                        >
+                                            Duplicate
+                                        </LemonButton>
+                                    </AccessControlAction>
+
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.LlmAnalytics}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        <LemonButton
+                                            status="danger"
+                                            onClick={() => openArchivePromptDialog(deletePrompt)}
+                                            data-attr="llma-prompt-delete-button"
+                                            fullWidth
+                                        >
+                                            Archive
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                </>
+                            }
+                        />
                     </>
                 }
             />
@@ -274,24 +298,6 @@ export function LLMPromptScene(): JSX.Element {
                                           : 'Publish version'}
                                 </LemonButton>
                             </AccessControlAction>
-
-                            {!isNewPrompt && (
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmAnalytics}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                >
-                                    <LemonButton
-                                        type="secondary"
-                                        status="danger"
-                                        icon={<IconTrash />}
-                                        onClick={() => openArchivePromptDialog(deletePrompt)}
-                                        size="small"
-                                        data-attr="llma-prompt-delete-button"
-                                    >
-                                        Archive
-                                    </LemonButton>
-                                </AccessControlAction>
-                            )}
                         </>
                     }
                 />

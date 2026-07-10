@@ -1,4 +1,12 @@
+import { router } from 'kea-router'
+
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { urls } from 'scenes/urls'
+
+import api from '~/lib/api'
+import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 
 export const PROMPT_NAME_MAX_LENGTH = 255
 
@@ -56,6 +64,41 @@ export function openArchivePromptDialog(onArchive: () => void): void {
         secondaryButton: {
             children: 'Cancel',
             type: 'secondary',
+        },
+    })
+}
+
+export async function requestPromptDuplicate(sourceName: string, newName: string): Promise<void> {
+    try {
+        await api.llmPrompts.duplicateByName(sourceName, newName)
+        lemonToast.success(`Prompt duplicated as "${newName}".`)
+        router.actions.push(urls.aiObservabilityPrompt(newName))
+    } catch (error) {
+        lemonToast.error(getApiErrorDetail(error) || 'Failed to duplicate prompt')
+    }
+}
+
+export function openDuplicatePromptDialog(sourceName: string, onDuplicate: (newName: string) => void): void {
+    LemonDialog.openForm({
+        title: 'Duplicate prompt',
+        initialValues: {
+            newName: `${sourceName}-copy`,
+        },
+        content: (
+            <LemonField name="newName" label="New prompt name">
+                <LemonInput
+                    data-attr="llma-prompt-duplicate-name"
+                    placeholder="my-prompt-copy"
+                    maxLength={PROMPT_NAME_MAX_LENGTH}
+                    autoFocus
+                />
+            </LemonField>
+        ),
+        errors: {
+            newName: (name: string) => validatePromptName(name),
+        },
+        onSubmit: async ({ newName }) => {
+            onDuplicate(newName)
         },
     })
 }
