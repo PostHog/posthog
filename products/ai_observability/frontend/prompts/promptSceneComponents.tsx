@@ -23,6 +23,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -170,7 +171,14 @@ export function PromptViewDetails(): JSX.Element {
             </div>
 
             <div className="grid max-w-3xl gap-3 text-sm text-secondary sm:grid-cols-2">
-                <div>Published {dayjs(prompt.created_at).format('MMM D, YYYY h:mm A')}</div>
+                <div className="flex flex-wrap items-center gap-1">
+                    Published {dayjs(prompt.created_at).format('MMM D, YYYY h:mm A')}
+                    {prompt.created_by ? (
+                        <span className="flex items-center gap-1">
+                            by <ProfilePicture user={prompt.created_by} showName size="sm" />
+                        </span>
+                    ) : null}
+                </div>
                 <div>First version created {dayjs(prompt.first_version_created_at).format('MMM D, YYYY h:mm A')}</div>
             </div>
 
@@ -706,7 +714,7 @@ export function PromptEditForm({
                 help={
                     isNewPrompt
                         ? `This name is used to fetch the prompt from your code. It must be unique and cannot be changed later. Maximum ${PROMPT_NAME_MAX_LENGTH} characters. Only letters, numbers, hyphens (-), and underscores (_) are allowed.`
-                        : 'This name is used to fetch the prompt from your code.'
+                        : 'This name is used to fetch the prompt from your code. To use a different name, duplicate the prompt.'
                 }
             >
                 <LemonInput

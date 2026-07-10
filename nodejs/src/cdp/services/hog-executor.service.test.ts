@@ -75,7 +75,6 @@ describe('Hog Executor', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
@@ -2059,10 +2058,6 @@ describe('Hog Executor', () => {
                 } as any)
             }
 
-            const setMode = (mode: 'disabled' | 'warn' | 'enforce'): void => {
-                ;(executor as any).config.selfLoopGuardMode = mode
-            }
-
             const ownTokenCaptureBody = (): string =>
                 JSON.stringify({ api_key: OWN_TOKEN, event: 'replicated', distinct_id: 'u1', properties: {} })
 
@@ -2098,56 +2093,7 @@ describe('Hog Executor', () => {
                 return metric.values.find((v) => v.labels.mode === mode && v.labels.action === action)?.value ?? 0
             }
 
-            // The detected count is the production signal that drives the enforce decision,
-            // so assert it actually moves - not just the human-facing log.
-            const readDetectedCount = (): Promise<number> => readActionCount('warn', 'detected')
-
-            it('detects a self-referential ingest fetch and logs + meters it without blocking (warn)', async () => {
-                setMode('warn')
-                mockOwnTeam()
-                const invocation = await createFetchInvocation({
-                    url: INGEST_URL,
-                    method: 'POST',
-                    body: ownTokenCaptureBody(),
-                })
-                ;(fetch as jest.Mock).mockImplementationOnce(() =>
-                    Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
-                )
-                const detectedBefore = await readDetectedCount()
-
-                const result = await executor.executeFetch(invocation)
-
-                // Observe-only: the fetch still happens and nothing errors.
-                expect(result.error).toBeUndefined()
-                expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
-                    expect.arrayContaining([expect.stringContaining('can form an event-forwarding loop')])
-                )
-                expect(await readDetectedCount()).toBe(detectedBefore + 1)
-            })
-
-            it('does not flag a normal external fetch even with the project token in the body', async () => {
-                setMode('warn')
-                mockOwnTeam()
-                const invocation = await createFetchInvocation({
-                    url: `${baseUrl}/test`,
-                    method: 'POST',
-                    body: ownTokenCaptureBody(),
-                })
-                mockRequest.mockClear()
-                const detectedBefore = await readDetectedCount()
-
-                const result = await executor.executeFetch(invocation)
-
-                expect(result.error).toBeUndefined()
-                expect(mockRequest).toHaveBeenCalled()
-                expect(cleanLogs(result.logs.map((l) => l.message))).not.toEqual(
-                    expect.arrayContaining([expect.stringContaining('event-forwarding loop')])
-                )
-                expect(await readDetectedCount()).toBe(detectedBefore)
-            })
-
             it('fails open: a team lookup error never breaks the fetch', async () => {
-                setMode('warn')
                 jest.spyOn(hub.teamManager, 'getTeam').mockRejectedValue(new Error('db unavailable'))
                 const invocation = await createFetchInvocation({
                     url: INGEST_URL,
@@ -2172,7 +2118,6 @@ describe('Hog Executor', () => {
                 { case: 'mid-chain under the cap', depth: 2, stampedTo: 3 },
                 { case: 'the last hop under the cap', depth: 9, stampedTo: 10 },
             ])('enforce: allows + stamps the next hop ($case)', async ({ depth, stampedTo }) => {
-                setMode('enforce')
                 mockOwnTeam()
                 const invocation = await createFetchInvocation({
                     url: INGEST_URL,
@@ -2197,7 +2142,6 @@ describe('Hog Executor', () => {
             // depth for a DIFFERENT function is treated as depth 0 here, so a legitimately
             // running destination is never blocked by an unrelated deep chain.
             it('enforce: does NOT block when the high depth belongs to another function', async () => {
-                setMode('enforce')
                 mockOwnTeam()
                 const invocation = await createFetchInvocation({
                     url: INGEST_URL,
@@ -2219,7 +2163,6 @@ describe('Hog Executor', () => {
             })
 
             it('enforce: breaks the chain once it reaches the cap', async () => {
-                setMode('enforce')
                 mockOwnTeam()
                 const invocation = await createFetchInvocation({
                     url: INGEST_URL,
@@ -2243,7 +2186,6 @@ describe('Hog Executor', () => {
             })
 
             it('enforce: leaves a normal external fetch untouched', async () => {
-                setMode('enforce')
                 mockOwnTeam()
                 const invocation = await createFetchInvocation({
                     url: `${baseUrl}/test`,

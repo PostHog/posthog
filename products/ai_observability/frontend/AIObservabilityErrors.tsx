@@ -112,11 +112,11 @@ export function AIObservabilityErrors(): JSX.Element {
                                 errorString.length > 80 ? errorString.slice(0, 77) + '...' : errorString
 
                             return (
-                                <div className="flex items-center gap-1">
+                                <div className="flex min-w-0 items-center gap-1">
                                     <Tooltip title={errorString}>
                                         <Link
                                             to={buildErrorTracesUrl(errorString, searchParams, currentPropertyFilters)}
-                                            className="font-mono text-sm"
+                                            className="min-w-0 shrink truncate font-mono text-sm"
                                             data-attr="llm-errors-row-click"
                                         >
                                             {displayValue}

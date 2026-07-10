@@ -102,14 +102,16 @@ jobs:
             # blob:none, the post-fetch `git checkout` lazy-fetches every blob in HEAD
             # and the per-blob credential lookup intermittently fails with "could not
             # read Username for github.com" (e.g. #59779 on 2026-05-23, blocked merge
-            # until the job was retried). Materializing only the one file this job
-            # reads collapses the lazy fetch to a handful of blobs.
+            # until the job was retried). Materializing only the files this job reads
+            # (plus the local paths-filter action, which must exist on disk to run)
+            # collapses the lazy fetch to a handful of blobs.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
                   clean: false
                   sparse-checkout: |
+                      .github/actions/paths-filter
                       .github/clickhouse-versions.json
                       docker-compose.base.yml
                   sparse-checkout-cone-mode: false
@@ -121,7 +123,7 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: changes
               if: github.event_name == 'pull_request'
               with:
@@ -146,7 +148,7 @@ jobs:
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the ~25-min E2E stack for that bot push is pure waste;
             # the `playwright_tests` aggregator treats the resulting skip as success. Key
-            # off the push delta (this push's commits), not the whole-PR diff dorny reports,
+            # off the push delta (this push's commits), not the whole-PR diff the filter reports,
             # so it fires even when the PR also carries real code changes.
             - name: Detect Visual Review baseline-only push
               id: baseline_push
@@ -727,24 +729,25 @@ jobs:
                   path: playwright/junit-results.xml
                   if-no-files-found: ignore
 
-            # Quarantine gate: uploads junit to Trunk and gates the job. Exit 0 when every
-            # failure is an already-quarantined flake, non-zero otherwise (falls back to the
-            # raw test outcome if Trunk is unreachable). Runs the token only on internal PRs,
-            # master, and the merge queue — never on fork PRs or Dependabot, which have no
-            # secret.
+            # Best-effort Trunk upload (continue-on-error); the "Fail on Playwright failure" step
+            # below is the verdict, so a Trunk outage can't red a passing job. Internal PRs only
+            # (needs the secret); cli-version pinned, not 'latest' (skips the release redirect).
             - name: Quarantine gate
+              id: quarantine_gate
+              continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: playwright/junit-results.xml
                   org-slug: posthog-inc
+                  cli-version: '0.13.7'
                   quarantine: true
                   previous-step-outcome: ${{ steps.playwright-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
-            # No Trunk secret on fork PRs and Dependabot; fall back to the raw playwright
-            # outcome so a genuine failure still goes red exactly as before.
-            - name: Fail on Playwright failure (no quarantine gate)
-              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
+            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
+            # also covers the skipped gate on fork/Dependabot.
+            - name: Fail on Playwright failure
+              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
               shell: bash
               run: exit 1
 

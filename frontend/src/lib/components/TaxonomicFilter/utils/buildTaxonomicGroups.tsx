@@ -636,19 +636,6 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                           ...endpointFilters,
                       }).url
                     : undefined,
-            localItemsSearch: (items: any[], q: string): any[] => {
-                if (!q) {
-                    return items
-                }
-                return [
-                    {
-                        key: 'message',
-                        name: 'Search span message for "' + q + '"',
-                        value: q,
-                        propertyFilterType: 'span',
-                    },
-                ].concat(items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase())))
-            },
             getName: (option: { key: string; name: string }) => option.name,
             getValue: (option: { key: string; name: string }) => option.key,
             getPopoverHeader: () => 'Span attributes',
