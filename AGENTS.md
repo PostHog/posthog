@@ -163,7 +163,16 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code
 - Markdown: prefer semantic line breaks; no hard wrapping
 - Use American English spelling
-- When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.
+
+## User-facing copy
+
+For any text a person reads (UI labels, tooltips, empty/error states, notifications, docs, support replies). When unsure whether copy reads well, ask a human.
+
+- Sentence case, not Title Case: capitalize only the first word and proper nouns ('Product analytics', 'Save as view').
+- Avoid the tells of AI-generated text: em dashes (—), "not just X, but Y", rule-of-three padding, hedging preambles. Write like a person typed it; if you can't tell, ask a human.
+- Plain language, no jargon. Use the labels users see, not internal names (`surveyPopupDelaySeconds` becomes "Delay the survey popup").
+- Be direct and friendly: short sentences, consistent tone across surfaces.
+- Errors and empty states guide, don't dead-end: say what happened and the next action.
 
 ## Agent automation
 
