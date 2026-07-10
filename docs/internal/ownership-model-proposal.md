@@ -174,6 +174,18 @@ One tradeoff to acknowledge: today `.github/scripts/` sits behind the blocking `
 
 If the first consumer (say the auto-assigner) is ever replaced, the resolver, schema, and lint are untouched — only one caller changes. That is the "source of truth, not tool config" property.
 
+### Portability: repo = data, app = resolver
+
+Nothing in the resolver is PostHog-specific — `owners.yaml` is a repo-agnostic format, and the library needs only pyyaml and a way to load files.
+That last part is the seam: resolution walks an abstract file map, not the filesystem (the `owners:fmt` equivalence proof already runs the real resolver over an in-memory layout).
+So when a consumer like stamphog becomes a hosted app that other repos enable without adding any code, the model is: **the repo contributes only ownership data; the resolver ships inside the app.**
+A hosted reviewer fetches the default-branch tree (one API call), pulls just the ownership files (a few dozen blobs, cacheable per commit SHA), and resolves in-process.
+Repos without `owners.yaml` fall back to a `CODEOWNERS` loader behind the same resolver interface — the glob semantics here are CODEOWNERS semantics already — and a repo with neither is simply unowned.
+
+Two properties carry over intact.
+Ownership is always read from the default branch, never the PR head, so a PR cannot rewrite ownership to approve itself.
+And ownership _content_ stays in git even when enablement moves to a UI — a far-away ownership store is exactly what rots (§2); the UI configures which source and branch, never the data.
+
 ## Canonical placement (`owners:fmt`)
 
 Because consolidation is a readability choice and not a semantic one (§4), the tree has many layouts that resolve identically, and it drifts between them as people fold and split by hand.
