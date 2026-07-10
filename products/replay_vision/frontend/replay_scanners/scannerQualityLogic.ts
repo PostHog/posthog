@@ -15,6 +15,7 @@ import {
 } from '../generated/api'
 import type {
     CurrentPromptSuggestionApi,
+    FeedbackThemeApi,
     ObservationLabelStatsApi,
     ReplayObservationApi,
     ReplayObservationLabelApi,
@@ -49,6 +50,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         loadObservationsFailure: true,
         setPage: (page: number) => ({ page }),
         setRatedFilter: (value: RatedFilterValue) => ({ value }),
+        setThemeFilter: (theme: FeedbackThemeApi | null) => ({ theme }),
         setSort: (sorting: ObservationsSorting | null) => ({ sorting }),
         labelChanged: (observationId: string, label: ReplayObservationLabelApi | null) => ({ observationId, label }),
         loadLabelStats: true,
@@ -96,7 +98,17 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
             {
                 setPage: (_, { page }) => Math.max(1, page),
                 setRatedFilter: () => 1,
+                setThemeFilter: () => 1,
                 setSort: () => 1,
+            },
+        ],
+        // A feedback theme selected as table filter. Changing the rated filter clears it, since the
+        // theme's sessions are a rated subset that would contradict the user's explicit choice.
+        themeFilter: [
+            null as FeedbackThemeApi | null,
+            {
+                setThemeFilter: (_, { theme }) => theme,
+                setRatedFilter: () => null,
             },
         ],
         sort: [
@@ -110,6 +122,8 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
             'unrated' as RatedFilterValue,
             {
                 setRatedFilter: (_, { value }) => value,
+                // A theme's sessions are all rated, so a narrower rated filter would contradict what's shown.
+                setThemeFilter: (state, { theme }) => (theme ? 'all' : state),
             },
         ],
         observationsLoading: [
@@ -259,7 +273,10 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 if (offset > 0) {
                     params.offset = offset
                 }
-                if (values.ratedFilter !== 'all') {
+                if (values.themeFilter) {
+                    // The theme's sessions are rated by definition, so the rated filter is moot here.
+                    params.session_id = values.themeFilter.sessions.map((session) => session.session_id).join(',')
+                } else if (values.ratedFilter !== 'all') {
                     params.labeled = values.ratedFilter === 'rated'
                 }
                 if (values.sort) {
@@ -285,6 +302,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
 
         setPage: () => actions.loadObservations(),
         setRatedFilter: () => actions.loadObservations(),
+        setThemeFilter: () => actions.loadObservations(),
         setSort: () => actions.loadObservations(),
 
         // Debounced so a burst of ratings reloads the chart and staleness once.

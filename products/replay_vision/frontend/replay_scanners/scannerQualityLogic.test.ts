@@ -100,6 +100,41 @@ describe('scannerQualityLogic', () => {
         expect(visionScannersObservationsList).toHaveBeenLastCalledWith(TEAM_ID, 'scan-1', expectedParams)
     })
 
+    it('a theme filter requests its sessions and widens the rated filter, until the user picks one', async () => {
+        const theme = {
+            theme: 'Review page mistaken for confirmation',
+            count: 2,
+            examples: [],
+            sessions: [
+                { observation_id: 'obs-1', session_id: 'sess-1' },
+                { observation_id: 'obs-2', session_id: 'sess-2' },
+            ],
+        }
+        await mountLogic()
+        logic.actions.setThemeFilter(theme)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.ratedFilter).toBe('all')
+        expect(visionScannersObservationsList).toHaveBeenLastCalledWith(TEAM_ID, 'scan-1', {
+            status: 'succeeded',
+            limit: QUALITY_PAGE_SIZE,
+            session_id: 'sess-1,sess-2',
+            order_by: '-created_at',
+        })
+
+        // An explicit rated choice takes over from the theme filter.
+        logic.actions.setRatedFilter('unrated')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.themeFilter).toBeNull()
+        expect(visionScannersObservationsList).toHaveBeenLastCalledWith(TEAM_ID, 'scan-1', {
+            status: 'succeeded',
+            limit: QUALITY_PAGE_SIZE,
+            labeled: false,
+            order_by: '-created_at',
+        })
+    })
+
     it('a stale current-suggestion read does not clobber a fresh generate', async () => {
         await mountLogic()
         let resolveStale: (value: unknown) => void = () => {}

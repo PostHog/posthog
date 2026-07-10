@@ -37,7 +37,6 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ObservationResultSummary } from '../../components/ObservationCard'
 import type {
-    FeedbackThemeApi,
     FeedbackThemesApi,
     PromptEvaluationResultApi,
     ReplayObservationApi,
@@ -793,9 +792,17 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
     )
 }
 
-/** Recurring failure modes summarized from the team's written feedback, so raters know what to look for. */
-function FeedbackThemeChips({ feedbackThemes }: { feedbackThemes: FeedbackThemesApi }): JSX.Element | null {
-    const [openTheme, setOpenTheme] = useState<FeedbackThemeApi | null>(null)
+/** Recurring failure modes summarized from the team's written feedback, so raters know what to look for.
+ * Clicking a theme filters the results table below to the sessions behind it. */
+function FeedbackThemeChips({
+    scannerId,
+    feedbackThemes,
+}: {
+    scannerId: string
+    feedbackThemes: FeedbackThemesApi
+}): JSX.Element | null {
+    const { themeFilter } = useValues(scannerQualityLogic({ scannerId }))
+    const { setThemeFilter } = useActions(scannerQualityLogic({ scannerId }))
     if (feedbackThemes.themes.length === 0) {
         return null
     }
@@ -804,73 +811,44 @@ function FeedbackThemeChips({ feedbackThemes }: { feedbackThemes: FeedbackThemes
             <Tooltip title="Recurring failure modes summarized from your team's written feedback. They update with the prompt recommendation and also steer it.">
                 <span className="text-xs text-muted">Feedback themes:</span>
             </Tooltip>
-            {feedbackThemes.themes.map((theme) => (
-                <Tooltip
-                    key={theme.theme}
-                    title={
-                        <div className="space-y-1">
-                            <div>
-                                {theme.count} feedback comment{theme.count === 1 ? '' : 's'} describe this failure mode.
-                                Watch for it when rating.
-                                {theme.sessions.length > 0 && ' Click to see the sessions behind it.'}
+            {feedbackThemes.themes.map((theme) => {
+                const isActive = themeFilter?.theme === theme.theme
+                const clickable = theme.sessions.length > 0
+                return (
+                    <Tooltip
+                        key={theme.theme}
+                        title={
+                            <div className="space-y-1">
+                                <div>
+                                    {theme.count} feedback comment{theme.count === 1 ? '' : 's'} describe this failure
+                                    mode. Watch for it when rating.
+                                    {clickable &&
+                                        (isActive
+                                            ? ' Click to stop filtering by it.'
+                                            : ' Click to filter the table to its sessions.')}
+                                </div>
+                                {/* Index keys: the list is static and never reordered, while two raters can write identical quotes. */}
+                                {theme.examples.map((example, index) => (
+                                    <div key={index} className="text-muted italic">
+                                        "{example}"
+                                    </div>
+                                ))}
                             </div>
-                            {/* Index keys: the list is static and never reordered, while two raters can write identical quotes. */}
-                            {theme.examples.map((example, index) => (
-                                <div key={index} className="text-muted italic">
-                                    "{example}"
-                                </div>
-                            ))}
-                        </div>
-                    }
-                >
-                    <LemonTag
-                        type="muted"
-                        onClick={theme.sessions.length > 0 ? () => setOpenTheme(theme) : undefined}
-                        forceClickable={theme.sessions.length > 0}
-                        data-attr="vision-quality-feedback-theme"
+                        }
                     >
-                        {theme.theme} · {theme.count}
-                    </LemonTag>
-                </Tooltip>
-            ))}
-            <LemonModal
-                isOpen={openTheme !== null}
-                onClose={() => setOpenTheme(null)}
-                title={openTheme?.theme}
-                width={560}
-            >
-                {openTheme && (
-                    <div className="space-y-3">
-                        <p className="text-muted text-sm m-0">
-                            The rated session{openTheme.sessions.length === 1 ? '' : 's'} whose feedback describes this
-                            failure mode.
-                        </p>
-                        <div className="flex flex-col gap-1">
-                            {openTheme.sessions.map((session) => (
-                                <div key={session.observation_id} className="flex items-center justify-between gap-2">
-                                    <Link
-                                        to={urls.replayVisionObservation(session.observation_id)}
-                                        className="font-mono text-xs truncate"
-                                        title="Open the scanner result and feedback for this session"
-                                    >
-                                        {session.session_id}
-                                    </Link>
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        icon={<IconRewindPlay />}
-                                        to={urls.replaySingle(session.session_id)}
-                                        className="whitespace-nowrap"
-                                        data-attr="vision-quality-theme-view-recording"
-                                    >
-                                        View recording
-                                    </LemonButton>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </LemonModal>
+                        <LemonTag
+                            type={isActive ? 'highlight' : 'muted'}
+                            onClick={clickable ? () => setThemeFilter(isActive ? null : theme) : undefined}
+                            forceClickable={clickable}
+                            closable={isActive}
+                            onClose={() => setThemeFilter(null)}
+                            data-attr="vision-quality-feedback-theme"
+                        >
+                            {theme.theme} · {theme.count}
+                        </LemonTag>
+                    </Tooltip>
+                )
+            })}
         </div>
     )
 }
@@ -1025,7 +1003,9 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                         />
                     </div>
                 </div>
-                {scanner?.feedback_themes && <FeedbackThemeChips feedbackThemes={scanner.feedback_themes} />}
+                {scanner?.feedback_themes && (
+                    <FeedbackThemeChips scannerId={scannerId} feedbackThemes={scanner.feedback_themes} />
+                )}
                 <LemonTable
                     columns={columns}
                     dataSource={observations}
