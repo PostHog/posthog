@@ -2119,7 +2119,7 @@ class LinnworksSourceConfig(config.Config):
 
 @config.config
 class LinodeSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
