@@ -8,11 +8,13 @@ just proceeds on the old layout (status quo) and the table is retried on a later
 """
 
 import time
+import uuid
 import asyncio
 import dataclasses
 from typing import Any
 
 from django.db import InterfaceError, OperationalError, close_old_connections
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
@@ -29,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DeltaTableHelper,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition import (
+    RepartitionSupersededError,
     RepartitionTarget,
     RepartitionUnpartitionableError,
     repartition_table_in_place,
@@ -65,6 +68,36 @@ def _is_cancellation(error: BaseException) -> bool:
     it arrives Exception-derived; match on the type name too so it's never mistaken for a real failure.
     """
     return isinstance(error, asyncio.CancelledError) or type(error).__name__ == "CancelledError"
+
+
+# Infra noise observed escaping the rewrite as generic OSError/HTTPClientError — none of these are
+# repartition bugs, and the marker-idempotent swap means the next sync simply retries.
+_TRANSIENT_ERROR_SNIPPETS = (
+    "reduce your request rate",  # S3 503 SlowDown surfaced by the delta kernel as OSError
+    "error occurred while loading credentials",  # IMDS/credential-provider timeout inside the kernel
+    "event loop is closed",  # s3fs client bound to an already-completed async_to_sync loop
+)
+
+
+def _is_transient_infra_error(error: Exception) -> bool:
+    if isinstance(error, OperationalError | InterfaceError):
+        return True
+    message = str(error).lower()
+    return any(snippet in message for snippet in _TRANSIENT_ERROR_SNIPPETS)
+
+
+def _still_claimant(schema: ExternalDataSchema, claim_token: str) -> bool:
+    """Whether this attempt still holds the schema's repartition claim.
+
+    Conservative on doubt: if the claim can't be read (DB blip), report True so a real failure is
+    never silently dropped.
+    """
+    try:
+        schema.refresh_from_db(fields=["sync_type_config"])
+        claim = schema.repartition_claim
+        return bool(claim and claim.get("token") == claim_token)
+    except Exception:
+        return True
 
 
 def _target_from_schema(schema: ExternalDataSchema) -> RepartitionTarget:
@@ -218,6 +251,15 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     capture_repartition_event("warehouse_repartition_started", started_props)
     logger.info(f"repartition: starting trigger_reason={trigger_reason}", trigger_reason=trigger_reason)
 
+    # Fencing claim: if we get heartbeat-timed-out mid-rewrite, this activity keeps running as a
+    # zombie (heartbeat failures are swallowed) while Temporal starts a retry. The retry's newer claim
+    # makes every claim re-check inside the rewrite/swap raise RepartitionSupersededError in the
+    # zombie, so exactly one writer ever touches the table's S3 state.
+    claim_token = str(uuid.uuid4())
+    schema.set_repartition_claim(
+        {"token": claim_token, "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
+    )
+
     start = time.monotonic()
     try:
         # HeartbeaterSync heartbeats on a background thread while the (possibly long) rewrite streams,
@@ -228,7 +270,14 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 schema=schema,
                 target=target,
                 logger=logger,
+                claim_token=claim_token,
             )
+    except RepartitionSupersededError:
+        # A newer attempt claimed the schema and owns the table now. Stop quietly: recording a failure
+        # here would burn an attempt and double-report the run the newer claimant is already handling.
+        logger.info("repartition: superseded by a newer attempt, standing down")
+        DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
+        return
     except RepartitionUnpartitionableError as e:
         # Terminal: the table can't be partitioned. Clear the flag so we don't retry every run.
         schema.refresh_from_db(fields=["sync_type_config"])
@@ -253,11 +302,19 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             # Treat identically to the branch above: propagate, never record it as a failure.
             logger.info("repartition: cancelled mid-run, will be retried")
             raise
-        if isinstance(e, OperationalError | InterfaceError):
-            # Transient app-DB pooler drop mid-repartition (not a repartition bug). The rewrite/swap is
-            # idempotent via the swap marker, so the next sync retries cleanly. Don't consume an attempt
-            # or emit a failure event over infra noise — capture for visibility and move on.
-            logger.warning("repartition: transient database error, will retry on next sync", exc_info=True)
+        if not _still_claimant(schema, claim_token):
+            # The error is almost certainly collateral from the newer claimant clobbering our S3 state
+            # (e.g. it swept our temp mid-write). It owns the retry; recording our wreckage as a
+            # failure would burn an attempt and pollute error tracking with self-inflicted noise.
+            logger.info("repartition: failed after being superseded, standing down", exc_info=True)
+            DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
+            return
+        if _is_transient_infra_error(e):
+            # Transient infra noise mid-repartition (app-DB pooler drop, S3 rate limit, credential
+            # timeout) — not a repartition bug. The rewrite/swap is idempotent via the swap marker, so
+            # the next sync retries cleanly. Don't consume an attempt or emit a failure event —
+            # capture for visibility and move on.
+            logger.warning("repartition: transient infra error, will retry on next sync", exc_info=True)
             capture_exception(e)
             DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="transient").inc()
             return

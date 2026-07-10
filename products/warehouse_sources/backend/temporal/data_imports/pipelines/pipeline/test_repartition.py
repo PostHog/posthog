@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition import (
+    RepartitionSupersededError,
     RepartitionTarget,
     _rewrite_into_temp,
     measure_partition_bytes,
@@ -47,6 +48,18 @@ def _delta_helper(**kwargs):
         "get_table_uri": AsyncMock(return_value="s3://bucket/live"),
         "get_storage_options": Mock(return_value={}),
         "get_delta_table": AsyncMock(return_value=None),
+    }
+    defaults.update(kwargs)
+    return SimpleNamespace(**defaults)
+
+
+def _fake_s3(**kwargs):
+    defaults = {
+        "invalidate_cache": Mock(),
+        "_exists": AsyncMock(return_value=True),
+        "_find": AsyncMock(return_value=[]),
+        "_rm": AsyncMock(),
+        "_copy": AsyncMock(),
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -403,20 +416,41 @@ class TestPurgeS3Prefix:
 
     def test_enumerates_and_deletes_every_object(self):
         # The fix: delete the listed objects explicitly, not only a recursive rm that can leave strays.
-        # A regression back to a bare `_rm(recursive=True)` would drop this list-delete.
-        s3 = SimpleNamespace(
-            _exists=AsyncMock(return_value=True),
-            _find=AsyncMock(return_value=["bucket/t/_delta_log/0.json", "bucket/t/part-0.parquet"]),
-            _rm=AsyncMock(),
-        )
+        # A regression back to a bare `_rm(recursive=True)` would drop this list-delete. The dircache
+        # must be dropped first — delta-rs writes bypass s3fs, so a cached listing misses its files.
+        s3 = _fake_s3(_find=AsyncMock(return_value=["bucket/t/_delta_log/0.json", "bucket/t/part-0.parquet"]))
         asyncio.run(repartition_module._purge_s3_prefix(s3, "s3://bucket/t"))
+        s3.invalidate_cache.assert_called()
         s3._rm.assert_any_await(["s3://bucket/t/_delta_log/0.json", "s3://bucket/t/part-0.parquet"])
 
     def test_noop_when_prefix_absent(self):
-        s3 = SimpleNamespace(_exists=AsyncMock(return_value=False), _find=AsyncMock(), _rm=AsyncMock())
+        s3 = _fake_s3(_exists=AsyncMock(return_value=False))
         asyncio.run(repartition_module._purge_s3_prefix(s3, "s3://bucket/gone"))
         s3._find.assert_not_awaited()
         s3._rm.assert_not_awaited()
+
+
+class TestPurgeStaleTempTables:
+    def test_sweeps_every_repartitioned_variant(self):
+        # Temp URIs are claim-scoped, so orphans from superseded/crashed attempts live under other
+        # tokens (and the legacy unsuffixed name). A purge of only the current attempt's temp would
+        # leave those orphans to interleave with — and corrupt — the next rebuild.
+        s3 = _fake_s3(
+            _find=AsyncMock(
+                return_value=[
+                    "bucket/dlt/team_1_src/t__repartitioned/_delta_log/0.json",
+                    "bucket/dlt/team_1_src/t__repartitioned_ab12cd34/part-0.parquet",
+                ]
+            )
+        )
+        asyncio.run(repartition_module._purge_stale_temp_tables(s3, "s3://bucket/dlt/team_1_src/t"))
+        s3._find.assert_awaited_once_with("s3://bucket/dlt/team_1_src", prefix="t__repartitioned")
+        s3._rm.assert_awaited_once_with(
+            [
+                "s3://bucket/dlt/team_1_src/t__repartitioned/_delta_log/0.json",
+                "s3://bucket/dlt/team_1_src/t__repartitioned_ab12cd34/part-0.parquet",
+            ]
+        )
 
 
 class TestSwapTempIntoLiveGuard:
@@ -424,7 +458,7 @@ class TestSwapTempIntoLiveGuard:
         # The core safety invariant: a temp that doesn't hold every expected row must never trigger the
         # destructive delete-of-live. The guard raises before any S3 op, so live stays intact and the
         # caller rebuilds fresh on the next run instead of copying a broken table over live.
-        s3 = SimpleNamespace(_exists=AsyncMock(), _rm=AsyncMock(), _find=AsyncMock(), _copy=AsyncMock())
+        s3 = _fake_s3()
         with (
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=5)),
             patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
@@ -466,7 +500,7 @@ class TestResumeWithInvalidTemp:
             set_partitioning_enabled=Mock(),
             stamp_last_repartition_at=Mock(),
         )
-        s3 = SimpleNamespace(_exists=AsyncMock(return_value=True), _rm=AsyncMock(), _find=AsyncMock(return_value=[]))
+        s3 = _fake_s3()
 
         with (
             patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
@@ -480,6 +514,111 @@ class TestResumeWithInvalidTemp:
         swap.assert_awaited_once()
         schema.set_repartition_swap.assert_called_once()  # fresh temp validated and re-marked
         assert result["outcome"] == "completed"
+
+
+class TestClaimFencing:
+    """A heartbeat-timed-out attempt keeps running as a zombie while its Temporal retry starts; both
+    used to write into the same temp table and corrupt each other (headless `_delta_log`, inflated row
+    counts). The schema-row claim is the fence: a stale attempt must stop at the next check and never
+    reach a destructive step."""
+
+    @pytest.mark.parametrize(
+        "token_reads",
+        [
+            pytest.param(["other"], id="stolen_at_start"),
+            pytest.param(["tok-ours", "other"], id="stolen_before_marker"),
+        ],
+    )
+    def test_superseded_attempt_never_reaches_destructive_steps(self, token_reads, tmp_path):
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        helper = _delta_helper(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        schema = _schema(id="s1", repartition_swap=None, set_repartition_swap=Mock())
+
+        with (
+            patch.object(repartition_module, "_current_claim_token", side_effect=token_reads),
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
+            patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock(return_value=(2, target))),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=2)),
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()) as swap,
+        ):
+            with pytest.raises(RepartitionSupersededError):
+                asyncio.run(
+                    repartition_table_in_place(
+                        helper=helper, schema=schema, target=target, logger=logger, claim_token="tok-ours"
+                    )
+                )
+
+        schema.set_repartition_swap.assert_not_called()
+        swap.assert_not_awaited()
+
+    def test_rewrite_stops_at_batch_boundary_when_claim_lost(self, tmp_path):
+        # The zombie's damage window is the rewrite loop, so the claim is re-checked before every batch
+        # write — a superseded writer must stop within one batch, not stream its whole table into (and
+        # corrupt) the newer attempt's rebuild.
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        ensure = AsyncMock(side_effect=[None, RepartitionSupersededError("stolen")])
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        with pytest.raises(RepartitionSupersededError):
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=live,
+                    temp_uri=str(tmp_path / "temp"),
+                    storage_options={},
+                    target=target,
+                    batch_size=1,
+                    logger=logger,
+                    ensure_claim=ensure,
+                )
+            )
+        assert ensure.await_count == 2
+
+    def test_resume_targets_marker_temp_uri_not_claim_scoped(self, tmp_path):
+        # In-flight prod markers predate claim-scoped temp names; a resume must validate and swap the
+        # exact temp the marker records — deriving a fresh claim-scoped name instead would "lose" the
+        # built temp and, with live already deleted mid-swap, strand the recovery.
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        helper = _delta_helper(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="resume", partition_mode="datetime", partition_format="day"
+        )
+        schema = _schema(
+            id="s1",
+            repartition_swap={
+                "state": "ready",
+                "temp_uri": "s3://bucket/live__repartitioned",
+                "live_uri": "s3://bucket/live",
+            },
+            clear_repartition_swap=Mock(),
+            clear_repartition_pending=Mock(),
+            set_partitioning_enabled=Mock(),
+            stamp_last_repartition_at=Mock(),
+        )
+
+        with (
+            patch.object(repartition_module, "_current_claim_token", return_value="tok-ours"),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=2)) as valid,
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()) as swap,
+        ):
+            result = asyncio.run(
+                repartition_table_in_place(
+                    helper=helper, schema=schema, target=target, logger=logger, claim_token="tok-ours"
+                )
+            )
+
+        assert result["outcome"] == "completed"
+        valid.assert_awaited_once_with("s3://bucket/live__repartitioned", {})
+        assert swap.await_args.kwargs["temp_uri"] == "s3://bucket/live__repartitioned"
 
 
 @pytest.mark.parametrize(

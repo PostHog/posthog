@@ -423,6 +423,21 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
                 return swap
         return None
 
+    @property
+    def repartition_claim(self) -> dict[str, Any] | None:
+        """The fencing claim of the newest repartition attempt: {"token", "job_id", "claimed_at"}.
+
+        S3 has no locking, so this row is the coordination point between concurrent repartition
+        attempts (a heartbeat-timed-out zombie and its Temporal retry). The newest claimant owns the
+        table; older attempts compare their token against this and stand down. Never cleared — it is
+        only ever compared against a live attempt's token, so a stale claim is inert.
+        """
+        if self.sync_type_config:
+            claim = self.sync_type_config.get("repartition_claim", None)
+            if isinstance(claim, dict):
+                return claim
+        return None
+
     def _save_sync_type_config(self) -> None:
         # Internal bookkeeping write — skip the activity-log SELECT (see save()) since these run
         # inside the sync/repartition activity where a dropped pooler connection would fail the run.
@@ -442,6 +457,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     def set_repartition_swap(self, swap: dict[str, Any]) -> None:
         self.sync_type_config["repartition_swap"] = swap
+        self._save_sync_type_config()
+
+    def set_repartition_claim(self, claim: dict[str, Any]) -> None:
+        self.sync_type_config["repartition_claim"] = claim
         self._save_sync_type_config()
 
     def clear_repartition_swap(self) -> None:
