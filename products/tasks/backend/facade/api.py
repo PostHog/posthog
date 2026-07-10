@@ -20,6 +20,7 @@ import logging
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -98,6 +99,7 @@ CODE_WORKFLOW_INVALID = "invalid"
 # An agent run counts as "active" only if it updated within this window.
 CODE_HOME_ACTIVE_AGENT_WINDOW = timedelta(minutes=30)
 _CODE_HOME_RUNNING_STATUSES = (TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
+WIZARD_PR_READY_EMAIL_FEATURE_FLAG = "wizard-cloud-run-pr-ready-email-enabled"
 
 __all__ = [
     "CODE_INVITE_INVALID_CODE",
@@ -468,6 +470,35 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
     if run is None:
         return None
     return _task_run_to_dto(run)
+
+
+def get_wizard_pr_ready_email_context(run_id: str | UUID) -> contracts.WizardPrReadyEmailContextDTO | None:
+    """Data ``send_wizard_pr_ready_email`` needs for a run, or ``None`` if the run has no PR URL yet."""
+    run = TaskRun.objects.select_related("task").filter(id=run_id).first()
+    if run is None:
+        return None
+    pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+    if not pr_url:
+        return None
+    task = run.task
+    return contracts.WizardPrReadyEmailContextDTO(
+        task_id=task.id,
+        run_id=run.id,
+        team_id=run.team_id,
+        origin_product=task.origin_product,
+        pr_url=pr_url,
+        repository=task.repository,
+        branch=run.branch,
+        created_by_id=task.created_by_id,
+        already_sent=task.pr_ready_email_sent_at is not None,
+    )
+
+
+def mark_task_pr_ready_email_sent(task_id: str | UUID, pr_url: str) -> None:
+    """Record confirmed PR-ready email delivery for a task, if it still exists."""
+    task = Task.objects.filter(id=task_id).first()
+    if task is not None:
+        task.mark_pr_ready_email_sent(pr_url)
 
 
 def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
@@ -1608,6 +1639,77 @@ def _post_slack_update_for_pr(run: TaskRun) -> None:
         logger.exception("task_run_slack_update_for_pr_failed for run %s", run.id)
 
 
+def _is_wizard_pr_ready_email_enabled(run: TaskRun) -> bool:
+    user = run.task.created_by
+    if user is None or not user.distinct_id:
+        return False
+    try:
+        team = Team.objects.only("id", "uuid", "organization_id").get(id=run.team_id)
+        organization_id = str(team.organization_id)
+        return bool(
+            posthoganalytics.feature_enabled(
+                WIZARD_PR_READY_EMAIL_FEATURE_FLAG,
+                user.distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("wizard_pr_ready_email_feature_flag_check_failed", extra={"run_id": str(run.id)})
+        return False
+
+
+def _is_github_pull_request_url_for_repository(pr_url: str, repository: str | None) -> bool:
+    if not repository:
+        return False
+    try:
+        parsed_url = urlparse(pr_url)
+    except ValueError:
+        return False
+
+    if parsed_url.scheme != "https" or parsed_url.netloc != "github.com":
+        return False
+    if parsed_url.params or parsed_url.query or parsed_url.fragment:
+        return False
+
+    path_parts = parsed_url.path.strip("/").split("/")
+    repository_parts = repository.strip("/").split("/")
+    if len(path_parts) != 4 or len(repository_parts) != 2:
+        return False
+
+    return (
+        path_parts[0].lower() == repository_parts[0].lower()
+        and path_parts[1].lower() == repository_parts[1].lower()
+        and path_parts[2] == "pull"
+        and path_parts[3].isdigit()
+    )
+
+
+def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
+    pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+    if not pr_url or run.task.origin_product != Task.OriginProduct.ONBOARDING:
+        return
+    if run.task.created_by_id is None:
+        return
+    if not _is_github_pull_request_url_for_repository(pr_url, run.task.repository):
+        logger.warning(
+            "wizard_pr_ready_email_invalid_pr_url",
+            extra={"run_id": str(run.id), "task_id": str(run.task_id), "repository": run.task.repository},
+        )
+        return
+    if not _is_wizard_pr_ready_email_enabled(run):
+        return
+
+    if not run.task.mark_pr_ready_email_queued(pr_url):
+        return
+
+    from posthog.tasks.email import send_wizard_pr_ready_email  # noqa: PLC0415 - keep email task import lazy
+
+    transaction.on_commit(lambda: send_wizard_pr_ready_email.delay(str(run.id)))
+
+
 def update_task_run(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, validated_data: dict
 ) -> contracts.TaskRunDetailDTO | None:
@@ -1708,6 +1810,7 @@ def update_task_run(
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if new_pr_url and new_pr_url != old_pr_url:
         _post_slack_update_for_pr(run)
+        _send_wizard_pr_ready_email_for_pr(run)
         # Surface the PR in the run's progress timeline the moment the agent reports it, so the install
         # UI advances past "Started agent" instead of waiting on the 15-min CI follow-up loop to emit
         # these. Steps coalesce by id with the workflow's own pr/ci emissions (frontend mergeProgressStep),
@@ -1751,6 +1854,7 @@ def set_task_run_output(
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()
     _post_slack_update_for_pr(run)
+    _send_wizard_pr_ready_email_for_pr(run)
     return _task_run_detail_to_dto(run)
 
 
