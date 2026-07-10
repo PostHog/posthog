@@ -3559,7 +3559,7 @@ def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: st
 
     In the future we may lift this restriction, but initially we want to make sure about
     AWS role ownership with this check. This complements other runtime checks in
-    batch exports; see `verify_assumed_aws_role_ownership` in
+    batch exports; see `get_credentials_using_user_aws_role` in
     `s3_batch_export.py`.
     """
     same_aws_role_integrations = (
