@@ -39,10 +39,13 @@ const toMapById = <T extends { id: string }>(items: T[]): Record<string, T> =>
 let inFlightDatabaseLoadKey: string | null = null
 let inFlightDatabaseLoadPromise: Promise<Required<DatabaseSchemaQueryResponse> | null> | null = null
 
-// Monotonic epoch stamped on every load. A newer load (e.g. one triggered by a schema
-// mutation via refreshDatabaseSchema) supersedes older in-flight ones, so a slow or
-// out-of-order response can never overwrite a fresher schema.
+// Monotonic epoch advanced only when a load issues a fresh request. A newer load (e.g. one
+// triggered by a schema mutation via refreshDatabaseSchema) supersedes older in-flight ones, so a
+// slow or out-of-order response can never overwrite a fresher schema. Piggybacking loads adopt the
+// in-flight request's epoch rather than advancing it, so they never make the original fetcher look
+// superseded.
 let latestDatabaseLoadEpoch = 0
+let inFlightDatabaseLoadEpoch = 0
 
 export const databaseTableListLogic = kea<databaseTableListLogicType>([
     path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
@@ -60,12 +63,13 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 }: { force?: boolean } = {}): Promise<Required<DatabaseSchemaQueryResponse> | null> => {
                     const requestConnectionId = values.connectionId ?? undefined
                     const requestKey = requestConnectionId ?? '__posthog__'
-                    const epoch = ++latestDatabaseLoadEpoch
 
-                    // Non-forced loads may piggyback on an identical in-flight request. A forced
-                    // refresh always issues a fresh request so it can never return pre-mutation data
-                    // (and never waits on a hung stale request).
+                    // Non-forced loads may piggyback on an identical in-flight request and adopt its
+                    // epoch (they don't start a new generation). A forced refresh always issues a
+                    // fresh request so it can never return pre-mutation data (and never waits on a
+                    // hung stale request).
                     if (!force && inFlightDatabaseLoadKey === requestKey && inFlightDatabaseLoadPromise) {
+                        const epoch = inFlightDatabaseLoadEpoch
                         const result = await inFlightDatabaseLoadPromise
                         // Reading `values` post-unmount throws kea's path-not-found error.
                         if (!databaseTableListLogic.isMounted()) {
@@ -77,6 +81,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                         return result
                     }
 
+                    const epoch = ++latestDatabaseLoadEpoch
                     const request = performQuery(
                         setLatestVersionsOnQuery({
                             kind: NodeKind.DatabaseSchemaQuery,
@@ -86,6 +91,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
 
                     inFlightDatabaseLoadKey = requestKey
                     inFlightDatabaseLoadPromise = request
+                    inFlightDatabaseLoadEpoch = epoch
 
                     let database: Required<DatabaseSchemaQueryResponse> | null = null
                     try {
