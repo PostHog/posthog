@@ -479,6 +479,9 @@ tools:
     external-data-sources-store-credentials-create:
         operation: external_data_sources_store_credentials_create
         enabled: false
+    external-data-sources-sync-webhook-events-create:
+        operation: external_data_sources_sync_webhook_events_create
+        enabled: false
     external-data-sources-update:
         operation: external_data_sources_update
         enabled: false
