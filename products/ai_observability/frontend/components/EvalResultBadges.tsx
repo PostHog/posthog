@@ -38,6 +38,14 @@ export function getEvalBadgeProps(run: EvaluationRun): {
     return { type, icon, label }
 }
 
+// Trace-target runs carry no $ai_target_event_id, which HogQL returns as '' (not null),
+// so falsiness of generation_id is the discriminator between the two run kinds.
+export function scopeRunsToTarget(runs: EvaluationRun[], generationEventId?: string): EvaluationRun[] {
+    return generationEventId
+        ? runs.filter((run) => run.generation_id === generationEventId)
+        : runs.filter((run) => !run.generation_id)
+}
+
 function EvalTooltipContent({ latestRun, runCount }: EvalSummary): JSX.Element {
     return (
         <div className="max-w-80 space-y-1">
@@ -60,7 +68,7 @@ export function EvalResultBadges({
     generationEventId?: string
 }): JSX.Element | null {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
-        generationEvaluationRunsLogic({ lookupBy: 'trace', traceId })
+        generationEvaluationRunsLogic({ traceId })
     )
     const traceLogic = useMountedLogic(aiObservabilityTraceLogic)
     const { setViewMode } = useActions(traceLogic)
@@ -74,10 +82,9 @@ export function EvalResultBadges({
         )
     }
 
-    const scopedRuns = generationEventId
-        ? generationEvaluationRuns.filter((run) => run.generation_id === generationEventId)
-        : generationEvaluationRuns.filter((run) => !run.generation_id)
-    const summaries = getEvalSummaries(scopedRuns)
+    // The trace-scoped fetch is capped at EVALUATION_SUMMARY_MAX_RUNS most-recent runs, so on a
+    // trace with very heavy eval volume older runs for a given generation can fall out of view.
+    const summaries = getEvalSummaries(scopeRunsToTarget(generationEvaluationRuns, generationEventId))
 
     if (summaries.length === 0) {
         return null

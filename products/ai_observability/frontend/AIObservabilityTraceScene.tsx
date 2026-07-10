@@ -612,7 +612,7 @@ function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element 
 
 function CreateSentimentEvaluationButton({ traceId }: { traceId: string }): JSX.Element | null {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
-        generationEvaluationRunsLogic({ lookupBy: 'trace', traceId })
+        generationEvaluationRunsLogic({ traceId })
     )
     const { hasLoadedSentimentEvaluations, hasSentimentEvaluations, sentimentEvaluationsLoading } = useValues(
         sentimentEvaluationAvailabilityLogic
@@ -1456,7 +1456,8 @@ const EventContent = React.memo(
 
         // Badges are context-sensitive: a generation shows its own results, the trace root shows
         // trace-target results. Other events (spans, embeddings) have no evaluation context.
-        const showEvalBadges = !!event && (isGenerationEvent || !isLLMEvent(event))
+        const isTraceRoot = !!event && !isLLMEvent(event)
+        const showEvalBadges = isGenerationEvent || isTraceRoot
         const showTagsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]
 
         // If the user is viewing the Tags tab but it's no longer available (flag off or

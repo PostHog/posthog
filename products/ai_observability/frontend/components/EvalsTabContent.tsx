@@ -14,6 +14,7 @@ import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
 import { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogicType'
 import { llmEvaluationExecutionLogic } from '../llmEvaluationExecutionLogic'
+import { formatLLMEventTitle } from '../utils'
 import { GenerationEvalRunsTable } from './GenerationEvalRunsTable'
 
 export function EvalsTabContent({
@@ -25,7 +26,7 @@ export function EvalsTabContent({
     generationEvent?: LLMTraceEvent
     distinctId?: string
 }): JSX.Element {
-    const runsLogic = generationEvaluationRunsLogic({ lookupBy: 'trace', traceId })
+    const runsLogic = generationEvaluationRunsLogic({ traceId })
     const traceLogic = useMountedLogic(aiObservabilityTraceLogic)
 
     useAttachedLogic(runsLogic, traceLogic)
@@ -57,7 +58,7 @@ function EvalsTabContentInner({
     const availableEvaluations = evaluations?.filter((e) => !e.deleted) || []
     // Manual runs go through the generation workflow, so only generation-target evals
     // can be triggered from here, and only when there is a generation to point them at.
-    const runnableEvaluations = generationEvent ? availableEvaluations.filter((e) => e.target !== 'trace') : []
+    const runnableEvaluations = generationEvent ? availableEvaluations.filter((e) => e.target === 'generation') : []
     const hasNoEvaluations = !evaluationsLoading && availableEvaluations.length === 0
 
     return (
@@ -67,14 +68,19 @@ function EvalsTabContentInner({
                 Click Refresh to see new results.
             </LemonBanner>
             <div className="flex justify-between items-center mb-4">
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2">
                     {hasNoEvaluations ? (
                         <Link to={urls.aiObservabilityEvaluations()}>
                             <LemonButton type="primary" icon={<IconPlus />} size="small">
                                 Create your first evaluation
                             </LemonButton>
                         </Link>
-                    ) : generationEvent && runnableEvaluations.length > 0 ? (
+                    ) : generationEvent && !evaluationsLoading && runnableEvaluations.length === 0 ? (
+                        <span className="text-muted text-sm">
+                            No generation-target evaluations to run manually. Trace-target evaluations run
+                            automatically.
+                        </span>
+                    ) : generationEvent ? (
                         <>
                             <LemonSelect
                                 value={selectedEvaluationId}
@@ -108,6 +114,9 @@ function EvalsTabContentInner({
                             >
                                 Run Evaluation
                             </LemonButton>
+                            <span className="text-muted text-sm">
+                                Runs on generation {formatLLMEventTitle(generationEvent)}
+                            </span>
                         </>
                     ) : null}
                 </div>
