@@ -724,6 +724,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 )
                 self._completion_status = "failed"
                 self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
+                self._completion_error_type = "followup_delivery_failed"
                 self._task_completed = True
                 self._enqueue_ack(
                     signal_name=SEND_FOLLOWUP_SIGNAL,
