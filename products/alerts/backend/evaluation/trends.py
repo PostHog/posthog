@@ -205,8 +205,8 @@ class TrendsExtractor:
                 points = [SeriesPoint(date=date, value=value) for date, value in zip(dates, data)]
 
             # Anchor on the current (ongoing) interval, or the last complete one. On a series
-            # shorter than expected this can go negative and wrap, which the comparator then
-            # treats as having no previous point — acceptable for a degenerate sparse series.
+            # shorter than expected (empty or single-point) this can go out of bounds; the
+            # comparator skips any series whose current_index isn't a valid point index.
             current_index = len(points) - 1 if anchor_is_current else len(points) - 2
             series.append(
                 ComparableSeries(

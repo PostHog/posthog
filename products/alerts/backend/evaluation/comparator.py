@@ -128,6 +128,10 @@ def evaluate_threshold(
     breaching_rows: list[dict] = []
     first_breach_value: float | None = None
     for s in result.series:
+        # A degenerate series (empty, or too short for the chosen anchor) can leave current_index
+        # out of bounds — skip it rather than indexing, mirroring the "no previous point" skip below.
+        if not 0 <= s.current_index < len(s.points):
+            continue
         anchor = s.points[s.current_index].value
         if anchor is None:
             continue

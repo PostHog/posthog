@@ -198,6 +198,23 @@ def test_missing_current_point_skips_series():
     assert result.breaches == []
 
 
+@pytest.mark.parametrize(
+    "points,current_index",
+    [
+        ([], -1),  # empty series, anchor_is_current branch → current_index = len-1 = -1
+        ([], -2),  # empty series, non-current branch → current_index = len-2 = -2
+        ([SeriesPoint(None, 5.0)], -1),  # single-point series in the non-current branch → len-2 = -1
+        ([SeriesPoint(None, 5.0)], 1),  # current_index past the end
+    ],
+)
+def test_out_of_bounds_anchor_skips_series_without_crashing(points, current_index):
+    # A degenerate series (empty, or too short for the chosen anchor) must be skipped, not indexed —
+    # otherwise s.points[current_index] raises IndexError and the whole alert check errors out.
+    series = [ComparableSeries(label="A", points=points, current_index=current_index)]
+    result = evaluate_threshold(_result(series), ABSOLUTE, _threshold(lower=10))
+    assert result.breaches == []
+
+
 def test_framed_message_includes_series_and_interval():
     series = [ComparableSeries(label="US", points=[SeriesPoint(None, 5.0)], current_index=0)]
     result = evaluate_threshold(_result(series, interval_type=IntervalType.DAY), ABSOLUTE, _threshold(lower=10))
