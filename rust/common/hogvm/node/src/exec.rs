@@ -333,6 +333,39 @@ mod tests {
         assert_eq!(results[1].logs, vec!["plain".to_string()]);
     }
 
+    // print(globals.g) (POP), then return 1+2 — the marker only surfaces through the log buffer.
+    fn print_global_program(name: &str) -> Vec<Value> {
+        let mut program = vec![
+            json!("_H"),
+            json!(1),
+            json!(32),
+            json!(name),
+            json!(1),
+            json!(1),
+            json!(2),
+            json!("print"),
+            json!(1),
+            json!(35),
+        ];
+        program.extend(add_program().into_iter().skip(2));
+        program
+    }
+
+    #[test]
+    fn parallel_execution_does_not_mix_print_logs_across_events() {
+        // Enough events for several PARALLEL_CHUNK_SIZE chunks spread over rayon workers.
+        let events: Vec<Value> = (0..1500)
+            .map(|i| json!({ "g": format!("marker-{i}") }))
+            .collect();
+        let results = run_batch(&print_global_program("g"), &events, true, None);
+        assert_eq!(results.len(), events.len());
+        for (i, r) in results.iter().enumerate() {
+            assert_eq!(r.error, None);
+            assert_eq!(r.logs, vec![format!("marker-{i}")]);
+            assert!(!r.logs_truncated);
+        }
+    }
+
     #[test]
     fn print_logs_are_capped_and_flagged_truncated() {
         // A loop would need more opcodes; just chain MAX_CAPTURED_LOGS + 1 print calls.
@@ -352,6 +385,13 @@ mod tests {
         assert_eq!(results[0].error, None);
         assert_eq!(results[0].logs.len(), crate::logs::MAX_CAPTURED_LOGS);
         assert!(results[0].logs_truncated);
+
+        // Sequential run_batch executes on the calling thread — the same thread-local buffer the
+        // truncating execution above just used. Nothing may carry over into the next execution
+        // (this is the back-to-back executeSync shape of the primary path).
+        let results = run_batch(&add_program(), &[json!({})], false, None);
+        assert_eq!(results[0].logs, Vec::<String>::new());
+        assert!(!results[0].logs_truncated);
     }
 
     #[test]
