@@ -165,7 +165,7 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                         // object into the literal "[object Object]". The backend then fails to parse it
                         // and silently falls back to a 1h window, so the 90-day presence probe is wrong.
                         // JSON-encode dateRange instead (matches serviceFilterLogic).
-                        const url = combineUrl(`api/environments/${values.currentTeamId}/logs/attributes`, {
+                        const url = combineUrl(`api/projects/${values.currentTeamId}/logs/attributes`, {
                             attribute_type: 'resource',
                             dateRange: JSON.stringify(PRESENCE_LOOKBACK),
                             limit: 100,
