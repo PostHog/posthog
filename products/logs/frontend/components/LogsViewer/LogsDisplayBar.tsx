@@ -40,7 +40,7 @@ export const LogsDisplayBar = ({
     totalLogsCount,
 }: LogsDisplayBarProps): JSX.Element => {
     const { facetRailCollapsed, viewMode, groupBy } = useValues(logsViewerConfigLogic)
-    const { setFacetRailCollapsed, setViewMode, setGroupBy } = useActions(logsViewerConfigLogic)
+    const { setFacetRailCollapsed, setViewMode, setGroupBy, openPatternsComparison } = useActions(logsViewerConfigLogic)
     const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
     const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
 
@@ -123,6 +123,16 @@ export const LogsDisplayBar = ({
                     totalLogsCount > 0 && (
                         <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
                     )
+                )}
+                {showPatternsView && !inPatternsMode && !inGroupByMode && (
+                    <LemonButton
+                        size="small"
+                        onClick={() => openPatternsComparison('preceding')}
+                        tooltip="Mine this window's log patterns and compare them against the period just before it — new and shifted message templates first. Drag-select a spike on the chart first to explain exactly that range."
+                        data-attr="logs-explain-changes"
+                    >
+                        Explain changes
+                    </LemonButton>
                 )}
             </div>
             {!inPatternsMode && !inGroupByMode && <LogsViewerToolbar totalLogsCount={totalLogsCount} />}

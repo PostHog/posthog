@@ -30,11 +30,6 @@ export interface LogsPatternsLogicProps {
     id: string
 }
 
-// 'lastWeek' omits baselineDateRange so the backend defaults to the same window one week
-// earlier (absorbs daily/weekly cycles); 'preceding' compares against the window immediately
-// before the current one (the post-deploy / incident-onset comparison).
-export type PatternsBaselineMode = 'lastWeek' | 'preceding'
-
 // The severity filter is an exact match on these six buckets; a sampled severity outside them
 // (e.g. "notice") can't be expressed, so applying the filter would silently exclude those lines.
 const CANONICAL_SEVERITIES = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
@@ -86,7 +81,7 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             logsViewerFiltersLogic({ id: props.id }),
             ['filters', 'utcDateRange', 'queryFilterGroup'],
             logsViewerConfigLogic({ id: props.id }),
-            ['viewMode'],
+            ['viewMode', 'compareEnabled', 'baselineMode'],
         ],
         actions: [
             logsViewerFiltersLogic({ id: props.id }),
@@ -101,14 +96,12 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                 'setPinnedFilters',
             ],
             logsViewerConfigLogic({ id: props.id }),
-            ['setViewMode'],
+            ['setViewMode', 'setCompareEnabled', 'setBaselineMode'],
         ],
     })),
 
     actions({
         viewMatchingLogs: (pattern: _LogPatternApi) => ({ pattern }),
-        setCompareEnabled: (enabled: boolean) => ({ enabled }),
-        setBaselineMode: (mode: PatternsBaselineMode) => ({ mode }),
     }),
 
     loaders(({ values }) => ({
@@ -155,18 +148,6 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                 loadDiff: () => null,
                 loadDiffSuccess: () => null,
                 loadDiffFailure: (_, { error }) => error ?? 'Pattern comparison failed',
-            },
-        ],
-        compareEnabled: [
-            false,
-            {
-                setCompareEnabled: (_, { enabled }) => enabled,
-            },
-        ],
-        baselineMode: [
-            'lastWeek' as PatternsBaselineMode,
-            {
-                setBaselineMode: (_, { mode }) => mode,
             },
         ],
     }),
@@ -310,7 +291,14 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
         }
     }),
 
-    afterMount(({ actions }) => {
-        actions.loadPatterns()
+    afterMount(({ actions, values }) => {
+        // Compare may already be armed before this logic mounts — e.g. "explain changes" in the
+        // Logs view dispatches openPatternsComparison on the config logic, then the view switch
+        // mounts Patterns. Loading the plain mine here would answer the wrong question.
+        if (values.compareEnabled) {
+            actions.loadDiff()
+        } else {
+            actions.loadPatterns()
+        }
     }),
 ])
