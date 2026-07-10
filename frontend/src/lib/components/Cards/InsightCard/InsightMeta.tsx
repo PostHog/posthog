@@ -108,8 +108,8 @@ interface InsightMetaProps extends Pick<
 // A tile override replaces the dashboard override wholesale (backend `apply_dashboard_filters`), so an
 // empty tile date falls back to the insight's own range, never the dashboard's.
 export function getEffectiveDateOverride(
-    filtersOverride: DashboardFilter | null | undefined,
-    tileFiltersOverride: TileFilters | null | undefined
+    filtersOverride: DashboardFilter | undefined,
+    tileFiltersOverride: TileFilters | undefined
 ): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
     const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).length > 0
     return hasTileOverrides

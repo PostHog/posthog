@@ -22,17 +22,17 @@ describe('InsightMeta', () => {
             {
                 label: 'no tile override → uses dashboard override dates',
                 filtersOverride: { date_from: '-30d' },
-                tileFiltersOverride: null,
+                tileFiltersOverride: undefined,
                 expected: { dateFromOverride: '-30d', dateToOverride: undefined },
             },
             {
                 label: 'no overrides at all → no date override',
-                filtersOverride: null,
-                tileFiltersOverride: null,
+                filtersOverride: undefined,
+                tileFiltersOverride: undefined,
                 expected: { dateFromOverride: undefined, dateToOverride: undefined },
             },
         ])('$label', ({ filtersOverride, tileFiltersOverride, expected }) => {
-            expect(getEffectiveDateOverride(filtersOverride as any, tileFiltersOverride as any)).toEqual(expected)
+            expect(getEffectiveDateOverride(filtersOverride, tileFiltersOverride)).toEqual(expected)
         })
     })
 
