@@ -3,7 +3,7 @@ import './InsightCard.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
@@ -11,6 +11,7 @@ import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
@@ -39,14 +40,21 @@ import {
     DashboardType,
     InsightColor,
     InsightLogicProps,
+    InsightShortId,
     QueryBasedInsightModel,
 } from '~/types'
+
+import type { AlertType } from 'products/alerts/frontend/types'
 
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
+
+const LazyEditAlertModal = React.lazy(() =>
+    import('products/alerts/frontend/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
+)
 
 const RESIZE_REDRAW_THROTTLE_MS = 33 // ~30x/sec
 
@@ -115,6 +123,11 @@ function ResizeThrottledViz({ throttled, children }: { throttled: boolean; child
     )
 }
 
+type AlertModalState = {
+    alertId?: AlertType['id']
+    defaultToAnomalyDetection?: boolean
+}
+
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
     insight: QueryBasedInsightModel
@@ -172,6 +185,8 @@ export interface InsightCardProps extends Resizeable {
     tile?: DashboardTile<QueryBasedInsightModel>
     /** survey opportunity for this insight */
     surveyOpportunity?: boolean
+    /** Show a direct action for creating an anomaly detection alert for this saved insight. */
+    showCreateAnomalyAlertButton?: boolean
     /** Whether hovering near the card edge should hint that edit mode is available. */
     canEnterEditModeFromEdge?: boolean
     /** Called when the user clicks an edge hint to enter edit mode. */
@@ -217,6 +232,7 @@ function InsightCardInternal(
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
         surveyOpportunity,
+        showCreateAnomalyAlertButton,
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
@@ -279,6 +295,11 @@ function InsightCardInternal(
     }
 
     const [areDetailsShown, setAreDetailsShown] = useState(false)
+    const [alertModal, setAlertModal] = useState<AlertModalState | null>(null)
+    const openCreateAlertModal = useCallback(() => setAlertModal({}), [])
+    const openEditAlertModal = useCallback((alertId: AlertType['id']) => setAlertModal({ alertId }), [])
+    const openCreateAnomalyAlertModal = useCallback(() => setAlertModal({ defaultToAnomalyDetection: true }), [])
+    const closeAlertModal = useCallback(() => setAlertModal(null), [])
     const hasResults = !!insight?.result || !!(insight as any)?.results
 
     // Empty states that completely replace the Query component.
@@ -407,6 +428,10 @@ function InsightCardInternal(
                         variablesOverride={variablesOverride}
                         placement={placement}
                         surveyOpportunity={surveyOpportunity}
+                        showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
+                        onCreateAlert={openCreateAlertModal}
+                        onEditAlert={openEditAlertModal}
+                        onCreateAnomalyAlert={openCreateAnomalyAlertModal}
                         onDragHandleMouseDown={onDragHandleMouseDown}
                     />
                     {vizContent}
@@ -416,6 +441,21 @@ function InsightCardInternal(
             {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
                 <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
             )}
+            {alertModal && insight.id && insight.short_id ? (
+                <React.Suspense fallback={<SpinnerOverlay />}>
+                    <LazyEditAlertModal
+                        isOpen
+                        onClose={closeAlertModal}
+                        alertId={alertModal.alertId}
+                        insightId={insight.id}
+                        insightShortId={insight.short_id as InsightShortId}
+                        onEditSuccess={closeAlertModal}
+                        insightLogicProps={insightLogicProps}
+                        defaultToAnomalyDetection={alertModal.defaultToAnomalyDetection}
+                        insightName={insight.name || insight.derived_name}
+                    />
+                </React.Suspense>
+            ) : null}
             {children /* RGL react-resizable-handle nodes injected by react-grid-layout */}
         </div>
     )

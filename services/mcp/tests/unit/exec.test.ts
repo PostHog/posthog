@@ -1086,11 +1086,12 @@ describe('exec tool', () => {
             expect(execTool.description.length).toBeLessThanOrEqual(2048)
         })
 
-        // The `{tool_domains}` and `{query_tools}` placeholders in the exec
-        // tool's `command` description are filled from the passed tool set. A
+        // The `{query_tools}` placeholder in the exec tool's `command`
+        // description is filled from the passed tool set; tool domains are
+        // temporarily omitted while probing claude.ai's per-tool size cap. A
         // fixed fake set keeps this hermetic — adding or renaming a real tool
         // can't flip it.
-        it('interpolates the tool-domain and query-tool blocks into the command description', () => {
+        it('interpolates the query-tool block and omits tool domains in the command description', () => {
             const toolInfos = [
                 { name: 'experiment-create', category: 'Experiments' },
                 { name: 'experiment-delete', category: 'Experiments' },
@@ -1115,12 +1116,9 @@ describe('exec tool', () => {
             expect(commandDescription).not.toContain('{tool_domains}')
             expect(commandDescription).not.toContain('{query_tools}')
 
-            // The command reference renders domains in the compact pipe form (size budget).
             const domainsBlock = buildToolDomainsCompact(toolInfos)
             const queryToolsBlock = buildQueryToolsBlock(queryToolInfos)
-            expect(domainsBlock).toContain('experiment')
-            expect(domainsBlock).toContain('query')
-            expect(commandDescription).toContain(domainsBlock)
+            expect(commandDescription).not.toContain(domainsBlock)
             expect(commandDescription).toContain(queryToolsBlock)
         })
     })
