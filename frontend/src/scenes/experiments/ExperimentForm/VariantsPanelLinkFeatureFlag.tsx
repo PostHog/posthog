@@ -10,6 +10,8 @@ import { urls } from 'scenes/urls'
 
 import type { FeatureFlagType } from '~/types'
 
+import { getFlagVariants } from '../utils'
+
 interface VariantsPanelLinkFeatureFlagProps {
     linkedFeatureFlag: FeatureFlagType | null
     setShowFeatureFlagSelector: () => void
@@ -98,7 +100,7 @@ export const VariantsPanelLinkFeatureFlag = ({
         )
     }
 
-    const variants = linkedFeatureFlag.filters?.multivariate?.variants || []
+    const variants = getFlagVariants(linkedFeatureFlag)
 
     return (
         <div>

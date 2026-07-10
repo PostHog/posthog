@@ -709,6 +709,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 const reportLogicKey = isNew ? 'new' : props.evaluationId
                 const reportLogic = evaluationReportLogic({ evaluationId: reportLogicKey })
                 if (response?.id && evaluationSupportsReports(response) && reportLogic.isMounted()) {
+                    const reportConfigStillLoading =
+                        !isNew && reportLogic.values.reportsLoading && !reportLogic.values.activeReport
+                    if (reportConfigStillLoading) {
+                        router.actions.push(urls.aiObservabilityEvaluations(), router.values.searchParams)
+                        return
+                    }
+
                     try {
                         await persistReportDraft(
                             teamId,
@@ -789,20 +796,20 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (!evaluation) {
                     return false
                 }
-                const hasValidName = evaluation.name.length > 0
+                const hasValidName = (evaluation.name?.length ?? 0) > 0
                 const hasValidConditions =
-                    evaluation.conditions.length > 0 &&
-                    evaluation.conditions.every(
+                    (evaluation.conditions?.length ?? 0) > 0 &&
+                    (evaluation.conditions ?? []).every(
                         (c) => (c.rollout_percentage ?? 0) > 0 && (c.rollout_percentage ?? 0) <= 100
                     )
 
                 let hasValidConfig = false
                 if (evaluation.evaluation_type === 'hog') {
-                    hasValidConfig = evaluation.evaluation_config.source.trim().length > 0
+                    hasValidConfig = (evaluation.evaluation_config?.source?.trim().length ?? 0) > 0
                 } else if (evaluation.evaluation_type === 'sentiment') {
                     hasValidConfig = true
                 } else if (isLLMJudgeEvaluation(evaluation)) {
-                    hasValidConfig = evaluation.evaluation_config.prompt.length > 0
+                    hasValidConfig = (evaluation.evaluation_config?.prompt?.length ?? 0) > 0
                 }
 
                 return hasValidName && hasValidConfig && hasValidConditions

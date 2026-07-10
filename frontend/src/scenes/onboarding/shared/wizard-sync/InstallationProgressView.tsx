@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
-import { HedgehogWizardHog } from '@posthog/brand/hoggies'
+import * as wizardHogPng from '@posthog/brand/hoggies/png/wizard-hog'
 import {
     IconCheckCircle,
     IconDashboard,
@@ -13,7 +13,10 @@ import {
 } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
+import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { cn } from 'lib/utils/css-classes'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
@@ -28,9 +31,18 @@ import {
 } from './installationProgressLogic'
 import { DetectedDashboard, wizardDashboardLogic } from './wizardDashboardLogic'
 
+const HedgehogWizardHog = pngHoggie(wizardHogPng)
+
 // Timeline dot for a single step.
-function StepIcon({ status }: { status: InstallationStepStatus }): JSX.Element {
+function StepIcon({ status, prState }: { status: InstallationStepStatus; prState?: 'open' | 'merged' }): JSX.Element {
     if (status === 'completed') {
+        // GitHub's PR color language: green while open, purple once merged.
+        if (prState === 'merged') {
+            return <IconPullRequest className="text-purple text-base" />
+        }
+        if (prState === 'open') {
+            return <IconPullRequest className="text-success text-base" />
+        }
         return <IconCheckCircle className="text-success text-base" />
     }
     if (status === 'failed') {
@@ -81,11 +93,33 @@ export function InstallationProgressContent({
      * command). Omitted where no local fallback exists (e.g. the floating FAB), which shows only docs. */
     onRetryLocally?: () => void
 }): JSX.Element {
-    const { phase, steps, error, prUrl } = progress
+    const { phase, steps, error, prUrl, prMerged } = progress
 
     // The PR is opened mid-run: while the run keeps going (keeping CI green), surface it as ready rather
     // than an indefinite "setting up". Terminal phases keep their own headline.
     const prReady = !!prUrl && phase !== 'completed' && phase !== 'error'
+
+    // Celebrate a merge the user performs while watching, exactly once per mount. Gated on the
+    // false -> true transition so mounting an already-merged run (reloads, storybook snapshots)
+    // stays quiet; the test-runner guard keeps hogfetti out of visual regression captures.
+    const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti()
+    // Only a live false -> true transition celebrates. Start null so the first hydrated state (SSE
+    // replay / poll snapshot arrives async after mount) arms the detector instead of reading as a
+    // transition — otherwise every reload of a merged run re-fires. One-shot per mount on top.
+    const prevMergedRef = useRef<boolean | null>(null)
+    const mergeCelebratedRef = useRef(false)
+    useEffect(() => {
+        const prev = prevMergedRef.current
+        prevMergedRef.current = prMerged
+        if (prev === null || prev || !prMerged || mergeCelebratedRef.current) {
+            return
+        }
+        if (inStorybookTestRunner() || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            return
+        }
+        mergeCelebratedRef.current = true
+        triggerHogfetti()
+    }, [prMerged, triggerHogfetti])
 
     const headline =
         phase === 'completed'
@@ -93,19 +127,25 @@ export function InstallationProgressContent({
             : phase === 'error'
               ? (error?.title ?? "Setup didn't finish")
               : prReady
-                ? 'Pull request ready'
+                ? prMerged
+                    ? 'Pull request merged'
+                    : 'Pull request ready'
                 : 'Setting up PostHog'
     const subtitle =
         phase === 'completed'
             ? prUrl
-                ? 'Review and merge the pull request, then deploy. Data starts flowing the moment it ships.'
+                ? prMerged
+                    ? 'Your pull request is merged. Deploy the changes and data starts flowing.'
+                    : 'Review and merge the pull request, then deploy. Data starts flowing the moment it ships.'
                 : mode === 'local'
                   ? 'The wizard finished its work on your machine.'
                   : "You're all set."
             : phase === 'error'
               ? "We couldn't finish the setup."
               : prReady
-                ? "Review it whenever you like; we'll keep CI green in the meantime."
+                ? prMerged
+                    ? 'Deploy the changes and data starts flowing. The run will wrap up on its own.'
+                    : "Review it whenever you like; we'll keep CI green in the meantime."
                 : phase === 'connecting'
                   ? ((mode && CONNECTING_SUBTITLE[mode]) ?? 'Getting things ready…')
                   : phase === 'idle'
@@ -122,6 +162,7 @@ export function InstallationProgressContent({
             className="rounded-lg border border-border bg-bg-light p-4 flex flex-col gap-3"
             data-attr="installation-progress"
         >
+            <HogfettiComponent />
             <div className="flex items-start justify-between gap-2">
                 <div className="flex items-start gap-2.5 min-w-0">
                     {waitingForSteps && <Spinner className="text-xl shrink-0 mt-0.5 text-accent" textColored />}
@@ -155,21 +196,32 @@ export function InstallationProgressContent({
                         // One flat rail for pipeline and wizard-reported steps alike.
                         <li key={step.id} className="flex gap-3">
                             <div className="flex flex-col items-center pt-0.5">
-                                <StepIcon status={step.status} />
+                                <StepIcon
+                                    status={step.status}
+                                    prState={
+                                        step.id.endsWith(':pr') && prUrl ? (prMerged ? 'merged' : 'open') : undefined
+                                    }
+                                />
                                 {i < steps.length - 1 && <div className="w-px flex-1 bg-border my-1 min-h-[0.75rem]" />}
                             </div>
                             <div className="flex-1 min-w-0 pb-3">
                                 <div
                                     className={cn(
-                                        'text-sm truncate',
+                                        'text-sm truncate flex items-center gap-1.5',
                                         step.status === 'pending' && 'text-muted',
                                         step.status === 'failed' && 'text-danger font-medium',
                                         step.status === 'in_progress' && 'font-medium'
                                     )}
                                 >
-                                    {step.label}
+                                    <span className="truncate">
+                                        {step.id.endsWith(':pr') && prMerged
+                                            ? 'PR merged, congratulations!'
+                                            : step.label}
+                                    </span>
                                 </div>
-                                {step.detail && <div className="text-xs text-muted truncate">{step.detail}</div>}
+                                {step.detail && (
+                                    <div className="text-xs text-muted truncate ph-no-capture">{step.detail}</div>
+                                )}
                             </div>
                         </li>
                     ))}
@@ -243,7 +295,7 @@ export function InstallationProgressContent({
                 </div>
             )}
 
-            {prUrl && (
+            {prUrl && !prMerged && phase !== 'error' && (
                 // ph-no-capture: the label carries the customer's repo name and the href their PR
                 // url — neither may reach autocapture in the shared app analytics project.
                 <LemonButton
@@ -256,6 +308,30 @@ export function InstallationProgressContent({
                 >
                     <span className="truncate">{prNameLabel(prUrl)}</span>
                 </LemonButton>
+            )}
+
+            {prUrl && prMerged && phase !== 'error' && (
+                <div className="flex items-center gap-3 rounded-lg border border-[var(--color-purple-500)] p-3">
+                    <span className="flex items-center justify-center rounded w-8 h-8 shrink-0 bg-[var(--color-purple-500)] text-white">
+                        <IconPullRequest className="text-lg" />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold">Pull request successfully merged</div>
+                        <div className="text-xs text-muted">
+                            You're all set. Deploy the changes and your events start flowing.
+                        </div>
+                    </div>
+                    {/* ph-no-capture: the href is the customer's PR url. */}
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        to={prUrl}
+                        targetBlank
+                        className="ph-no-capture shrink-0"
+                    >
+                        View PR
+                    </LemonButton>
+                </div>
             )}
 
             {phase === 'completed' && dashboard && (

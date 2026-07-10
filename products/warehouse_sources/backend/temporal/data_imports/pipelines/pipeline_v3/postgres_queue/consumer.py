@@ -8,7 +8,7 @@ polling, retry, and recovery mechanics to the v3 batch consumer engine.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from datetime import datetime
 from typing import Any
 
@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     RETRY_BACKOFF_BASE_SECONDS,
     BatchConsumer as SharedBatchConsumer,
     BatchConsumerConfig,
+    OwnershipLostError,
     ProcessBatchFn,
     _group_by_key,
 )
@@ -51,6 +52,11 @@ from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 logger = structlog.get_logger(__name__)
 
 ConsumerConfig = BatchConsumerConfig
+
+# Raises OwnershipLostError when this consumer no longer holds the group lease.
+VerifyOwnership = Callable[[], None]
+# Unlike the engine's ProcessBatchFn, the Delta sink also receives the per-batch ownership check.
+DeltaProcessBatchFn = Callable[[PendingBatch, VerifyOwnership | None], Coroutine[Any, Any, None]]
 
 # Ceiling for the queue-freshness probe, deliberately far below the sweep
 # timeout so a degraded probe can't starve the reconcile sweep it rides on.
@@ -73,11 +79,6 @@ class DeltaBatchConsumerAdapter:
     waiting_retry_state: str = SourceBatchStatus.State.WAITING_RETRY.value
     per_group_connections: bool = True
 
-    def __init__(self, *, use_state: bool = False) -> None:
-        # Readers only: True routes the claim, sweep, freshness, and reconcile
-        # queries through the denormalized state columns.
-        self._use_state = use_state
-
     async def fetch_and_lock(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -93,7 +94,6 @@ class DeltaBatchConsumerAdapter:
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
             lease_ttl_seconds=lease_ttl_seconds,
-            use_state=self._use_state,
         )
 
     async def unlock(
@@ -215,7 +215,7 @@ class DeltaBatchConsumerAdapter:
     ) -> list[PendingBatch]:
         # keep_locks is meaningless for the lease sink: get_stale_executing holds
         # no locks and the lease LEFT JOIN already excludes live groups.
-        return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds, use_state=self._use_state)
+        return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
 
     async def reconcile_failed_runs(
         self,
@@ -235,7 +235,6 @@ class DeltaBatchConsumerAdapter:
             grace_seconds=grace_seconds,
             lookback_seconds=lookback_seconds,
             limit=limit,
-            use_state=self._use_state,
         )
         for ref in refs:
             try:
@@ -291,7 +290,7 @@ class DeltaBatchConsumerAdapter:
         """
         try:
             async with asyncio.timeout(FRESHNESS_PROBE_TIMEOUT_SECONDS):
-                age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn, use_state=self._use_state)
+                age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
         except TimeoutError:
             logger.error(  # noqa: TRY400 — designed degraded path, traceback is noise
                 "queue_freshness_probe_timed_out",
@@ -330,15 +329,40 @@ class BatchConsumer(SharedBatchConsumer):
     def __init__(
         self,
         config: ConsumerConfig,
-        process_batch: ProcessBatchFn,
+        process_batch: DeltaProcessBatchFn,
         health_reporter: Callable[[], None] | None = None,
     ) -> None:
+        async def process_with_ownership_check(batch: PendingBatch) -> None:
+            await process_batch(batch, self._make_verify_ownership(batch))
+
         super().__init__(
             config=config,
-            process_batch=process_batch,
-            adapter=DeltaBatchConsumerAdapter(use_state=config.claim_path == "state"),
+            process_batch=process_with_ownership_check,
+            adapter=DeltaBatchConsumerAdapter(),
             health_reporter=health_reporter,
         )
+
+    def _make_verify_ownership(self, batch: PendingBatch) -> Callable[[], None]:
+        """Sync ownership check for the worker thread: the engine's lease checks bracket
+        the batch but can't see a loss mid-write. Fails closed — an unverified lease is lost."""
+        database_url = self._config.database_url
+        connect_timeout = self._config.connect_timeout_seconds
+
+        def verify_ownership() -> None:
+            try:
+                owns = BatchQueue.verify_group_lease_sync(
+                    database_url,
+                    team_id=batch.team_id,
+                    schema_id=batch.schema_id,
+                    owner_token=self._owner_token,
+                    connect_timeout_seconds=connect_timeout,
+                )
+            except Exception as e:
+                raise OwnershipLostError("pre-commit lease verification query failed") from e
+            if not owns:
+                raise OwnershipLostError(f"group lease lost before commit for ({batch.team_id}, {batch.schema_id})")
+
+        return verify_ownership
 
 
 def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> None:

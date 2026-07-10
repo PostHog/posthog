@@ -3,14 +3,6 @@ import { useValues } from 'kea'
 import { IconClock } from '@posthog/icons'
 import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
-import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
-import {
-    AlertType,
-    isHogQLAlertConfig,
-    isTrendsAlertConfig,
-    supportsOngoingInterval,
-    supportsTimeWindow,
-} from 'lib/components/Alerts/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -20,10 +12,18 @@ import { userLogic } from 'scenes/userLogic'
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
+import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import {
     cadenceFinerThanInsightInterval,
     selectAlertCalculationInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import {
+    AlertType,
+    isHogQLAlertConfig,
+    isTrendsAlertConfig,
+    supportsOngoingInterval,
+    supportsTimeWindow,
+} from 'products/alerts/frontend/types'
 
 import { getAlertIntervalOptions } from './editAlertModalUtils'
 

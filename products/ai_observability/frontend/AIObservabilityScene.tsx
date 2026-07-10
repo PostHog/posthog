@@ -166,7 +166,11 @@ function AIObservabilityDashboard(): JSX.Element {
                         <Spinner captureTime />
                     </div>
                 ) : (
-                    <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
+                    <Dashboard
+                        id={selectedDashboardId.toString()}
+                        placement={DashboardPlacement.Builtin}
+                        showCreateAnomalyAlertButton
+                    />
                 )}
             </div>
         </AIObservabilitySetupPrompt>
