@@ -61,6 +61,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         activeTab,
         canEnable,
         canEnableReason,
+        modelSelectionRequired,
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const {
@@ -156,9 +157,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         : isSentiment
           ? true
           : evaluation.evaluation_config.prompt.trim().length > 0
-    const hasSelectedJudgeModel =
-        !evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) ||
-        Boolean(evaluation.model_configuration?.model.trim())
+    const hasSelectedJudgeModel = !modelSelectionRequired || Boolean(evaluation.model_configuration?.model.trim())
     const hasName = evaluation.name.length > 0
     const basicFieldsValid = hasName && configValid
     const percentageUnset = evaluation.conditions.some((c) => (c.rollout_percentage ?? 0) === 0)
@@ -622,7 +621,8 @@ function EvaluationModelPicker(): JSX.Element {
         trialModelsLoading,
         providerKeysLoading,
     } = useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId, requiresProviderKey } = useValues(llmEvaluationLogic)
+    const { selectedModel, selectedPickerProviderKeyId, requiresProviderKey, modelSelectionRequired } =
+        useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
     const showTrialModels = !hasByokKeys && !requiresProviderKey
@@ -653,7 +653,9 @@ function EvaluationModelPicker(): JSX.Element {
                             selectedModelName={selectedModelName}
                             data-attr="evaluation-model-selector"
                         />
-                        {!selectedModel && <p className="text-sm text-danger mt-1">Select a judge model.</p>}
+                        {modelSelectionRequired && !selectedModel && (
+                            <p className="text-sm text-danger mt-1">Select a judge model.</p>
+                        )}
                     </div>
                 </Field>
             </div>

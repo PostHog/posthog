@@ -761,9 +761,26 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     selectors({
         isNewEvaluation: [(_, props) => [props.evaluationId], (evaluationId: string) => evaluationId === 'new'],
 
+        modelSelectionRequired: [
+            (s, props) => [s.evaluation, s.originalEvaluation, props.evaluationId],
+            (
+                evaluation: EvaluationConfig | null,
+                originalEvaluation: EvaluationConfig | null,
+                evaluationId: string
+            ): boolean => {
+                if (!isLLMJudgeEvaluation(evaluation)) {
+                    return false
+                }
+                if (evaluationId === 'new' || originalEvaluation?.evaluation_type !== 'llm_judge') {
+                    return true
+                }
+                return originalEvaluation.model_configuration != null
+            },
+        ],
+
         formValid: [
-            (s) => [s.evaluation],
-            (evaluation) => {
+            (s) => [s.evaluation, s.modelSelectionRequired],
+            (evaluation, modelSelectionRequired: boolean) => {
                 if (!evaluation) {
                     return false
                 }
@@ -782,7 +799,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 } else if (isLLMJudgeEvaluation(evaluation)) {
                     hasValidConfig =
                         (evaluation.evaluation_config?.prompt?.length ?? 0) > 0 &&
-                        (evaluation.model_configuration?.model.trim().length ?? 0) > 0
+                        (!modelSelectionRequired || (evaluation.model_configuration?.model.trim().length ?? 0) > 0)
                 }
 
                 return hasValidName && hasValidConfig && hasValidConditions

@@ -479,6 +479,43 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
+        describe('modelSelectionRequired', () => {
+            beforeEach(() => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+            })
+
+            it('allows existing legacy evaluations without a model configuration to remain editable', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                logic.actions.loadEvaluationSuccess({ ...mockEvaluation, model_configuration: null })
+
+                await expectLogic(logic).toMatchValues({ modelSelectionRequired: false, formValid: true })
+            })
+
+            it('requires an existing configured evaluation to keep a selected model', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                logic.actions.setModelConfiguration(null)
+
+                await expectLogic(logic).toMatchValues({ modelSelectionRequired: true, formValid: false })
+            })
+
+            it('requires a model when converting an existing Hog evaluation to an LLM judge', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    evaluation_type: 'hog',
+                    evaluation_config: { source: DEFAULT_HOG_SOURCE },
+                    model_configuration: null,
+                })
+
+                logic.actions.setEvaluationType('llm_judge')
+
+                await expectLogic(logic).toMatchValues({ modelSelectionRequired: true, formValid: false })
+            })
+        })
+
         describe('evaluationProviderKeyIssue', () => {
             beforeEach(() => {
                 logic = llmEvaluationLogic({ evaluationId: 'eval-123' })

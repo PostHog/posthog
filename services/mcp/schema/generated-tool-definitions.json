@@ -4618,7 +4618,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration (provider + model + provider_key_id from llma-provider-key-list, preferring a provider the team already has a key for). 'hog': evaluation_config.source (Hog returning a boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. When enabled, runs on new $ai_generation events; results are '$ai_evaluation' events.",
+        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. When enabled, runs on new $ai_generation events; results are '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -4815,7 +4815,7 @@
         }
     },
     "llma-evaluation-update": {
-        "description": "Update an existing AI observability evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt, Hog source, or sentiment source), or change the model configuration for llm_judge evaluations.",
+        "description": "Update an existing AI observability evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt, Hog source, or sentiment source), or change the model configuration for llm_judge evaluations. Do not clear an llm_judge model configuration once set; provider_key_id may be null when no key is pinned. Existing legacy llm_judge evaluations returned without a model configuration remain editable.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update evaluation",

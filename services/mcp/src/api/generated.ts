@@ -21769,7 +21769,7 @@ export namespace Schemas {
       /** @maxLength 100 */
       model: string;
       /**
-         * Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.
+         * Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.
          * @nullable
          */
       provider_key_id?: string | null;
@@ -21819,6 +21819,7 @@ export namespace Schemas {
       target?: EvaluationTargetEnum;
       /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
       target_config?: EvaluationTargetConfig;
+      /** Provider and model for an llm_judge evaluation. Required when creating an llm_judge, switching an existing evaluation to llm_judge, or updating an llm_judge that already has an explicit model. The nested provider_key_id may be null. Existing legacy llm_judge evaluations without an explicit model remain editable. Omit this field for hog and sentiment evaluations. */
       model_configuration?: ModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
@@ -39947,6 +39948,7 @@ export namespace Schemas {
       target?: EvaluationTargetEnum;
       /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
       target_config?: PatchedEvaluationTargetConfig;
+      /** Provider and model for an llm_judge evaluation. Required when creating an llm_judge, switching an existing evaluation to llm_judge, or updating an llm_judge that already has an explicit model. The nested provider_key_id may be null. Existing legacy llm_judge evaluations without an explicit model remain editable. Omit this field for hog and sentiment evaluations. */
       model_configuration?: ModelConfiguration | null;
       readonly created_at?: string;
       readonly updated_at?: string;

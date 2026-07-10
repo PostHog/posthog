@@ -265,14 +265,17 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                         .string()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullish(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating an llm_judge, switching an existing evaluation to llm_judge, or updating an llm_judge that already has an explicit model. The nested provider_key_id may be null. Existing legacy llm_judge evaluations without an explicit model remain editable. Omit this field for hog and sentiment evaluations.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -438,14 +441,17 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .string()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullish(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating an llm_judge, switching an existing evaluation to llm_judge, or updating an llm_judge that already has an explicit model. The nested provider_key_id may be null. Existing legacy llm_judge evaluations without an explicit model remain editable. Omit this field for hog and sentiment evaluations.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
