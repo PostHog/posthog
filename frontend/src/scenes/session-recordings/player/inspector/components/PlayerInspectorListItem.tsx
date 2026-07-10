@@ -14,6 +14,7 @@ import {
     IconDashboard,
     IconExpand,
     IconEye,
+    IconFlask,
     IconLeave,
     IconLive,
     IconLogomark,
@@ -32,6 +33,7 @@ import {
     ItemAnyComment,
     ItemAnyCommentDetail,
 } from 'scenes/session-recordings/player/inspector/components/ItemAnyComment'
+import { ItemExperimentVariant } from 'scenes/session-recordings/player/inspector/components/ItemExperimentVariant'
 import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
 import { ItemSessionChange } from 'scenes/session-recordings/player/inspector/components/ItemSessionChange'
 import { ItemSummary } from 'scenes/session-recordings/player/inspector/components/ItemSummary'
@@ -107,9 +109,13 @@ const typeToIconAndDescription: Record<InspectorListItem['type'], IconAndDescrip
         Icon: IconLive,
         tooltip: 'Log entry',
     },
+    'experiment-variant': {
+        Icon: IconFlask,
+        tooltip: 'The moment the feature flag behind an experiment was evaluated for this session',
+    },
 }
 
-const notExpandable = ['inspector-summary', 'inactivity', 'session-change']
+const notExpandable = ['inspector-summary', 'inactivity', 'session-change', 'experiment-variant']
 
 // TODO @posthog/icons doesn't export the type we need here
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types,@typescript-eslint/explicit-function-return-type
@@ -205,6 +211,8 @@ function RowItemTitle({
                 <ItemInactivity item={item} />
             ) : item.type === 'session-change' ? (
                 <ItemSessionChange item={item} />
+            ) : item.type === 'experiment-variant' ? (
+                <ItemExperimentVariant item={item} />
             ) : null}
         </div>
     )
