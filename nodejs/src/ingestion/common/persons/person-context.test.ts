@@ -63,6 +63,15 @@ describe('PersonContext', () => {
             teamId: 99,
             produces: true,
         },
+        {
+            // Node treats an empty allowlist as match-nothing, the opposite of Rust's "empty means all".
+            // Clearing the env var expecting the Rust behavior silently stops all emission.
+            name: 'enabled + empty allowlist is a no-op (empty matches no teams)',
+            enabled: true,
+            allowlist: '',
+            teamId: 2,
+            produces: false,
+        },
     ])('producePersonMergeEvent $name', async ({ enabled, allowlist, teamId, produces }) => {
         const context = buildContext(teamId, {
             enabled,

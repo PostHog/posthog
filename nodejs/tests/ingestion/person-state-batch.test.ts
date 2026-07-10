@@ -26,7 +26,7 @@ import { defaultRetryConfig } from '~/common/utils/retries'
 import { UUIDT } from '~/common/utils/utils'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
-import { PersonContext } from '~/ingestion/common/persons/person-context'
+import { PersonContext, personMergeEventProducedCounter } from '~/ingestion/common/persons/person-context'
 import { PersonEventProcessor } from '~/ingestion/common/persons/person-event-processor'
 import { PersonMergeService } from '~/ingestion/common/persons/person-merge-service'
 import {
@@ -295,7 +295,7 @@ describe('PersonState.processEvent()', () => {
         timestampParam = timestamp,
         team = mainTeam,
         mergeMode = createDefaultSyncMergeMode(),
-        mergeEventsConfig?: { enabled: boolean; partitionCount: number },
+        mergeEventsConfig?: { enabled: boolean; partitionCount: number; isTeamEnabled?: (teamId: number) => boolean },
         customPersonsStore?: BatchWritingPersonsStore
     ) {
         const fullEvent = {
@@ -324,8 +324,9 @@ describe('PersonState.processEvent()', () => {
             mergeMode,
             false,
             false,
-            // These tests cover the enabled/produce path, not the team gate; keep it a no-op here.
-            { ...(mergeEventsConfig ?? { enabled: false, partitionCount: 64 }), isTeamEnabled: () => true }
+            // isTeamEnabled defaults to allow-all so the enabled/produce tests are unaffected by the
+            // team gate; pass it explicitly to exercise the allowlist.
+            { isTeamEnabled: () => true, ...(mergeEventsConfig ?? { enabled: false, partitionCount: 64 }) }
         )
         return new PersonMergeService(context)
     }
@@ -2922,6 +2923,8 @@ describe('PersonState.processEvent()', () => {
         const getMergeEventMessages = () =>
             mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_PERSON_MERGE_EVENTS)
 
+        const producedMergeEventCount = async () => (await personMergeEventProducedCounter.get()).values[0]?.value ?? 0
+
         it(`does not emit a person_merge_events message when the gate is off (default)`, async () => {
             mockProducerObserver.resetKafkaProducer()
             const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
@@ -2969,6 +2972,7 @@ describe('PersonState.processEvent()', () => {
                         : realProduce.call(kafkaProducer, message)
                 )
 
+            const producedBefore = await producedMergeEventCount()
             const mergeService = personMergeService(
                 {},
                 hub,
@@ -2996,6 +3000,8 @@ describe('PersonState.processEvent()', () => {
                 (call) => call[0].topic === KAFKA_PERSON_MERGE_EVENTS
             )
             expect(mergeProduceCalls).toHaveLength(1)
+            // The counter must track actual production, so it shares the allowlist gate with the produce.
+            expect(await producedMergeEventCount()).toBe(producedBefore + 1)
 
             // second (P_old) is the deleted source; first (P_new) is the target.
             const expectedKey = `${teamId}:${secondUserUuid}`
@@ -3071,6 +3077,56 @@ describe('PersonState.processEvent()', () => {
                 releaseShadowProduce()
                 await shadowProduce
             }
+        })
+
+        it(`does not emit or count a person_merge_events message for a team outside the allowlist`, async () => {
+            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                distinctId: firstUserDistinctId,
+            })
+            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
+                distinctId: secondUserDistinctId,
+            })
+
+            // Same in-process resolution as the positive case, so a regression that produced anyway
+            // surfaces as a failed assertion rather than a missing-topic broker error.
+            const realProduce = KafkaProducerWrapper.prototype.produce
+            const produceSpy = jest
+                .spyOn(kafkaProducer, 'produce')
+                .mockImplementation((message) =>
+                    message.topic === KAFKA_PERSON_MERGE_EVENTS
+                        ? Promise.resolve()
+                        : realProduce.call(kafkaProducer, message)
+                )
+
+            const producedBefore = await producedMergeEventCount()
+            // Gate is on, but the team is outside the allowlist: neither the produce nor the counter fires.
+            const mergeService = personMergeService(
+                {},
+                hub,
+                personRepository,
+                true,
+                timestamp,
+                mainTeam,
+                createDefaultSyncMergeMode(),
+                { enabled: true, partitionCount: 64, isTeamEnabled: () => false }
+            )
+            const result = await mergeService.mergePeople({
+                mergeInto: first,
+                mergeIntoDistinctId: firstUserDistinctId,
+                otherPerson: second,
+                otherPersonDistinctId: secondUserDistinctId,
+            })
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+
+            const mergeProduceCalls = produceSpy.mock.calls.filter(
+                (call) => call[0].topic === KAFKA_PERSON_MERGE_EVENTS
+            )
+            expect(mergeProduceCalls).toHaveLength(0)
+            expect(await producedMergeEventCount()).toBe(producedBefore)
         })
 
         it(`does not emit a person_merge_events message when the merge rolls back (moveDistinctIds throws)`, async () => {
