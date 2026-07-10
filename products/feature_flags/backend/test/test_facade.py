@@ -7,7 +7,7 @@ from posthog.constants import AvailableFeature
 
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy
-from products.feature_flags.backend.facade.api import archive_flag, flag_disable_requires_approval
+from products.feature_flags.backend.facade.api import archive_flag, flag_disable_requires_approval, roll_out_variant
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -75,3 +75,116 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         flag.refresh_from_db()
         assert flag.archived is False
         assert flag.active is True
+
+
+class TestRollOutVariant:
+    def test_transform_filters_default_preserves_groups(self):
+        current_filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "payloads": {},
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                ]
+            },
+            "aggregation_group_type_index": None,
+        }
+
+        result = roll_out_variant(current_filters, "test")
+
+        # Variant distribution flipped
+        assert result["multivariate"]["variants"] == [
+            {"key": "control", "name": "Control Group", "rollout_percentage": 0},
+            {"key": "test", "name": "Test Variant", "rollout_percentage": 100},
+        ]
+        # Groups preserved exactly — no catch-all prepended in default mode
+        assert result["groups"] == current_filters["groups"]
+        assert result["payloads"] == {}
+        assert result["aggregation_group_type_index"] is None
+
+    def test_transform_filters_release_to_everyone_prepends_catch_all(self):
+        current_filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "payloads": {},
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                ]
+            },
+            "aggregation_group_type_index": None,
+        }
+
+        result = roll_out_variant(current_filters, "test", release_to_everyone=True)
+
+        assert result["multivariate"]["variants"] == [
+            {"key": "control", "name": "Control Group", "rollout_percentage": 0},
+            {"key": "test", "name": "Test Variant", "rollout_percentage": 100},
+        ]
+        assert result["groups"][0] == {
+            "properties": [],
+            "rollout_percentage": 100,
+            "description": "Added automatically when the experiment was ended to keep only one variant.",
+        }
+        assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
+        assert result["payloads"] == {}
+        assert result["aggregation_group_type_index"] is None
+
+    def test_transform_filters_default_does_not_mutate_input(self):
+        """Defensive: ensure the function returns a new groups list without mutating caller's filters."""
+        original_groups = [{"properties": [], "rollout_percentage": 50}]
+        current_filters = {
+            "groups": original_groups,
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+        }
+
+        result = roll_out_variant(current_filters, "test")
+
+        # Caller's list reference is untouched
+        assert current_filters["groups"] is original_groups
+        # Result's groups equals original by value but is a distinct list object
+        assert result["groups"] == original_groups
+        assert result["groups"] is not original_groups
+
+    def test_transform_filters_multiple_variants_with_payloads(self):
+        current_filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "payloads": {
+                "test_1": "{key: 'test_1'}",
+                "test_2": "{key: 'test_2'}",
+                "test_3": "{key: 'test_3'}",
+                "control": "{key: 'control'}",
+            },
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "name": "This is control", "rollout_percentage": 25},
+                    {"key": "test_1", "name": "This is test_1", "rollout_percentage": 25},
+                    {"key": "test_2", "name": "This is test_2", "rollout_percentage": 25},
+                    {"key": "test_3", "name": "This is test_3", "rollout_percentage": 25},
+                ]
+            },
+            "aggregation_group_type_index": 1,
+        }
+
+        result = roll_out_variant(current_filters, "control", release_to_everyone=True)
+
+        assert result["multivariate"]["variants"] == [
+            {"key": "control", "name": "This is control", "rollout_percentage": 100},
+            {"key": "test_1", "name": "This is test_1", "rollout_percentage": 0},
+            {"key": "test_2", "name": "This is test_2", "rollout_percentage": 0},
+            {"key": "test_3", "name": "This is test_3", "rollout_percentage": 0},
+        ]
+        assert result["groups"][0] == {
+            "properties": [],
+            "rollout_percentage": 100,
+            "description": "Added automatically when the experiment was ended to keep only one variant.",
+        }
+        assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
+        assert result["payloads"] == current_filters["payloads"]
+        assert result["aggregation_group_type_index"] == 1
