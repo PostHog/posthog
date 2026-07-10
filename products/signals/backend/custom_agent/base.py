@@ -565,9 +565,7 @@ Rules:
             )
         else:
             repository_context = (
-
                 "No subject repository was pre-selected for this run. But if the task does turn out to involve "
-
                 "a specific repository, clone it yourself (`gh repo clone <org>/<repo>`). Cloning a repo is cheap."
             )
         return f"""You are running as a custom PostHog Signals agent.
