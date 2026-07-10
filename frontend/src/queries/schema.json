@@ -41231,6 +41231,11 @@
                     "description": "If the query failed, this will be set to true. More information can be found in the error_message field.",
                     "type": "boolean"
                 },
+                "error_code": {
+                    "default": null,
+                    "description": "Stable machine-readable code for the error (the DRF exception code), when known.",
+                    "type": ["string", "null"]
+                },
                 "error_message": {
                     "default": null,
                     "type": ["string", "null"]
@@ -41278,7 +41283,7 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["id", "query_async", "team_id", "error", "complete", "error_message"],
+            "required": ["id", "query_async", "team_id", "error", "complete", "error_message", "error_code"],
             "type": "object"
         },
         "QueryStatusResponse": {
