@@ -4,7 +4,7 @@ import { uuid } from 'lib/utils/dom'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 
-import { LogsColumnConfig, LogsColumnType, normalizeColumns } from './columns'
+import { customColumnExpressionError, LogsColumnConfig, LogsColumnType, normalizeColumns } from './columns'
 import type { logsColumnConfiguratorLogicType } from './logsColumnConfiguratorLogicType'
 
 export interface LogsColumnConfiguratorLogicProps {
@@ -102,9 +102,7 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
         newColumnError: [
             (s) => [s.newColumn],
             (newColumn: { type: LogsColumnType; expression: string }): string | null =>
-                newColumn.type === 'custom' && !newColumn.expression.trim()
-                    ? 'Custom columns need an expression'
-                    : null,
+                customColumnExpressionError(newColumn.type, newColumn.expression),
         ],
         draftErrors: [
             (s) => [s.draft],
@@ -112,10 +110,10 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
                 if (draft.length === 0) {
                     return 'At least one column is required'
                 }
-                if (draft.some((column) => column.type === 'custom' && !column.expression?.trim())) {
-                    return 'Custom columns need an expression'
-                }
-                return null
+                return (
+                    draft.map((column) => customColumnExpressionError(column.type, column.expression)).find(Boolean) ??
+                    null
+                )
             },
         ],
     }),
