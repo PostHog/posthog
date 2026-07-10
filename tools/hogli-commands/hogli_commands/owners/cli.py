@@ -359,3 +359,40 @@ def cmd_diff_legacy(report_path: str | None, soft_file: str | None) -> None:
         click.echo("\n✗ invariant violated: ORPHANED or EXPANDED paths exist", err=True)
         raise SystemExit(1)
     click.echo("\n✓ no ORPHANED or EXPANDED paths (narrowing and newly-owned are allowed)")
+
+
+@click.command(
+    name="owners:fmt",
+    help="Dry-run oracle: show how the current owners.yaml layout differs from the canonical placement",
+)
+def cmd_fmt() -> None:
+    from .fmt import ALPHA, GAMMA, MAX_RULES, CanonicalPlacer  # noqa: PLC0415 — keeps the DP off the CLI import path
+
+    placer = CanonicalPlacer(OwnersResolver())
+    plan = placer.build()
+
+    if plan.is_canonical:
+        click.echo(f"✓ layout is canonical (cost {plan.canonical_cost})")
+        if plan.proved:
+            click.echo("✓ canonical layout resolves identically")
+        return
+
+    if plan.creations:
+        click.echo(f"Create ({len(plan.creations)}):")
+        for path in plan.creations:
+            click.echo(f"    + {path}")
+    if plan.deletions:
+        click.echo(f"Delete ({len(plan.deletions)}) — statements fold into an ancestor:")
+        for path in plan.deletions:
+            click.echo(f"    - {path}")
+    if plan.additions:
+        click.echo("Add rules:")
+        for path in sorted(plan.additions):
+            for line in plan.additions[path]:
+                click.echo(f"    {path}: {line}")
+
+    click.echo(f"\ncost: current {plan.current_cost} → canonical {plan.canonical_cost}")
+    click.echo(f"(constants: ALPHA={ALPHA}, GAMMA={GAMMA}, MAX_RULES={MAX_RULES})")
+    if plan.proved:
+        click.echo("✓ canonical layout resolves identically")
+    click.echo("\nnote: owners:fmt is a read-only oracle — it never writes. Reflows are deliberate human decisions.")

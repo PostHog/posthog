@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from hogli_commands.owners.cli import _consolidation_suggestions, _reserved_location_error
 from hogli_commands.owners.conversion import Converter, parse_soft_file, render_owners_yaml
+from hogli_commands.owners.fmt import MAX_RULES, CanonicalPlacer, CanonicalPlan
 from hogli_commands.owners.legacy_diff import DiffClass, LegacyOwners, classify
 from hogli_commands.owners.matcher import path_matches_pattern
 from hogli_commands.owners.resolver import OwnersResolver
@@ -248,3 +250,108 @@ def test_legacy_owners_unions_matching_rules(tmp_path: Path) -> None:
     assert legacy.owners_of("posthog/x/y.py") == {"team-a", "team-b"}
     assert legacy.owners_of("products/foo/z.py") == {"@rafael", "team-foo"}
     assert legacy.owners_of("products/bar/z.py") == set()
+
+
+def _fmt_plan(tmp_path: Path, files: dict[str, str]) -> CanonicalPlan:
+    for rel, text in files.items():
+        _write(tmp_path, rel, text)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    return CanonicalPlacer(OwnersResolver(repo_root=tmp_path)).build()
+
+
+def test_fmt_folds_dedicated_child_into_pinned_parent(tmp_path: Path) -> None:
+    # `a` is a pinned carrier (non-simple, has a contact); `a/b` is a dedicated
+    # single-statement file. Canonical folds b's statement into a and drops the file.
+    plan = _fmt_plan(
+        tmp_path,
+        {
+            "a/owners.yaml": "version: 1\nowners: [team-a]\ncontact:\n  slack: '#a'\n",
+            "a/f.py": "x",
+            "a/b/owners.yaml": "version: 1\nowners: [team-b]\n",
+            "a/b/g.py": "x",
+            "r1.py": "x",
+            "r2.py": "x",
+        },
+    )
+    assert plan.deletions == ["a/b/owners.yaml"]
+    assert plan.additions == {"a/owners.yaml": ["/b/ -> [team-b]"]}
+    assert plan.creations == []
+    assert plan.proved
+
+
+def test_fmt_splits_when_carrier_exceeds_capacity(tmp_path: Path) -> None:
+    # One pinned parent above 21 owned sibling dirs would blow past MAX_RULES, so a
+    # dedicated child facility opens under the shared prefix to absorb the overflow.
+    files = {
+        "P/owners.yaml": "version: 1\nowners: [team-p]\ncontact:\n  slack: '#p'\n",
+        "P/f.py": "x",
+        "r1.py": "x",
+        "r2.py": "x",
+    }
+    for i in range(MAX_RULES + 1):
+        files[f"P/c/s{i}/owners.yaml"] = f"version: 1\nowners: [team-{i}]\n"
+        files[f"P/c/s{i}/g.py"] = "x"
+    plan = _fmt_plan(tmp_path, files)
+    assert "P/c/owners.yaml" in plan.creations
+    assert plan.proved
+
+
+def test_fmt_product_yaml_is_a_free_carrier(tmp_path: Path) -> None:
+    # The product manifest already declares ownership, so no dedicated owners.yaml is
+    # proposed and nothing is added — a single-statement product is not flagged.
+    plan = _fmt_plan(
+        tmp_path,
+        {
+            "products/foo/product.yaml": "name: Foo\nowners:\n  - team-foo\n",
+            "products/foo/x.py": "x",
+            "r1.py": "x",
+            "r2.py": "x",
+        },
+    )
+    assert plan.is_canonical
+    assert plan.proved
+
+
+def test_fmt_leaves_glob_files_untouched(tmp_path: Path) -> None:
+    # A glob rule is crosscutting, not a tree boundary — fmt must not rewrite it.
+    plan = _fmt_plan(
+        tmp_path,
+        {
+            "d/owners.yaml": "version: 1\nowners: []\nrules:\n  - match: '*.py'\n    owners: [team-a]\n",
+            "d/x.py": "x",
+            "d/y.py": "x",
+        },
+    )
+    assert plan.is_canonical
+    assert plan.proved
+
+
+def test_fmt_is_idempotent_on_canonical_layout(tmp_path: Path) -> None:
+    # A layout already in canonical form (child folded into the pinned parent) yields
+    # no proposed moves.
+    plan = _fmt_plan(
+        tmp_path,
+        {
+            "a/owners.yaml": "version: 1\nowners: [team-a]\ncontact:\n  slack: '#a'\n"
+            "rules:\n  - match: '/b/'\n    owners: [team-b]\n",
+            "a/f.py": "x",
+            "a/b/g.py": "x",
+            "r1.py": "x",
+            "r2.py": "x",
+        },
+    )
+    assert plan.is_canonical
+    assert plan.proved
+
+
+def test_fmt_equivalence_proof_catches_a_wrong_layout(tmp_path: Path) -> None:
+    # The built-in proof must hard-fail if the proposed layout ever resolves a path
+    # differently from the current one — corrupt the expected map and confirm it raises.
+    for rel, text in {"a/owners.yaml": "version: 1\nowners: [team-a]\n", "a/f.py": "x"}.items():
+        _write(tmp_path, rel, text)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    placer = CanonicalPlacer(OwnersResolver(repo_root=tmp_path))
+    with pytest.raises(AssertionError):
+        placer._prove([], {""}, {"a/f.py": ("team-wrong",)})

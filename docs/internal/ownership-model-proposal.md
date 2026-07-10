@@ -174,6 +174,19 @@ One tradeoff to acknowledge: today `.github/scripts/` sits behind the blocking `
 
 If the first consumer (say the auto-assigner) is ever replaced, the resolver, schema, and lint are untouched — only one caller changes. That is the "source of truth, not tool config" property.
 
+## Canonical placement (`owners:fmt`)
+
+Because consolidation is a readability choice and not a semantic one (§4), the tree has many layouts that resolve identically, and it drifts between them as people fold and split by hand.
+`owners:fmt` names the drift: it models ownership as a piecewise-constant function on the directory tree, where each `match`/`owners` statement is one _boundary_ (a change point) and the physical file that carries it is pure presentation.
+Placing statements onto files optimally is a **capacitated facility-location** problem on the tree — open a file where a cluster of boundaries makes a dedicated file cheaper than carrying them all up as ancestor rules, otherwise fold them into the nearest existing carrier.
+
+The cost model lives in module constants, so "canonical" is defined only relative to them: `ALPHA` (the price of a dedicated simple `owners.yaml` existing at all — pinned carriers like `product.yaml` manifests, non-simple files, glob files, and the repo root are free because they exist anyway), `GAMMA` (the per-level price of carrying a statement as an ancestor rule), and `MAX_RULES` (the split cap that forces a dedicated child file once a carrier gets too dense).
+Glob rules are crosscutting rather than tree boundaries, so any file carrying one is pinned and passes through untouched.
+Every run ends with a built-in equivalence proof: the proposed layout is simulated in memory and every tracked path re-resolved against it, which must match the current resolution exactly — a mismatch is a bug in `fmt`, not a suggestion.
+
+`owners:fmt` is a **read-only oracle** — it never writes, and there is no `--write` flag.
+The division of labor: `owners:lint`'s fold/split suggestions are the everyday incremental mechanism (with hysteresis, so small clusters don't thrash), `fmt` is the drift oracle you consult deliberately, and an actual reflow of files is a human decision, not something a formatter should apply on save.
+
 ## 6. The one PR
 
 Everything lands atomically. The delivery order below is a review guide, not a merge sequence.

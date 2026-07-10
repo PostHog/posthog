@@ -1016,6 +1016,9 @@ owners:
     owners:diff-legacy:
         click: hogli_commands.owners.cli:cmd_diff_legacy
         description: Prove owners.yaml resolution matches legacy CODEOWNERS-soft + product.yaml (--report)
+    owners:fmt:
+        click: hogli_commands.owners.cli:cmd_fmt
+        description: Dry-run oracle showing how the owners.yaml layout differs from canonical placement (never writes)
 devex:
     devex:feedback:
         click: hogli_commands.feedback:devex_feedback
