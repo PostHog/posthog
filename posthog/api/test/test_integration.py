@@ -2935,7 +2935,8 @@ class TestGitHubTeamIntegrationComplete:
         )
         with pytest.raises(ValidationError) as exc_info:
             authorize_link_existing_installation(user=member, team=self.team, source_installation_id="12345")
-        assert GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED in exc_info.value.get_codes()
+        codes = exc_info.value.get_codes()
+        assert isinstance(codes, list) and GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED in codes
 
     def test_cross_user_state_rejected_on_unified_callback(self, client: HttpClient):
         # State tokens are bound to a user via the pending-pointer cache key.
