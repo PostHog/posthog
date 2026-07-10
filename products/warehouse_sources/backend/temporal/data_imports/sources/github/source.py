@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
+    WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -48,6 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
     delete_repo_webhook,
     get_repo_webhook_info,
     github_source,
+    update_repo_webhook,
     validate_credentials as validate_github_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import (
@@ -358,6 +360,20 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         # hog function anyway, so over-subscribing is harmless while enabling a table later is free.
         events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
         return create_repo_webhook(access_token, config.repository, webhook_url, events, secret=secret)
+
+    def sync_webhook_events(
+        self,
+        config: GithubSourceConfig,
+        webhook_url: str,
+        team_id: int,
+        eligible_schema_names: list[str],
+    ) -> WebhookSyncResult:
+        access_token = self._get_access_token(config, team_id)
+        # Every mapped event, not just the enabled schemas': mirrors create_webhook's stance
+        # (over-subscribing is harmless, unmapped events no-op in the hog function) and auto-heals
+        # webhooks created before GITHUB_WEBHOOK_RESOURCE_MAP gained new events.
+        desired_events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
+        return update_repo_webhook(access_token, config.repository, webhook_url, desired_events)
 
     def delete_webhook(self, config: GithubSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
         access_token = self._get_access_token(config, team_id)

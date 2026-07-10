@@ -14,6 +14,7 @@ from tenacity import Future, RetryCallState
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookSyncResult
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
     GithubAuthMethodConfig,
     GithubSourceConfig,
@@ -38,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
     _should_stop_desc,
     get_rows,
     github_source,
+    update_repo_webhook,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
@@ -1572,6 +1574,109 @@ class TestGithubWebhookSource:
 
         assert info.exists is True
         assert info.url == webhook_url
+
+    def test_sync_webhook_events_targets_every_mapped_event(self) -> None:
+        # Reconciliation must push the full event map, not just the enabled schema's event;
+        # otherwise a webhook created before the map grew never gains the new events.
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.update_repo_webhook",
+            return_value=WebhookSyncResult(success=True),
+        ) as update:
+            result = self.source.sync_webhook_events(
+                _pat_config(), "https://app.posthog.com/webhook", team_id=1, eligible_schema_names=["reviews"]
+            )
+
+        assert result.success is True
+        _token, repo, url, events = update.call_args.args
+        assert repo == "owner/repo"
+        assert url == "https://app.posthog.com/webhook"
+        assert sorted(events) == ["pull_request_review", "workflow_job", "workflow_run"]
+
+    def test_update_repo_webhook_merges_events_additively(self) -> None:
+        # The PATCH must send the union of current and desired events against the matching hook.
+        # Replacing instead of merging would drop events the user subscribed themselves (push).
+        webhook_url = "https://app.posthog.com/webhook"
+        session = mock.Mock()
+        session.get.return_value = _make_response(
+            status=200,
+            body=[{"id": 42, "events": ["workflow_job", "workflow_run", "push"], "config": {"url": webhook_url}}],
+        )
+        session.patch.return_value = _make_response(status=200, body={"id": 42})
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            result = update_repo_webhook(
+                "tok", "owner/repo", webhook_url, ["workflow_job", "workflow_run", "pull_request_review"]
+            )
+
+        assert result.success is True
+        patch_url = session.patch.call_args.args[0]
+        assert "/repos/owner/repo/hooks/42" in patch_url
+        sent_events = session.patch.call_args.kwargs["json"]["events"]
+        assert sent_events == ["pull_request_review", "push", "workflow_job", "workflow_run"]
+
+    @parameterized.expand(
+        [
+            ("already_subscribed", ["workflow_job", "workflow_run", "pull_request_review"]),
+            ("wildcard", ["*"]),
+        ]
+    )
+    def test_update_repo_webhook_no_ops_without_drift(self, _name: str, current_events: list[str]) -> None:
+        # Reconciliation runs on every schema enable, so it must not PATCH when nothing is
+        # missing (or "*" already covers everything); a write per enable would churn the hook.
+        webhook_url = "https://app.posthog.com/webhook"
+        session = mock.Mock()
+        session.get.return_value = _make_response(
+            status=200, body=[{"id": 42, "events": current_events, "config": {"url": webhook_url}}]
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            result = update_repo_webhook("tok", "owner/repo", webhook_url, ["pull_request_review"])
+
+        assert result.success is True
+        session.patch.assert_not_called()
+
+    def test_update_repo_webhook_permission_error_fails_with_hint(self) -> None:
+        # A 403 must come back as a failed result naming the missing grant, never raise:
+        # reconciliation runs non-fatally after the table is enabled, and a raise would only
+        # be swallowed with a generic log instead of the actionable message.
+        session = mock.Mock()
+        session.get.return_value = _make_response(status=403, body={"message": "Forbidden"})
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            result = update_repo_webhook(
+                "tok", "owner/repo", "https://app.posthog.com/webhook", ["pull_request_review"]
+            )
+
+        assert result.success is False
+        assert result.error is not None
+        assert "admin:repo_hook" in result.error
+        assert "pull_request_review" in result.error
+
+    def test_update_repo_webhook_with_no_matching_hook_is_a_no_op(self) -> None:
+        # A manually deleted webhook must not fail reconciliation (creation is handled
+        # elsewhere); failing here would warn on every schema enable for no reason.
+        session = mock.Mock()
+        session.get.return_value = _make_response(status=200, body=[])
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            result = update_repo_webhook(
+                "tok", "owner/repo", "https://app.posthog.com/webhook", ["pull_request_review"]
+            )
+
+        assert result.success is True
+        session.patch.assert_not_called()
 
 
 # A response that raise_if_github_rate_limited classifies as rate limited: 429 is

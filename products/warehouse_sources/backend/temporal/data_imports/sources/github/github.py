@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
+    WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -1068,6 +1069,61 @@ def delete_repo_webhook(token: str, repo: str, webhook_url: str) -> WebhookDelet
         )
     return WebhookDeletionResult(
         success=False, error=f"Failed to delete webhook: {response.status_code} {response.text}"
+    )
+
+
+def _webhook_update_permission_result(events: list[str]) -> WebhookSyncResult:
+    return WebhookSyncResult(
+        success=False,
+        error=(
+            f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository "
+            f"webhook. Add it and reconnect, or add these events to the webhook manually: {', '.join(events)}."
+        ),
+    )
+
+
+def update_repo_webhook(token: str, repo: str, webhook_url: str, events: list[str]) -> WebhookSyncResult:
+    """Add ``events`` to the repo webhook matching ``webhook_url``, writing only on drift.
+
+    Additive on purpose: the PATCH sends the union of current and desired events, so events the
+    user subscribed themselves are never dropped. Permission errors return a failed (not raised)
+    result so schema-enable can proceed with a warning instead of hard-failing."""
+    if not events:
+        return WebhookSyncResult(success=True)
+
+    hooks, error = _list_repo_hooks(token, repo)
+    if error == "permission":
+        return _webhook_update_permission_result(events)
+    if error is not None:
+        return WebhookSyncResult(success=False, error=f"Failed to update webhook events: {error}")
+
+    hook = _match_hook_by_url(hooks or [], webhook_url)
+    if hook is None:
+        # No matching webhook, so nothing to reconcile (creation is handled elsewhere). Same as Stripe.
+        return WebhookSyncResult(success=True)
+
+    current = set(hook.get("events") or [])
+    # A "*" subscription already covers everything.
+    if "*" in current or all(event in current for event in events):
+        return WebhookSyncResult(success=True)
+
+    merged = sorted(current | set(events))
+    try:
+        response = make_tracked_session().patch(
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook['id']}",
+            headers=_get_headers(token),
+            json={"events": merged},
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        return WebhookSyncResult(success=False, error=f"Failed to update webhook events: {e}")
+
+    if response.ok:
+        return WebhookSyncResult(success=True)
+    if _is_repo_hook_permission_error(response):
+        return _webhook_update_permission_result(events)
+    return WebhookSyncResult(
+        success=False, error=f"Failed to update webhook events: {response.status_code} {response.text}"
     )
 
 

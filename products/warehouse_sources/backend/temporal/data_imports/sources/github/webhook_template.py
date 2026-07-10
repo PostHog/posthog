@@ -86,8 +86,9 @@ let row := request.body?.[eventType]
 
 // pull_request_review does not nest the object under the event-type key: the review is at
 // body.review and its PR at body.pull_request. Reshape so webhook rows match poll rows, which
-// carry pr_number injected from the parent PR. Deployed hog functions are snapshots of this
-// template; a source whose schema_mapping predates an event type no-ops on it above.
+// carry pr_number injected from the parent PR. The source-webhooks consumer substitutes the
+// current template bytecode by template_id at request time, so existing functions run this code
+// too; a source whose schema_mapping predates an event type no-ops on it above.
 if (eventType = 'pull_request_review') {
   let review := request.body?.review
   let pullRequest := request.body?.pull_request
