@@ -48,14 +48,23 @@ def main() -> None:
         print("posthog/schema.py already patched for defer_build; nothing to do")
         return
 
-    pydantic_import_re = re.compile(r"^from pydantic import (.+)$", re.MULTILINE)
-    match = pydantic_import_re.search(source)
-    if not match:
-        sys.exit("patch-schema-defer-build: could not find the pydantic import line in posthog/schema.py")
-    names = [name.strip() for name in match.group(1).split(",")]
+    # Both import forms occur depending on formatting: a single line, or a parenthesized
+    # multi-line block (fresh datamodel-codegen output wraps long import lists).
+    def parse_import(module: str) -> tuple[re.Match, list[str]]:
+        import_re = re.compile(
+            rf"^from {module} import \(\n(?P<names>(?: .+\n)+)\)$|^from {module} import (?P<inline>.+)$", re.MULTILINE
+        )
+        match = import_re.search(source)
+        if not match:
+            sys.exit(f"patch-schema-defer-build: could not find the {module} import in posthog/schema.py")
+        raw = match.group("names") or match.group("inline")
+        names = [name.strip().rstrip(",") for name in raw.replace("\n", ",").split(",")]
+        return match, [name for name in names if name]
+
+    match, names = parse_import("pydantic")
     for required in ("BaseModel", "RootModel"):
         if required not in names:
-            sys.exit(f"patch-schema-defer-build: expected {required} in the pydantic import line")
+            sys.exit(f"patch-schema-defer-build: expected {required} in the pydantic import")
     names = [name for name in names if name not in ("BaseModel", "RootModel")]
     if "ConfigDict" not in names:
         names.append("ConfigDict")
@@ -66,12 +75,9 @@ def main() -> None:
     )
     source = source[: match.start()] + pydantic_import + source[match.end() :]
 
-    typing_import_re = re.compile(r"^from typing import (.+)$", re.MULTILINE)
-    match = typing_import_re.search(source)
-    if not match:
-        sys.exit("patch-schema-defer-build: could not find the typing import line in posthog/schema.py")
-    typing_names = sorted({name.strip() for name in match.group(1).split(",")} | {"Generic", "TypeVar"})
-    source = source[: match.start()] + f"from typing import {', '.join(typing_names)}" + source[match.end() :]
+    match, typing_names = parse_import("typing")
+    merged = sorted(set(typing_names) | {"Generic", "TypeVar"})
+    source = source[: match.start()] + f"from typing import {', '.join(merged)}" + source[match.end() :]
 
     # Insert the deferred base classes after the import block (the schema_enums import is
     # the last import; its closing paren is the first line that is exactly ")").
