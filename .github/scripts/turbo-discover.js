@@ -30,14 +30,13 @@ const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
 // Each product is atomic for packing, but unlike Django the test pool isn't
 // fungible across products — bin-pack products into target-sized shards, and
 // multi-shard split any single product that overflows on its own.
+// The target is a per-shard test-WORK budget, not a wall-clock promise: the fixed
+// per-shard setup (docker stack + temporal boot, deps, collection, ~3-4 min) is paid
+// identically by every shard, so it can't skew the split and deliberately stays out
+// of the shard-count math — folding it in only inflates counts (see #54280). Walls
+// land at target + setup, evenly across shards. JUnit de-taxing in
+// optimize_test_durations.py keeps that setup cost out of the timings themselves.
 const PRODUCT_TARGET_WALL_SECONDS = 10 * 60
-// Fixed per-shard cost paid before any test runs: docker stack + temporal boot, dependency
-// install, and full-tree pytest collection. Measured from shards that received (nearly) zero
-// tests: ~3-4 min wall. Subtracted from the wall target to get each shard's test-work budget
-// (same Amdahl shape as the Django segments below), so a product that overflows is split by
-// what a shard can actually chew through — not by the bare wall target, which under-shards
-// exactly by the overhead share.
-const PRODUCT_SHARD_OVERHEAD_SECONDS = 4 * 60
 // Per-product cost within a runner: turbo dispatch, pytest collection, Django
 // init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
 // average that also absorbs the amortized portion of runner startup.
@@ -459,7 +458,7 @@ function buildMatrix(products, durations) {
         }
 
         if (raw > PRODUCT_TARGET_WALL_SECONDS) {
-            const shards = Math.ceil(raw / (PRODUCT_TARGET_WALL_SECONDS - PRODUCT_SHARD_OVERHEAD_SECONDS))
+            const shards = Math.ceil(raw / PRODUCT_TARGET_WALL_SECONDS)
             console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
             // optimal_chunks (PostHog pytest-split fork) makes the same contiguous,
