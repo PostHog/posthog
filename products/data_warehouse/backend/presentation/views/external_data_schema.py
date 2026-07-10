@@ -320,6 +320,22 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "Applied on the next sync — not retroactive to already-synced rows."
         ),
     )
+    api_version = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Vendor API version override for this schema. `null` (default) syncs on the source's "
+            "pinned version. Must be one of the source type's supported versions. User-managed: "
+            "version-migration tooling never changes it. Not available for webhook-sync schemas."
+        ),
+    )
+    api_version_deprecation = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Set when this schema's version override is deprecated by the vendor; null when there "
+            "is no override or it is not deprecated. The source-level field covers the source pin."
+        ),
+    )
     available_columns = serializers.SerializerMethodField(
         read_only=True,
         help_text="Column metadata (name, data type, nullable) for this schema. For SQL sources this is the "
@@ -361,6 +377,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "row_filters",
             "available_columns",
             "source",
+            "api_version",
+            "api_version_deprecation",
         ]
 
         read_only_fields = [
@@ -374,6 +392,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "description",
             "available_columns",
             "source",
+            "api_version_deprecation",
         ]
 
     @extend_schema_field(
@@ -423,6 +442,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 "supports_column_selection": {"type": "boolean"},
                 "supports_row_filters": {"type": "boolean"},
                 "user_access_level": {"type": "string", "nullable": True},
+                "api_version": {"type": "string", "nullable": True},
+                "supported_api_versions": {"type": "array", "items": {"type": "string"}},
             },
         }
     )
@@ -437,13 +458,75 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         user_access_control = getattr(view, "user_access_control", None)
         if user_access_control is not None:
             user_access_level = user_access_control.get_user_access_level(source)
+        try:
+            source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+            # The version the schema falls back to without an override, and the picker's options.
+            source_api_version: str | None = source_impl.resolve_api_version(source.api_version)
+            supported_api_versions = list(source_impl.supported_versions)
+        except ValueError:
+            source_api_version = None
+            supported_api_versions = []
         return {
             "id": str(source.id),
             "source_type": source.source_type,
             "supports_column_selection": source_supports_column_selection(source.source_type),
             "supports_row_filters": source_supports_row_filters(source.source_type),
             "user_access_level": user_access_level,
+            "api_version": source_api_version,
+            "supported_api_versions": supported_api_versions,
         }
+
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "version": {"type": "string"},
+                "sunset_at": {"type": "string", "format": "date", "nullable": True},
+                "default_version": {"type": "string"},
+            },
+        }
+    )
+    def get_api_version_deprecation(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
+        # Only the schema-level override is judged here; a deprecated source pin surfaces on the
+        # source, not on every schema.
+        if not schema.api_version:
+            return None
+        try:
+            source_impl = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
+        except ValueError:
+            return None
+        deprecation = source_impl.get_version_deprecation(schema.api_version)
+        if deprecation is None:
+            return None
+        return {
+            "version": deprecation.version,
+            "sunset_at": deprecation.sunset_at.isoformat() if deprecation.sunset_at else None,
+            "default_version": source_impl.default_version,
+        }
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        instance = cast(Optional[ExternalDataSchema], self.instance)
+        override = attrs["api_version"] if "api_version" in attrs else (instance.api_version if instance else None)
+        if override:
+            sync_type = attrs.get("sync_type", instance.sync_type if instance else None)
+            if sync_type == ExternalDataSchema.SyncType.WEBHOOK:
+                raise ValidationError(
+                    {
+                        "api_version": "API version overrides are not available for webhook-sync schemas — "
+                        "webhook payload versions are configured on the source at the vendor."
+                    }
+                )
+            if "api_version" in attrs and instance is not None:
+                source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source.source_type))
+                if override not in source_impl.supported_versions:
+                    raise ValidationError(
+                        {
+                            "api_version": f"'{override}' is not a supported {instance.source.source_type} API version. "
+                            f"Supported versions: {', '.join(source_impl.supported_versions)}"
+                        }
+                    )
+        return attrs
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:

@@ -16,7 +16,7 @@ Use this skill when a vendor has released a new API version and an existing sour
   - `default_version: str` — used when a source instance has no pin, and stamped onto newly created sources.
   - `api_docs_url: str | None` — the vendor's API docs/changelog page (where new versions are announced). Distinct from `docsUrl` (posthog.com).
   - `deprecated_versions: tuple[VersionDeprecation, ...]` — versions the vendor has deprecated (`VersionDeprecation(version=..., sunset_at=date | None)` from `sources/common/base.py`).
-- Each `ExternalDataSource` row pins one version in its `api_version` column (NULL resolves to `default_version`). The sync pipeline resolves the pin in `workflow_activities/import_data_sync.py` and hands it to the source as `SourceInputs.api_version` — already resolved, never None there.
+- Each `ExternalDataSource` row pins one version in its `api_version` column (NULL resolves to `default_version`). A schema may additionally carry a user-managed override in `ExternalDataSchema.api_version` (set from the schema's configuration page; not available for webhook-sync schemas) which wins over the source pin for that schema only. The sync pipeline resolves override → pin → default in `workflow_activities/import_data_sync.py` and hands the result to the source as `SourceInputs.api_version` — already resolved, never None there.
 - These declarations are exposed publicly via `GET /api/public_source_configs/` (`versions`, `defaultVersion`, `apiDocsUrl`, `deprecatedVersions`) and per-instance via the source API (`api_version`, `api_version_deprecation`). The `api_version` pin is queryable in HogQL via the `data_warehouse_sources` system table.
 - Registry-wide invariants are enforced by `sources/tests/test_source_versions.py`: default in supported, deprecated ⊆ supported, default never deprecated, https `api_docs_url`.
 
@@ -38,6 +38,7 @@ Use this skill when a vendor has released a new API version and an existing sour
 2. Add the old version to `deprecated_versions` with the vendor's announced sunset date (or `sunset_at=None` if none). Never deprecate `default_version` — flip the default to the new version in the same PR.
 3. The in-product warning banner and API fields light up automatically from the metadata — zero per-source UI work.
 4. Include a **written-not-run** migration script that repins affected `ExternalDataSource` rows (`api_version` column) from the deprecated version to the new one, plus any safe data/schema transforms. It must be idempotent and reviewable. Where migration is lossy or unsafe, do not script it — document the manual path in the PR. Do not execute migrations or backfills; humans review and run them.
+5. **Never touch `ExternalDataSchema.api_version` overrides** in migration scripts — they are user-managed by design. The schema-level deprecation warning covers them; the user migrates them from the schema's configuration page.
 
 ## Pinning semantics (do not break these)
 

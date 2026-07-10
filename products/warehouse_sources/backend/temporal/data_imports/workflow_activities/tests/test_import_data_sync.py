@@ -138,6 +138,7 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
     schema.incremental_field_lookback_seconds = lookback_seconds
     schema.incremental_field_earliest_value = None
     schema.row_filters = None
+    schema.api_version = None
     schema.sync_type_config = {
         "incremental_field_last_value": "2026-06-14T15:33:31.802833",
         "incremental_field_type": "timestamp",
@@ -206,18 +207,20 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(is_i
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "pinned,expected",
+    "schema_override,pinned,expected",
     [
-        ("2020-01-01", "2020-01-01"),  # a stored pin is honored verbatim
-        (None, "vdefault"),  # no pin resolves to the source's default_version
+        (None, "2020-01-01", "2020-01-01"),  # a stored pin is honored verbatim
+        (None, None, "vdefault"),  # no pin resolves to the source's default_version
+        ("2021-05-05", "2020-01-01", "2021-05-05"),  # a user-managed schema override wins over the source pin
     ],
 )
-async def test_pinned_api_version_is_resolved_into_source_inputs(pinned, expected):
+async def test_pinned_api_version_is_resolved_into_source_inputs(schema_override, pinned, expected):
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
     source.source_for_pipeline.return_value = mock.MagicMock()
     source.resolve_api_version = lambda p: p or "vdefault"
     schema = _incremental_schema(is_incremental=False, lookback_seconds=None)
+    schema.api_version = schema_override
 
     with _patched_activity_reaching_run(source, schema, api_version=pinned):
         await import_data_activity_sync(_inputs_no_reset())

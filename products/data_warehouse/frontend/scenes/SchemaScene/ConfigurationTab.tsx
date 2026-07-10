@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDialog,
     LemonInput,
@@ -25,7 +26,13 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema, RowFilter } from '~/types'
+import {
+    DataWarehouseSyncInterval,
+    ExternalDataSchemaSourceSummary,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+    RowFilter,
+} from '~/types'
 
 import {
     SyncMethodForm,
@@ -104,7 +111,12 @@ export function ConfigurationTab({
                 />
             )
         case 'sync-method':
-            return <SyncMethodSection sourceId={sourceId} source={source} schema={schema} />
+            return (
+                <div className="flex flex-col gap-6">
+                    <SyncMethodSection sourceId={sourceId} source={source} schema={schema} />
+                    <ApiVersionSection sourceId={sourceId} source={source} schema={schema} />
+                </div>
+            )
         case 'columns':
             return (
                 <ColumnsAndRowFiltersSection
@@ -489,6 +501,112 @@ function SyncMethodSection({
                     </LemonButton>
                 </div>
             )}
+        </div>
+    )
+}
+
+function ApiVersionSection({
+    sourceId,
+    source,
+    schema,
+}: {
+    sourceId: string
+    source: ExternalDataSource | null
+    schema: ExternalDataSourceSchema
+}): JSX.Element | null {
+    const { loadSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
+    const { disabledReason: accessDisabledReason } = useSourceEditorAccess(source)
+
+    // `source` is the lightweight schema-retrieve summary cast to the full type upstream
+    // (see schemaSceneLogic's `source` selector) — cast back to read the version fields.
+    const summary = source as unknown as ExternalDataSchemaSourceSummary | null
+    const supportedVersions = summary?.supported_api_versions ?? []
+    const sourceVersion = summary?.api_version
+
+    const [draftVersion, setDraftVersion] = useState<string | null>(schema.api_version ?? null)
+    const [saving, setSaving] = useState(false)
+
+    // Reset the draft when navigating to another schema or after a save reloads the server value.
+    useEffect(() => {
+        setDraftVersion(schema.api_version ?? null)
+    }, [schema.id, schema.api_version])
+
+    if (supportedVersions.length === 0) {
+        return null
+    }
+
+    const isWebhook = schema.sync_type === 'webhook'
+    const isDirty = (draftVersion ?? null) !== (schema.api_version ?? null)
+    const deprecation = schema.api_version_deprecation
+
+    const options: LemonSelectOption<string | null>[] = [
+        { value: null, label: `Source default${sourceVersion ? ` (${sourceVersion})` : ''}` },
+        ...supportedVersions.map((version) => ({ value: version, label: version })),
+    ]
+
+    const handleSave = async (): Promise<void> => {
+        setSaving(true)
+        try {
+            await api.externalDataSchemas.update(schema.id, { api_version: draftVersion })
+            lemonToast.success('API version saved')
+            loadSchema()
+        } catch (e: any) {
+            lemonToast.error(e?.detail || e?.message || "Can't save API version at this time")
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    return (
+        <div>
+            <SectionHeader
+                title="Vendor API version"
+                description={`Which version of the ${
+                    summary?.source_type ?? 'vendor'
+                } API this schema syncs with. Overriding pins this schema only — other schemas keep following the source's version, and version migrations never change an override.`}
+            />
+            {deprecation && (
+                <LemonBanner type="warning" className="mb-4">
+                    This schema is pinned to API version {deprecation.version}, which the vendor has deprecated
+                    {deprecation.sunset_at
+                        ? ` and will stop serving on ${dayjs(deprecation.sunset_at).format('LL')}`
+                        : ''}
+                    . Switch to version {deprecation.default_version} before syncs stop working.
+                </LemonBanner>
+            )}
+            <div className="border rounded p-4 bg-surface-primary flex flex-col gap-1">
+                <span>API version override</span>
+                <span className="text-xs text-muted max-w-md">
+                    Only override this if the schema needs a specific vendor API version — for example to verify a new
+                    version on one table before moving the whole source.
+                </span>
+                <LemonSelect
+                    fullWidth
+                    disabledReason={
+                        accessDisabledReason ?? (isWebhook ? 'Not available for webhook-synced schemas' : undefined)
+                    }
+                    value={draftVersion}
+                    onChange={(value) => setDraftVersion(value)}
+                    options={options}
+                />
+            </div>
+            <div className="mt-4 flex justify-end">
+                <LemonButton
+                    type="primary"
+                    loading={saving}
+                    disabledReason={
+                        accessDisabledReason ??
+                        (isWebhook
+                            ? 'Not available for webhook-synced schemas'
+                            : !isDirty
+                              ? 'No changes to save'
+                              : undefined)
+                    }
+                    onClick={() => void handleSave()}
+                >
+                    Save
+                </LemonButton>
+            </div>
         </div>
     )
 }

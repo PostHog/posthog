@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    VersionDeprecation,
     WebhookCreationResult,
     WebhookSyncResult,
 )
@@ -3410,3 +3411,76 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
         assert response.status_code == 400
         assert "not supported for CDC" in str(response.json())
+
+
+class TestExternalDataSchemaApiVersionOverride(APIBaseTest):
+    def _create_schema(self, sync_type=ExternalDataSchema.SyncType.FULL_REFRESH, api_version=None):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            api_version=StripeSource.default_version,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        return ExternalDataSchema.objects.create(
+            name="Customer",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            sync_type=sync_type,
+            api_version=api_version,
+        )
+
+    def _patch(self, schema, payload):
+        return self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data=payload,
+        )
+
+    def test_set_and_clear_api_version_override(self):
+        schema = self._create_schema()
+
+        response = self._patch(schema, {"api_version": StripeSource.default_version})
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.api_version == StripeSource.default_version
+        assert response.json()["api_version"] == StripeSource.default_version
+
+        response = self._patch(schema, {"api_version": None})
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.api_version is None
+
+    @parameterized.expand(
+        [
+            ("unsupported_version", ExternalDataSchema.SyncType.FULL_REFRESH, "1999-01-01"),
+            ("webhook_schema", ExternalDataSchema.SyncType.WEBHOOK, None),  # None -> uses a supported version
+        ]
+    )
+    def test_api_version_override_rejected(self, _name, sync_type, version):
+        schema = self._create_schema(sync_type=sync_type)
+        response = self._patch(schema, {"api_version": version or StripeSource.default_version})
+        assert response.status_code == 400
+        schema.refresh_from_db()
+        assert schema.api_version is None
+
+    def test_switching_to_webhook_blocked_while_override_present(self):
+        schema = self._create_schema(api_version=StripeSource.default_version)
+        response = self._patch(schema, {"sync_type": "webhook"})
+        assert response.status_code == 400
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_api_version_deprecation_surfaces_for_deprecated_override_only(self):
+        schema = self._create_schema(api_version="1999-legacy")
+        url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}"
+
+        assert self.client.get(url).json()["api_version_deprecation"] is None
+
+        deprecated = (VersionDeprecation(version="1999-legacy", sunset_at=None),)
+        with mock.patch.object(StripeSource, "deprecated_versions", deprecated):
+            payload = self.client.get(url).json()
+        assert payload["api_version_deprecation"] == {
+            "version": "1999-legacy",
+            "sunset_at": None,
+            "default_version": StripeSource.default_version,
+        }

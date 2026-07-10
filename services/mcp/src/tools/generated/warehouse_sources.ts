@@ -166,6 +166,9 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters
         }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/cancel/`,
@@ -235,6 +238,9 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         }
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters
+        }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -320,6 +326,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters
         }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
+        }
         const result = await context.api.request<Schemas.ExternalDataSchema>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/`,
@@ -372,6 +381,9 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters
         }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/reload/`,
@@ -423,6 +435,9 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
         }
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters
+        }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
         }
         const result = await context.api.request<unknown>({
             method: 'POST',

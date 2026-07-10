@@ -23851,6 +23851,20 @@ export namespace Schemas {
       readonly supports_row_filters?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
+      /** @nullable */
+      readonly api_version?: string | null;
+      readonly supported_api_versions?: string[];
+    } | null;
+
+    /**
+     * Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin.
+     * @nullable
+     */
+    export type ExternalDataSchemaApiVersionDeprecation = {
+      readonly version?: string;
+      /** @nullable */
+      readonly sunset_at?: string | null;
+      readonly default_version?: string;
     } | null;
 
     /**
@@ -24023,6 +24037,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly source: ExternalDataSchemaSource;
+      /**
+         * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+         * @nullable
+         */
+      api_version?: string | null;
+      /**
+         * Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin.
+         * @nullable
+         */
+      readonly api_version_deprecation: ExternalDataSchemaApiVersionDeprecation;
     }
 
     export interface ExternalDataSourceApiVersionDeprecation {
@@ -40224,6 +40248,20 @@ export namespace Schemas {
       readonly supports_row_filters?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
+      /** @nullable */
+      readonly api_version?: string | null;
+      readonly supported_api_versions?: string[];
+    } | null;
+
+    /**
+     * Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin.
+     * @nullable
+     */
+    export type PatchedExternalDataSchemaApiVersionDeprecation = {
+      readonly version?: string;
+      /** @nullable */
+      readonly sunset_at?: string | null;
+      readonly default_version?: string;
     } | null;
 
     export interface PatchedExternalDataSchema {
@@ -40324,6 +40362,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly source?: PatchedExternalDataSchemaSource;
+      /**
+         * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+         * @nullable
+         */
+      api_version?: string | null;
+      /**
+         * Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin.
+         * @nullable
+         */
+      readonly api_version_deprecation?: PatchedExternalDataSchemaApiVersionDeprecation;
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
