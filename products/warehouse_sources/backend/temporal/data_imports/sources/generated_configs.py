@@ -1717,6 +1717,11 @@ class HetznerSourceConfig(config.Config):
 
 
 @config.config
+class HexSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class HeyGenSourceConfig(config.Config):
     pass
 
@@ -4503,6 +4508,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.HELPSCOUT: HelpScoutSourceConfig,
         ExternalDataSourceType.HEROKU: HerokuSourceConfig,
         ExternalDataSourceType.HETZNER: HetznerSourceConfig,
+        ExternalDataSourceType.HEX: HexSourceConfig,
         ExternalDataSourceType.HEYGEN: HeyGenSourceConfig,
         ExternalDataSourceType.HIBOB: HiBobSourceConfig,
         ExternalDataSourceType.HIGHLEVEL: HighLevelSourceConfig,
