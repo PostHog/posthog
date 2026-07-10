@@ -11,7 +11,10 @@ from django.utils import timezone
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
-from products.replay_vision.backend.temporal.constants import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
+
+# The evaluation workflow's Temporal execution timeout. Lives outside temporal/ because importing
+# that package pulls in the activities, which import quota, which imports this module.
+EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
 
 # Each evaluated session is a full scanner run, so keep the bill bounded.
 EVALUATION_SESSION_CAP = 10
@@ -99,7 +102,7 @@ def in_flight_evaluation_sessions(organization_id: uuid.UUID) -> int:
     ).values_list("evaluation", flat=True)
     total = 0
     for evaluation in evaluations:
-        if not evaluation_in_flight(evaluation):
+        if not isinstance(evaluation, dict) or not evaluation_in_flight(evaluation):
             continue
         total += max(0, int(evaluation.get("total") or 0) - len(evaluation.get("results") or []))
     return total

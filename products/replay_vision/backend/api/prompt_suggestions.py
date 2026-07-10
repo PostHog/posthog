@@ -37,6 +37,7 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
     SuggestionStatus,
 )
 from products.replay_vision.backend.prompt_evaluation import (
+    EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
     EVALUATION_SESSION_CAP,
     build_running_evaluation,
     evaluation_in_flight,
@@ -49,7 +50,6 @@ from products.replay_vision.backend.prompt_suggestions import (
 )
 from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.constants import (
-    EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
     EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME,
     build_evaluate_prompt_suggestion_workflow_id,
 )

@@ -111,7 +111,7 @@ def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:
 
 
 EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME = "replay-vision-evaluate-prompt-suggestion"
-EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
+# The execution timeout lives in prompt_evaluation.py to keep it importable from quota.
 
 
 def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:
