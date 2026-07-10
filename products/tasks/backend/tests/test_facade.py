@@ -2,7 +2,7 @@ import importlib
 from datetime import timedelta
 from typing import ClassVar
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 from django.utils import timezone as django_timezone
@@ -10,6 +10,8 @@ from django.utils import timezone as django_timezone
 from parameterized import parameterized
 
 from posthog.models import Integration, Organization, Team
+from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 
 from products.tasks.backend.facade import (
@@ -463,3 +465,31 @@ class TestFacadeReadsAndMappers(TestCase):
         # overlap-clone-boot launch (before run_wizard) burns the prompt on an untouched repo
         # and the run never opens a PR. Wizard runs must pin the overlap boot off.
         self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)
+
+    @parameterized.expand(
+        [
+            ("accessible", 200, True),
+            ("inaccessible", 404, False),
+            ("unknown_status", 502, True),
+            ("probe_error", None, True),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_wizard_cloud_run_probes_repository_access(self, _name, probe_status, run_created, _mock_workflow):
+        # The probe must block only a confirmed-inaccessible repo (the sandbox clone would
+        # fail after a full boot) and fail open on any indeterminate GitHub answer.
+        Integration.objects.create(team=self.team, kind="github", config={})
+        tasks_before = Task.objects.count()
+        if probe_status is None:
+            probe = patch.object(GitHubIntegration, "api_request", side_effect=GitHubIntegrationError("boom"))
+        else:
+            probe = patch.object(GitHubIntegration, "api_request", return_value=MagicMock(status_code=probe_status))
+        with probe:
+            if run_created:
+                created = facade.create_wizard_cloud_run(team=self.team, user_id=self.user.id, repository="acme-co/web")
+                self.assertTrue(TaskRun.objects.filter(task_id=created.task_id).exists())
+            else:
+                with self.assertRaises(facade.WizardRepositoryInaccessibleError):
+                    facade.create_wizard_cloud_run(team=self.team, user_id=self.user.id, repository="acme-co/web")
+                self.assertEqual(Task.objects.count(), tasks_before)
+                self.assertFalse(TaskRun.objects.exists())

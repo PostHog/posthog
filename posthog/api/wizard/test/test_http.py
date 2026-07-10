@@ -14,6 +14,8 @@ from posthog.cloud_utils import get_api_host
 from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.tasks.backend.facade import api as tasks_facade
+
 
 class SetupWizardTests(APIBaseTest):
     def setUp(self):
@@ -482,6 +484,23 @@ class SetupWizardCloudRunTests(APIBaseTest):
         assert kwargs["user_id"] == self.user.id
         assert kwargs["branch"] is None
         assert kwargs["team"].id == self.team.id
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_rejects_inaccessible_repository_with_stable_code(self, mock_create):
+        mock_create.side_effect = tasks_facade.WizardRepositoryInaccessibleError(
+            "PostHog's GitHub integration can't access acme/app."
+        )
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["code"] == "repository_inaccessible"
+        assert body["detail"] == "PostHog's GitHub integration can't access acme/app."
 
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
     def test_rejects_invalid_repository_format(self, mock_create):

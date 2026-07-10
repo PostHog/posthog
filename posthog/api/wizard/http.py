@@ -56,9 +56,26 @@ OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
 
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_cloud_run_requests_total",
-    "Cloud-run wizard kickoff requests, by outcome (created/unavailable/invalid/permission_denied)",
+    "Cloud-run wizard kickoff requests, by outcome "
+    "(created/unavailable/invalid/permission_denied/repository_inaccessible)",
     labelnames=["outcome"],
 )
+
+# Pre-flight rejections carry their own outcome label so the probe's impact is measurable.
+CLOUD_RUN_PREFLIGHT_OUTCOME_CODES = frozenset({"repository_inaccessible"})
+
+
+def _cloud_run_validation_outcome(error: exceptions.ValidationError) -> str:
+    codes = error.get_codes()
+    if (
+        isinstance(codes, list)
+        and len(codes) == 1
+        and isinstance(codes[0], str)
+        and codes[0] in CLOUD_RUN_PREFLIGHT_OUTCOME_CODES
+    ):
+        return codes[0]
+    return "invalid"
+
 
 # Supported Gemini models
 GEMINI_SUPPORTED_MODELS = {
@@ -449,8 +466,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
         except exceptions.PermissionDenied:
             WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="permission_denied").inc()
             raise
-        except exceptions.ValidationError:
-            WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="invalid").inc()
+        except exceptions.ValidationError as e:
+            WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome=_cloud_run_validation_outcome(e)).inc()
             raise
         WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="created").inc()
         return response
@@ -481,6 +498,10 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 repository=repository,
                 branch=branch,
             )
+        except tasks_facade.WizardRepositoryInaccessibleError as e:
+            # Pre-flight probe confirmed the sandbox clone would fail; stable code so
+            # clients can distinguish this from generic input validation.
+            raise exceptions.ValidationError(str(e), code="repository_inaccessible")
         except ValueError as e:
             # e.g. the team/user has no GitHub integration with access to the repository.
             raise exceptions.ValidationError(str(e))

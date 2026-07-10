@@ -48,6 +48,11 @@ from products.tasks.backend.logic.services.image_builder import (
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
 )
+from products.tasks.backend.logic.wizard_repo_probe import (
+    WizardRepoAccess,
+    WizardRepositoryInaccessibleError,
+    probe_wizard_repository_access,
+)
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
@@ -113,6 +118,7 @@ __all__ = [
     "TaskOriginProduct",
     "TaskRunEnvironment",
     "TaskRunStatus",
+    "WizardRepositoryInaccessibleError",
     "append_task_run_log",
     "beacon_task_presence",
     "bootstrap_task_run",
@@ -806,7 +812,17 @@ def create_wizard_cloud_run(
     The PR head branch is generated here (not by the agent) so the GitHub PR webhook can bind the
     opened PR back to this run by branch + repository — wizard PRs are bot-authored, which the
     agent-side PR attribution cannot match.
+
+    Raises :class:`WizardRepositoryInaccessibleError` when the pre-flight probe confirms the
+    team's GitHub installation cannot access ``repository`` — the sandbox clone would fail
+    identically after a full sandbox boot. A probe that cannot get a definitive answer
+    (timeouts, rate limits) fails open and the run is created.
     """
+    if probe_wizard_repository_access(team, repository) is WizardRepoAccess.INACCESSIBLE:
+        raise WizardRepositoryInaccessibleError(
+            f"PostHog's GitHub integration can't access {repository}. "
+            "Check the repository name, or grant the PostHog GitHub app access to it and try again."
+        )
     head_branch = generate_wizard_head_branch()
     prompt = build_wizard_pr_agent_prompt(head_branch)
     return create_and_run_task(
