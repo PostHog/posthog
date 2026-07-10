@@ -259,6 +259,21 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   (`emit_report` / `edit_report`): files one report per tool carrying the fix hypothesis,
   editing the live report when the problem persists; bundles `references/queries.md`, a
   HogQL cookbook validated against real telemetry.
+- `signals-scout-api-deprecations/` — the repo-reading odd one out. Instead of analytics
+  telemetry it scans the project's integration code for third-party API call sites (destination
+  templates, warehouse import sources, batch exports, native OAuth integrations) and researches
+  each against the vendor's OWN published docs on two axes: the pinned version (Meta blocking Graph
+  API `< v22`) and the endpoint/product itself (an endpoint sunset while the version stays current).
+  Its discriminators are usage-is-a-genuine-call-site (docs links, OAuth scope identifiers, and
+  static assets all match a URL regex but aren't API calls) and citation-or-silence (a deprecation
+  exists only if a vendor page says so, quoted verbatim — uncitable suspicions go to the scratchpad,
+  never the inbox). On the **report channel** (`emit_report` / `edit_report`): files one report per
+  cited deprecation carrying the cutoff date, severity, mechanical-vs-structural fix, and the
+  existing-records migration path (a source-only fix leaves persisted per-customer copies on the old
+  version), editing the live report as the deadline nears. Needs a repo checkout (harness-provided
+  or a public shallow-clone); code changes slowly, so most runs close out empty against a HEAD-sha
+  `last-scan` memory. Library/package dependency versions are dependency tooling's territory, not
+  this scout's.
 
 ### How the coordinator decides what runs
 
