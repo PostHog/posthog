@@ -41,7 +41,9 @@ def find_task_run(
         runs = TaskRun.objects.filter(output__pr_url=pr_url)
         if repository:
             runs = runs.filter(task__repository__iexact=repository)
-        task_run = (
+        # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
+        # variant that must not leak into the plain-queryset legs below.
+        task_run: TaskRun | None = (
             runs.annotate(
                 terminal_rank=Case(
                     When(status__in=_TERMINAL_RUN_STATUSES, then=Value(1)),
