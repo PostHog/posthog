@@ -87,7 +87,9 @@ def validate_credentials(api_token: str) -> tuple[bool, str | None]:
     """Confirm the token is genuine by hitting /profile, which any valid token can read regardless of
     its granted scopes — so a token that only has scopes for some endpoints still validates."""
     try:
-        response = make_tracked_session().get(f"{LINODE_BASE_URL}/profile", headers=_get_headers(api_token), timeout=10)
+        response = make_tracked_session(redact_values=(api_token,)).get(
+            f"{LINODE_BASE_URL}/profile", headers=_get_headers(api_token), timeout=10
+        )
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -95,7 +97,9 @@ def validate_credentials(api_token: str) -> tuple[bool, str | None]:
         return True, None
     if response.status_code == 401:
         return False, "Invalid Linode API token"
-    return False, f"Linode API returned {response.status_code}: {response.text}"
+    # Don't surface the raw response body: Linode error bodies can echo account/resource details, and
+    # this message is persisted on the source. The status code alone is enough to diagnose.
+    return False, f"Linode API returned {response.status_code}"
 
 
 _backoff_wait = wait_exponential_jitter(initial=1, max=30)
@@ -136,7 +140,9 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
         )
 
     if not response.ok:
-        logger.error(f"Linode API error: status={response.status_code}, body={response.text}, url={url}")
+        # Log only status and URL, never response.text: Linode error bodies can echo account, billing,
+        # user, and audit data, and logs sit outside the warehouse table's access controls.
+        logger.error(f"Linode API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -162,7 +168,7 @@ def get_rows(
         headers["X-Filter"] = json.dumps(_build_x_filter(cursor_field, db_incremental_field_last_value))
 
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_token,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.next_page if resume is not None else 1
@@ -178,14 +184,19 @@ def get_rows(
             batcher.batch(item)
             if batcher.should_yield():
                 yield batcher.get_table()
-                # Save AFTER yielding so a crash re-fetches from the next page rather than re-yielding
-                # already-committed rows (events are append-only and would duplicate otherwise). Only
-                # persist while pages remain.
-                if page < total_pages:
-                    resumable_source_manager.save_state(LinodeResumeConfig(next_page=page + 1))
 
         if page >= total_pages:
             break
+
+        # Advance the resume checkpoint only once the batcher has fully drained at this page boundary.
+        # The batcher aggregates rows across pages, so anything still buffered belongs to pages at or
+        # before this one and has not been yielded yet (and so not committed downstream). Persisting
+        # next_page while rows are buffered would skip them on resume — permanent loss for append-only
+        # endpoints. Holding the checkpoint until a drained boundary keeps resume at-least-once: a crash
+        # re-fetches from the last fully-committed page rather than dropping rows.
+        if not batcher.should_yield(include_incomplete_chunk=True):
+            resumable_source_manager.save_state(LinodeResumeConfig(next_page=page + 1))
+
         page += 1
 
     if batcher.should_yield(include_incomplete_chunk=True):

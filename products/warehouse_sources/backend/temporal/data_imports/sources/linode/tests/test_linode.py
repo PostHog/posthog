@@ -80,6 +80,27 @@ class TestValidateCredentials:
         assert valid is False
         assert message is not None
 
+    def test_token_is_registered_for_redaction(self) -> None:
+        # The PAT rides in an Authorization header the value-based scrubber can only mask if the token
+        # is registered via redact_values; dropping it would leak the credential into HTTP telemetry.
+        response = MagicMock()
+        response.status_code = 200
+        with patch.object(linode, "make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = response
+            validate_credentials("tok")
+        assert mock_session.call_args.kwargs["redact_values"] == ("tok",)
+
+    def test_error_status_does_not_leak_response_body(self) -> None:
+        # Linode error bodies can echo account data; the persisted validation message must not carry it.
+        response = MagicMock()
+        response.status_code = 500
+        response.text = "secret account details"
+        with patch.object(linode, "make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = response
+            _valid, message = validate_credentials("tok")
+        assert message is not None
+        assert "secret account details" not in message
+
 
 class TestFetchPageRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
@@ -96,6 +117,24 @@ class TestFetchPageRetries:
 
         # 5 attempts before giving up (reraise=True).
         assert session.get.call_count == 5
+
+    def test_non_2xx_does_not_log_response_body(self) -> None:
+        # Error bodies can carry account/billing/audit data; logs live outside warehouse access
+        # controls, so a failing sync must not copy the raw body into them.
+        response = MagicMock()
+        response.status_code = 404
+        response.ok = False
+        response.text = "secret account details"
+        session = MagicMock()
+        session.get.return_value = response
+        logger = MagicMock()
+
+        with pytest.raises(requests.HTTPError):
+            response.raise_for_status.side_effect = requests.HTTPError("404")
+            linode._fetch_page(session, "https://api.linode.com/v4/volumes", {}, logger)
+
+        logged = " ".join(str(call) for call in logger.error.call_args_list)
+        assert "secret account details" not in logged
 
     def test_transient_error_retried_then_succeeds(self) -> None:
         good = MagicMock()
@@ -192,17 +231,29 @@ class TestGetRows:
         assert f"page_size={PAGE_SIZE}" in _page_url("/volumes", 1)
         assert PAGE_SIZE == 500
 
-    def test_saves_next_page_after_yielding_a_chunk(self) -> None:
-        # Force a mid-sync yield (chunk_size is 2000) so we exercise the resume checkpoint: after the
-        # first chunk flushes it must persist the NEXT page, not the current one, so an append-only
-        # resume never re-yields already-committed rows.
+    def test_sync_session_registers_token_for_redaction(self) -> None:
+        # Same leak surface as validation: the sync session sends the PAT on every paginated request,
+        # so it must register the token for value-based masking.
+        pages = {_page_url("/volumes", 1): {"data": [{"id": 1}], "page": 1, "pages": 1}}
+        with patch.object(linode, "make_tracked_session") as mock_session:
+            self._collect(_FakeResumableManager(), pages)
+        assert mock_session.call_args.kwargs["redact_values"] == ("tok",)
+
+    def test_checkpoint_only_advances_past_fully_drained_pages(self) -> None:
+        # The resume checkpoint must never advance past a page while rows from it are still buffered
+        # (unyielded, so uncommitted downstream) — doing so would skip them on resume, permanent loss
+        # for append-only endpoints. chunk_size is 2000, so:
+        #   page 1 (2000 rows) yields one chunk and drains the batcher -> checkpoint page 2.
+        #   page 2 (2001 rows) yields a chunk but leaves a 1-row tail buffered -> must NOT checkpoint.
         pages = {
-            _page_url("/volumes", 1): {"data": [{"id": i} for i in range(2001)], "page": 1, "pages": 2},
-            _page_url("/volumes", 2): {"data": [{"id": 9001}], "page": 2, "pages": 2},
+            _page_url("/volumes", 1): {"data": [{"id": i} for i in range(2000)], "page": 1, "pages": 3},
+            _page_url("/volumes", 2): {"data": [{"id": 2000 + i} for i in range(2001)], "page": 2, "pages": 3},
+            _page_url("/volumes", 3): {"data": [{"id": 9001}], "page": 3, "pages": 3},
         }
         manager = _FakeResumableManager()
         rows, _headers = self._collect(manager, pages)
-        assert len(rows) == 2002
+        assert len(rows) == 4002
+        # Only the drained page-1 boundary checkpoints; the straddling page-2 boundary is held back.
         assert manager.saved == [LinodeResumeConfig(next_page=2)]
 
 
