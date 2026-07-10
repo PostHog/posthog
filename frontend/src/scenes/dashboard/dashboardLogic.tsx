@@ -843,7 +843,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboardFailedToLoad: [
             false,
             {
+                // Clear the stuck error whenever a fresh load starts or succeeds, on either the
+                // regular or the streaming path, so a recovered load isn't left showing the error.
+                loadDashboard: () => false,
+                loadDashboardStreaming: () => false,
                 loadDashboardSuccess: () => false,
+                loadDashboardMetadataSuccess: () => false,
                 loadDashboardFailure: () => true,
             },
         ],
@@ -3447,6 +3452,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setButtonTileId(null)
             if (values.dashboardMode === DashboardMode.Sharing) {
                 actions.setDashboardMode(null, DashboardEventSource.Browser)
+            }
+            // Returning here (e.g. via the breadcrumb) keeps the logic mounted, so nothing
+            // re-triggers a load. If the previous load failed, retry it instead of leaving
+            // the dashboard stuck on the error state until the scene fully remounts.
+            if (values.dashboardFailedToLoad && !values.dashboardLoading && !values.dashboardStreaming) {
+                if (values.shouldUseStreaming) {
+                    actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+                } else {
+                    actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+                }
             }
         },
         '/dashboard/:id/sharing': () => {

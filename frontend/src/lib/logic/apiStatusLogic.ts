@@ -49,7 +49,22 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                 await breakpoint(50)
                 // Likely CORS headers errors (i.e. request failing without reaching Django))
                 if (error?.message === 'Failed to fetch') {
-                    actions.setInternetConnectionIssue(true)
+                    // A lone "Failed to fetch" is often a request the browser cancelled because a
+                    // navigation was in flight, not a genuine connectivity drop. Confirm the server
+                    // is actually unreachable with a lightweight probe before alarming the user.
+                    // The `checkingConnection` guard stops the probe's own response from recursing.
+                    if (!values.internetConnectionIssue && !cache.checkingConnection) {
+                        cache.checkingConnection = true
+                        try {
+                            await api.get('api/users/@me/')
+                        } catch (probeError: any) {
+                            if (probeError?.message === 'Failed to fetch') {
+                                actions.setInternetConnectionIssue(true)
+                            }
+                        } finally {
+                            cache.checkingConnection = false
+                        }
+                    }
                 }
             }
 
