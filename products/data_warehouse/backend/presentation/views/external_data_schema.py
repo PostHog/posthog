@@ -323,6 +323,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     api_version = serializers.CharField(
         required=False,
         allow_null=True,
+        max_length=128,
         help_text=(
             "Vendor API version override for this schema. `null` (default) syncs on the source's "
             "pinned version. Must be one of the source type's supported versions. User-managed: "
@@ -517,8 +518,18 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                         "webhook payload versions are configured on the source at the vendor."
                     }
                 )
-            if "api_version" in attrs and instance is not None:
-                source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source.source_type))
+            # Membership is enforced only when the override actually changes: existing pins are
+            # honored verbatim even if the vendor version was later retired from
+            # supported_versions, so full-payload PATCHes (the sources list spreads the GET
+            # response back) never 400 on unrelated edits. Schemas are not created through this
+            # serializer, so there is no create path to validate.
+            if "api_version" in attrs and instance is not None and override != instance.api_version:
+                try:
+                    source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source.source_type))
+                except ValueError:
+                    raise ValidationError(
+                        {"api_version": "API version overrides are not supported for this source type."}
+                    )
                 if override not in source_impl.supported_versions:
                     raise ValidationError(
                         {
@@ -1304,13 +1315,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset):
         # `table__external_data_source` is read on every schema serialization (SimpleTableSerializer
-        # derives the dotted HogQL name from it), so join it for all actions to avoid a per-row query.
+        # derives the dotted HogQL name from it), and `source` by `get_api_version_deprecation` for
+        # any schema carrying a version override — join both for all actions to avoid per-row queries.
         queryset = (
-            queryset.exclude(deleted=True).prefetch_related("created_by").select_related("table__external_data_source")
+            queryset.exclude(deleted=True)
+            .prefetch_related("created_by")
+            .select_related("source", "table__external_data_source")
         )
         if self.action == "retrieve":
-            # retrieve additionally embeds the source summary + table credential.
-            queryset = queryset.select_related("source", "table__credential")
+            # retrieve additionally embeds the table credential.
+            queryset = queryset.select_related("table__credential")
         return queryset.order_by(self.ordering)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:

@@ -58,8 +58,11 @@ class PublicSourceConfigViewSet(viewsets.ViewSet):
         responses={200: dict[str, SourceConfig]},
         description=(
             "Returns a map of source type identifiers to their full SourceConfig. Each entry is "
-            "augmented with `supportsColumnSelection` and a `tables` array (the credential-free "
-            "documented table catalog; empty for SQL/file sources with user-defined schemas)."
+            "augmented with `supportsColumnSelection`, a `tables` array (the credential-free "
+            "documented table catalog; empty for SQL/file sources with user-defined schemas), and "
+            "vendor API version metadata: `versions` (supported version labels), `defaultVersion`, "
+            "`apiDocsUrl` (vendor API docs/changelog URL or null), and `deprecatedVersions` "
+            "(array of `{version, sunsetAt}` with `sunsetAt` an ISO date or null)."
         ),
     )
     def list(self, request: Request) -> Response:

@@ -1,4 +1,8 @@
+import time
+
 from django.db import migrations
+
+BATCH_SIZE = 2000
 
 # Snapshot of each source type's implemented vendor API version at the time this migration was
 # written (the source classes' `default_version`). Frozen here so the backfill is deterministic
@@ -103,26 +107,32 @@ API_VERSION_BY_SOURCE_TYPE = {
 def backfill_api_version(apps, schema_editor):
     ExternalDataSource = apps.get_model("warehouse_sources", "ExternalDataSource")
 
-    # One bounded UPDATE per source type present. The isnull guard makes this idempotent and
-    # ensures rows pinned after this migration was written are never overwritten.
+    # Batched like 0029 so we never hold row locks across the whole table at once — Temporal
+    # activities and token refreshes write these rows continuously. The isnull guard makes each
+    # batch idempotent (safe under retries, with atomic=False each batch commits independently)
+    # and ensures rows pinned after this migration was written are never overwritten.
     source_types = ExternalDataSource.objects.values_list("source_type", flat=True).distinct()
     for source_type in source_types:
         version = API_VERSION_BY_SOURCE_TYPE.get(source_type, DEFAULT_API_VERSION)
-        ExternalDataSource.objects.filter(source_type=source_type, api_version__isnull=True).update(api_version=version)
-
-
-def reverse_backfill_api_version(apps, schema_editor):
-    ExternalDataSource = apps.get_model("warehouse_sources", "ExternalDataSource")
-
-    source_types = ExternalDataSource.objects.values_list("source_type", flat=True).distinct()
-    for source_type in source_types:
-        version = API_VERSION_BY_SOURCE_TYPE.get(source_type, DEFAULT_API_VERSION)
-        ExternalDataSource.objects.filter(source_type=source_type, api_version=version).update(api_version=None)
+        while True:
+            batch_ids = list(
+                ExternalDataSource.objects.filter(source_type=source_type, api_version__isnull=True).values_list(
+                    "id", flat=True
+                )[:BATCH_SIZE]
+            )
+            if not batch_ids:
+                break
+            ExternalDataSource.objects.filter(id__in=batch_ids).update(api_version=version)
+            time.sleep(0.1)
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [("warehouse_sources", "0063_externaldatasource_api_version")]
 
     operations = [
-        migrations.RunPython(backfill_api_version, reverse_backfill_api_version),
+        # Reverse is a no-op: 0063's reverse drops the column anyway, and nulling pins that merely
+        # match the snapshot would also destroy legitimate creation-time stamps made after this ran.
+        migrations.RunPython(backfill_api_version, migrations.RunPython.noop, elidable=True),
     ]

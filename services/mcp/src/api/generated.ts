@@ -24039,6 +24039,7 @@ export namespace Schemas {
       readonly source: ExternalDataSchemaSource;
       /**
          * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+         * @maxLength 128
          * @nullable
          */
       api_version?: string | null;
@@ -40364,6 +40365,7 @@ export namespace Schemas {
       readonly source?: PatchedExternalDataSchemaSource;
       /**
          * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+         * @maxLength 128
          * @nullable
          */
       api_version?: string | null;

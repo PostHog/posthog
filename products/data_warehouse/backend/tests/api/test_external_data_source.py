@@ -188,6 +188,17 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=payload["id"])
         self.assertEqual(source.api_version, "2024-09-30.acacia")
 
+    def test_api_version_pin_is_read_only_via_api(self):
+        source = self._create_external_data_source()
+        original_pin = source.api_version
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+            data={"api_version": "2099-01-01", "prefix": source.prefix},
+        )
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.api_version == original_pin
+
     def test_api_version_deprecation_surfaces_for_deprecated_pin(self):
         source = self._create_external_data_source()
         source.api_version = "2024-09-30.acacia"

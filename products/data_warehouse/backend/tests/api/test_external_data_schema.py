@@ -3470,6 +3470,21 @@ class TestExternalDataSchemaApiVersionOverride(APIBaseTest):
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
+    def test_unchanged_override_is_not_revalidated_on_full_payload_patch(self):
+        schema = self._create_schema(api_version="2001-retired")
+        response = self._patch(schema, {"api_version": "2001-retired", "should_sync": False})
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.api_version == "2001-retired"
+        assert schema.should_sync is False
+
+    def test_setting_override_on_unregistered_source_type_returns_400(self):
+        schema = self._create_schema()
+        schema.source.source_type = "NoSuchVendor"
+        schema.source.save(update_fields=["source_type"])
+        response = self._patch(schema, {"api_version": "v2"})
+        assert response.status_code == 400
+
     def test_api_version_deprecation_surfaces_for_deprecated_override_only(self):
         schema = self._create_schema(api_version="1999-legacy")
         url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}"

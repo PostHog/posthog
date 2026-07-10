@@ -12,6 +12,8 @@ import * as zod from 'zod'
 export const externalDataSchemasCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
 
+export const externalDataSchemasCreateBodyApiVersionMax = 128
+
 export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
     sync_type: zod
@@ -111,6 +113,7 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
         ),
     api_version: zod
         .string()
+        .max(externalDataSchemasCreateBodyApiVersionMax)
         .nullish()
         .describe(
             "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
@@ -119,6 +122,8 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
 
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasUpdateBodyApiVersionMax = 128
 
 export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -219,6 +224,7 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
         ),
     api_version: zod
         .string()
+        .max(externalDataSchemasUpdateBodyApiVersionMax)
         .nullish()
         .describe(
             "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
@@ -227,6 +233,8 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
 
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasPartialUpdateBodyApiVersionMax = 128
 
 export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -327,6 +335,7 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     api_version: zod
         .string()
+        .max(externalDataSchemasPartialUpdateBodyApiVersionMax)
         .nullish()
         .describe(
             "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
@@ -335,6 +344,8 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 export const externalDataSchemasCancelCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasCancelCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasCancelCreateBodyApiVersionMax = 128
 
 export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -435,6 +446,7 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
         ),
     api_version: zod
         .string()
+        .max(externalDataSchemasCancelCreateBodyApiVersionMax)
         .nullish()
         .describe(
             "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
@@ -443,6 +455,8 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
 
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasIncrementalFieldsCreateBodyApiVersionMax = 128
 
 export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -543,6 +557,7 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         ),
     api_version: zod
         .string()
+        .max(externalDataSchemasIncrementalFieldsCreateBodyApiVersionMax)
         .nullish()
         .describe(
             "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
@@ -551,6 +566,8 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
 
 export const externalDataSchemasReloadCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasReloadCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasReloadCreateBodyApiVersionMax = 128
 
 export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -651,6 +668,7 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         ),
     api_version: zod
         .string()
+        .max(externalDataSchemasReloadCreateBodyApiVersionMax)
         .nullish()
         .describe(
             "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
@@ -659,6 +677,8 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
 
 export const externalDataSchemasResyncCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasResyncCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasResyncCreateBodyApiVersionMax = 128
 
 export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -759,6 +779,7 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         ),
     api_version: zod
         .string()
+        .max(externalDataSchemasResyncCreateBodyApiVersionMax)
         .nullish()
         .describe(
             "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."

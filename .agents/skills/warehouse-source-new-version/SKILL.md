@@ -27,7 +27,7 @@ Use this skill when a vendor has released a new API version and an existing sour
 3. **Dispatch on `SourceInputs.api_version`** at the request layer:
    - Keep it minimal. If the version is just a header/URL segment and response shapes are compatible, thread the version string down to where the client/URL is built (see Stripe: `StripeSource.source_for_pipeline` passes `self.resolve_api_version(inputs.api_version)` → `stripe_source(...)` → `StripeClient(stripe_version=...)`). Resolve through `resolve_api_version` at the source class — never hardcode a fallback version in the request layer.
    - Only introduce per-version modules/branches where behavior genuinely diverges (different pagination, different field mapping). Keep all version branching inside the source's own directory — never in shared layers.
-   - Watch for version-dependent column hints/schemas: e.g. Stripe's `external_table_definitions` were built for specific versions; newer versions may need hints skipped so schemas auto-infer (grep `STRIPE_VERSIONS_WITH_EXTERNAL_TABLE_DEFINITIONS` on the open Stripe version PR for the pattern).
+   - Watch for version-dependent column hints/schemas: e.g. Stripe's `external_table_definitions` were built for specific versions. When adding a version whose response shapes differ, gate the canonical column hints to the versions they were built for and let newer versions auto-infer the schema from the data (a set of hint-compatible versions checked where hints are applied).
 4. **Keep old versions working**: do not delete or alter the request path for previously supported versions. Removing a version is an explicit future decision, not part of a version-add PR.
 5. **Tests**: extend the source's tests so both the old and new versions are exercised — at minimum that the version label reaches the client/request layer for each supported version (mock the boundary; parameterize over versions). The registry invariant test picks up declaration mistakes automatically.
 6. **One PR per source.** Conventional title: `feat(<dir>): support <vendor> API version <label>`.
@@ -42,7 +42,7 @@ Use this skill when a vendor has released a new API version and an existing sour
 
 ## Pinning semantics (do not break these)
 
-- `resolve_api_version(pinned, default)` honors a present pin verbatim — even one no longer declared — because silently moving a customer to another version is the failure mode this framework prevents. Empty string / NULL fall back to the default.
+- `source.resolve_api_version(pinned)` honors a present pin verbatim — even one no longer declared — because silently moving a customer to another version is the failure mode this framework prevents. Empty string / NULL fall back to the source class's own `default_version`.
 - New sources are stamped with `default_version` at creation (`_create_external_data_source` in `products/data_warehouse/backend/presentation/views/external_data_source.py`).
 - Repinning a customer = updating `ExternalDataSource.api_version` (support runbook: "Updating a warehouse source to a new vendor API version" in the PostHog/runbooks repo).
 

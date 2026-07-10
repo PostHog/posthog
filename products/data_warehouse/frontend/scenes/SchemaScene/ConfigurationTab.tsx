@@ -531,7 +531,10 @@ function ApiVersionSection({
         setDraftVersion(schema.api_version ?? null)
     }, [schema.id, schema.api_version])
 
-    if (supportedVersions.length === 0) {
+    // A single supported version means an unversioned vendor (the framework's "v1" default) or
+    // nothing to choose between — hide the picker unless an override is already stored (so it can
+    // still be seen and cleared).
+    if (supportedVersions.length <= 1 && !schema.api_version) {
         return null
     }
 
