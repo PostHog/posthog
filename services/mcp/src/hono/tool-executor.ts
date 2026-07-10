@@ -19,10 +19,11 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getPostHogClient } from '@/lib/posthog'
 import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
+import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import type { Context, ZodObjectAny } from '@/tools/types'
 
-import { trackToolCall, trackToolsList, type ToolCallIntentMeta } from './analytics'
+import { trackExecuteSqlGeneration, trackToolCall, trackToolsList, type ToolCallIntentMeta } from './analytics'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
@@ -83,10 +84,10 @@ export class ToolExecutor {
         const filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
 
         return filteredTools.map((entry) => {
-            if (entry.name === 'execute-sql') {
+            if (entry.name === EXECUTE_SQL_TOOL_NAME) {
                 return {
                     ...entry,
-                    description: this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags),
+                    description: this.instructionsBuilder.formatExecuteSqlDescription(),
                 }
             }
             return entry
@@ -107,7 +108,7 @@ export class ToolExecutor {
         }
 
         if (toolName === 'render-ui') {
-            // render-ui is only advertised when the flag is on; reject calls otherwise.
+            // render-ui is only advertised to MCP Apps hosts; reject calls from others.
             if (!state.renderUiEnabled) {
                 toolCallsTotal.inc({ tool: toolName, status: 'error' })
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
@@ -225,6 +226,16 @@ export class ToolExecutor {
                 intentMeta
             )
 
+            if (tool.name === EXECUTE_SQL_TOOL_NAME) {
+                void trackExecuteSqlGeneration(
+                    tool.name,
+                    validation.data,
+                    state,
+                    { durationMs: duration, isError: false },
+                    intentMeta
+                )
+            }
+
             return response
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
@@ -240,6 +251,20 @@ export class ToolExecutor {
                 intentMeta
             )
 
+            if (tool.name === EXECUTE_SQL_TOOL_NAME) {
+                void trackExecuteSqlGeneration(
+                    tool.name,
+                    validation.data,
+                    state,
+                    {
+                        durationMs: Date.now() - startMs,
+                        isError: true,
+                        errorMessage: error instanceof Error ? error.message : String(error),
+                    },
+                    intentMeta
+                )
+            }
+
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
         }
@@ -251,7 +276,7 @@ export class ToolExecutor {
         intentMeta?: ToolCallIntentMeta
     ): Promise<unknown> {
         const execMetrics: ExecMetricState = { innerToolName: undefined }
-        const resolved = this.resolveExecTool(state, execMetrics)
+        const resolved = this.resolveExecTool(state, execMetrics, intentMeta)
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
         const validation = resolved.schema.safeParse(toolArgs, { reportInput: true })
@@ -328,7 +353,11 @@ export class ToolExecutor {
         }
     }
 
-    private resolveExecTool(state: ResolvedState, execMetrics: ExecMetricState): ResolvedTool {
+    private resolveExecTool(
+        state: ResolvedState,
+        execMetrics: ExecMetricState,
+        intentMeta?: ToolCallIntentMeta
+    ): ResolvedTool {
         const commandReference = this.instructionsBuilder.buildExecCommandReference(state)
 
         const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
@@ -346,17 +375,30 @@ export class ToolExecutor {
             if (!properties.validation_error) {
                 toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
             }
+            if (toolName === EXECUTE_SQL_TOOL_NAME && properties.input) {
+                void trackExecuteSqlGeneration(
+                    toolName,
+                    properties.input,
+                    state,
+                    {
+                        durationMs: properties.duration_ms,
+                        isError: !properties.success,
+                        errorMessage: properties.error_message,
+                    },
+                    intentMeta
+                )
+            }
         }
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
 
         // CLI `info execute-sql` returns the tool's static description from the catalog.
-        // Override it with the same flag-aware prompt tools-mode advertises, so the
-        // information_schema steering (or its absence) matches across both modes.
+        // Override it with the same prompt tools-mode advertises, so the
+        // information_schema schema-discovery steering matches across both modes.
         const execTools = state.allTools.map((tool) =>
-            tool.name === 'execute-sql'
+            tool.name === EXECUTE_SQL_TOOL_NAME
                 ? {
                       ...tool,
-                      description: this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags),
+                      description: this.instructionsBuilder.formatExecuteSqlDescription(),
                   }
                 : tool
         )
@@ -368,7 +410,8 @@ export class ToolExecutor {
             commandReference,
             clientContext.mcpConsumer,
             trackInnerCall,
-            state.scopeGatedTools
+            state.scopeGatedTools,
+            { isInlineExecUiHost: state.clientProfile.isInlineExecUiHost() }
         )
 
         return {

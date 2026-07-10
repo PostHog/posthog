@@ -1,13 +1,29 @@
+import { useValues } from 'kea'
+
 import { IconClock } from '@posthog/icons'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
-import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
-import { AlertType, isHogQLAlertConfig, isTrendsAlertConfig, supportsTimeWindow } from 'lib/components/Alerts/types'
 import { TZLabel } from 'lib/components/TZLabel'
-import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { userLogic } from 'scenes/userLogic'
 
-import { selectAlertCalculationInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { AvailableFeature } from '~/types'
+
+import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
+import {
+    cadenceFinerThanInsightInterval,
+    selectAlertCalculationInterval,
+} from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import {
+    AlertType,
+    isHogQLAlertConfig,
+    isTrendsAlertConfig,
+    supportsOngoingInterval,
+    supportsTimeWindow,
+} from 'products/alerts/frontend/types'
 
 import { getAlertIntervalOptions } from './editAlertModalUtils'
 
@@ -16,9 +32,9 @@ export interface AlertIntervalRowProps {
     creatingNewAlert: boolean
     alert: AlertType | null | undefined
     trendInterval: string | null | undefined
-    hasHighFrequencyAlertsEntitlement: boolean
-    guardAvailableFeature: GuardAvailableFeatureFn
     nextPlannedEvaluationStale: boolean
+    canCheckOngoingInterval: boolean
+    onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }
 
 export function AlertIntervalRow({
@@ -26,10 +42,15 @@ export function AlertIntervalRow({
     creatingNewAlert,
     alert,
     trendInterval,
-    hasHighFrequencyAlertsEntitlement,
-    guardAvailableFeature,
     nextPlannedEvaluationStale,
+    canCheckOngoingInterval,
+    onSetAlertFormValue,
 }: AlertIntervalRowProps): JSX.Element {
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const hasHighFrequencyAlertsEntitlement = hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
+    const hasRealTimeAlertsEntitlement = hasAvailableFeature(AvailableFeature.REAL_TIME_ALERTS)
+    const realTimeAlertsEnabled = useFeatureFlag('ALERTS_REAL_TIME_INTERVAL')
     const hogqlEvaluation = isHogQLAlertConfig(alertForm.config) ? alertForm.config.evaluation : null
     const hogqlEvaluatedText =
         hogqlEvaluation === 'any_row'
@@ -40,7 +61,11 @@ export function AlertIntervalRow({
     return (
         <>
             <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
-                <div>Run alert every</div>
+                <div>
+                    {alertForm.calculation_interval === AlertCalculationInterval.REAL_TIME
+                        ? 'Run alert'
+                        : 'Run alert every'}
+                </div>
                 <LemonField name="calculation_interval">
                     {({ value, onChange }) => (
                         <LemonSelect
@@ -48,12 +73,31 @@ export function AlertIntervalRow({
                             className="w-36 shrink-0 whitespace-nowrap"
                             data-attr="alertForm-calculation-interval"
                             value={value}
-                            options={getAlertIntervalOptions(hasHighFrequencyAlertsEntitlement)}
+                            options={getAlertIntervalOptions(
+                                hasHighFrequencyAlertsEntitlement,
+                                hasRealTimeAlertsEntitlement,
+                                // Keep the option visible for alerts that already use it, even if the rollout flag is off
+                                realTimeAlertsEnabled || value === AlertCalculationInterval.REAL_TIME
+                            )}
                             onChange={(interval) => {
                                 selectAlertCalculationInterval(interval, {
                                     guardAvailableFeature,
-                                    onSelect: onChange,
+                                    onSelect: (selected) => {
+                                        onChange(selected)
+                                        if (
+                                            cadenceFinerThanInsightInterval(selected, trendInterval) &&
+                                            canCheckOngoingInterval &&
+                                            supportsOngoingInterval(alertForm.config) &&
+                                            alertForm.config.check_ongoing_interval === undefined
+                                        ) {
+                                            onSetAlertFormValue('config', {
+                                                ...alertForm.config,
+                                                check_ongoing_interval: true,
+                                            })
+                                        }
+                                    },
                                     hasHighFrequencyAlertsEntitlement,
+                                    hasRealTimeAlertsEntitlement,
                                 })
                             }}
                         />
@@ -64,32 +108,23 @@ export function AlertIntervalRow({
                     // so state what is actually evaluated instead of a trends-style "check last day".
                     <div>{hogqlEvaluatedText}</div>
                 ) : (
-                    <>
-                        <div>
-                            and check{' '}
-                            {isTrendsAlertConfig(alertForm?.config) && alertForm.config.check_ongoing_interval
-                                ? 'current'
-                                : 'last'}
-                        </div>
-                        <LemonSelect
-                            fullWidth
-                            className="w-28"
-                            data-attr="alertForm-trend-interval"
-                            disabledReason={
+                    <div data-attr="alertForm-trend-interval">
+                        and check{' '}
+                        {isTrendsAlertConfig(alertForm?.config) && alertForm.config.check_ongoing_interval
+                            ? 'current'
+                            : 'last'}{' '}
+                        <Tooltip
+                            title={
                                 <>
-                                    To change the interval being checked, edit and <b>save</b> the interval which the
-                                    insight is 'grouped by'
+                                    Set by the insight's <b>grouped by</b> interval. Edit the insight to change it.
                                 </>
                             }
-                            value={trendInterval ?? 'day'}
-                            options={[
-                                {
-                                    label: trendInterval ?? 'day',
-                                    value: trendInterval ?? 'day',
-                                },
-                            ]}
-                        />
-                    </>
+                        >
+                            <span className="font-semibold underline decoration-dotted cursor-help">
+                                {trendInterval ?? 'day'}
+                            </span>
+                        </Tooltip>
+                    </div>
                 )}
             </div>
             {!creatingNewAlert && alert ? (

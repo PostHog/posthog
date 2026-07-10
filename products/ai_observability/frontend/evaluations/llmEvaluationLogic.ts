@@ -20,9 +20,9 @@ import { queryEvaluationRuns } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import {
+    evaluationCanResolveModel,
     evaluationSupportsReports,
     evaluationTypeDefaultsToBooleanOutput,
-    evaluationTypeUsesProviderKey,
     isBooleanEvaluationOutput,
     isLLMJudgeEvaluation,
 } from './evaluationCapabilities'
@@ -141,13 +141,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     connect(() => ({
         values: [
             llmProviderKeysLogic,
-            ['providerKeys', 'providerKeysLoading', 'isTrialLimitReached'],
+            ['providerKeys', 'providerKeysLoading', 'requiresProviderKey', 'isTrialGrandfathered'],
             signalSourcesLogic,
             ['sourceConfigs', 'sourceConfigsLoading'],
         ],
         actions: [
             llmProviderKeysLogic,
-            ['loadProviderKeys'],
+            ['loadProviderKeys', 'loadEvaluationConfigSuccess'],
             signalSourcesLogic,
             [
                 'loadSourceConfigs',
@@ -496,6 +496,18 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        loadEvaluationConfigSuccess: () => {
+            // The new-eval draft's enabled default is read before the team's evaluation config has
+            // loaded — correct it once we know the draft can't actually resolve a model.
+            if (
+                props.evaluationId === 'new' &&
+                values.evaluation?.enabled &&
+                !evaluationCanResolveModel(values.evaluation, values.requiresProviderKey, values.isTrialGrandfathered)
+            ) {
+                actions.setEvaluationEnabled(false)
+            }
+        },
+
         loadEvaluation: async () => {
             if (props.evaluationId && props.evaluationId !== 'new') {
                 try {
@@ -522,7 +534,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     id: '',
                     name: template?.name || '',
                     description: template?.description || '',
-                    enabled: true,
+                    // Starting a keyless draft enabled would 400 on save for teams that require a key.
+                    enabled: !values.requiresProviderKey,
                     status: 'active' as const,
                     status_reason: null,
                     status_reason_detail: null,
@@ -619,7 +632,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     id: '',
                     name: '',
                     description: '',
-                    enabled: true,
+                    enabled: !values.requiresProviderKey,
                     status: 'active',
                     status_reason: null,
                     status_reason_detail: null,
@@ -653,8 +666,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             const configs: SignalSourceConfig[] = values.sourceConfigs ?? []
             const existing = configs.find(
                 (c) =>
-                    c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
-                    c.source_type === SignalSourceType.EVALUATION
+                    c.source_product === SignalSourceProduct.LlmAnalytics &&
+                    c.source_type === SignalSourceType.Evaluation
             )
 
             const currentIds: string[] = existing?.config?.evaluation_ids ?? []
@@ -663,8 +676,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 : currentIds.filter((id: string) => id !== props.evaluationId)
 
             actions.toggleSignalSource({
-                sourceProduct: SignalSourceProduct.LLM_ANALYTICS,
-                sourceType: SignalSourceType.EVALUATION,
+                sourceProduct: SignalSourceProduct.LlmAnalytics,
+                sourceType: SignalSourceType.Evaluation,
                 enabled: true,
                 config: { ...existing?.config, evaluation_ids: newIds },
             })
@@ -696,6 +709,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 const reportLogicKey = isNew ? 'new' : props.evaluationId
                 const reportLogic = evaluationReportLogic({ evaluationId: reportLogicKey })
                 if (response?.id && evaluationSupportsReports(response) && reportLogic.isMounted()) {
+                    const reportConfigStillLoading =
+                        !isNew && reportLogic.values.reportsLoading && !reportLogic.values.activeReport
+                    if (reportConfigStillLoading) {
+                        router.actions.push(urls.aiObservabilityEvaluations(), router.values.searchParams)
+                        return
+                    }
+
                     try {
                         await persistReportDraft(
                             teamId,
@@ -762,8 +782,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
                 const llmEvalConfig = sourceConfigs.find(
                     (c) =>
-                        c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
-                        c.source_type === SignalSourceType.EVALUATION
+                        c.source_product === SignalSourceProduct.LlmAnalytics &&
+                        c.source_type === SignalSourceType.Evaluation
                 )
                 const ids: string[] = llmEvalConfig?.config?.evaluation_ids ?? []
                 return !!llmEvalConfig?.enabled && ids.includes(evaluationId)
@@ -776,20 +796,20 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (!evaluation) {
                     return false
                 }
-                const hasValidName = evaluation.name.length > 0
+                const hasValidName = (evaluation.name?.length ?? 0) > 0
                 const hasValidConditions =
-                    evaluation.conditions.length > 0 &&
-                    evaluation.conditions.every(
+                    (evaluation.conditions?.length ?? 0) > 0 &&
+                    (evaluation.conditions ?? []).every(
                         (c) => (c.rollout_percentage ?? 0) > 0 && (c.rollout_percentage ?? 0) <= 100
                     )
 
                 let hasValidConfig = false
                 if (evaluation.evaluation_type === 'hog') {
-                    hasValidConfig = evaluation.evaluation_config.source.trim().length > 0
+                    hasValidConfig = (evaluation.evaluation_config?.source?.trim().length ?? 0) > 0
                 } else if (evaluation.evaluation_type === 'sentiment') {
                     hasValidConfig = true
                 } else if (isLLMJudgeEvaluation(evaluation)) {
-                    hasValidConfig = evaluation.evaluation_config.prompt.length > 0
+                    hasValidConfig = (evaluation.evaluation_config?.prompt?.length ?? 0) > 0
                 }
 
                 return hasValidName && hasValidConfig && hasValidConditions
@@ -797,16 +817,16 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         canEnable: [
-            (s) => [s.evaluation, s.isTrialLimitReached],
-            (evaluation: EvaluationConfig | null, isTrialLimitReached: boolean): boolean => {
-                if (!evaluation || !isTrialLimitReached) {
+            (s) => [s.evaluation, s.requiresProviderKey, s.isTrialGrandfathered],
+            (
+                evaluation: EvaluationConfig | null,
+                requiresProviderKey: boolean,
+                isTrialGrandfathered: boolean
+            ): boolean => {
+                if (!evaluation) {
                     return true
                 }
-                if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
-                    return true
-                }
-                // Can enable if the evaluation has a BYOK key
-                return !!evaluation.model_configuration?.provider_key_id
+                return evaluationCanResolveModel(evaluation, requiresProviderKey, isTrialGrandfathered)
             },
         ],
 
@@ -816,7 +836,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (canEnable) {
                     return null
                 }
-                return 'Trial evaluation limit reached. Add a provider API key to re-enable this evaluation.'
+                return 'Add a provider API key to enable this evaluation.'
             },
         ],
 

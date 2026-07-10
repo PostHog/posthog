@@ -93,13 +93,13 @@ describe('logsAlertFormLogic', () => {
         initKeaTests()
         jest.clearAllMocks()
 
-        alertingLogic = logsAlertingLogic.build()
-        alertingLogic.mount()
-        // Prevent afterMount loadAlerts from throwing
+        // Prevent afterMount loadAlerts from throwing — must be set before mount() fires it
         ;(require('products/logs/frontend/generated/api').logsAlertsList as jest.Mock).mockResolvedValue({
             results: [],
             count: 0,
         })
+        alertingLogic = logsAlertingLogic.build()
+        alertingLogic.mount()
     })
 
     afterEach(() => {

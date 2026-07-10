@@ -450,7 +450,7 @@ def test_dispatch_posts_to_team_channel_without_per_user_config(org_and_team):
 
 
 @pytest.mark.django_db
-def test_dispatch_posts_nothing_without_suggested_reviewers(org_and_team):
+def test_dispatch_falls_back_to_team_channel_without_suggested_reviewers(org_and_team):
     org, team = org_and_team
     creator = _make_reviewer_user(org, "creator@example.com", "creator-bot")
     _make_slack_integration(team, creator)
@@ -462,7 +462,33 @@ def test_dispatch_posts_nothing_without_suggested_reviewers(org_and_team):
         slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
 
-    # No suggested reviewer → nothing sent, even with a team channel configured (no fallback).
+    # No suggested reviewer, but a channel is configured → still delivered, with no reviewers section.
+    assert sent == 1
+    assert fake_client.chat_postMessage.call_count == 1
+    assert fake_client.chat_postMessage.call_args.kwargs["channel"] == "CTEAM"
+    assert "Suggested reviewers" not in json.dumps(fake_client.chat_postMessage.call_args.kwargs["blocks"])
+
+
+@pytest.mark.django_db
+def test_dispatch_does_not_use_own_channel_as_fallback_without_reviewers(org_and_team):
+    # A per-user own channel is a reviewer notification, not a team catch-all. With no team default
+    # channel and no resolvable reviewer, the report is not delivered to the user's own channel.
+    org, team = org_and_team
+    user = User.objects.create(email="subscriber@example.com")
+    OrganizationMembership.objects.create(user=user, organization=org)
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="CMINE|#my-signals",
+    )
+    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["ghost-not-in-org"])
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
     assert sent == 0
     assert fake_client.chat_postMessage.call_count == 0
 
@@ -866,6 +892,7 @@ def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_te
         ("session_replay", "session_problem", "Session replay · Session problem"),
         ("session_replay", "session_analysis_cluster", "Session replay · Session analysis cluster"),
         ("llm_analytics", "evaluation", "AI observability · Evaluation"),
+        ("llm_analytics", "evaluation_report", "AI observability · Evaluation report"),
         ("github", "issue", "GitHub · Issue"),
         ("zendesk", "ticket", "Zendesk · Ticket"),
         ("linear", "issue", "Linear · Issue"),

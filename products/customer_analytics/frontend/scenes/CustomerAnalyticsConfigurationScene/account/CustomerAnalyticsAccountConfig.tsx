@@ -13,6 +13,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { CustomerAnalyticsConfig } from '~/queries/schema/schema-general'
 
 import { CustomPropertiesConfig } from './CustomPropertiesConfig'
+import { RelationshipsConfig } from './RelationshipsConfig'
 
 const NO_ACCOUNT_GROUP = -1
 
@@ -59,6 +60,8 @@ export function CustomerAnalyticsAccountConfig(): JSX.Element {
             />
             <LemonDivider />
             <CustomPropertiesConfig />
+            <LemonDivider />
+            <RelationshipsConfig />
         </div>
     )
 }

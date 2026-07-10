@@ -88,6 +88,29 @@ describe('transformExperimentResults', () => {
         })
     })
 
+    it('reads variants from the linked flag', () => {
+        const experiment = makeExperiment({
+            feature_flag: {
+                id: 9,
+                key: 'k',
+                name: 'k',
+                active: true,
+                filters: { multivariate: { variants: [{ key: 'control' }, { key: 'test' }] } },
+            },
+        })
+
+        const result = transformExperimentResults({
+            experiment,
+            exposures: baseExposures,
+            primaryMetricEntries: [],
+            secondaryMetricEntries: [],
+            primaryMetricsResults: [],
+            secondaryMetricsResults: [],
+        })
+
+        expect(result.experiment.variants.map((v) => v.key)).toEqual(['control', 'test'])
+    })
+
     it('treats inline and shared metrics as one ordered surface and tags the source on each', () => {
         const experiment = makeExperiment({
             metrics: [],

@@ -231,6 +231,14 @@ export interface LogPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface MetricPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'metric_attribute'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
 
 export const SpanPropertyFilterTypeApi = {
@@ -285,6 +293,7 @@ export interface PropertyGroupFilterValueApi {
         | DataWarehousePersonPropertyFilterApi
         | ErrorTrackingIssueFilterApi
         | LogPropertyFilterApi
+        | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
@@ -317,9 +326,10 @@ export interface LogsAlertFiltersApi {
  * * `above` - Above
  * * `below` - Below
  */
-export type ThresholdOperatorEnumApi = (typeof ThresholdOperatorEnumApi)[keyof typeof ThresholdOperatorEnumApi]
+export type LogsAlertThresholdOperatorEnumApi =
+    (typeof LogsAlertThresholdOperatorEnumApi)[keyof typeof LogsAlertThresholdOperatorEnumApi]
 
-export const ThresholdOperatorEnumApi = {
+export const LogsAlertThresholdOperatorEnumApi = {
     Above: 'above',
     Below: 'below',
 } as const
@@ -452,7 +462,7 @@ export interface LogsAlertConfigurationApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: ThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -559,7 +569,7 @@ export interface PatchedLogsAlertConfigurationApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: ThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -724,7 +734,7 @@ export interface LogsAlertSimulateRequestApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator: ThresholdOperatorEnumApi
+    threshold_operator: LogsAlertThresholdOperatorEnumApi
     /** Window size in minutes — determines bucket interval. */
     window_minutes: number
     /**
@@ -1052,6 +1062,92 @@ export interface _LogsFacetValuesResponseApi {
     results: _LogFacetValueApi[]
 }
 
+/**
+ * * `log` - log
+ * * `resource` - resource
+ * * `column` - column
+ */
+export type GroupBySourceEnumApi = (typeof GroupBySourceEnumApi)[keyof typeof GroupBySourceEnumApi]
+
+export const GroupBySourceEnumApi = {
+    Log: 'log',
+    Resource: 'resource',
+    Column: 'column',
+} as const
+
+/**
+ * * `log_count` - log_count
+ * * `error_count` - error_count
+ * * `last_seen` - last_seen
+ */
+export type OrderGroupsByEnumApi = (typeof OrderGroupsByEnumApi)[keyof typeof OrderGroupsByEnumApi]
+
+export const OrderGroupsByEnumApi = {
+    LogCount: 'log_count',
+    ErrorCount: 'error_count',
+    LastSeen: 'last_seen',
+} as const
+
+export interface _LogsGroupByBodyApi {
+    /** Date range to aggregate over. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels before grouping. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Restrict grouping to these service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies before grouping. */
+    searchTerm?: string
+    /** Property filters applied before grouping. Same shape as the query-logs endpoint. */
+    filterGroup?: _LogPropertyFilterApi[]
+    /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". */
+    groupBy: string
+    /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields.
+     *
+     * * `log` - log
+     * * `resource` - resource
+     * * `column` - column */
+    groupBySource?: GroupBySourceEnumApi
+    /** Aggregate to rank groups by (descending): "log_count" for the noisiest groups, "error_count" for the most failing, "last_seen" for the most recent.
+     *
+     * * `log_count` - log_count
+     * * `error_count` - error_count
+     * * `last_seen` - last_seen */
+    orderGroupsBy?: OrderGroupsByEnumApi
+    /**
+     * Maximum number of groups to return (top-N by orderGroupsBy). Defaults to 100.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+}
+
+export interface _LogsGroupByRequestApi {
+    /** The group-by query to execute. */
+    query: _LogsGroupByBodyApi
+}
+
+export interface _LogsGroupByGroupApi {
+    /** The grouped attribute value identifying this group. */
+    value: string
+    /** Number of matching logs in this group. */
+    log_count: number
+    /** Number of matching logs in this group at severity "error" or "fatal". */
+    error_count: number
+    /** ISO 8601 timestamp of the most recent matching log in this group. */
+    last_seen: string
+}
+
+export interface _LogsGroupByResponseApi {
+    /** Top groups ordered by the requested aggregate, descending. Capped at `limit`. */
+    groups: _LogsGroupByGroupApi[]
+    /** Total distinct group values matching the filters, before the top-N cap. */
+    total_groups: number
+    /** Total matching logs across all groups (rows without the grouping key are excluded). */
+    total_logs: number
+    /** True when more groups matched than were returned (total_groups > groups length). */
+    truncated: boolean
+}
+
 export interface _LogsPatternsBodyApi {
     /** Date range to mine patterns from. Defaults to last hour. */
     dateRange?: _DateRangeApi
@@ -1070,23 +1166,64 @@ export interface _LogsPatternsRequestApi {
     query: _LogsPatternsBodyApi
 }
 
+export interface _LogPatternExampleApi {
+    /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, not the raw stored line. */
+    body: string
+    /** Severity of the sampled line, e.g. "info", "error". */
+    severity_text: string
+    /** Service that emitted the sampled line. */
+    service_name: string
+    /** ISO 8601 timestamp of the sampled line. */
+    timestamp: string
+}
+
+/**
+ * Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it.
+ */
+export type _LogPatternApiSeverityCounts = { [key: string]: number }
+
 export interface _LogPatternApi {
     /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
     pattern: string
-    /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — scale by `total_count / scanned_count` to estimate. */
+    /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — prefer `estimated_count` for display. */
     count: number
+    /** Estimated occurrences across the full window, extrapolated from the sample (`count / scanned_count * total_count`). Equals `count` when the window was not sampled. */
+    estimated_count: number
     /** Share of the sampled log volume this pattern represents (0–100). */
     volume_share_pct: number
-    /** Sampled occurrences at severity "error" or "fatal". */
+    /** Sampled occurrences at severity "error" or "fatal". Prefer `estimated_error_count` for display. */
     error_count: number
+    /** Estimated error/fatal occurrences across the full window, extrapolated from the sample. Equals `error_count` when the window was not sampled. */
+    estimated_error_count: number
     /** ISO 8601 timestamp of the earliest sampled occurrence. */
     first_seen: string
     /** ISO 8601 timestamp of the latest sampled occurrence. */
     last_seen: string
-    /** Up to 3 distinct raw log bodies (truncated) that produced this pattern. */
-    examples: string[]
+    /** Up to 10 distinct sampled log lines that produced this pattern, with severity, service, and timestamp for display. */
+    examples: _LogPatternExampleApi[]
     /** Up to 4 distinct service names this pattern was observed in. */
     services: string[]
+    /** Estimated occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows the volume shape over the window, not exact per-bucket tallies. */
+    sparkline: number[]
+    /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
+    severity_counts: _LogPatternApiSeverityCounts
+    /**
+     * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the pattern's own examples before being offered. Null when the template lacks literal content or validation failed — never trust an unvalidated predicate. Use with the message/regex log property filter.
+     * @nullable
+     */
+    match_regex: string | null
+    /**
+     * Longest literal run in the template, for plain-text (icontains) filtering when `match_regex` is null. Null when the template has no usable literal content.
+     * @nullable
+     */
+    match_literal: string | null
+}
+
+export interface _LogsPatternsSparklineBucketApi {
+    /** Bucket start (ISO 8601, inclusive). */
+    start: string
+    /** Bucket end (ISO 8601, exclusive). */
+    end: string
 }
 
 export interface _LogsPatternsResponseApi {
@@ -1096,8 +1233,85 @@ export interface _LogsPatternsResponseApi {
     scanned_count: number
     /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
     total_count: number
-    /** True when the window held more rows than the sample cap, so patterns were mined from an evenly-distributed random sample rather than every matching row. */
+    /** True when the window held more rows than the sample cap, so patterns were mined from a deterministic, evenly-distributed sample rather than every matching row. */
     sampled: boolean
+    /** Share of the window's log rows that were eligible for sampling (0–100). Below 100, the scan was bounded to evenly-spaced time slices across the window to keep the query within its execution budget; rows outside the slices could not appear in the sample. */
+    sample_coverage_pct: number
+    /** Time buckets that every pattern's `sparkline` aligns to. When the scan was bounded to time slices, the buckets are the slices themselves (evenly spaced, gaps between them were never eligible for sampling); otherwise they divide the window uniformly. */
+    sparkline_buckets: _LogsPatternsSparklineBucketApi[]
+}
+
+export interface _LogsPatternsDiffRequestApi {
+    /** The patterns query for the current (foreground) window: date range plus any severity/service/search/property filters. The same filters are applied to the baseline window. */
+    query: _LogsPatternsBodyApi
+    /** Baseline window to compare against. Omit to default to the current window shifted back exactly one week, which absorbs daily and weekly log-volume cycles. Pass an explicit range to compare against a specific period, e.g. pre-deploy or pre-incident. */
+    baselineDateRange?: _DateRangeApi
+}
+
+/**
+ * * `new` - new
+ * * `rate_shift` - rate_shift
+ * * `gone` - gone
+ * * `unchanged` - unchanged
+ */
+export type ClassificationEnumApi = (typeof ClassificationEnumApi)[keyof typeof ClassificationEnumApi]
+
+export const ClassificationEnumApi = {
+    New: 'new',
+    RateShift: 'rate_shift',
+    Gone: 'gone',
+    Unchanged: 'unchanged',
+} as const
+
+export interface _LogPatternDiffEntryApi {
+    /** "new": appears only in the current window and clears the novelty floor (at least ~1% volume share, or any error/fatal occurrences). "rate_shift": present in both windows with the per-second rate changed by at least 2x either way, backed by enough samples on both sides to trust the estimates. "gone": cleared the floor in the baseline but absent from the current window. "unchanged" means "no confident claim", not "provably identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.
+     *
+     * * `new` - new
+     * * `rate_shift` - rate_shift
+     * * `gone` - gone
+     * * `unchanged` - unchanged */
+    classification: ClassificationEnumApi
+    /**
+     * Current-window rate divided by baseline rate, both normalized per second so windows of different lengths compare fairly. 4.0 means 4x faster now; 0.25 means quartered. Null when the pattern is missing from either window.
+     * @nullable
+     */
+    rate_ratio: number | null
+    /** The mined pattern with full stats. Taken from the current window, or from the baseline window for "gone" entries. When template wobble split one message across several near-identical templates, this is the highest-volume representative and the entry's classification reflects their combined counts. */
+    pattern: _LogPatternApi
+    /**
+     * Estimated occurrences across the baseline window (extrapolated like `estimated_count`). Null when the pattern was not seen in the baseline sample.
+     * @nullable
+     */
+    baseline_estimated_count: number | null
+    /**
+     * Share of the baseline sample this pattern represented (0-100). Null when absent from the baseline.
+     * @nullable
+     */
+    baseline_volume_share_pct: number | null
+}
+
+export interface _LogsPatternsDiffWindowApi {
+    /** Log rows fed to the miner for this window (sample size). */
+    scanned_count: number
+    /** Total log rows matching the filters in this window. */
+    total_count: number
+    /** True when this window's counts are extrapolated from a sample rather than exact. */
+    sampled: boolean
+    /** Share of this window's rows eligible for sampling (0-100); below 100 the scan was time-slice bounded. */
+    sample_coverage_pct: number
+    /** Resolved window start (ISO 8601, inclusive). */
+    date_from: string
+    /** Resolved window end (ISO 8601, exclusive). */
+    date_to: string
+}
+
+export interface _LogsPatternsDiffResponseApi {
+    /** Classified diff entries, most interesting first: "new" (by estimated count), then "rate_shift" (by shift magnitude), then "gone", then "unchanged". A pattern in the baseline is matched to the current window by literal-content fingerprint, so a placeholder widening between runs does not read as one pattern vanishing and another appearing. */
+    entries: _LogPatternDiffEntryApi[]
+    /** Mining metadata for the current window. */
+    current: _LogsPatternsDiffWindowApi
+    /** Mining metadata for the baseline window. Check `total_count` before trusting a wall of "new" entries: an empty or tiny baseline (e.g. logging only started this week) makes everything look new. */
+    baseline: _LogsPatternsDiffWindowApi
 }
 
 /**
@@ -1133,6 +1347,8 @@ export interface _LogsQueryBodyApi {
     after?: string
     /** Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
+    /** Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field. */
+    customColumns?: string[]
 }
 
 export interface _LogsQueryRequestApi {
@@ -1196,6 +1412,11 @@ export interface _LogsQueryResponseApi {
     nextCursor?: string | null
     /** Maximum number of rows the `export` endpoint will produce — informational. */
     maxExportableLogs: number
+    /**
+     * Aliases for the requested `customColumns`, in request order. Each result row carries its custom column values under these keys. Null when no custom columns were requested.
+     * @nullable
+     */
+    columns?: string[] | null
 }
 
 /**
@@ -1249,7 +1470,7 @@ export interface LogsSamplingRuleApi {
     scope_path_pattern?: string | null
     /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
     scope_attribute_filters?: LogsSamplingRuleApiScopeAttributeFiltersItem[]
-    /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
+    /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
     config: unknown
     /** Incremented on each update for worker cache coherency. */
     readonly version: number
@@ -1306,7 +1527,7 @@ export interface PatchedLogsSamplingRuleApi {
     scope_path_pattern?: string | null
     /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
     scope_attribute_filters?: PatchedLogsSamplingRuleApiScopeAttributeFiltersItem[]
-    /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
+    /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
     config?: unknown
     /** Incremented on each update for worker cache coherency. */
     readonly version?: number

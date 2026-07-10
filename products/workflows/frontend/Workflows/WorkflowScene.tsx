@@ -23,6 +23,7 @@ import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { Workflow } from './Workflow'
+import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowLogs } from './WorkflowLogs'
@@ -109,6 +110,15 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              * defined and not "new" (see return statement below)
              */
             content: <WorkflowMetrics id={workflowSceneProps.id!} />,
+        },
+        {
+            label: 'Assets',
+            key: 'assets',
+            /**
+             * If we're rendering tabs, props.id is guaranteed to be
+             * defined and not "new" (see return statement below)
+             */
+            content: <WorkflowAssets id={workflowSceneProps.id!} />,
         },
         {
             label: 'History',

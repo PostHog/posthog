@@ -66,7 +66,7 @@ class PremiumMultiorganizationPermission(permissions.BasePermission):
                 user.organization is None
                 or not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
             )
-            and user.organizations.count() >= 1
+            and user.organizations.exists()
         ):
             return False
         return True

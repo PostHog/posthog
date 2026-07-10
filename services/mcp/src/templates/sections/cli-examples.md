@@ -22,15 +22,6 @@ Assistant: Now I have both schemas. Let me start by searching for existing reven
 [Makes call commands with correct parameters]
 </example>
 
-<example>
-User: Find events related to onboarding
-Assistant: Let me find the data schema tool.
-[Runs posthog:exec({ "command": "search read-data" })]
-[Runs posthog:exec({ "command": "info read-data-schema" })]
-Assistant: Now I can list events and pick the onboarding-related ones.
-[Runs posthog:exec({ "command": "call read-data-schema {\"query\": {\"kind\": \"events\"}}" })]
-</example>
-
 **INCORRECT usage patterns — NEVER do this:**
 
 <bad-example>
@@ -55,11 +46,5 @@ You MUST follow the hint and run `schema` before constructing the series field.
 <bad-example>
 User: query pageviews for the last 7 days
 Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "$pageview"` from the prompt]
-WRONG — skipped `call read-data-schema {"query": {"kind": "events"}}`. Canonical-looking events still need confirmation per team.
-</bad-example>
-
-<bad-example>
-User: show me the file downloads trend for the last 7 days
-Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "downloaded_file"` inferred from the wording]
-WRONG — the real event might be `file_downloaded`, `download_completed`, or not captured. Confirm with `read-data-schema` before querying.
+WRONG — skipped `call read-data-schema {"query": {"kind": "events"}}`. Never query an event name taken or inferred from the prompt — canonical-looking (`$pageview`) or guessed (`downloaded_file`) names still need per-team confirmation.
 </bad-example>

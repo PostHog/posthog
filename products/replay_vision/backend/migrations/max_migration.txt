@@ -1,1 +1,1 @@
-0023_visionactionrun_observation_ids
+0041_strip_summarizer_emits_embeddings

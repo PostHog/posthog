@@ -4,7 +4,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/utils'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 
@@ -119,6 +119,7 @@ describe('dashboardLogic', () => {
                     id: '123',
                     team_id: 2,
                     error_message: null,
+                    error_code: null,
                     error: false,
                 },
             },
@@ -304,6 +305,24 @@ describe('dashboardLogic', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
+        })
+
+        it('keeps the layouts reference stable when a tile refresh changes results but not geometry', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const initialLayouts = logic.values.layouts
+            const firstTile = logic.values.dashboard!.tiles[0]
+
+            await expectLogic(logic, () => {
+                // A refresh response: same insight, new object identity and results, untouched layouts.
+                dashboardsModel.actions.updateDashboardInsight({
+                    ...firstTile.insight!,
+                    result: [{ count: 42 }],
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.tiles[0].insight!.result).toEqual([{ count: 42 }])
+            expect(logic.values.layouts).toBe(initialLayouts)
         })
 
         it('saving without changes does not call api', async () => {
@@ -741,6 +760,18 @@ describe('dashboardLogic', () => {
         })
 
         describe('cancelEditMode action', () => {
+            // The discard prompt renders a real dialog into its own React root, whose async
+            // updates land outside act(); these tests only assert dispatched actions
+            let dialogOpenSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            })
+
+            afterEach(() => {
+                dialogOpenSpy.mockRestore()
+            })
+
             const moveFirstTile = (): void => {
                 const firstTile = logic.values.dashboard!.tiles[0]
                 const currentLayouts = logic.values.layouts
@@ -1436,6 +1467,15 @@ describe('dashboardLogic', () => {
                     : undefined,
             }
 
+            // The logic re-fetches the dashboard on mount; without this the unhandled-request
+            // floor returns a shape without tiles
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/12/': () => [200, dashboardWithVariableOverride],
+                },
+            })
+
             variableDataLogic.mount()
             logic = dashboardLogic({ id: 12, dashboard: dashboardWithVariableOverride })
             logic.mount()
@@ -1700,13 +1740,16 @@ describe('dashboardLogic', () => {
             expect(container.textContent).toBe('Text card has been removed from the dashboard')
         })
 
-        it('removes the tile from state optimistically before the API call resolves', () => {
+        it('removes the tile from state optimistically before the API call resolves', async () => {
             expect(logic.values.textTiles).toHaveLength(1)
 
             // Dispatch without awaiting listeners — the reducer drops the tile synchronously.
             logic.actions.removeTile(TEXT_TILE)
 
             expect(logic.values.textTiles).toEqual([])
+
+            // Let the in-flight listener settle before teardown unmounts the logic
+            await expectLogic(logic).toFinishAllListeners()
         })
 
         it('restores the tile and suppresses the undo toast when the API call fails', async () => {

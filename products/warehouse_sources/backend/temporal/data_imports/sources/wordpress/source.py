@@ -96,6 +96,7 @@ To sync private content or authenticate, create an [Application Password](https:
         return {
             "401 Client Error": "Invalid WordPress username or application password. Create a new application password and reconnect.",
             "403 Client Error": "Your WordPress credentials lack permission to read this data. Check the user's role and try again.",
+            "404 Client Error": "WordPress returned 404 (Not Found) for this collection. The REST API or this specific endpoint (for example /users, which security plugins often block to prevent user enumeration) may be disabled or restricted on your site. Enable REST API access for it, or remove this table from the sync.",
             HOST_NOT_ALLOWED_ERROR: "The WordPress site URL is not allowed. Please use a publicly reachable site URL.",
             HTTP_NOT_ALLOWED_ERROR: "The WordPress site URL must use HTTPS when credentials are provided. Please update the site URL to use https://.",
         }

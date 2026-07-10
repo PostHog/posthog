@@ -33,9 +33,12 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
+from posthog.event_usage import EventSource
 from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -44,6 +47,20 @@ from products.product_analytics.backend.models.insight_variable import InsightVa
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
+
+    def test_concurrency_limit_returns_friendly_message_without_internal_key(self):
+        # A concurrency block must surface as a 429 with a user-facing message — not str(exc),
+        # which embeds the limiter's internal Redis key + task id and used to leak into the UI.
+        raw = "Exceeded maximum concurrency limit: 30 for key: app:query:per-org:abc and task: def"
+        with patch("posthog.api.query.process_query_model", side_effect=ConcurrencyLimitExceeded(raw)):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select 1").model_dump()},
+            )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        detail = response.json()["detail"]
+        self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
+        self.assertNotIn("app:query:per-org", detail)
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):
@@ -720,6 +737,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
         mock_process_query_model.assert_called_once()
         self.assertEqual(mock_process_query_model.call_args[1]["limit_context"], LimitContext.POSTHOG_AI)
+        # The posthog_ai limit context also retags the analytics source, so Max's insight tiles
+        # (browser session requests that would otherwise read as "web") are attributed to posthog_ai.
+        self.assertEqual(mock_process_query_model.call_args[1]["analytics_props"]["source"], EventSource.POSTHOG_AI)
 
     @patch("posthog.api.query.process_query_model")
     def test_query_limit_context_default(self, mock_process_query_model):
@@ -947,6 +967,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "end_time": None,
                         "error": False,
                         "error_message": None,
+                        "error_code": None,
                         "expiration_time": mock.ANY,
                         "id": mock.ANY,
                         "query_async": True,

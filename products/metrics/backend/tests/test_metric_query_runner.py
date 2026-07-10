@@ -203,6 +203,20 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_query_rejects_top_level_metric_type_with_clauses(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "clauses": [{"name": "a", "metricName": "m1", "aggregation": "sum"}],
+                    "metricType": "gauge",
+                    "dateFrom": "2026-01-01T00:00:00Z",
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_query_validates_required_fields(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/metrics/query",
@@ -921,6 +935,14 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(rows), 1)
         self.assertAlmostEqual(rows[0]["value"], 0.3)
 
+    def test_cumulative_lone_sample_emits_no_point(self):
+        # A cumulative histogram's first (and only) sample has no predecessor
+        # to diff against — the window has no computable increase. That must
+        # be a gap, not a fabricated p95 of 0 (which reads as "p95 is 0s").
+        self._seed_histogram([(self.anchor, [1, 1, 1, 0])], temporality="cumulative")
+        rows = self._run(0.95)
+        self.assertEqual(rows, [])
+
     def test_mismatched_bounds_raise(self):
         self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")
         self._seed_histogram(
@@ -1156,3 +1178,194 @@ class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
+    """One metric name existing as several types (e.g. a counter and a gauge)
+    must not blend into one aggregate — series identity includes the type."""
+
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
+        # The same name recorded as a delta counter (5) and as a gauge (42).
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_collide",
+            points=[(self.anchor, 5.0)],
+            metric_type="sum",
+            aggregation_temporality="delta",
+            is_monotonic=True,
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_collide",
+            points=[(self.anchor, 42.0)],
+            metric_type="gauge",
+        )
+
+    def _run(self, aggregation: str, metric_type: str | None, **kwargs: Any) -> list[dict[str, Any]]:
+        return MetricQueryRunner(
+            team=self.team,
+            metric_name="m_collide",
+            aggregation=aggregation,
+            date_from=self.anchor - dt.timedelta(minutes=5),
+            date_to=self.anchor + dt.timedelta(minutes=5),
+            metric_type=metric_type,
+            **kwargs,
+        ).run()
+
+    @parameterized.expand(
+        [
+            # Without isolation these blended: avg was (5 + 42) / 2 = 23.5.
+            ("gauge_avg", "avg", "gauge", 42.0),
+            ("counter_sum", "sum", "sum", 5.0),
+            ("counter_increase", "increase", "sum", 5.0),
+        ]
+    )
+    def test_type_filter_isolates_series(self, _name: str, aggregation: str, metric_type: str, expected: float):
+        rows = self._run(aggregation, metric_type)
+        assert [row["value"] for row in rows] == [expected]
+
+    def test_without_type_filter_all_rows_still_match(self):
+        # Back-compat: no metric_type keeps the pre-filter behavior.
+        rows = self._run("count", None)
+        assert [row["value"] for row in rows] == [2]
+
+    def test_rejects_unknown_metric_type(self):
+        with self.assertRaises(ValueError):
+            self._run("avg", "flurble")
+
+    def test_histogram_quantile_ignores_same_named_non_histogram_rows(self):
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_collide",
+            points=[(self.anchor, 30.0)],
+            metric_type="histogram",
+            aggregation_temporality="delta",
+            histogram_bounds=[10.0, 50.0, 100.0],
+            histogram_counts=[0, 10, 0, 0],
+        )
+        # No explicit type needed: the histogram path must constrain itself.
+        rows = self._run("histogram_quantile", None, quantile=0.5)
+        assert len(rows) == 1
+        # All 10 observations sit in the (10, 50] bucket; p50 interpolates to 30.
+        assert abs(rows[0]["value"] - 30.0) < 1e-9
+
+    def test_api_accepts_metric_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "m_collide",
+                    "aggregation": "avg",
+                    "metricType": "gauge",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=5)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=5)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        series = response.json()["results"][0]
+        self.assertEqual([p["value"] for p in series["points"]], [42.0])
+
+
+class TestNonFiniteAggregates(ClickhouseTestMixin, APIBaseTest):
+    """ClickHouse float aggregates can overflow to inf (two 1e308 samples in
+    one bucket). A Python `inf` leaking into the response is at best invalid
+    JSON ("Infinity") and at worst a silent null downstream — the API contract
+    is an explicit null gap instead."""
+
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
+
+    def _seed_huge(self, count: int) -> None:
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_huge",
+            points=[(self.anchor + dt.timedelta(seconds=i), 1e308) for i in range(count)],
+        )
+
+    def _run(self, aggregation: str) -> list[dict[str, Any]]:
+        return MetricQueryRunner(
+            team=self.team,
+            metric_name="m_huge",
+            aggregation=aggregation,
+            date_from=self.anchor - dt.timedelta(minutes=5),
+            date_to=self.anchor + dt.timedelta(minutes=5),
+        ).run()
+
+    @parameterized.expand([("sum",), ("avg",)])
+    def test_overflowing_bucket_returns_null_gap(self, aggregation: str):
+        self._seed_huge(2)
+        rows = self._run(aggregation)
+        assert [row["value"] for row in rows] == [None]
+
+    def test_large_finite_value_survives(self):
+        self._seed_huge(1)
+        rows = self._run("avg")
+        assert [row["value"] for row in rows] == [1e308]
+
+    def test_overflow_serializes_as_json_null_via_api(self):
+        self._seed_huge(2)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "m_huge",
+                    "aggregation": "sum",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=5)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=5)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        values = [p["value"] for p in response.json()["results"][0]["points"]]
+        assert values == [None]
+
+    def test_formula_overflow_returns_null_gap(self):
+        self._seed_huge(1)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "clauses": [{"name": "a", "metricName": "m_huge", "aggregation": "avg"}],
+                    "formula": "a * a",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=5)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=5)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        values = [p["value"] for p in response.json()["results"][0]["points"]]
+        assert values == [None]
+
+    def test_formula_propagates_clause_null_gap(self):
+        # Two 1e308 points sum to inf, so the CLAUSE aggregate is already a
+        # null gap before the formula runs — exercising the input-None guard
+        # in _evaluate_formula_point, not the formula-overflow branch above.
+        self._seed_huge(2)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "clauses": [{"name": "a", "metricName": "m_huge", "aggregation": "sum"}],
+                    "formula": "a + 1",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=5)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=5)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        values = [p["value"] for p in response.json()["results"][0]["points"]]
+        assert values == [None]

@@ -20,11 +20,13 @@ from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    is_context_window_error_message,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -166,6 +168,8 @@ class OpenAIAdapter:
                         parsed=parsed,
                     )
                 except openai.BadRequestError as e:
+                    if is_context_window_error_message(str(e)):
+                        raise ContextWindowExceededError(str(e)) from e
                     # Fall back to manual JSON parsing for older models that don't support json_schema
                     if "response_format" in str(e).lower() or "json_schema" in str(e).lower():
                         return self._complete_with_json_fallback(client, request, messages, analytics)
@@ -198,6 +202,8 @@ class OpenAIAdapter:
                 raise QuotaExceededError(str(e))
             raise RateLimitError(str(e))
         except openai.APIStatusError as e:
+            if isinstance(e, openai.BadRequestError) and is_context_window_error_message(str(e)):
+                raise ContextWindowExceededError(str(e)) from e
             # OpenRouter returns 402 when the key can't afford the requested
             # max_tokens (or is out of credits). Retrying never helps — mirror
             # the quota path so the workflow marks the key errored and stops.

@@ -551,7 +551,7 @@ def update_flag_caches(team: Team):
         emit_cache_sync_metrics(result, "feature_flags", "flags_without_cohorts.json", size=size_without_cohorts)
 
 
-def clear_flag_definition_caches(team: Team, kinds: list[str] | None = None):
+def clear_flag_definition_caches(team: Team | int, kinds: list[str] | None = None):
     """
     Clear the flag definitions cache for a team.
 

@@ -3,13 +3,12 @@ import { useMemo, type FocusEvent } from 'react'
 import { IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
-import { findQuietHoursIssues, MAX_BLOCKED_WINDOWS } from 'lib/components/Alerts/scheduleRestrictionValidation'
-import type { BlockedWindow, ScheduleRestriction } from 'lib/components/Alerts/types'
-
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 
-import { isHighFrequencyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { estimateCheckSlotsNext24h } from 'products/alerts/frontend/logic/scheduleRestrictionPreview'
+import { findQuietHoursIssues, MAX_BLOCKED_WINDOWS } from 'products/alerts/frontend/logic/scheduleRestrictionValidation'
+import type { BlockedWindow, ScheduleRestriction } from 'products/alerts/frontend/types'
 
 import { QuietHoursDayTimeline } from './QuietHoursDayTimeline'
 
@@ -40,7 +39,7 @@ export function QuietHoursFields({
     onChange,
 }: QuietHoursFieldsProps): JSX.Element {
     const enabled = !!scheduleRestriction?.blocked_windows?.length
-    const windows = scheduleRestriction?.blocked_windows ?? []
+    const windows = useMemo(() => scheduleRestriction?.blocked_windows ?? [], [scheduleRestriction?.blocked_windows])
 
     const setWindows = (nextWindows: BlockedWindow[]): void => {
         if (nextWindows.length === 0) {
@@ -107,7 +106,7 @@ export function QuietHoursFields({
         [enabled, windows]
     )
 
-    const nonHighFrequencyInterval = !isHighFrequencyAlertInterval(calculationInterval)
+    const coarseInterval = !isSubDailyAlertInterval(calculationInterval)
         ? calculationInterval === AlertCalculationInterval.DAILY
             ? 'day'
             : calculationInterval === AlertCalculationInterval.WEEKLY
@@ -130,10 +129,10 @@ export function QuietHoursFields({
             />
             {enabled ? (
                 <>
-                    {nonHighFrequencyInterval ? (
+                    {coarseInterval ? (
                         <LemonBanner type="info">
                             If a scheduled run would fall during quiet hours, it runs at the next allowed time in that
-                            same day or cycle instead of waiting until the next {nonHighFrequencyInterval}.
+                            same day or cycle instead of waiting until the next {coarseInterval}.
                         </LemonBanner>
                     ) : null}
                     <div className="flex flex-wrap gap-2">
