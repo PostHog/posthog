@@ -101,3 +101,37 @@ class TestProductPushCampaignAdmin(BaseTest):
         assert campaign.status == ProductPushCampaign.Status.SCHEDULED
         assert campaign.source == ProductPushCampaign.Source.TAM
         assert campaign.created_by == self.user
+
+    def test_untouched_inline_add_row_saves_nothing(self) -> None:
+        # The extra add row's <select> needs a blank first choice: browsers otherwise submit
+        # the first ProductKey, so every Organization save inserted a phantom campaign and
+        # 500ed on the pending-per-product constraint once that product was already queued.
+        ProductPushCampaign.objects.create(
+            organization=self.organization, product_key="actions", status=ProductPushCampaign.Status.SCHEDULED
+        )
+        inline = ProductPushCampaignInline(Organization, AdminSite())
+        request = self.request_factory.post("/admin/posthog/organization/")
+        request.user = self.user
+        formset_class = inline.get_formset(request, self.organization)
+        prefix = formset_class.get_default_prefix()
+
+        assert formset_class.form(instance=None).fields["product_key"].choices[0] == ("", "---------")
+
+        formset = formset_class(
+            instance=self.organization,
+            data={
+                f"{prefix}-TOTAL_FORMS": "1",
+                f"{prefix}-INITIAL_FORMS": "0",
+                f"{prefix}-MIN_NUM_FORMS": "0",
+                f"{prefix}-MAX_NUM_FORMS": "1000",
+                f"{prefix}-0-id": "",
+                f"{prefix}-0-product_key": "",
+                f"{prefix}-0-position": "0",
+                f"{prefix}-0-scheduled_for": "",
+                f"{prefix}-0-reason_text": "",
+            },
+        )
+
+        assert formset.is_valid(), formset.errors
+        assert formset.save() == []
+        assert ProductPushCampaign.objects.filter(organization=self.organization).count() == 1

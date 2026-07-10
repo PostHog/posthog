@@ -192,6 +192,14 @@ class ProductPushCampaignInlineForm(ProductPushCampaignForm):
         model = ProductPushCampaign
         exclude = ("organization",)
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # The extra "add" row must be able to submit an empty product. Without a blank
+        # choice its <select> defaults to the first ProductKey, so merely saving the
+        # Organization inserts a phantom campaign - and 500s on
+        # uniq_pending_product_push_per_org_product once that product is already queued.
+        self.fields["product_key"].choices = [("", "---------"), *self.fields["product_key"].choices]
+
 
 class ProductPushCampaignInline(admin.TabularInline):
     """An organization's push schedule and history on the Organization admin page.
