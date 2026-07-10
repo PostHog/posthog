@@ -1,4 +1,5 @@
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { ExportedAssetType } from '~/types'
 
@@ -24,14 +25,30 @@ export async function exportedAssetBlob(asset: ExportedAssetType): Promise<Blob>
     return await response.blob()
 }
 
-export function downloadExportedAsset(asset: ExportedAssetType): void {
+export async function downloadExportedAsset(asset: ExportedAssetType): Promise<boolean> {
     const downloadUrl = api.exports.determineExportUrl(asset.id)
+
+    // Probe the content endpoint before navigating to it. If retrieval fails (e.g. an access-control
+    // 404), the raw JSON error would otherwise render as a blank/black page. api.getResponse throws on
+    // a non-2xx status, so we can surface an error toast and keep the user where they are. We read only
+    // the headers and cancel the body — the anchor navigation below streams the actual download to disk
+    // without buffering large files (e.g. video exports) in memory.
+    try {
+        const response = await api.getResponse(downloadUrl)
+        await response.body?.cancel()
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        lemonToast.error('Export download failed: ' + message)
+        return false
+    }
+
     const anchor = document.createElement('a')
     anchor.style.display = 'none'
     anchor.href = downloadUrl
     document.body.appendChild(anchor)
     anchor.click()
     document.body.removeChild(anchor)
+    return true
 }
 
 export type TriggerExportProps = Pick<ExportedAssetType, 'export_format' | 'dashboard' | 'insight' | 'export_context'>

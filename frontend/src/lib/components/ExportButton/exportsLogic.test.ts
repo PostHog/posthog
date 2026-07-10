@@ -12,7 +12,7 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({
 }))
 jest.mock('./exporter', () => ({
     ...jest.requireActual('./exporter'),
-    downloadExportedAsset: jest.fn(),
+    downloadExportedAsset: jest.fn().mockResolvedValue(true),
 }))
 
 const asset = (overrides: Partial<ExportedAssetType> = {}): ExportedAssetType => ({
@@ -163,6 +163,20 @@ describe('exportsLogic', () => {
             expect(lemonToast[toast.fn]).toHaveBeenCalledWith(...toast.args)
             expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual(expectsDownload ? [[response]] : [])
             expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(freshIds)
+        })
+
+        it('does not confirm completion when the content download fails', async () => {
+            // The "Export complete!" toast must not fire if retrieval failed — otherwise the user sees
+            // success followed by a broken download (the reported black-screen symptom).
+            jest.mocked(downloadExportedAsset).mockResolvedValueOnce(false)
+            jest.spyOn(api.exports, 'create').mockResolvedValue(
+                asset({ id: 14, export_format: ExporterFormat.PNG, has_content: true })
+            )
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG } })
+            await flush()
+
+            expect(lemonToast.success).not.toHaveBeenCalledWith('Export complete!')
         })
     })
 })

@@ -223,8 +223,11 @@ export const exportsLogic = kea<exportsLogicType>([
 
                             if (response && response.has_content) {
                                 // Blocking export already finished in the request — download and confirm.
-                                await downloadExportedAsset(response)
-                                lemonToast.success('Export complete!')
+                                // Only celebrate once the content actually downloads; downloadExportedAsset
+                                // surfaces its own error toast if retrieval fails.
+                                if (await downloadExportedAsset(response)) {
+                                    lemonToast.success('Export complete!')
+                                }
                             } else if (response && response.exception) {
                                 lemonToast.error('Export failed: ' + response.exception)
                             } else if (response) {

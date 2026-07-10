@@ -481,6 +481,14 @@ class ExportedAssetViewSet(
         if not instance.is_session_recording_export and instance.created_by_id != self.request.user.id:
             raise NotFound()
 
+        # The creator of a session recording export can always retrieve it. They necessarily had the
+        # access required to create it, so retrieval must not be stricter than creation — otherwise the
+        # recording-viewer RBAC check below can 404 the very user who just made the export (e.g. when no
+        # SessionRecording row exists yet and the team's session_recording default is below viewer),
+        # which surfaces as an "Export complete!" toast followed by a blank error page.
+        if instance.is_session_recording_export and instance.created_by_id == self.request.user.id:
+            return instance
+
         export_context = instance.export_context or {}
         session_recording_id = export_context.get("session_recording_id")
 
