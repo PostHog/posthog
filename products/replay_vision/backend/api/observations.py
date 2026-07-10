@@ -319,6 +319,7 @@ class ObservationVersionMarkerSerializer(serializers.Serializer):
     )
     up = serializers.IntegerField(help_text="Thumbs-up ratings on this version's observations.")
     down = serializers.IntegerField(help_text="Thumbs-down ratings on this version's observations.")
+    total = serializers.IntegerField(help_text="Succeeded (ratable) observations this version produced, rated or not.")
 
 
 class ObservationLabelStatsSerializer(serializers.Serializer):
@@ -383,8 +384,8 @@ class RetryResponseSerializer(serializers.Serializer):
 # Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
 OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status")
 
-# JSONB-backed sort keys; numeric values (`result_score`, `scanner_version`) need a numeric cast in the filter.
-_JSONB_ORDER_KEYS = ("result_score", "result_verdict", "scanner_version")
+# JSONB-backed sort keys; numeric values (`result_score`, `result_confidence`, `scanner_version`) need a numeric cast in the filter.
+_JSONB_ORDER_KEYS = ("result_score", "result_verdict", "result_confidence", "scanner_version")
 _ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_subject_email", "label")
 
 
@@ -423,6 +424,18 @@ class _ObservationOrderByFilter(OrderByFilter):
                 ),
             )
             return self._order_nulls_last(qs, "_order_score", descending)
+        if key == "result_confidence":
+            confidence_jsonb = KeyTransform("confidence", KeyTransform("model_output", "scanner_result"))
+            confidence_text = KeyTextTransform("confidence", KeyTextTransform("model_output", "scanner_result"))
+            qs = qs.annotate(
+                _confidence_type=_jsonb_typeof(confidence_jsonb),
+                _order_confidence=Case(
+                    When(_confidence_type="number", then=Cast(confidence_text, FloatField())),
+                    default=Value(None),
+                    output_field=FloatField(),
+                ),
+            )
+            return self._order_nulls_last(qs, "_order_confidence", descending)
         if key == "scanner_version":
             version_jsonb = KeyTransform("scanner_version", "scanner_snapshot")
             version_text = KeyTextTransform("scanner_version", "scanner_snapshot")
@@ -484,9 +497,9 @@ class ReplayObservationFilter(django_filters.FilterSet):
     order_by = _ObservationOrderByFilter(
         help_text=(
             "Sort observations by created_at, started_at, completed_at, status, recording_subject_email, "
-            "result_score, result_verdict, or scanner_version. Prefix with `-` for descending. Keys that can be "
-            "null (started_at, completed_at, recording_subject_email, result_*, scanner_version) sort nulls "
-            "last regardless of direction."
+            "result_score, result_verdict, result_confidence, or scanner_version. Prefix with `-` for descending. "
+            "Keys that can be null (started_at, completed_at, recording_subject_email, result_*, scanner_version) "
+            "sort nulls last regardless of direction."
         ),
     )
 
@@ -539,7 +552,7 @@ _ORDER_BY_PARAMETER = OpenApiParameter(
     description=(
         "Sort observations. Plain keys: created_at, started_at, completed_at, status, "
         "recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), "
-        "scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way."
+        "result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way."
     ),
 )
 
