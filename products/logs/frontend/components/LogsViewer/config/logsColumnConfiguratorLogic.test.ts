@@ -90,7 +90,7 @@ describe('logsColumnConfiguratorLogic', () => {
         expect(logic.values.newColumnError).toBe('Custom columns need an expression')
         expect(logic.values.draft).toHaveLength(before)
 
-        // Built-in type with a name override — reducers reset the form only after the add lands
+        // Built-in type with a name override — the form clears once the add lands
         logic.actions.setNewColumnType('level')
         logic.actions.setNewColumnName('Severity')
         logic.actions.submitNewColumn()
@@ -102,5 +102,16 @@ describe('logsColumnConfiguratorLogic', () => {
         logic.actions.setNewColumnExpression('attributes.http.url')
         logic.actions.submitNewColumn()
         expect(logic.values.draft.find((c) => c.expression === 'attributes.http.url')).toBeTruthy()
+    })
+
+    it('adding a column from the available-columns list preserves an in-progress add-column form', () => {
+        logic.actions.setNewColumnType('custom')
+        logic.actions.setNewColumnName('Status')
+        logic.actions.setNewColumnExpression('attributes.http.status')
+
+        // The available-columns picker dispatches addDraftColumn directly, without submitting the form
+        logic.actions.addDraftColumn({ type: 'custom', name: 'trace', expression: 'trace_id' })
+
+        expect(logic.values.newColumn).toEqual({ type: 'custom', name: 'Status', expression: 'attributes.http.status' })
     })
 })
