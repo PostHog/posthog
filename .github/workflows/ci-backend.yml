@@ -850,6 +850,7 @@ jobs:
                   path: cov-staging/*.xml
                   if-no-files-found: ignore
                   retention-days: 2
+                  overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
 
             - name: Verify new snapshots for flakiness
               if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
@@ -2556,6 +2557,7 @@ jobs:
                   path: coverage-core.xml
                   if-no-files-found: ignore
                   retention-days: 2
+                  overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
 
             # Uncomment this code to create an ssh-able console so you can debug issues with github actions
             # (Consider changing the timeout in ci-backend.yml to have more time)
@@ -3176,6 +3178,9 @@ jobs:
         # the product (turbo-tests) or core (django_tests) suite ran, so a core-only PR still
         # gets a comment; both skip on drafts, leaving nothing to report.
         # drafts run a partial test selection — patch coverage would report false gaps
+        # Security invariant: this job runs PR-head-controlled scripts (coverage_report.py,
+        # post-coverage-section.mjs) — never add secrets beyond github.token to this job
+        # (report-test-timings checks out the base ref for exactly this reason).
         if: >-
             always() &&
             github.event_name == 'pull_request' &&
@@ -3250,3 +3255,4 @@ jobs:
                       coverage-comment.md
                   if-no-files-found: ignore
                   retention-days: 2
+                  overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise

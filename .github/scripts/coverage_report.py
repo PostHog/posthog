@@ -378,6 +378,10 @@ def render_markdown(results: list[ProductCoverage], patch_data: dict | None) -> 
     lines += [
         "",
         "_Report-only. Patch coverage = changed backend lines covered vs `origin/master`. Sorted lowest first._",
+        # Known blind spots, so "uncovered" isn't read as gospel: the Django Temporal segment runs
+        # without coverage instrumentation, and core XMLs come from the PR-head tree while the diff
+        # is computed on the merge ref (line drift when master touched the same core file).
+        "_Known gaps: lines covered only by Temporal tests show as uncovered; core line numbers may drift if `master` changed the same file._",
     ]
     if patch_data is not None:
         lines += ["", build_machine_block(patch_data, results)]
