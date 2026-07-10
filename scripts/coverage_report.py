@@ -119,13 +119,25 @@ def collect(covered: LineMap, valid: LineMap) -> list[ProductCoverage]:
     return results
 
 
+def repo_path_for(product: str, filename: str) -> str:
+    """Map a per-product coverage filename to its repo-relative path.
+
+    turbo runs each product's backend:test with ``--cov=backend``, so coverage records
+    filenames relative to ``products/<product>/backend`` (e.g. ``api.py``,
+    ``migrations/0001.py``) — the ``backend/`` source root is stripped from the stored
+    name. diff-cover matches against repo-relative ``git diff`` paths, so restore it.
+    """
+    filename = filename.lstrip("/")
+    if filename == "backend" or filename.startswith("backend/"):
+        return f"products/{product}/{filename}"
+    return f"products/{product}/backend/{filename}"
+
+
 def write_combined_cobertura(covered: LineMap, valid: LineMap, out_path: Path) -> None:
     """Emit one repo-relative Cobertura XML from the unioned line sets, for diff-cover.
 
-    Each product's coverage.xml stores filenames relative to the product dir (the turbo
-    CWD), e.g. ``backend/api.py``. diff-cover matches coverage filenames against ``git
-    diff`` paths, which are repo-relative, so prefix ``products/<name>/`` and point
-    <source> at the repo root.
+    diff-cover matches coverage filenames against repo-relative ``git diff`` paths, so each
+    file is rewritten via repo_path_for() and <source> points at the repo root.
     """
     coverage_el = ElementTree.Element("coverage", {"version": "diff-cover-combined"})
     sources_el = ElementTree.SubElement(coverage_el, "sources")
@@ -138,7 +150,7 @@ def write_combined_cobertura(covered: LineMap, valid: LineMap, out_path: Path) -
     for product in sorted(valid):
         for filename in sorted(valid[product]):
             class_el = ElementTree.SubElement(
-                classes_el, "class", {"filename": f"products/{product}/{filename}", "name": Path(filename).name}
+                classes_el, "class", {"filename": repo_path_for(product, filename), "name": Path(filename).name}
             )
             lines_el = ElementTree.SubElement(class_el, "lines")
             hit = covered[product].get(filename, set())
