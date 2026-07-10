@@ -174,8 +174,25 @@ class GlobalAnalyzer(ast.NodeVisitor):
                     self._visit_module_statement(child)
             for child in [*statement.orelse, *statement.finalbody]:
                 self._visit_module_statement(child)
+        elif isinstance(statement, ast.Match):
+            self.visit(statement.subject)
+            for case in statement.cases:
+                # Capture patterns bind their names before the case body runs.
+                self.module_assigned.update(match_capture_names(case.pattern))
+                if case.guard is not None:
+                    self.visit(case.guard)
+                for child in case.body:
+                    self._visit_module_statement(child)
         else:
             self.visit(statement)
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+        # A walrus binds its target in the enclosing scope; at module scope record it so a later
+        # read (print(rows) after `if (rows := ...)`) isn't mistaken for an external input.
+        self.visit(node.value)
+        if len(self.scopes) == 1:
+            self.module_assigned.update(extract_target_names(node.target))
+        self.visit(node.target)
 
     def _record_bindings(self, targets: list[ast.expr]) -> None:
         for target in targets:
@@ -278,6 +295,31 @@ def extract_target_names(target: ast.AST) -> set[str]:
             names.update(extract_target_names(item))
     elif isinstance(target, ast.Starred):
         names.update(extract_target_names(target.value))
+    return names
+
+
+def match_capture_names(pattern: ast.pattern) -> set[str]:
+    """Names a match-case pattern binds — captures are locals, not external frames."""
+    names: set[str] = set()
+    if isinstance(pattern, ast.MatchAs):
+        if pattern.name is not None:
+            names.add(pattern.name)
+        if pattern.pattern is not None:
+            names |= match_capture_names(pattern.pattern)
+    elif isinstance(pattern, ast.MatchStar):
+        if pattern.name is not None:
+            names.add(pattern.name)
+    elif isinstance(pattern, ast.MatchMapping):
+        if pattern.rest is not None:
+            names.add(pattern.rest)
+        for sub in pattern.patterns:
+            names |= match_capture_names(sub)
+    elif isinstance(pattern, ast.MatchSequence | ast.MatchOr):
+        for sub in pattern.patterns:
+            names |= match_capture_names(sub)
+    elif isinstance(pattern, ast.MatchClass):
+        for sub in [*pattern.patterns, *pattern.kwd_patterns]:
+            names |= match_capture_names(sub)
     return names
 
 

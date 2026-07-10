@@ -15,9 +15,11 @@ class TestAnalyzePythonGlobalsUsed(SimpleTestCase):
             # A name created before it is read is a genuine local, not an input — materializing it
             # would clobber the user's own frame.
             ("assigned_before_read", "import pandas as pd\ndf = pd.DataFrame()\ndf.head()", []),
-            # Loop and function locals must not leak in as phantom inputs.
+            # Loop, function, walrus, and match-capture locals must not leak in as phantom inputs.
             ("loop_variable", "for col in df.columns:\n    print(df[col].sum())", ["df"]),
             ("function_local", "def f():\n    x = 1\n    return x + df.iloc[0]", ["df"]),
+            ("walrus_local", "if (rows := len(df)):\n    print(rows)", ["df"]),
+            ("match_capture", "match df.shape:\n    case (rows, cols):\n        print(rows, cols)", ["df"]),
         ]
     )
     def test_used_globals(self, _name: str, code: str, expected: list[str]) -> None:
