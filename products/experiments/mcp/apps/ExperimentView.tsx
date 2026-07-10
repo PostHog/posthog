@@ -17,11 +17,11 @@ export function ExperimentView({ experiment }: ExperimentViewProps): ReactElemen
         { key: 'key', header: 'Key', sortable: true },
         { key: 'name', header: 'Name' },
         {
-            key: 'split_percent',
+            key: 'rollout_percentage',
             header: 'Split %',
             align: 'right',
             render: (row) => {
-                const pct = row.split_percent ?? row.rollout_percentage
+                const pct = row.rollout_percentage
                 return pct != null ? `${pct}%` : '\u2014'
             },
         },

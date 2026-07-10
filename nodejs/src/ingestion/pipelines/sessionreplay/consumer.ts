@@ -14,12 +14,10 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { IngestionConsumerConfig } from '~/ingestion/config'
-import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import {
+    SessionReplayPipeline,
     SessionReplayPipelineConfig,
-    SessionReplayPipelineInput,
-    SessionReplayPipelineOutput,
     createSessionReplayPipeline,
     runSessionReplayPipeline,
 } from '~/ingestion/pipelines/sessionreplay'
@@ -62,15 +60,7 @@ export type SessionRecordingIngesterConfig = SessionRecordingConfig &
     >
 
 /** Builds the session replay pipeline for a deployment (default or ML mirror). */
-export type SessionReplayPipelineFactory = (
-    config: SessionReplayPipelineConfig
-) => BatchPipeline<
-    SessionReplayPipelineInput,
-    SessionReplayPipelineOutput,
-    { message: Message },
-    { message: Message },
-    OverflowOutput
->
+export type SessionReplayPipelineFactory = (config: SessionReplayPipelineConfig) => SessionReplayPipeline
 
 /** Collaborators a deployment can inject to vary ingester behavior; anything omitted uses the primary default. */
 export interface SessionRecordingIngesterCollaborators {
@@ -107,13 +97,7 @@ export class SessionRecordingIngester {
     private readonly eventIngestionRestrictionManagerComponent: EventIngestionRestrictionManagerComponent
     private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
     private stopEventIngestionRestrictionManager?: () => Promise<void>
-    private sessionReplayPipeline!: BatchPipeline<
-        SessionReplayPipelineInput,
-        SessionReplayPipelineOutput,
-        { message: Message },
-        { message: Message },
-        OverflowOutput
-    >
+    private sessionReplayPipeline!: SessionReplayPipeline
     private readonly outputs: IngestionOutputs<
         | IngestionWarningsOutput
         | DlqOutput
@@ -286,7 +270,7 @@ export class SessionRecordingIngester {
         // Run messages through the pipeline (handles restrictions, parsing, team filtering, and recording)
         // and track the highest offset reached per partition — the single place Kafka progress is tracked.
         const offsets = await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
-            runSessionReplayPipeline(this.sessionReplayPipeline, messages)
+            runSessionReplayPipeline(this.sessionReplayPipeline, messages, this.promiseScheduler)
         )
         this.sessionBatchManager.trackProcessedOffsets(offsets)
 

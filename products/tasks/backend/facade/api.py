@@ -20,6 +20,7 @@ import logging
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -98,6 +99,7 @@ CODE_WORKFLOW_INVALID = "invalid"
 # An agent run counts as "active" only if it updated within this window.
 CODE_HOME_ACTIVE_AGENT_WINDOW = timedelta(minutes=30)
 _CODE_HOME_RUNNING_STATUSES = (TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
+WIZARD_PR_READY_EMAIL_FEATURE_FLAG = "wizard-cloud-run-pr-ready-email-enabled"
 
 __all__ = [
     "CODE_INVITE_INVALID_CODE",
@@ -137,6 +139,7 @@ __all__ = [
     "ensure_sandbox_custom_image_builder_task",
     "delete_task_automation",
     "edit_task_run_living_artifact",
+    "complete_idle_local_task_run",
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
@@ -470,6 +473,35 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
     return _task_run_to_dto(run)
 
 
+def get_wizard_pr_ready_email_context(run_id: str | UUID) -> contracts.WizardPrReadyEmailContextDTO | None:
+    """Data ``send_wizard_pr_ready_email`` needs for a run, or ``None`` if the run has no PR URL yet."""
+    run = TaskRun.objects.select_related("task").filter(id=run_id).first()
+    if run is None:
+        return None
+    pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+    if not pr_url:
+        return None
+    task = run.task
+    return contracts.WizardPrReadyEmailContextDTO(
+        task_id=task.id,
+        run_id=run.id,
+        team_id=run.team_id,
+        origin_product=task.origin_product,
+        pr_url=pr_url,
+        repository=task.repository,
+        branch=run.branch,
+        created_by_id=task.created_by_id,
+        already_sent=task.pr_ready_email_sent_at is not None,
+    )
+
+
+def mark_task_pr_ready_email_sent(task_id: str | UUID, pr_url: str) -> None:
+    """Record confirmed PR-ready email delivery for a task, if it still exists."""
+    task = Task.objects.filter(id=task_id).first()
+    if task is not None:
+        task.mark_pr_ready_email_sent(pr_url)
+
+
 def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
     """The parent task id for a run, team-scoped. ``None`` if the run isn't found for the team.
 
@@ -596,13 +628,16 @@ def get_stale_queued_task_run_ids(
     *,
     created_hard_cap: timedelta | None = None,
     hard_cap_min_queued: timedelta = timedelta(hours=1),
-    cloud_only: bool = False,
+    environment: str | None = None,
 ) -> list[UUID]:
     """Ids of runs stuck in QUEUED, by ``updated_at`` age or an optional ``created_at`` backstop.
 
-    ``cloud_only`` restricts the sweep to cloud-environment runs. Local (desktop) runs sit in
-    QUEUED by design while the desktop agent drives them, so dispatch-recovery callers must
-    exclude them — cloud-dispatching one hijacks the user's live local session.
+    ``environment`` restricts the sweep to runs of that environment. A QUEUED cloud run is
+    awaiting a workflow that should have started, but a local (desktop) run sits in QUEUED by
+    design while the desktop agent drives it — so sweep callers must scope themselves and act
+    per environment: dispatch recovery must only touch cloud runs (cloud-dispatching a local
+    run hijacks the user's live local session), and the janitor fails stale cloud runs but
+    quietly completes stale local ones.
 
     Intentionally cross-team — the janitor sweep runs without a team context.
     """
@@ -611,8 +646,8 @@ def get_stale_queued_task_run_ids(
     if created_hard_cap is not None:
         stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
     queryset = TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
-    if cloud_only:
-        queryset = queryset.filter(environment=TaskRun.Environment.CLOUD)
+    if environment is not None:
+        queryset = queryset.filter(environment=environment)
     return list(queryset.filter(stale).order_by("updated_at").values_list("id", flat=True)[:limit])
 
 
@@ -857,6 +892,34 @@ def fail_task_run(run_id: str | UUID, error: str) -> bool:
     if run is None:
         return False
     run.mark_failed(error)
+    return True
+
+
+def complete_idle_local_task_run(run_id: str | UUID) -> bool:
+    """Quietly finalize a local (desktop-driven) run left idling in QUEUED. Returns whether
+    a run was acted on.
+
+    Local runs never get a cloud workflow, so QUEUED is their steady state while the desktop
+    drives the session — once the desktop goes away, nothing else ever terminalizes the row.
+    An idle session that ended is the run's normal end state, so it finalizes as COMPLETED,
+    and without a push notification: pinging a user a day after they closed their session is
+    noise, not signal.
+
+    Compare-and-set claim (like ``claim_and_fail_stale_run``): the conditional update flips the
+    run only while it is still QUEUED *and* local, so a run that left the queue — or was handed
+    off to cloud (handoff keeps status QUEUED) — between the candidate scan and this call is
+    skipped rather than terminalized under its just-dispatched workflow. The winner finalizes
+    via ``mark_completed`` (``completed_at``, stream + analytics). Intentionally cross-team
+    (janitor sweep).
+    """
+    claimed = TaskRun.objects.filter(
+        pk=run_id, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL
+    ).update(status=TaskRun.Status.COMPLETED)  # nosemgrep: celery-task-team-scope-audit
+    if not claimed:
+        return False
+    run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
+    if run is not None:
+        run.mark_completed(notify=False, analytics_properties={"finalized_by": "stale_local_queued_sweep"})
     return True
 
 
@@ -1608,6 +1671,77 @@ def _post_slack_update_for_pr(run: TaskRun) -> None:
         logger.exception("task_run_slack_update_for_pr_failed for run %s", run.id)
 
 
+def _is_wizard_pr_ready_email_enabled(run: TaskRun) -> bool:
+    user = run.task.created_by
+    if user is None or not user.distinct_id:
+        return False
+    try:
+        team = Team.objects.only("id", "uuid", "organization_id").get(id=run.team_id)
+        organization_id = str(team.organization_id)
+        return bool(
+            posthoganalytics.feature_enabled(
+                WIZARD_PR_READY_EMAIL_FEATURE_FLAG,
+                user.distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("wizard_pr_ready_email_feature_flag_check_failed", extra={"run_id": str(run.id)})
+        return False
+
+
+def _is_github_pull_request_url_for_repository(pr_url: str, repository: str | None) -> bool:
+    if not repository:
+        return False
+    try:
+        parsed_url = urlparse(pr_url)
+    except ValueError:
+        return False
+
+    if parsed_url.scheme != "https" or parsed_url.netloc != "github.com":
+        return False
+    if parsed_url.params or parsed_url.query or parsed_url.fragment:
+        return False
+
+    path_parts = parsed_url.path.strip("/").split("/")
+    repository_parts = repository.strip("/").split("/")
+    if len(path_parts) != 4 or len(repository_parts) != 2:
+        return False
+
+    return (
+        path_parts[0].lower() == repository_parts[0].lower()
+        and path_parts[1].lower() == repository_parts[1].lower()
+        and path_parts[2] == "pull"
+        and path_parts[3].isdigit()
+    )
+
+
+def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
+    pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+    if not pr_url or run.task.origin_product != Task.OriginProduct.ONBOARDING:
+        return
+    if run.task.created_by_id is None:
+        return
+    if not _is_github_pull_request_url_for_repository(pr_url, run.task.repository):
+        logger.warning(
+            "wizard_pr_ready_email_invalid_pr_url",
+            extra={"run_id": str(run.id), "task_id": str(run.task_id), "repository": run.task.repository},
+        )
+        return
+    if not _is_wizard_pr_ready_email_enabled(run):
+        return
+
+    if not run.task.mark_pr_ready_email_queued(pr_url):
+        return
+
+    from posthog.tasks.email import send_wizard_pr_ready_email  # noqa: PLC0415 - keep email task import lazy
+
+    transaction.on_commit(lambda: send_wizard_pr_ready_email.delay(str(run.id)))
+
+
 def update_task_run(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, validated_data: dict
 ) -> contracts.TaskRunDetailDTO | None:
@@ -1622,6 +1756,7 @@ def update_task_run(
     )
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
+        observe_wizard_run_unbound,
     )
 
     run = _get_visible_run(run_id, task_id, team_id)
@@ -1692,6 +1827,7 @@ def update_task_run(
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         if new_status == TaskRun.Status.FAILED:
             observe_agent_turn_failed(run)
+        observe_wizard_run_unbound(run)
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
@@ -1706,6 +1842,7 @@ def update_task_run(
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if new_pr_url and new_pr_url != old_pr_url:
         _post_slack_update_for_pr(run)
+        _send_wizard_pr_ready_email_for_pr(run)
         # Surface the PR in the run's progress timeline the moment the agent reports it, so the install
         # UI advances past "Started agent" instead of waiting on the 15-min CI follow-up loop to emit
         # these. Steps coalesce by id with the workflow's own pr/ci emissions (frontend mergeProgressStep),
@@ -1743,12 +1880,20 @@ def set_task_run_output(
     if run is None:
         return None
     task = run.task
-    run.output = output
+    # Preserve PR facts a webhook may have written concurrently: this assignment is wholesale,
+    # so a bare `= output` would drop output.pr_url / output.pr_merged recorded out of band.
+    existing = run.output if isinstance(run.output, dict) else {}
+    merged = {**output}
+    for key in ("pr_url", "pr_merged"):
+        if not merged.get(key) and existing.get(key):
+            merged[key] = existing[key]
+    run.output = merged
     run.save(update_fields=["output", "updated_at"])
     if task.json_schema:
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()
     _post_slack_update_for_pr(run)
+    _send_wizard_pr_ready_email_for_pr(run)
     return _task_run_detail_to_dto(run)
 
 
@@ -1850,8 +1995,17 @@ def _save_artifact_manifest(run: TaskRun, manifest: list[dict]) -> None:
 
 def upload_task_run_artifacts(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifacts: list[dict]
-) -> list[dict] | None:
-    """Write artifact bytes to S3 and append them to the run manifest. Returns the full manifest."""
+) -> tuple[list[dict], list[dict]] | None:
+    """Write artifact bytes to S3 and append them to the run manifest.
+
+    Returns ``(uploaded, manifest)`` — the entries created for ``artifacts`` and the full
+    manifest including them — or ``None`` when the run isn't visible.
+
+    An artifact may carry an explicit ``id``; entries with that id are upserted into the
+    manifest (same-id S3 writes overwrite the same key), so callers that derive ids
+    deterministically get idempotent uploads under retries. Without an ``id`` each call
+    appends a fresh entry.
+    """
     import uuid as uuid_module  # noqa: PLC0415
 
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
@@ -1862,7 +2016,7 @@ def upload_task_run_artifacts(
 
     uploaded: list[dict] = []
     for artifact in artifacts:
-        artifact_id = uuid_module.uuid4().hex
+        artifact_id = str(artifact.get("id") or uuid_module.uuid4().hex)
         safe_name, storage_path = _build_artifact_storage_path(run, artifact_id, artifact["name"])
 
         content_bytes = artifact["content_bytes"]
@@ -1899,11 +2053,12 @@ def upload_task_run_artifacts(
 
     with transaction.atomic():
         run = TaskRun.objects.select_for_update().get(pk=run.pk)
-        manifest = list(run.artifacts or [])
+        uploaded_ids = {entry["id"] for entry in uploaded}
+        manifest = [entry for entry in (run.artifacts or []) if entry.get("id") not in uploaded_ids]
         manifest.extend(uploaded)
         _save_artifact_manifest(run, manifest)
 
-    return manifest
+    return uploaded, manifest
 
 
 def prepare_task_run_artifact_uploads(
@@ -4456,8 +4611,13 @@ def send_user_message(
     artifacts: list[dict] | None = None,
     auth_token: str | None = None,
     timeout: int | None = None,
+    message_id: str | None = None,
 ):
-    """Push a follow-up user message (and/or artifacts) into a run's live sandbox."""
+    """Push a follow-up user message (and/or artifacts) into a run's live sandbox.
+
+    ``message_id`` is the agent-server idempotency key — pass a deterministic id when the
+    caller may retry delivery so a redelivered message isn't applied twice.
+    """
     from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
         send_user_message as _send,
     )
@@ -4469,6 +4629,8 @@ def send_user_message(
         extra["artifacts"] = artifacts
     if timeout is not None:
         extra["timeout"] = timeout
+    if message_id is not None:
+        extra["message_id"] = message_id
     return _send(run, message, auth_token=auth_token, **extra)
 
 

@@ -49,6 +49,25 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.error_message == error_msg
 
     @pytest.mark.django_db(transaction=True)
+    def test_timed_out_inactivity_sets_state_marker_without_error_message(self, activity_environment, test_task_run):
+        test_task_run.state = {**(test_task_run.state or {}), "existing_key": "kept"}
+        test_task_run.save(update_fields=["state"])
+
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.COMPLETED,
+            timed_out_inactivity=True,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert test_task_run.status == TaskRun.Status.COMPLETED
+        assert test_task_run.error_message is None
+        assert test_task_run.state.get("timed_out_inactivity") is True
+        # Merge, not replace: pre-existing state keys survive the marker write.
+        assert test_task_run.state.get("existing_key") == "kept"
+
+    @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_publishes_stream_state_event(self, mock_publish_stream_state_event, activity_environment, test_task_run):
         input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.IN_PROGRESS)
@@ -114,3 +133,30 @@ class TestUpdateTaskRunStatusActivity:
             status=TaskRun.Status.IN_PROGRESS,
         )
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "extra_state,output,expected_delta",
+        [
+            ({"wizard_head_branch": "posthog/instrumentation-ab12cd"}, None, 1.0),
+            ({"wizard_head_branch": "posthog/instrumentation-ab12cd"}, {"pr_url": "https://x/pull/1"}, 0.0),
+            ({}, None, 0.0),
+        ],
+    )
+    def test_terminal_status_counts_unbound_wizard_runs(
+        self, activity_environment, test_task_run, extra_state, output, expected_delta
+    ):
+        from prometheus_client import REGISTRY
+
+        test_task_run.state = {**(test_task_run.state or {}), **extra_state}
+        if output:
+            test_task_run.output = output
+        test_task_run.save(update_fields=["state", "output"])
+        labels = {"status": "completed"}
+        before = REGISTRY.get_sample_value("posthog_tasks_wizard_run_unbound_total", labels) or 0.0
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        after = REGISTRY.get_sample_value("posthog_tasks_wizard_run_unbound_total", labels) or 0.0
+        assert after == before + expected_delta
