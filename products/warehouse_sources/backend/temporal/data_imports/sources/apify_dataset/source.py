@@ -33,6 +33,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ApifyDatasetSource(ResumableSource[ApifyDatasetSourceConfig, ApifyResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.apify.com/api/v2"
+
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in the public docs without credentials.
     lists_tables_without_credentials = True

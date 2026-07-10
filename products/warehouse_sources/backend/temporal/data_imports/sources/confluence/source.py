@@ -37,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class ConfluenceSource(ResumableSource[ConfluenceSourceConfig, ConfluenceResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.atlassian.com/cloud/confluence/rest/v2/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CONFLUENCE

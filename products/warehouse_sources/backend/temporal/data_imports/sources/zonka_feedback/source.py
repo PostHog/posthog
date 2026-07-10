@@ -39,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZonkaFeedbackSource(ResumableSource[ZonkaFeedbackSourceConfig, ZonkaFeedbackResumeConfig]):
+    api_docs_url = "https://apidocs.zonkafeedback.com/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

@@ -32,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HuntrSource(ResumableSource[HuntrSourceConfig, HuntrResumeConfig]):
+    api_docs_url = "https://docs.huntr.co"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

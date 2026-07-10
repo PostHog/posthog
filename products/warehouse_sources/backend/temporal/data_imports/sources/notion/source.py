@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
+    supported_versions = ("2025-09-03",)
+    default_version = "2025-09-03"
+    api_docs_url = "https://developers.notion.com/page/changelog"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

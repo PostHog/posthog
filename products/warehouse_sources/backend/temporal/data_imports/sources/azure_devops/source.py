@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AzureDevOpsSource(ResumableSource[AzureDevOpsSourceConfig, AzureDevOpsResumeConfig]):
+    api_docs_url = "https://learn.microsoft.com/en-us/rest/api/azure/devops"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

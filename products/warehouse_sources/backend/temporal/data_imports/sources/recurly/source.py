@@ -39,6 +39,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class RecurlySource(ResumableSource[RecurlySourceConfig, RecurlyResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2021-02-25",)
+    default_version = "v2021-02-25"
+    api_docs_url = "https://recurly.com/developers/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

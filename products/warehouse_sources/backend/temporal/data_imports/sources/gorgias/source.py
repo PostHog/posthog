@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
+    api_docs_url = "https://developers.gorgias.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

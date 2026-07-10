@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PingdomSource(ResumableSource[PingdomSourceConfig, PingdomResumeConfig]):
+    supported_versions = ("3.1",)
+    default_version = "3.1"
+    api_docs_url = "https://docs.pingdom.com/api/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

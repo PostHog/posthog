@@ -55,6 +55,11 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # `status` is deprecated in favour of external_data_schema.status
     status = models.CharField(max_length=400)
     source_type = models.CharField(max_length=128, choices=ExternalDataSourceType)
+    # Pinned vendor API version (opaque vendor label, e.g. a Stripe date version). NULL resolves
+    # to the source's `default_version` at sync time. A dedicated column (not `job_inputs`) so the
+    # pin is queryable via the `data_warehouse_sources` HogQL system table — `job_inputs` is
+    # encrypted at rest.
+    api_version = models.CharField(max_length=128, null=True, blank=True)
     job_inputs = EncryptedJSONField(null=True, blank=True)
     connection_metadata = models.JSONField(default=dict, blank=True, null=True)
     are_tables_created = models.BooleanField(default=False)

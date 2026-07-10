@@ -34,6 +34,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://clerk.com/docs/reference/backend-api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLERK

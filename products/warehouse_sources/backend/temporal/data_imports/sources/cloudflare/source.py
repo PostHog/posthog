@@ -32,6 +32,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://developers.cloudflare.com/api/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLOUDFLARE

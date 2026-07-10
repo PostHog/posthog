@@ -40,6 +40,10 @@ logger = structlog.get_logger(__name__)
 
 @SourceRegistry.register
 class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developers.webflow.com"
+
     # Only the static endpoint catalog is credential-free; CMS-collection discovery (a network
     # call) is skipped when credentials are absent, so the public-docs path stays I/O-free.
     lists_tables_without_credentials = True

@@ -16,6 +16,10 @@ CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME = "CustomerPaymentMethod"
 COUPON_RESOURCE_NAME = "Coupon"
 DISCOUNT_RESOURCE_NAME = "Discount"
 
+# Vendor API version the sync pipeline pins by default. One constant so the source's version
+# declaration (`StripeSource.supported_versions`) and the request layer share a single label.
+STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"
+
 # Maps PostHog resource name -> Stripe API object type (as it appears in webhook data.object.object)
 RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
     ACCOUNT_RESOURCE_NAME: "account",

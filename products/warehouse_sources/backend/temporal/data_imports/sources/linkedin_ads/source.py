@@ -42,6 +42,8 @@ from .linkedin_ads import (
 
 @SourceRegistry.register
 class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig]):
+    api_docs_url = "https://learn.microsoft.com/en-us/linkedin/marketing/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

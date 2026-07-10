@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NorthpassLMSSource(ResumableSource[NorthpassLMSSourceConfig, NorthpassResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # surface in public docs.
     lists_tables_without_credentials = True

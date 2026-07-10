@@ -146,10 +146,11 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
 
 
 @contextlib.contextmanager
-def _patched_activity_reaching_run(source_mock, schema):
+def _patched_activity_reaching_run(source_mock, schema, api_version=None):
     model = mock.MagicMock()
     model.pipeline.source_type = "MongoDB"
     model.pipeline.job_inputs = {}
+    model.pipeline.api_version = api_version
     model.folder_path = mock.Mock(return_value="dataset")
 
     with (
@@ -201,3 +202,25 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(is_i
     _, source_inputs = source.source_for_pipeline.call_args.args
     assert source_inputs.db_incremental_field_last_value == expected_last_value
     assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "pinned,expected",
+    [
+        ("2020-01-01", "2020-01-01"),  # a stored pin is honored verbatim
+        (None, "vdefault"),  # no pin resolves to the source's default_version
+    ],
+)
+async def test_pinned_api_version_is_resolved_into_source_inputs(pinned, expected):
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    source.resolve_api_version = lambda p: p or "vdefault"
+    schema = _incremental_schema(is_incremental=False, lookback_seconds=None)
+
+    with _patched_activity_reaching_run(source, schema, api_version=pinned):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    assert source_inputs.api_version == expected

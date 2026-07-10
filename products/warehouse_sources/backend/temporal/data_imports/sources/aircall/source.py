@@ -37,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class AircallSource(ResumableSource[AircallSourceConfig, AircallResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developer.aircall.io/api-references/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AIRCALL

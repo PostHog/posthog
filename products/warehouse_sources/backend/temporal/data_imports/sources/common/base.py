@@ -34,6 +34,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.versioning import (
+    UNVERSIONED_API_VERSION,
+    VersionDeprecation,
+    resolve_api_version,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import get_config_for_source
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
 
@@ -127,6 +132,24 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # `get_schemas` with a placeholder config could connect, hang, or close the DB session.
     lists_tables_without_credentials: bool = False
 
+    # Vendor API versions this source implements, as opaque vendor labels (Stripe date
+    # versions, semver, names) — never parsed or ordered by the framework. Sources whose
+    # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.
+    # `ExternalDataSource.api_version` pins one per source instance; the sync pipeline
+    # resolves the pin (falling back to `default_version`) into `SourceInputs.api_version`.
+    supported_versions: tuple[str, ...] = (UNVERSIONED_API_VERSION,)
+
+    # Version used when a source instance has no pin, and stamped onto newly created sources.
+    default_version: str = UNVERSIONED_API_VERSION
+
+    # Vendor API docs/changelog URL — where the vendor announces new API versions. Distinct
+    # from `SourceConfig.docsUrl` (the posthog.com docs page for the source).
+    api_docs_url: str | None = None
+
+    # Versions from `supported_versions` the vendor has deprecated. Drives the generic
+    # in-product deprecation warning; no per-source UI work.
+    deprecated_versions: tuple[VersionDeprecation, ...] = ()
+
     @property
     @abstractmethod
     def source_type(self) -> ExternalDataSourceType:
@@ -139,6 +162,15 @@ class _BaseSource(ABC, Generic[ConfigType]):
             raise ValueError(f"Config class for {self.source_type} does not exist in SOURCE_CONFIG_MAPPING")
 
         return config
+
+    def resolve_api_version(self, pinned: str | None) -> str:
+        """Effective vendor API version for a source instance's stored pin."""
+        return resolve_api_version(pinned, self.default_version)
+
+    def get_version_deprecation(self, version: str | None) -> VersionDeprecation | None:
+        """Deprecation metadata for the given pin (resolved through the default), if any."""
+        effective = self.resolve_api_version(version)
+        return next((d for d in self.deprecated_versions if d.version == effective), None)
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         """Returns the errors for which the source should be disabled on.

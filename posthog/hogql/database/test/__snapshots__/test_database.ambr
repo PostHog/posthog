@@ -272,6 +272,7 @@
          "posthog_externaldatasource"."sync_frequency",
          "posthog_externaldatasource"."status",
          "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."api_version",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."connection_metadata",
          "posthog_externaldatasource"."are_tables_created",
@@ -606,6 +607,7 @@
          "posthog_externaldatasource"."sync_frequency",
          "posthog_externaldatasource"."status",
          "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."api_version",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."connection_metadata",
          "posthog_externaldatasource"."are_tables_created",
@@ -4789,6 +4791,16 @@
                   "hogql_value": "source_type",
                   "id": null,
                   "name": "source_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "api_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "api_version",
+                  "id": null,
+                  "name": "api_version",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -13544,6 +13556,16 @@
                   "hogql_value": "source_type",
                   "id": null,
                   "name": "source_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "api_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "api_version",
+                  "id": null,
+                  "name": "api_version",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"

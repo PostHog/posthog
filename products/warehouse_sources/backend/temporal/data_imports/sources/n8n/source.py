@@ -34,6 +34,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class N8nSource(ResumableSource[N8nSourceConfig, N8nResumeConfig], ValidateDatabaseHostMixin):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.n8n.io/api/api-reference/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

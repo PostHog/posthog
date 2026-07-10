@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RechargeSource(ResumableSource[RechargeSourceConfig, RechargeResumeConfig]):
+    supported_versions = ("2021-11",)
+    default_version = "2021-11"
+    api_docs_url = "https://developer.rechargepayments.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

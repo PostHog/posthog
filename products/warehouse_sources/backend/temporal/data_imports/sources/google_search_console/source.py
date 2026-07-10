@@ -49,6 +49,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class GoogleSearchConsoleSource(
     ResumableSource[GoogleSearchConsoleSourceConfig, GoogleSearchConsoleResumeConfig], OAuthMixin
 ):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://developers.google.com/webmaster-tools"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

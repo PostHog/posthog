@@ -1788,6 +1788,18 @@ export interface ExternalDataSourceRevenueAnalyticsConfigApi {
     include_invoiceless_charges?: boolean
 }
 
+export interface ExternalDataSourceApiVersionDeprecationApi {
+    /** The deprecated vendor API version this source is pinned to. */
+    version: string
+    /**
+     * Date the vendor stops serving this version; null if not announced.
+     * @nullable
+     */
+    sunset_at: string | null
+    /** The source's current default vendor API version — the migration target. */
+    default_version: string
+}
+
 export type ExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
 
 /**
@@ -1843,6 +1855,13 @@ export interface ExternalDataSourceSerializersApi {
     readonly supports_webhooks: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection: boolean
+    /**
+     * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+     * @nullable
+     */
+    readonly api_version: string | null
+    /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
+    readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecationApi | null
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -2634,6 +2653,13 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly supports_webhooks?: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection?: boolean
+    /**
+     * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+     * @nullable
+     */
+    readonly api_version?: string | null
+    /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
+    readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecationApi | null
 }
 
 export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {

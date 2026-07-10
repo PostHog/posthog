@@ -45,6 +45,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], WebhookSource[SlackSourceConfig], OAuthMixin):
+    api_docs_url = "https://api.slack.com/web"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SLACK

@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EConomicSource(ResumableSource[EConomicSourceConfig, EConomicResumeConfig]):
+    api_docs_url = "https://restdocs.e-conomic.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

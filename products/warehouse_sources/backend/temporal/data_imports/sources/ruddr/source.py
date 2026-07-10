@@ -32,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RuddrSource(ResumableSource[RuddrSourceConfig, RuddrResumeConfig]):
+    api_docs_url = "https://docs.ruddr.io"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

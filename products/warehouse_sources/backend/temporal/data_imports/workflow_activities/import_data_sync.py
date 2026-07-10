@@ -193,6 +193,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             ) from e
 
         if SourceRegistry.is_registered(source_type):
+            new_source = SourceRegistry.get_source(source_type)
+
             source_inputs = SourceInputs(
                 schema_name=schema.name,
                 schema_id=str(schema.id),
@@ -214,9 +216,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 row_filters=row_filters,
                 schema_metadata=schema.schema_metadata,
                 s3_folder_name=schema.resolved_s3_folder_name,
+                api_version=new_source.resolve_api_version(model.pipeline.api_version),
             )
-
-            new_source = SourceRegistry.get_source(source_type)
 
             try:
                 config = new_source.parse_config(model.pipeline.job_inputs)

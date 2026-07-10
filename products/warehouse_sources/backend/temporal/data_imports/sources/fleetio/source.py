@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FleetioSource(ResumableSource[FleetioSourceConfig, FleetioResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developer.fleetio.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

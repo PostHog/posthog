@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     PRODUCT_RESOURCE_NAME,
     REFUND_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
+    STRIPE_API_VERSION_ACACIA,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
@@ -429,11 +430,12 @@ def get_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
     should_use_incremental_field: bool = False,
+    api_version: Optional[str] = None,
 ):
     client = StripeClient(
         api_key,
         stripe_account=account_id,
-        stripe_version="2024-09-30.acacia",
+        stripe_version=api_version or STRIPE_API_VERSION_ACACIA,
         max_network_retries=2,
         base_addresses=_stripe_base_addresses(),
         http_client=_tracked_stripe_http_client(),
@@ -620,6 +622,7 @@ def stripe_source(
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
     webhook_source_manager: WebhookSourceManager,
     should_use_incremental_field: bool = False,
+    api_version: Optional[str] = None,
 ):
     column_mapping = get_dlt_mapping_for_external_table(f"stripe_{endpoint.lower()}")
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
@@ -643,6 +646,7 @@ def stripe_source(
             logger=logger,
             should_use_incremental_field=should_use_incremental_field,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
         )
 
     return SourceResponse(

@@ -30,6 +30,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HeightSource(SimpleSource[HeightSourceConfig]):
+    api_docs_url = "https://height.notion.site/API-documentation-643aea5bf01742de9232ed5b8b23a91b"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

@@ -40,6 +40,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsResumeConfig], OAuthMixin):
+    supported_versions = ("v5",)
+    default_version = "v5"
+    api_docs_url = "https://developers.pinterest.com/docs/api/v5/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

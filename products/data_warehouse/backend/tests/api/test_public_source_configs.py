@@ -72,6 +72,22 @@ class TestPublicSourceConfigs(APIBaseTest):
         response = self.client.get("/api/public_source_configs/")
         assert response.json()["Postgres"]["tables"] == []
 
+    def test_every_config_exposes_version_fields(self):
+        """The external version-update automation consumes these exact field names."""
+        response = self.client.get("/api/public_source_configs/")
+        data = response.json()
+
+        for source_type, config in data.items():
+            assert isinstance(config["versions"], list) and len(config["versions"]) > 0, source_type
+            assert config["defaultVersion"] in config["versions"], source_type
+            assert config["apiDocsUrl"] is None or config["apiDocsUrl"].startswith("https://"), source_type
+            assert isinstance(config["deprecatedVersions"], list), source_type
+
+        stripe = data["Stripe"]
+        assert stripe["versions"] == ["2024-09-30.acacia"]
+        assert stripe["defaultVersion"] == "2024-09-30.acacia"
+        assert stripe["apiDocsUrl"] == "https://docs.stripe.com/changelog"
+
     def test_many_fixed_schema_sources_list_tables(self):
         """Guard the opt-in mechanism: a large share of sources expose a static table catalog.
 

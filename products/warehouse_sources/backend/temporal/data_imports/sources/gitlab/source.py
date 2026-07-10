@@ -37,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://docs.gitlab.com/ee/api/rest/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

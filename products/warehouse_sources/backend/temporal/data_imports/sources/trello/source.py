@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TrelloSource(ResumableSource[TrelloSourceConfig, TrelloResumeConfig]):
+    supported_versions = ("1",)
+    default_version = "1"
+    api_docs_url = "https://developer.atlassian.com/cloud/trello/rest/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

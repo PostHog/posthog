@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MetabaseSource(SimpleSource[MetabaseSourceConfig]):
+    api_docs_url = "https://www.metabase.com/docs/latest/api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.METABASE

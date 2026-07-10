@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
+    supported_versions = ("2024-10-15",)
+    default_version = "2024-10-15"
+    api_docs_url = "https://developers.klaviyo.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
