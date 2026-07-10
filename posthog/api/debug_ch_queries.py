@@ -849,6 +849,10 @@ class DebugCHQueries(viewsets.ViewSet):
             "failed": 0,
             "total_duration_ms": 0,
             "total_read_bytes": 0,
+            # Spend on builds that failed: pure waste (the read then falls back to a full
+            # events scan on top). The number that should stay near zero.
+            "failed_duration_ms": 0,
+            "failed_read_bytes": 0,
             "by_table": {},
             "failures_by_code": {},
         }
@@ -864,6 +868,8 @@ class DebugCHQueries(viewsets.ViewSet):
             else:
                 builds["failed"] += count
                 table_entry["failed"] += count
+                builds["failed_duration_ms"] += total_duration_ms
+                builds["failed_read_bytes"] += total_read_bytes
                 code_key = str(exception_code)
                 builds["failures_by_code"][code_key] = builds["failures_by_code"].get(code_key, 0) + count
 

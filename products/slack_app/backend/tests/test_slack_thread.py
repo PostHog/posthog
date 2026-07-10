@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -12,7 +12,7 @@ from products.slack_app.backend.slack_thread import (
 )
 
 
-class TestSlackThreadHandler(TestCase):
+class TestSlackThreadHandler(SimpleTestCase):
     @parameterized.expand(
         [
             ("empty", "", "Unknown error"),
@@ -151,6 +151,21 @@ class TestSlackThreadHandler(TestCase):
         kwargs = mock_client.chat_postMessage.call_args.kwargs
         assert kwargs["text"] == f"*Task Failed* :x:\n{UPSTREAM_PROVIDER_FAILURE_MESSAGE}"
         assert kwargs["blocks"][1]["text"]["text"] == UPSTREAM_PROVIDER_FAILURE_MESSAGE
+        assert "retry" in kwargs["blocks"][2]["text"]["text"]
+
+    @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_error_includes_custom_recovery_hint(self, mock_get_client, _mock_find_progress):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678"))
+
+        handler.post_error(
+            "No connected GitHub account", task_url=None, recovery_hint="Connect GitHub, then reply here."
+        )
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        assert blocks[2]["text"]["text"] == "Connect GitHub, then reply here."
 
 
 def _action_blocks(call_kwargs: dict) -> list[dict]:
@@ -161,7 +176,7 @@ def _button_texts(action_block: dict) -> list[str]:
     return [element["text"]["text"] for element in action_block["elements"]]
 
 
-class TestSlackThreadHandlerWithoutTaskUrl(TestCase):
+class TestSlackThreadHandlerWithoutTaskUrl(SimpleTestCase):
     """A ``task_url=None`` payload signals the recipient does not have PostHog Code access.
 
     Each renderer must drop the PostHog button (or the entire actions block when
@@ -247,7 +262,7 @@ class TestSlackThreadHandlerWithoutTaskUrl(TestCase):
         assert _action_blocks(mock_client.chat_postMessage.call_args.kwargs) == []
 
 
-class TestPostPrOpenedReplyTarget(TestCase):
+class TestPostPrOpenedReplyTarget(SimpleTestCase):
     """``post_pr_opened`` no longer owns the mention-target decision — the
     caller resolves the Slack user id and passes it in. The handler just
     embeds it (or omits the prefix entirely when it's ``None``).

@@ -25,6 +25,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
+import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
@@ -267,6 +268,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 movingAverageIntervals: movingAverageIntervals ?? undefined,
                 showTrendLines: showTrendLines ?? undefined,
                 valueLabels: showValuesOnSeries && valueLabelFormatter ? { formatter: valueLabelFormatter } : false,
+                curve: chartStyleCurve(trendsFilter?.chartStyle),
                 showCrosshair: true,
                 tooltip: TOOLTIP_CONFIG,
                 legend: legendConfig,
