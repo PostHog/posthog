@@ -2003,7 +2003,10 @@ class TestSaveTimeAccessBlock(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "publicly shared" in str(response.json())
         self.insight.refresh_from_db()
-        assert self.insight.query["source"]["query"] == "SELECT 1 AS one"
+        assert self.insight.query == {
+            "kind": "DataTableNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
+        }
 
     def test_query_update_allowed_when_not_shared(self):
         self._deny_editor()

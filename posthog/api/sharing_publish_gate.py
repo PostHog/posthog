@@ -94,10 +94,10 @@ def is_publicly_shared(artifact: "Dashboard | Notebook | Insight") -> bool:
         # Notebooks reference insights inside their content JSON, so the few active notebook
         # shares per team are scanned rather than joined.
         return any(
-            artifact.short_id in extract_referenced_insight_short_ids(config.notebook.content)
-            for config in SharingConfiguration.objects.filter(
+            artifact.short_id in extract_referenced_insight_short_ids(content)
+            for content in SharingConfiguration.objects.filter(
                 SharingConfiguration.tokens_active_q(), team_id=artifact.team_id, notebook__isnull=False
-            ).select_related("notebook")
+            ).values_list("notebook__content", flat=True)
         )
     field = "dashboard" if isinstance(artifact, Dashboard) else "notebook"
     return SharingConfiguration.objects.filter(SharingConfiguration.tokens_active_q(), **{field: artifact}).exists()
