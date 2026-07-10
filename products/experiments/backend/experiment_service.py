@@ -2116,7 +2116,11 @@ class ExperimentService:
         FREEZE_EXPOSURE_MAX_UNRESOLVED_SHARE the freeze is rejected, before any cohort is created.
 
         The returned pairs are what the snapshot cohort is built from — resolution and insert
-        share one (field-masked) personhog pass instead of fetching the persons twice.
+        share one (field-masked) personhog pass instead of fetching the persons twice. Membership
+        is therefore snapshotted at resolve time: a person deleted or merged in the moments before
+        the insert is written as an inert row rather than skipped. The user-facing outcome is
+        unchanged from insert-time resolution (their distinct_id no longer resolves to a cohort
+        member either way), and the cohort stays consistent with the count this guard approved.
         """
         resolved_person_pairs = get_person_ids_and_uuids_by_uuids(self.team.id, person_uuids)
         unresolved_count = len(person_uuids) - len(resolved_person_pairs)

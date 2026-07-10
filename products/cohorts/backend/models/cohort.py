@@ -539,6 +539,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         the same set) and must not pay for a second personhog lookup. Semantics otherwise match
         ``insert_users_list_by_uuid``, including ``raise_on_error``.
 
+        Tenant-isolation contract: pairs MUST come from a team-scoped personhog read for this
+        same ``team_id`` (e.g. ``get_person_ids_and_uuids_by_uuids``). Nothing downstream
+        re-validates person ownership — the InsertCohortMembers RPC is team-blind, and in the
+        UUID path that validation happens implicitly in the resolve step this method skips.
+        Wrong-team pairs would write inert membership rows (read paths join membership against
+        the team's own persons, so foreign ids never match), but they are still a tenant-data
+        integrity violation.
+
         Returns:
             The number of batches processed.
         """
@@ -731,9 +739,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     ) -> None:
         """Write a single batch of already-resolved (person_id, person_uuid) cohort members.
 
-        Calls the InsertCohortMembers RPC. ClickHouse inserts (if requested)
-        exclude persons already in the cohort because the
-        person_static_cohort table's ORDER BY includes a per-row UUID,
+        Trusts the pairs — see the tenant-isolation contract on
+        ``insert_users_list_by_id_uuid_pairs``. Calls the InsertCohortMembers RPC.
+        ClickHouse inserts (if requested) exclude persons already in the cohort
+        because the person_static_cohort table's ORDER BY includes a per-row UUID,
         preventing ReplacingMergeTree from deduplicating repeated inserts.
         """
         from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
