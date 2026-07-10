@@ -6,6 +6,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
     StartAgentServerInput,
     _ensure_repository_on_disk,
+    _include_personal_mcp_for_task,
     _resolve_protected_base_branch,
     start_agent_server,
 )
@@ -47,6 +48,21 @@ def _mock_github_integration(mocker, pr_base: str | None):
         return_value=integration,
     )
     return integration
+
+
+@pytest.mark.parametrize(
+    "internal,expected",
+    [
+        # Internal/autonomous runs (support reply, signals) get shared team
+        # connections only — never a resolved member's personal MCP creds.
+        (True, False),
+        # User-initiated Code runs get shared + the creator's personal installs.
+        (False, True),
+    ],
+)
+def test_include_personal_mcp_for_task(mocker, internal, expected) -> None:
+    task = mocker.Mock(internal=internal)
+    assert _include_personal_mcp_for_task(task) is expected
 
 
 @pytest.mark.parametrize(
@@ -119,6 +135,7 @@ def test_ensure_repository_on_disk_skips_repo_less_runs(mocker) -> None:
     sandbox.execute.assert_not_called()
 
 
+@pytest.mark.django_db
 async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker) -> None:
     context = _context(sandbox_event_ingest_enabled=True)
     sandbox = mocker.Mock()
