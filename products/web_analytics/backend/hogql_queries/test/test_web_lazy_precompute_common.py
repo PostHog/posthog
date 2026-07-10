@@ -28,6 +28,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     TtlSchedule,
 )
+from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     OOM_PIN_TTL_SECONDS,
     REVALIDATION_TRIGGER,
@@ -454,6 +455,9 @@ class TestWebEnsurePrecomputed(BaseTest):
             # CACHE_WARMUP feature gate must classify it as background, or it would
             # persist stale rows into the insight cache under a fresh timestamp.
             ("insight_warmer", {"trigger": "warmingV2", "feature": Feature.CACHE_WARMUP}),
+            # The lazy modules re-stamp feature=QUERY before ensuring, clobbering the
+            # warmer's CACHE_WARMUP tag — the trigger alone must classify as background.
+            ("insight_warmer_feature_clobbered", {"trigger": "warmingV2", "feature": Feature.QUERY}),
             ("unknown_future_warmer", {"feature": Feature.CACHE_WARMUP}),
         ]
     )
@@ -488,19 +492,35 @@ class TestStaleRevalidationEnqueue(BaseTest):
             ".revalidate_web_analytics_precompute.delay"
         )
 
-    def test_handle_stale_served_tags_read_and_enqueues_once_per_request(self):
-        # Two stale ensures in one request (current + compare period) must tag the read
-        # and mint exactly one revalidation task — one re-run covers both periods.
+    def test_handle_stale_served_tags_read_and_debounces_same_shape(self):
+        # Repeated stale serves of the same shape (current + compare period, or a user
+        # hammering forced refresh) must tag the read and mint exactly one revalidation
+        # task within the debounce window.
         runner = WebOverviewQueryRunner(team=self.team, query=self.query)
         reset_query_tags()
         with self._delay_patch() as delay:
-            handle_stale_served(runner=runner, family="web_overview")
-            handle_stale_served(runner=runner, family="web_overview")
+            for _ in range(3):
+                handle_stale_served(runner=runner, family="web_overview")
         assert get_query_tag_value("precompute_stale") is True
         assert delay.call_count == 1
         payload = delay.call_args.kwargs
         assert payload["team_id"] == self.team.pk
         assert payload["query"]["kind"] == "WebOverviewQuery"
+
+    def test_distinct_stale_shapes_each_get_a_revalidation(self):
+        # The debounce is per (team, family, shape), not per request: a second stale
+        # family in the same request context must still get its own refresh, or its
+        # data stays stale until a warmer happens to cover it.
+        overview_runner = WebOverviewQueryRunner(team=self.team, query=self.query)
+        stats_query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.PAGE
+        )
+        stats_runner = WebStatsTableQueryRunner(team=self.team, query=stats_query)
+        reset_query_tags()
+        with self._delay_patch() as delay:
+            handle_stale_served(runner=overview_runner, family="web_overview")
+            handle_stale_served(runner=stats_runner, family="web_stats")
+        assert delay.call_count == 2
 
     def test_broker_failure_does_not_break_the_stale_read_path(self):
         # handle_stale_served runs inside the families' read try/except before the stale

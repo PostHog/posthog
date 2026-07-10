@@ -102,6 +102,12 @@ BACKGROUND_WARMING_TRIGGERS = frozenset(
     {
         "webAnalyticsEagerBaselineWarming",
         "webAnalyticsQueryWarming",
+        # The generic insight cache warmer. Its Feature.CACHE_WARMUP tag does NOT
+        # survive to the ensure call (the lazy modules re-stamp feature=QUERY before
+        # ensuring), but the trigger does — without it here, warmer runs would be
+        # served stale and persist stale rows into the insight cache as a fresh
+        # blocking result.
+        "warmingV2",
         REVALIDATION_TRIGGER,
     }
 )
@@ -140,12 +146,20 @@ def is_background_warming_request() -> bool:
     return get_query_tag_value("trigger") in BACKGROUND_WARMING_TRIGGERS
 
 
+# One revalidation per (team, family, query shape) per window: a dashboard burst — or a
+# user hammering forced refresh on a stale tile — fires many stale serves for the same
+# shape and they must collapse to a single background rebuild. Keyed per shape (not per
+# request) so two different stale families in one request each still get their refresh.
+REVALIDATION_DEBOUNCE_SECONDS = 10 * 60
+
+
 def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
     """Enqueue a background re-run of `query` so a stale-served read gets fresh data next time.
 
-    Best-effort: this runs on the user-facing read path before the stale rows are read,
-    so a broker outage must degrade to "serve stale, warmer converges" — never abort the
-    read into the expensive live fallback.
+    Debounced via Redis per (team, family, query shape). Best-effort: this runs on the
+    user-facing read path before the stale rows are read, so a Redis or broker outage
+    must degrade to "serve stale, warmer converges" — never abort the read into the
+    expensive live fallback.
     """
     # The task module imports this module (for the trigger constant), so the reverse
     # import must stay local to avoid a cycle.
@@ -154,6 +168,9 @@ def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
     )
 
     try:
+        debounce_key = f"web_swr_reval:{team.id}:{family}:{compute_filters_eligibility_hash(query, team.timezone)[:16]}"
+        if not redis.get_client().set(debounce_key, "1", ex=REVALIDATION_DEBOUNCE_SECONDS, nx=True):
+            return
         revalidate_web_analytics_precompute.delay(
             team_id=team.id, query=query.model_dump(mode="json", exclude_none=True)
         )
@@ -169,16 +186,14 @@ def handle_stale_served(*, runner: Any, family: str) -> None:
     """Everything a read path does when an ensure came back `stale=True`.
 
     Counts the stale-served read, tags the upcoming read query so query_log can split
-    stale-served vs fresh reads, and enqueues the background revalidation. Enqueues at
-    most once per request: the `precompute_stale` tag it sets doubles as the marker, so
-    a compare-period ensure coming back stale after the current-period one doesn't mint
-    a second task for the same query (one re-run covers both periods).
+    stale-served vs fresh reads, and enqueues the background revalidation. The enqueue
+    is debounced per (team, family, query shape) in Redis — a compare-period ensure
+    coming back stale after the current-period one collapses to one task (one re-run
+    covers both periods), while a *different* stale family in the same request still
+    gets its own refresh.
     """
     WEB_ANALYTICS_LAZY_PRECOMPUTE_STALE_SERVED.labels(family=family).inc()
-    already_handled = get_query_tag_value("precompute_stale") is True
     tag_queries(precompute_stale=True)
-    if already_handled:
-        return
     enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family)
 
 
