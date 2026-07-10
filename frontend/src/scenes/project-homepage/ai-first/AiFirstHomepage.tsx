@@ -1,8 +1,9 @@
 import { BindLogic, useValues } from 'kea'
+import { lazy, Suspense } from 'react'
 
 import { Search } from 'lib/components/Search/Search'
 import { cn } from 'lib/utils/css-classes'
-import { ChatHeader } from 'scenes/max/components/AiFirstMaxInstance'
+import { ChatHeader } from 'scenes/max/components/ChatHeader'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
@@ -12,7 +13,8 @@ import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
 import { HomepageInput } from './HomepageInput'
 import { HomepageSearchResults } from './HomepageSearchResults'
-import { HomepageThread } from './HomepageThread'
+
+const HomepageThread = lazy(() => import('./HomepageThread').then((m) => ({ default: m.HomepageThread })))
 
 const PHASE_ORDER = ['idle', 'moving', 'separator', 'content'] as const
 
@@ -79,7 +81,11 @@ export function AiFirstHomepage(): JSX.Element {
                             isAi && isContent ? 'grow opacity-100 pt-12' : 'grow-0 opacity-0'
                         )}
                     >
-                        {isAi && threadStarted && <HomepageThread />}
+                        {isAi && threadStarted && (
+                            <Suspense fallback={null}>
+                                <HomepageThread />
+                            </Suspense>
+                        )}
                     </div>
 
                     {/* Top separator — hidden in search (flush to top edge) */}

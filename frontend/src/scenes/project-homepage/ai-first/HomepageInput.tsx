@@ -1,10 +1,10 @@
-import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArrowRight, IconClock, IconInfo, IconLock, IconMicrophone, IconPin, IconStar } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowRight, IconClock, IconInfo, IconMicrophone, IconPin, IconStar } from '@posthog/icons'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -15,19 +15,15 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { cn } from 'lib/utils/css-classes'
-import { uuid } from 'lib/utils/dom'
 import {
     CAPABILITY_CARDS_HEIGHT_PX,
     CapabilityBadges,
     CapabilitySuggestions,
 } from 'scenes/max/components/CapabilityBadges'
 import { FillInHint } from 'scenes/max/components/FillInHint'
-import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { Intro } from 'scenes/max/Intro'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { maxLogic } from 'scenes/max/maxLogic'
-import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -35,6 +31,8 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { HomepageGridItem, HomepageGridItemKind, aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
+
+const HomepageAiInput = lazy(() => import('./HomepageAiInput').then((m) => ({ default: m.HomepageAiInput })))
 
 function IdleInput(): JSX.Element {
     const { query, fillInHint } = useValues(aiFirstHomepageLogic)
@@ -187,52 +185,6 @@ function IdleInput(): JSX.Element {
                 </div>
             </label>
         </form>
-    )
-}
-
-function HomepageAiInput(): JSX.Element {
-    const { threadLogicKey, conversation } = useValues(maxLogic)
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-    const { acceptDataProcessing } = useAsyncActions(maxGlobalLogic)
-
-    const fallbackConversationId = useMemo(() => uuid(), [])
-    const threadProps: MaxThreadLogicProps = {
-        panelId: HOMEPAGE_TAB_ID,
-        conversationId: threadLogicKey || fallbackConversationId,
-        conversation,
-    }
-
-    if (!dataProcessingAccepted) {
-        const isAdmin = !dataProcessingApprovalDisabledReason
-        return (
-            <div className="border border-primary rounded-lg bg-surface-primary p-4 flex flex-col gap-2">
-                <p className="font-medium text-pretty m-0">
-                    PostHog AI needs your approval to potentially process identifying user data with external AI
-                    providers.
-                </p>
-                <p className="text-muted text-xs m-0">Your data won't be used for training third-party models.</p>
-                {isAdmin ? (
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        onClick={() => void acceptDataProcessing().catch(console.error)}
-                        sideIcon={<IconArrowRight />}
-                    >
-                        I allow AI analysis in this organization
-                    </LemonButton>
-                ) : (
-                    <LemonButton type="secondary" size="small" disabled sideIcon={<IconLock />}>
-                        {dataProcessingApprovalDisabledReason}
-                    </LemonButton>
-                )}
-            </div>
-        )
-    }
-
-    return (
-        <BindLogic logic={maxThreadLogic} props={threadProps}>
-            <SidebarQuestionInput />
-        </BindLogic>
     )
 }
 
@@ -589,7 +541,11 @@ export function HomepageInput(): JSX.Element {
                     </div>
                 </div>
             )}
-            {mode === 'ai' && <HomepageAiInput />}
+            {mode === 'ai' && (
+                <Suspense fallback={null}>
+                    <HomepageAiInput />
+                </Suspense>
+            )}
             {mode === 'search' && <Search.Input autoFocus />}
         </div>
     )
