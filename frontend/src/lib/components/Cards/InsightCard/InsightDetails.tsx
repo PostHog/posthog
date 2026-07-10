@@ -126,26 +126,16 @@ function OverrideNote({ source, children }: { source: OverrideSource; children: 
     )
 }
 
-// Serialization round-trips normalize/add fields, so compare property filters on their identifying
-// parts rather than deep equality.
-function propertyFilterSignature(filter: AnyPropertyFilter | undefined): string {
-    return JSON.stringify([
-        filter?.type ?? 'event',
-        filter?.key ?? null,
-        (filter as { operator?: string } | undefined)?.operator ?? 'exact',
-        filter?.value ?? null,
-    ])
+// Match by identity (type/key/operator/value) rather than deep equality: the override round-trips
+// through the backend into the merged query and picks up normalized fields the raw override lacks.
+function samePropertyFilters(a: AnyPropertyFilter[], b: AnyPropertyFilter[]): boolean {
+    const identity = (f: AnyPropertyFilter): string =>
+        JSON.stringify([f.type ?? 'event', f.key, (f as { operator?: string }).operator ?? 'exact', f.value ?? null])
+    return a.length === b.length && a.every((f, i) => identity(f) === identity(b[i]))
 }
 
-function propertyListsMatch(a: unknown[], b: AnyPropertyFilter[]): boolean {
-    return (
-        a.length === b.length &&
-        a.every((f, i) => propertyFilterSignature(f as AnyPropertyFilter) === propertyFilterSignature(b[i]))
-    )
-}
-
-// The query returned for a dashboard tile already has the override's properties ANDed in
-// (as the trailing subgroup/tail), so pull that part out to attribute it rather than list it twice.
+// The query returned for a dashboard tile already has the override's properties ANDed in (as the
+// trailing subgroup/tail), so pull that part out to attribute it rather than list it twice.
 function splitOutOverrideProperties(
     properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null,
     overrideProperties: AnyPropertyFilter[]
@@ -155,14 +145,19 @@ function splitOutOverrideProperties(
     }
     if (Array.isArray(properties)) {
         const tailStart = properties.length - overrideProperties.length
-        if (tailStart >= 0 && propertyListsMatch(properties.slice(tailStart), overrideProperties)) {
+        if (tailStart >= 0 && samePropertyFilters(properties.slice(tailStart), overrideProperties)) {
             return { base: properties.slice(0, tailStart), overrideFound: true }
         }
         return { base: properties, overrideFound: false }
     }
     const values = properties.values ?? []
     const last = values[values.length - 1]
-    if (last && 'values' in last && Array.isArray(last.values) && propertyListsMatch(last.values, overrideProperties)) {
+    if (
+        last &&
+        'values' in last &&
+        Array.isArray(last.values) &&
+        samePropertyFilters(last.values as AnyPropertyFilter[], overrideProperties)
+    ) {
         const remaining = values.slice(0, -1)
         return {
             base: remaining.length === 1 ? (remaining[0] as PropertyGroupFilter) : { ...properties, values: remaining },
