@@ -2060,6 +2060,8 @@ class TestTaskAPI(BaseTaskAPITest):
             ("gpt_5_3_medium", "gpt-5.3-codex", "medium"),
             ("gpt_5_3_high", "gpt-5.3-codex", "high"),
             ("gpt_5_5_xhigh", "gpt-5.5", "xhigh"),
+            ("gpt_5_6_sol_xhigh", "gpt-5.6-sol", "xhigh"),
+            ("gpt_5_6_luna_xhigh", "gpt-5.6-luna", "xhigh"),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -2287,6 +2289,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("gpt_5_4_xhigh", "gpt-5.4", "xhigh", "low, medium, high"),
             ("gpt_5_4_max", "gpt-5.4", "max", "low, medium, high"),
             ("gpt_5_5_max", "gpt-5.5", "max", "low, medium, high, xhigh"),
+            ("gpt_5_6_sol_max", "gpt-5.6-sol", "max", "low, medium, high, xhigh"),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -3487,10 +3490,210 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
+    def _create_run_for_origin(self, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Install PostHog",
+            description="Set up PostHog",
+            origin_product=origin_product,
+            repository="posthog/posthog-js",
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+            branch="posthog-code/install-posthog",
+        )
+        return task, run
+
+    def _set_wizard_pr_ready_email_flag(self, enabled: bool) -> None:
+        def check_flag(flag_name, *_args, **_kwargs):
+            if flag_name == "tasks":
+                return True
+            if flag_name == tasks_facade.WIZARD_PR_READY_EMAIL_FEATURE_FLAG:
+                return enabled
+            return False
+
+        self.mock_feature_flag.side_effect = check_flag
+
     def test_list_runs_with_malformed_task_id_returns_404(self):
         # A non-UUID task id in the URL must 404, not 500 through the UUIDField filter.
         response = self.client.get("/api/projects/@current/tasks/not-a-uuid/runs/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
+    @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    @patch("posthog.tasks.email.send_wizard_pr_ready_email.delay")
+    def test_onboarding_pr_url_enqueues_pr_ready_email_once(
+        self,
+        mock_send_wizard_pr_ready_email: MagicMock,
+        _mock_publish_stream_state_event: MagicMock,
+        _mock_emit_progress_event: MagicMock,
+        _mock_post_slack_update_for_pr: MagicMock,
+    ) -> None:
+        self._set_wizard_pr_ready_email_flag(True)
+        task, run = self._create_run_for_origin(Task.OriginProduct.ONBOARDING)
+        pr_url = "https://github.com/posthog/posthog-js/pull/1"
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"output": {"pr_url": pr_url}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_send_wizard_pr_ready_email.assert_called_once_with(str(run.id))
+        task.refresh_from_db()
+        task_state = task.state or {}
+        self.assertEqual(task_state["pr_ready_email_pr_url"], pr_url)
+        self.assertIn("pr_ready_email_queued_at", task_state)
+        self.assertNotIn("pr_ready_email_sent_at", task_state)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"output": {"pr_url": pr_url}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_send_wizard_pr_ready_email.assert_called_once_with(str(run.id))
+
+    @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
+    @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    @patch("posthog.tasks.email.send_wizard_pr_ready_email.delay")
+    def test_onboarding_pr_url_does_not_enqueue_pr_ready_email_when_flag_disabled(
+        self,
+        mock_send_wizard_pr_ready_email: MagicMock,
+        _mock_publish_stream_state_event: MagicMock,
+        _mock_emit_progress_event: MagicMock,
+        _mock_post_slack_update_for_pr: MagicMock,
+    ) -> None:
+        self._set_wizard_pr_ready_email_flag(False)
+        task, run = self._create_run_for_origin(Task.OriginProduct.ONBOARDING)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"output": {"pr_url": "https://github.com/posthog/posthog-js/pull/1"}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_send_wizard_pr_ready_email.assert_not_called()
+        task.refresh_from_db()
+        task_state = task.state or {}
+        self.assertNotIn("pr_ready_email_queued_at", task_state)
+        self.assertNotIn("pr_ready_email_sent_at", task_state)
+
+    @parameterized.expand(
+        [
+            ("wrong_host", "https://example.com/posthog/posthog-js/pull/1"),
+            ("wrong_repository", "https://github.com/posthog/posthog/pull/1"),
+            ("not_a_pull_request", "https://github.com/posthog/posthog-js/issues/1"),
+            ("with_query", "https://github.com/posthog/posthog-js/pull/1?email=1"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
+    @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    @patch("posthog.tasks.email.send_wizard_pr_ready_email.delay")
+    def test_onboarding_pr_url_only_emails_for_matching_github_pull_request(
+        self,
+        _case_name: str,
+        pr_url: str,
+        mock_send_wizard_pr_ready_email: MagicMock,
+        _mock_publish_stream_state_event: MagicMock,
+        _mock_emit_progress_event: MagicMock,
+        _mock_post_slack_update_for_pr: MagicMock,
+    ) -> None:
+        self._set_wizard_pr_ready_email_flag(True)
+        task, run = self._create_run_for_origin(Task.OriginProduct.ONBOARDING)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"output": {"pr_url": pr_url}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_send_wizard_pr_ready_email.assert_not_called()
+        task.refresh_from_db()
+        task_state = task.state or {}
+        self.assertNotIn("pr_ready_email_queued_at", task_state)
+        self.assertNotIn("pr_ready_email_sent_at", task_state)
+
+    @parameterized.expand([(Task.OriginProduct.USER_CREATED,), (Task.OriginProduct.SLACK,)])
+    @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
+    @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    @patch("posthog.tasks.email.send_wizard_pr_ready_email.delay")
+    def test_pr_ready_email_is_only_for_onboarding_runs(
+        self,
+        origin_product: Task.OriginProduct,
+        mock_send_wizard_pr_ready_email: MagicMock,
+        _mock_publish_stream_state_event: MagicMock,
+        _mock_emit_progress_event: MagicMock,
+        _mock_post_slack_update_for_pr: MagicMock,
+    ) -> None:
+        task, run = self._create_run_for_origin(origin_product)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"output": {"pr_url": "https://github.com/posthog/posthog-js/pull/1"}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_send_wizard_pr_ready_email.assert_not_called()
+        task.refresh_from_db()
+        task_state = task.state or {}
+        self.assertNotIn("pr_ready_email_queued_at", task_state)
+        self.assertNotIn("pr_ready_email_sent_at", task_state)
+
+    @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    @patch("posthog.tasks.email.send_wizard_pr_ready_email.delay")
+    def test_set_output_for_onboarding_pr_url_enqueues_pr_ready_email_once(
+        self,
+        mock_send_wizard_pr_ready_email: MagicMock,
+        _mock_publish_stream_state_event: MagicMock,
+        _mock_post_slack_update_for_pr: MagicMock,
+    ) -> None:
+        self._set_wizard_pr_ready_email_flag(True)
+        task, run = self._create_run_for_origin(Task.OriginProduct.ONBOARDING)
+        pr_url = "https://github.com/posthog/posthog-js/pull/1"
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+                {"output": {"pr_url": pr_url}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_send_wizard_pr_ready_email.assert_called_once_with(str(run.id))
+        task.refresh_from_db()
+        task_state = task.state or {}
+        self.assertEqual(task_state["pr_ready_email_pr_url"], pr_url)
+        self.assertIn("pr_ready_email_queued_at", task_state)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+                {"output": {"pr_url": pr_url}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_send_wizard_pr_ready_email.assert_called_once_with(str(run.id))
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")

@@ -103,6 +103,9 @@ class Channel(TeamScopedRootMixin):
 
 
 SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
+PR_READY_EMAIL_QUEUED_AT_STATE_KEY = "pr_ready_email_queued_at"
+PR_READY_EMAIL_SENT_AT_STATE_KEY = "pr_ready_email_sent_at"
+PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
 
 
 class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
@@ -390,6 +393,36 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
             state = dict(task.state or {})
             state[SLACK_NOTIFIED_PR_URL_STATE_KEY] = pr_url
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
+        self.state = state
+
+    @property
+    def pr_ready_email_sent_at(self) -> str | None:
+        return (self.state or {}).get(PR_READY_EMAIL_SENT_AT_STATE_KEY)
+
+    def mark_pr_ready_email_queued(self, pr_url: str, *, queued_at: datetime | None = None) -> bool:
+        """Record that this task's PR-ready email task was queued, preserving other state keys."""
+        with transaction.atomic():
+            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
+            state = dict(task.state or {})
+            if state.get(PR_READY_EMAIL_QUEUED_AT_STATE_KEY) or state.get(PR_READY_EMAIL_SENT_AT_STATE_KEY):
+                self.state = state
+                return False
+            state[PR_READY_EMAIL_QUEUED_AT_STATE_KEY] = (queued_at or django_timezone.now()).isoformat()
+            state[PR_READY_EMAIL_PR_URL_STATE_KEY] = pr_url
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
+        self.state = state
+        return True
+
+    def mark_pr_ready_email_sent(self, pr_url: str, *, sent_at: datetime | None = None) -> None:
+        """Record confirmed PR-ready email delivery, preserving other state keys."""
+        with transaction.atomic():
+            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
+            state = dict(task.state or {})
+            state[PR_READY_EMAIL_SENT_AT_STATE_KEY] = (sent_at or django_timezone.now()).isoformat()
+            state[PR_READY_EMAIL_PR_URL_STATE_KEY] = pr_url
             task.state = state
             task.save(update_fields=["state", "updated_at"])
         self.state = state

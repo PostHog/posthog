@@ -9,7 +9,7 @@ import type {
     ScorerScannerConfig,
     SummarizerScannerConfig,
 } from './types'
-import { DEFAULT_MODEL, DEFAULT_PROVIDER } from './types'
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, OBSERVATION_CREDITS_BY_MODEL } from './types'
 
 export type ScannerTemplateIcon = 'warning' | 'notebook' | 'target' | 'thumbs-down' | 'check'
 
@@ -136,6 +136,9 @@ export function newScanner(templateKey?: string | null): ReplayScanner {
         updated_at: dayjs().toISOString(),
         created_by: null,
         estimated_monthly_observations: null,
+        estimated_monthly_credits: null,
+        // Seed price for the unsaved scanner; the server-computed value takes over after the first save.
+        credits_per_observation: OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL],
     } as const
 
     const template = findScannerTemplate(templateKey ?? undefined)

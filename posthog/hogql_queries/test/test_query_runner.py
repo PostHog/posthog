@@ -128,6 +128,40 @@ class TestQueryRunner(BaseTest):
 
         return TestQueryRunner
 
+    def test_sync_warning_attach_preserves_other_warning_kinds(self):
+        # The accumulator attach replaces the response's warnings with the collected sync warnings.
+        # Access control warnings ride the same shared field and were silently dropped whenever a
+        # sync warning was present.
+        from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning
+
+        from posthog.hogql.warehouse_warnings import record_warnings
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        sync_warning = DataWarehouseSyncWarning(
+            table_name="paid_bills",
+            schema_name="paid_bills",
+            source_type="Stripe",
+            status="Failed",
+            message="sync failed",
+        )
+        ac_warning = AccessControlFilterWarning(
+            resources=["insight"], message="Results may exclude insights you don't have access to"
+        )
+
+        def calculate_with_warnings(_self):
+            record_warnings([sync_warning])
+            response = TheTestBasicQueryResponse(results=[])
+            response.warnings = [ac_warning]
+            return response
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        with mock.patch.object(TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_with_warnings):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        warnings = [w if isinstance(w, dict) else w.model_dump() for w in response.warnings or []]
+        assert any(w.get("table_name") == "paid_bills" for w in warnings)
+        assert any(w.get("resources") == ["insight"] for w in warnings)
+
     def test_calculate_runs_validators_before_calculation(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         validation_rule = mock.MagicMock()

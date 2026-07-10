@@ -11,18 +11,18 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 
-from posthog.schema import ProductKey
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, ProductKey
 
-from posthog.clickhouse.client import sync_execute
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.models import Team
 
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventName,
-    SurveyEventProperties,
     get_archived_response_uuids,
-    get_survey_property_bool_expr,
-    get_survey_property_string_expr,
     get_unique_survey_event_uuids_sql_subquery,
 )
 
@@ -106,6 +106,14 @@ def archived_responses_filter(survey_id: str | None, team_id: int) -> tuple[str,
     return "uuid NOT IN %(archived_uuids)s", params
 
 
+def _isoformat_utc_z(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        value = value.astimezone(UTC).replace(tzinfo=None)
+    return value.isoformat() + "Z"
+
+
 def process_survey_results(
     results: list[tuple[str, int, int, datetime | None, datetime | None]],
 ) -> SurveyStats:
@@ -145,8 +153,8 @@ def process_survey_results(
         event_stats: EventStats = {
             "total_count": total_count,
             "unique_persons": unique_persons,
-            "first_seen": first_seen.isoformat() + "Z" if first_seen else None,
-            "last_seen": last_seen.isoformat() + "Z" if last_seen else None,
+            "first_seen": _isoformat_utc_z(first_seen),
+            "last_seen": _isoformat_utc_z(last_seen),
             # Ensure these are initialized to 0
             "unique_persons_only_seen": 0,
             "total_count_only_seen": 0,
@@ -203,10 +211,15 @@ def get_survey_stats(
     """
     parsed_from, parsed_to = validate_and_parse_dates(date_from, date_to)
 
-    params: dict[str, Any] = {"team_id": str(team_id)}
-    date_filter = ""
-    survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
-    survey_partially_completed_expr = get_survey_property_bool_expr(SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED)
+    team = Team.objects.get(pk=team_id)
+    # Bare events.person_id: no override join; merged persons count per pre-merge id.
+    modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS)
+    placeholders: dict[str, ast.Expr] = {
+        "shown": ast.Constant(value=SurveyEventName.SHOWN.value),
+        "dismissed": ast.Constant(value=SurveyEventName.DISMISSED.value),
+        "sent": ast.Constant(value=SurveyEventName.SENT.value),
+    }
+    conditions: list[str] = []
     effective_from = parsed_from
     effective_to = parsed_to
 
@@ -225,26 +238,25 @@ def get_survey_stats(
             if survey_end:
                 effective_to = min(filter(None, [parsed_to, survey_end]), default=survey_end)
 
+    date_conditions = ""
     if effective_from:
-        date_filter += " AND timestamp >= %(date_from)s"
-        params["date_from"] = effective_from
+        date_conditions += " AND timestamp >= {date_from}"
+        placeholders["date_from"] = ast.Constant(value=effective_from)
     if effective_to:
-        date_filter += " AND timestamp <= %(date_to)s"
-        params["date_to"] = effective_to
+        date_conditions += " AND timestamp <= {date_to}"
+        placeholders["date_to"] = ast.Constant(value=effective_to)
+    if date_conditions:
+        conditions.append(date_conditions.removeprefix(" AND "))
 
-    # Add archive filter if needed
-    archive_filter = ""
     if survey_id and exclude_archived:
-        archive_filter_sql, archive_params = archived_responses_filter(survey_id, team_id)
-        if archive_filter_sql:
-            archive_filter = f"AND {archive_filter_sql}"
-            params.update(archive_params)
+        archived_uuids = get_archived_response_uuids(survey_id, team_id)
+        if archived_uuids:
+            conditions.append("uuid NOT IN {archived_uuids}")
+            placeholders["archived_uuids"] = ast.Constant(value=sorted(archived_uuids))
 
-    # Add survey filter if specific survey
-    survey_filter = ""
     if survey_id:
-        survey_filter = f"AND {survey_id_expr} = %(survey_id)s"
-        params["survey_id"] = str(survey_id)
+        conditions.append("properties.$survey_id = {survey_id}")
+        placeholders["survey_id"] = ast.Constant(value=str(survey_id))
     else:
         # For global stats, only include non-archived surveys
         active_survey_ids = list(Survey.objects.filter(team_id=team_id, archived=False).values_list("id", flat=True))
@@ -258,53 +270,50 @@ def get_survey_stats(
                     "unique_users_dismissal_rate": 0.0,
                 },
             }
-        survey_filter = f"AND {survey_id_expr} IN %(survey_ids)s"
-        params["survey_ids"] = [str(id) for id in active_survey_ids]
+        conditions.append("properties.$survey_id IN {survey_ids}")
+        placeholders["survey_ids"] = ast.Constant(value=[str(id) for id in active_survey_ids])
 
-    partial_responses_base_conditions = ["team_id = %(team_id)s"]
-    if effective_from:
-        partial_responses_base_conditions.append("timestamp >= %(date_from)s")
-    if effective_to:
-        partial_responses_base_conditions.append("timestamp <= %(date_to)s")
+    # Partially-completed submissions carry a synthetic "survey dismissed" event; don't count those.
+    conditions.append("(event != {dismissed} OR coalesce(properties.$survey_partially_completed, '') != 'true')")
 
-    partial_filter = partial_responses_filter(
-        base_conditions_sql=partial_responses_base_conditions,
-    )
+    condition_sql = "".join(f"\n            AND {condition}" for condition in conditions)
+
+    # Multiple partial "survey sent" events can exist per submission; only the latest per
+    # $survey_submission_id counts (pre-submission-id events group by their own uuid). Deliberately
+    # not filtered by survey, matching get_unique_survey_event_uuids_sql_subquery's semantics.
+    sent_dedup_sql = f"""(event != {{sent}} OR uuid IN (
+                SELECT argMax(uuid, timestamp)
+                FROM events
+                WHERE event = {{sent}}{date_conditions}
+                GROUP BY if(
+                    coalesce(properties.$survey_submission_id, '') = '',
+                    toString(uuid),
+                    properties.$survey_submission_id
+                )
+            ))"""
+
+    tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
 
     # Query 1: Base Stats
     base_stats_query = f"""
         SELECT
-            event as event_name,
-            count() as total_count,
-            count(DISTINCT person_id) as unique_persons,
-            if(count() > 0, min(timestamp), null) as first_seen,
-            if(count() > 0, max(timestamp), null) as last_seen
+            event AS event_name,
+            count() AS total_count,
+            count(DISTINCT person_id) AS unique_persons,
+            if(count() > 0, min(timestamp), NULL) AS first_seen,
+            if(count() > 0, max(timestamp), NULL) AS last_seen
         FROM events
-        WHERE team_id = %(team_id)s
-        AND event IN (%(shown)s, %(dismissed)s, %(sent)s)
-        {survey_filter}
-        {date_filter}
-            {archive_filter}
-            AND (
-                event != %(dismissed)s
-                OR
-                COALESCE({survey_partially_completed_expr}, False) = False
-            )
-            AND (
-                event != %(sent)s
-            OR
-            {partial_filter}
-        )
+        WHERE event IN ({{shown}}, {{dismissed}}, {{sent}}){condition_sql}
+            AND {sent_dedup_sql}
         GROUP BY event
     """
-    query_params = {
-        **params,
-        "shown": SurveyEventName.SHOWN.value,
-        "dismissed": SurveyEventName.DISMISSED.value,
-        "sent": SurveyEventName.SENT.value,
-    }
-    tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
-    results_base = sync_execute(base_stats_query, query_params)
+    results_base = execute_hogql_query(
+        base_stats_query,
+        placeholders=placeholders,
+        team=team,
+        query_type="survey_stats_base",
+        modifiers=modifiers,
+    ).results
 
     # Query 2: Count of unique persons who both dismissed AND sent
     dismissed_and_sent_query = f"""
@@ -312,22 +321,19 @@ def get_survey_stats(
         FROM (
             SELECT person_id
             FROM events
-            WHERE team_id = %(team_id)s
-              AND event IN (%(dismissed)s, %(sent)s)
-              {survey_filter}
-              {date_filter}
-              {archive_filter}
-            AND (
-                event != %(dismissed)s
-                OR
-                COALESCE({survey_partially_completed_expr}, False) = False
-            )
+            WHERE event IN ({{dismissed}}, {{sent}}){condition_sql}
             GROUP BY person_id
-            HAVING sum(if(event = %(dismissed)s, 1, 0)) > 0
-               AND sum(if(event = %(sent)s, 1, 0)) > 0
-        ) AS PersonsWithBothEvents
+            HAVING countIf(event = {{dismissed}}) > 0
+               AND countIf(event = {{sent}}) > 0
+        )
     """
-    dismissed_and_sent_count_result = sync_execute(dismissed_and_sent_query, query_params)
+    dismissed_and_sent_count_result = execute_hogql_query(
+        dismissed_and_sent_query,
+        placeholders=placeholders,
+        team=team,
+        query_type="survey_stats_dismissed_and_sent",
+        modifiers=modifiers,
+    ).results
     dismissed_and_sent_count = dismissed_and_sent_count_result[0][0] if dismissed_and_sent_count_result else 0
 
     # Process initial stats
