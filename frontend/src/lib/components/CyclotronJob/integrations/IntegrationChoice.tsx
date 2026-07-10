@@ -47,14 +47,13 @@ export function IntegrationChoice({
     // saves. The UI surfaces a warning below instead so the user picks explicitly.
     const valueIsMissing = !integrationsLoading && !!value && !!integrations && !integrationKind
 
-    // Auto-select the first integration of this kind when none is chosen. Guarded to fire at most
-    // once: the selected value can round-trip back asynchronously (e.g. workflow mapping edits
-    // rebuild the editor nodes behind an async layout pass), so re-firing on every render until the
-    // value settles overflows React's update depth. Fire once, then let the value arrive.
-    const hasAutoSelectedRef = useRef(false)
+    // Fire at most once: the consumer's write may take a full state round-trip before it flows
+    // back into `value`, and re-dispatching on every render in that window can amplify into an
+    // infinite update loop (React #185).
+    const autoSelected = useRef(false)
     useEffect(() => {
-        if (!integrationsLoading && !value && integrationsOfKind?.length && !hasAutoSelectedRef.current) {
-            hasAutoSelectedRef.current = true
+        if (!integrationsLoading && !value && integrationsOfKind?.length && !autoSelected.current) {
+            autoSelected.current = true
             onChange?.(integrationsOfKind[0].id)
         }
     }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])

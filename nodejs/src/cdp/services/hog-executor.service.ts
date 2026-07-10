@@ -38,7 +38,6 @@ import { PushNotificationService } from './messaging/push-notification.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 import {
     SELF_LOOP_MAX_DEPTH,
-    SelfLoopGuardMode,
     getSelfLoopDepth,
     injectSelfLoopDepth,
     isPostHogIngestUrl,
@@ -58,7 +57,6 @@ export interface HogExecutorConfig {
     fetchRetries: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
-    selfLoopGuardMode: SelfLoopGuardMode
 }
 
 export interface HogExecutorAsyncContext {
@@ -831,8 +829,7 @@ export class HogExecutorService {
         // ingest-URL check gates the team lookup so external fetches (the common case) pay
         // nothing, and the whole block fails open - the guard must never break a destination
         // it was only meant to protect.
-        const guardMode = this.config.selfLoopGuardMode
-        if (guardMode !== 'disabled' && isPostHogIngestUrl(params.url)) {
+        if (isPostHogIngestUrl(params.url)) {
             try {
                 const team = await this.asyncContext.teamManager.getTeam(invocation.teamId)
                 if (team && isSelfReferentialIngestFetch({ url: params.url, body: params.body, team })) {
@@ -842,15 +839,9 @@ export class HogExecutorService {
                     const functionId = invocation.hogFunction.id
                     const depth = getSelfLoopDepth(invocation.state.globals.event?.properties, functionId)
 
-                    if (guardMode === 'warn') {
-                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'detected' })
-                        addLog(
-                            'warn',
-                            `This fetch targets a PostHog ingestion endpoint using this project's own API key, which can form an event-forwarding loop. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
-                        )
-                    } else if (depth >= SELF_LOOP_MAX_DEPTH) {
-                        // enforce, this destination has re-fed itself to the cap - break it.
-                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'blocked' })
+                    if (depth >= SELF_LOOP_MAX_DEPTH) {
+                        // This destination has re-fed itself to the cap - break it.
+                        selfLoopGuardCounter.inc({ mode: 'enforce', action: 'blocked' })
                         addLog(
                             'error',
                             `Refusing to fetch a PostHog ingestion endpoint using this project's own API key - this destination's event-forwarding loop has already repeated ${SELF_LOOP_MAX_DEPTH} times. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
@@ -858,11 +849,10 @@ export class HogExecutorService {
                         result.error = new Error('Self-referential event-forwarding loop blocked at max depth')
                         result.finished = true
                         return result
-                    } else {
-                        // enforce, under the cap - stamp this destination's next hop and proceed.
-                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'allowed_with_counter' })
-                        params.body = injectSelfLoopDepth(params.body, functionId, depth + 1)
                     }
+                    // Under the cap - stamp this destination's next hop and proceed.
+                    selfLoopGuardCounter.inc({ mode: 'enforce', action: 'allowed_with_counter' })
+                    params.body = injectSelfLoopDepth(params.body, functionId, depth + 1)
                 }
             } catch (err) {
                 logger.warn('🦔', '[HogExecutor] Self-loop guard skipped due to an internal error', {

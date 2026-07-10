@@ -765,3 +765,146 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
             self._run(self._build_query(opt_in_precompute=False))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @parameterized.expand(
+        [
+            ("user_request", None),
+            ("eager_warmer", "webAnalyticsEagerBaselineWarming"),
+            ("replay_warmer", "webAnalyticsQueryWarming"),
+        ]
+    )
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_ensure_wait_budget_by_trigger(self, _name: str, trigger: str | None) -> None:
+        from datetime import UTC, datetime
+
+        from posthog.clickhouse.query_tagging import reset_query_tags, tags_context
+
+        from products.web_analytics.backend.hogql_queries import web_stats_paths_lazy_precompute as mod
+
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+        reset_query_tags()
+        with patch.object(
+            mod, "web_ensure_precomputed", return_value=LazyComputationResult(ready=True, job_ids=[])
+        ) as ensure_mock:
+            if trigger is not None:
+                with tags_context(trigger=trigger):
+                    mod.ensure_web_stats_paths_precomputed(
+                        runner, datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC)
+                    )
+            else:
+                mod.ensure_web_stats_paths_precomputed(
+                    runner, datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC)
+                )
+
+        budget = ensure_mock.call_args.kwargs["wait_timeout_seconds"]
+        grace = ensure_mock.call_args.kwargs["serve_stale_grace_seconds"]
+        if trigger is None:
+            assert budget == mod.PATHS_USER_ENSURE_WAIT_SECONDS
+            assert grace == mod.PATHS_USER_STALE_GRACE_SECONDS
+        else:
+            # Warmers keep the full budget AND must never serve stale to themselves —
+            # they are the refresh mechanism the stale path relies on.
+            assert budget is None, f"warmer trigger {trigger} must keep the framework default budget"
+            assert grace is None, f"warmer trigger {trigger} must not serve stale"
+
+    @parameterized.expand(
+        [
+            # First ensure burned 9.5s of the 10s budget: the compare ensure must be
+            # skipped entirely (fallback to raw) instead of getting a fresh budget.
+            ("budget_spent_skips_compare", 9.5, None),
+            # First ensure took 2s: the compare ensure runs with the 8s remainder,
+            # not a fresh PATHS_USER_ENSURE_WAIT_SECONDS.
+            ("remainder_passed_to_compare", 2.0, 8.0),
+        ]
+    )
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_user_ensure_budget_is_shared_across_compare_periods(
+        self, _name: str, first_ensure_seconds: float, expected_compare_budget: float | None
+    ) -> None:
+
+        from posthog.clickhouse.query_tagging import reset_query_tags
+
+        from products.web_analytics.backend.hogql_queries import web_stats_paths_lazy_precompute as mod
+
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(compare=True))
+        reset_query_tags()
+
+        # perf_counter sequence: overall_started, ensure_started, after first ensure;
+        # everything after sticks to the last value so later timing reads are stable.
+        ticks = [0.0, 0.0, first_ensure_seconds]
+
+        def fake_perf_counter() -> float:
+            return ticks.pop(0) if len(ticks) > 1 else ticks[0]
+
+        with (
+            patch.object(
+                mod,
+                "ensure_web_stats_paths_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()]),
+            ) as ensure_mock,
+            patch.object(mod, "execute_read_query", return_value=[]),
+            patch.object(mod.time, "perf_counter", side_effect=fake_perf_counter),
+        ):
+            result = mod.execute_lazy_precomputed_read(
+                runner, sort_column="visitors", sort_direction="DESC", limit=11, offset=0
+            )
+
+        if expected_compare_budget is None:
+            assert result is None, "spent budget must skip the compare ensure and fall back to raw"
+            assert ensure_mock.call_count == 1
+        else:
+            assert ensure_mock.call_count == 2
+            assert ensure_mock.call_args_list[1].kwargs["wait_budget_seconds"] == expected_compare_budget
+
+    @parameterized.expand([("no_compare", False), ("compare", True)])
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_read_scan_is_pruned_to_requested_windows(self, _name: str, compare: bool) -> None:
+        from datetime import UTC, datetime
+
+        from products.web_analytics.backend.hogql_queries import web_stats_paths_lazy_precompute as mod
+
+        cur_start = datetime(2024, 1, 8, tzinfo=UTC)
+        cur_end = datetime(2024, 1, 15, tzinfo=UTC)
+        prev_start = datetime(2024, 1, 1, tzinfo=UTC) if compare else None
+        prev_end = datetime(2024, 1, 8, tzinfo=UTC) if compare else None
+
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(compare=compare))
+        captured: dict = {}
+
+        def fake_execute(**kwargs):
+            captured["query"] = kwargs["query"]
+            return type("FakeResponse", (), {"results": []})()
+
+        with patch.object(mod, "execute_hogql_query", side_effect=fake_execute):
+            mod.execute_read_query(
+                runner=runner,
+                job_ids=[str(uuid.uuid4())],
+                current_start_utc=cur_start,
+                current_end_utc=cur_end,
+                previous_start_utc=prev_start,
+                previous_end_utc=prev_end,
+                sort_column="visitors",
+                sort_direction="DESC",
+                limit=11,
+                offset=0,
+            )
+
+        inner = captured["query"].select_from.table
+        assert isinstance(inner, ast.SelectQuery)
+        bounds: dict[str, object] = {}
+        assert inner.where is not None
+        for expr in inner.where.args if isinstance(inner.where, ast.Call) else [inner.where]:
+            if (
+                isinstance(expr, ast.CompareOperation)
+                and isinstance(expr.left, ast.Field)
+                and expr.left.chain == ["time_window_start"]
+                and isinstance(expr.right, ast.Constant)
+            ):
+                key = "min" if expr.op == ast.CompareOperationOp.GtEq else "max"
+                bounds[key] = expr.right.value
+
+        # The scan lower bound must be the union of the requested windows — with a compare
+        # period that is prev_start; without one it must stay cur_start (NOT the 1970
+        # no-compare sentinel, which would defeat the pruning entirely).
+        expected_min = prev_start if compare else cur_start
+        assert bounds == {"min": expected_min, "max": cur_end}
