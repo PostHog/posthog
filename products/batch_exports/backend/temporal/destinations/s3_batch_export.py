@@ -2,6 +2,7 @@ import json
 import typing
 import asyncio
 import datetime as dt
+import posixpath
 import contextlib
 import dataclasses
 import collections.abc
@@ -575,13 +576,29 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
                 key_prefix = get_key_prefix(
                     inputs.prefix, inputs.data_interval_start, inputs.data_interval_end, inputs.batch_export_model
                 )
+                # Empty string becomes "/", prefixes without a leading "/" get one,
+                # and for everything else this is a no-op.
+                key_prefix = posixpath.join("/", key_prefix)
+
                 policy_statements = [
                     PolicyStatement(
                         Effect="Allow",
                         Action=["s3:PutObject", "s3:AbortMultipartUpload"],
-                        Resource=f"arn:aws:s3:::{bucket_name}/{key_prefix}/*",
+                        Resource=f"arn:aws:s3:::{bucket_name}{key_prefix}*",
                     )
                 ]
+
+                if inputs.kms_key_id is not None:
+                    # TODO: KMS key could be in a different acount, we should support passing a
+                    # full ARN here rather than just the key ID.
+                    account_id = integration.aws_role_arn.split(":")[4]
+                    policy_statements.append(
+                        PolicyStatement(
+                            Effect="Allow",
+                            Action=["kms:GenerateDataKey", "kms:Decrypt"],
+                            Resource=f"arn:aws:kms:{inputs.region}:{account_id}:key/{inputs.kms_key_id}",
+                        )
+                    )
 
                 aws_access_key_id, aws_secret_access_key, aws_session_token = await get_credentials_using_user_aws_role(
                     integration.aws_role_arn,
