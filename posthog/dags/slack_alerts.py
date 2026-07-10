@@ -34,6 +34,45 @@ CONSECUTIVE_FAILURE_THRESHOLDS = {
     "web_pre_aggregate_daily_job": 3,
 }
 
+# Slack rejects the entire message with `invalid_blocks` if any section's text exceeds 3000 chars,
+# so keep each field comfortably under that limit (leaving headroom for surrounding markdown/fences).
+SLACK_SECTION_TEXT_LIMIT = 3000
+
+
+def _truncate_for_slack(text: str, limit: int) -> str:
+    """Truncate text to fit inside a Slack section block.
+
+    A verbose failure (e.g. a Kubernetes or ClickHouse API exception) would otherwise blow past
+    Slack's 3000-char section limit and cause the whole notification to be silently dropped. Keep
+    the head and tail so both the top of the error and its root cause survive.
+    """
+    if len(text) <= limit:
+        return text
+    marker = "\n…(truncated)…\n"
+    keep = max(limit - len(marker), 0)
+    head = keep * 2 // 3
+    tail = keep - head
+    return f"{text[:head]}{marker}{text[-tail:]}" if tail else f"{text[:head]}{marker}"
+
+
+def send_slack_alert(context, client, channel: str, blocks: list, fallback_text: str) -> None:
+    """Post an alert, falling back to a plain-text message if the rich blocks are rejected.
+
+    A block-formatting or size error (e.g. an oversized error field exceeding Slack's 3000-char
+    section limit) previously suppressed the alert entirely because the exception was only logged.
+    Always retry text-only so a run failure can never go silently un-alerted.
+    """
+    try:
+        client.chat_postMessage(channel=channel, blocks=blocks, text=fallback_text)
+        context.log.info(f"Sent Slack notification to {channel}")
+    except Exception as e:
+        context.log.exception(f"Failed to send Slack notification with blocks to {channel}: {str(e)}")
+        try:
+            client.chat_postMessage(channel=channel, text=fallback_text)
+            context.log.info(f"Sent text-only Slack fallback to {channel}")
+        except Exception as e2:
+            context.log.exception(f"Failed to send text-only Slack fallback to {channel}: {str(e2)}")
+
 
 def get_job_owner_for_alert(failed_run: dagster.DagsterRun, error_message: str) -> str:
     """Determine the correct job owner for alert routing, with special handling for asset jobs."""
@@ -119,26 +158,30 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
     environment = (
         f"{settings.CLOUD_DEPLOYMENT} :flag-{settings.CLOUD_DEPLOYMENT}:" if settings.CLOUD_DEPLOYMENT else "unknown"
     )
+
+    channel = notification_channel_per_team.get(job_owner, settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL)
+
+    # Truncate so a single oversized field can't get the whole message rejected. The error is wrapped
+    # in a ``` code fence, so leave headroom below the 3000-char section limit for the fence + label.
+    tags_text = _truncate_for_slack(str(tags), 500)
+    error_text = _truncate_for_slack(str(error), SLACK_SECTION_TEXT_LIMIT - 200)
+
     blocks: list[dict[str, object]] = [
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"❌ *Dagster job `{job_name}` failed*\n\n*Run ID*: `{run_id}`\n*Run URL*: <{run_url}|View in Dagster>\n*Tags*: {tags}",
+                "text": f"❌ *Dagster job `{job_name}` failed*\n\n*Run ID*: `{run_id}`\n*Run URL*: <{run_url}|View in Dagster>\n*Tags*: {tags_text}",
             },
         },
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Error*:\n```{error}```"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Error*:\n```{error_text}```"}},
         {
             "type": "context",
             "elements": [{"type": "mrkdwn", "text": f"Environment: {environment}"}],
         },
     ]
 
-    try:
-        slack.get_client().chat_postMessage(
-            channel=notification_channel_per_team.get(job_owner, settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL),
-            blocks=blocks,
-        )
-        context.log.info(f"Sent Slack notification for failed job {job_name} to {job_owner} team")
-    except Exception as e:
-        context.log.exception(f"Failed to send Slack notification: {str(e)}")
+    # Plain-text fallback carried on every message so the alert still lands (and renders in
+    # notifications) even if the rich blocks are rejected.
+    fallback_text = f"❌ Dagster job `{job_name}` failed (run {run_id}): {run_url}"
+    send_slack_alert(context, slack.get_client(), channel, blocks, fallback_text)
