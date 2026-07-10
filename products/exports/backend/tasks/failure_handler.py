@@ -143,11 +143,15 @@ def _is_playwright_timeout(exception: BaseException) -> bool:
     # playwright is a heavy import (browser automation), only needed by the actual image-export
     # path. isinstance() against it can't be a real match unless something has already imported
     # playwright.sync_api (raising one requires it), so checking sys.modules first avoids paying
-    # the import cost on every failure-classification call.
+    # the import cost on every failure-classification call. getattr with a default covers the
+    # window where another thread has started (but not finished) that first import: sys.modules
+    # holds a partially initialized module then, which may not expose TimeoutError yet — and an
+    # exception raised by playwright itself cannot predate its own module finishing import.
     playwright_sync_api = sys.modules.get("playwright.sync_api")
     if playwright_sync_api is None:
         return False
-    return isinstance(exception, playwright_sync_api.TimeoutError)
+    timeout_error = getattr(playwright_sync_api, "TimeoutError", None)
+    return timeout_error is not None and isinstance(exception, timeout_error)
 
 
 def classify_failure_type(exception: Exception | str) -> str:
