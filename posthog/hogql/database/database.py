@@ -1245,6 +1245,21 @@ class Database(BaseModel):
                     # A capable non-DIRECT (synced) source drives the dual-mode virtual-table path.
                     if direct_source.access_method != ExternalDataSource.AccessMethod.DIRECT:
                         virtual_source = direct_source
+                        # Dual-mode live queries run under warehouse table-level access control. The
+                        # introspected `available_functions` list feeds function passthrough (e.g.
+                        # query_to_xml, which executes arbitrary SQL on the upstream DB) that bypasses
+                        # the should_sync / row-filter / column / warehouse-object checks enforced when
+                        # virtual tables are built. Drop it so only built-in safe functions pass through;
+                        # DIRECT sources (full DB access by design) keep introspected passthrough.
+                        if (
+                            isinstance(direct_connection_metadata, dict)
+                            and "available_functions" in direct_connection_metadata
+                        ):
+                            direct_connection_metadata = {
+                                key: value
+                                for key, value in direct_connection_metadata.items()
+                                if key != "available_functions"
+                            }
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             # System-table access control always applies; Only warehouse table/view support bypass.

@@ -1279,6 +1279,46 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert not database.has_table("public.users")
         assert not database.has_table("public.events")
 
+    def test_dual_mode_strips_introspected_function_passthrough(self):
+        # `available_functions` feeds function passthrough (e.g. query_to_xml, which executes
+        # arbitrary SQL on the upstream DB). A synced source runs under warehouse table-level access
+        # control, so exposing it would bypass those checks — it must be dropped from the dual-mode
+        # context while other metadata the direct table needs is preserved.
+        source = self._create_dual_mode_postgres_source()
+        source.connection_metadata = {
+            "engine": "postgres",
+            "database": "db",
+            "available_functions": ["query_to_xml"],
+        }
+        source.save(update_fields=["connection_metadata"])
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+
+        assert database._direct_connection_metadata is not None
+        assert "available_functions" not in database._direct_connection_metadata
+        assert database._direct_connection_metadata.get("engine") == "postgres"
+
+    def test_direct_source_keeps_introspected_function_passthrough(self):
+        # A DIRECT source is the user's own connected DB (full access by design), so introspected
+        # passthrough is not a privilege escalation and stays available.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="direct_pg_fn_source",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": "public"},
+            connection_metadata={
+                "engine": "postgres",
+                "database": "db",
+                "available_functions": ["query_to_xml"],
+            },
+        )
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+
+        assert database._direct_connection_metadata is not None
+        assert database._direct_connection_metadata.get("available_functions") == ["query_to_xml"]
+
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_raises_when_modifier_table_has_no_backing_row(self, patch_execute):
         # A dataWarehouseEventsModifier whose table resolves to a node with no backing row must fail
