@@ -356,8 +356,9 @@ export const experimentsLogic = kea<experimentsLogicType>([
             {
                 loadFeatureFlagModalFeatureFlags: async (_: void, breakpoint) => {
                     const response = await api.get(
-                        `api/projects/${values.currentProjectId}/experiments/eligible_feature_flags/?${toParams({
+                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams({
                             ...values.featureFlagModalParamsFromFilters,
+                            eligible_for_experiment: true,
                         })}`
                     )
                     // Discard stale responses that resolve after a newer search has fired

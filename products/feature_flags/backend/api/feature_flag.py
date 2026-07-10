@@ -2907,6 +2907,14 @@ class FeatureFlagViewSet(
                 enum=["true", "false"],
                 description="Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.",
             ),
+            OpenApiParameter(
+                "eligible_for_experiment",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true"],
+                description="When 'true', only return flags that can back an experiment: multivariate with 2-20 variants and 'control' as the first variant. Any other value is ignored.",
+            ),
         ]
     )
     def list(self, request, *args, **kwargs):
@@ -3641,6 +3649,15 @@ class FeatureFlagViewSet(
                     queryset = queryset.filter(eval_tag_count__gt=0)
                 else:
                     queryset = queryset.filter(eval_tag_count=0)
+            elif key == "eligible_for_experiment":
+                wants_eligible = value if isinstance(value, bool) else str(value).lower() == "true"
+                if wants_eligible:
+                    # Subquery so this works on plain QuerySets too (e.g. objects_including_soft_deleted).
+                    queryset = queryset.filter(
+                        pk__in=FeatureFlag.objects.filter(team__project_id=self.project_id)
+                        .eligible_for_experiment()
+                        .values("pk")
+                    )
 
         return queryset
 

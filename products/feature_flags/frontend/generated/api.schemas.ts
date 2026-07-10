@@ -1743,6 +1743,10 @@ export type FeatureFlagsListParams = {
      */
     created_by_id?: string
     /**
+     * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants and 'control' as the first variant. Any other value is ignored.
+     */
+    eligible_for_experiment?: FeatureFlagsListEligibleForExperiment
+    /**
      * Filter feature flags by their evaluation runtime.
      */
     evaluation_runtime?: FeatureFlagsListEvaluationRuntime
@@ -1789,6 +1793,13 @@ export type FeatureFlagsListArchived = (typeof FeatureFlagsListArchived)[keyof t
 
 export const FeatureFlagsListArchived = {
     False: 'false',
+    True: 'true',
+} as const
+
+export type FeatureFlagsListEligibleForExperiment =
+    (typeof FeatureFlagsListEligibleForExperiment)[keyof typeof FeatureFlagsListEligibleForExperiment]
+
+export const FeatureFlagsListEligibleForExperiment = {
     True: 'true',
 } as const
 

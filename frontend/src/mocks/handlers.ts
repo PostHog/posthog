@@ -148,7 +148,6 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/feature_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/feature_flags/:feature_flag_id/role_access': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/': EMPTY_PAGINATED_RESPONSE,
-        '/api/projects/:team_id/experiments/eligible_feature_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/stats/': MOCK_EXPERIMENTS_STATS_RESPONSE,
         '/api/environments/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_saved_query_folders/': [],
