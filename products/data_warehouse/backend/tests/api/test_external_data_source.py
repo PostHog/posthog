@@ -10741,6 +10741,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
     _BING_LIST_ACCOUNTS = (
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
     )
+    _META_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source"
 
     def setUp(self):
         super().setUp()
@@ -10809,6 +10810,45 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # raises NotImplementedError — it must surface as a 400, not an unhandled 500.
         response = self.client.get(self._url("Salesforce", 1))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_meta_ads_maps_ad_accounts_to_accounts(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="meta-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="meta_ads_test",
+            created_by=self.user,
+        )
+        listed = [
+            {"account_id": "1234567890", "name": "Acme Ads", "account_status": 1},
+            {"account_id": "9876543210", "name": "Old Ads", "account_status": 101},
+        ]
+        with (
+            patch(f"{self._META_ADS_MODULE}.get_integration_by_id"),
+            patch(f"{self._META_ADS_MODULE}.list_ad_accounts", return_value=listed),
+        ):
+            response = self.client.get(self._url("MetaAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "1234567890",
+                "display_name": "Acme Ads",
+                "is_primary": False,
+                "badges": ["Active"],
+                "group": None,
+                "secondary_text": None,
+            },
+            {
+                "value": "9876543210",
+                "display_name": "Old Ads",
+                "is_primary": False,
+                "badges": ["Closed"],
+                "group": None,
+                "secondary_text": None,
+            },
+        ]
 
     def test_gsc_success_maps_sites_to_accounts(self):
         integration = self._gsc_integration()

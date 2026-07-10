@@ -7,9 +7,12 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
+
+from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -23,13 +26,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
     META_AUTH_ERROR_MESSAGE,
+    MetaAdsAuthError,
     MetaAdsResumeConfig,
+    MetaAdsTokenRefreshError,
+    get_integration_by_id,
+    list_ad_accounts,
     meta_ads_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
@@ -38,9 +50,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.s
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+# Meta's numeric `account_status`, as the Ads Manager labels it. 201/202 (ANY_ACTIVE, ANY_CLOSED)
+# are query filters rather than states an account is ever returned in, so they're absent here.
+ACCOUNT_STATUS_LABELS = {
+    1: "Active",
+    2: "Disabled",
+    3: "Unsettled",
+    7: "Pending risk review",
+    8: "Pending settlement",
+    9: "In grace period",
+    100: "Pending closure",
+    101: "Closed",
+}
+
+
+def _status_badges(account: dict) -> tuple[str, ...]:
+    label = ACCOUNT_STATUS_LABELS.get(account.get("account_status", 0))
+    return (label,) if label else ()
+
 
 @SourceRegistry.register
-class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
+class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -152,19 +182,19 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="account_id",
-                        label="Account ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="",
-                        secret=False,
-                    ),
+                    # OAuth first: the account dropdown below is populated from this integration.
                     SourceFieldOauthConfig(
                         name="meta_ads_integration_id",
                         label="Meta Ads account",
                         required=True,
                         kind="meta-ads",
+                    ),
+                    SourceFieldOauthAccountSelectConfig(
+                        name="account_id",
+                        label="Account ID",
+                        integrationField="meta_ads_integration_id",
+                        integrationKind="meta-ads",
+                        required=True,
                     ),
                     SourceFieldInputConfig(
                         name="sync_lookback_days",
@@ -188,3 +218,31 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
                 ),
             ],
         )
+
+    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+        try:
+            integration = get_integration_by_id(integration_id, team_id)
+        except Integration.DoesNotExist as e:
+            raise IntegrationAccountListingError(
+                "The linked Meta Ads integration could not be found. Please reconnect your Meta Ads integration."
+            ) from e
+        except MetaAdsTokenRefreshError as e:
+            raise IntegrationAccountListingError(str(e)) from e
+
+        try:
+            accounts = list_ad_accounts(integration)
+        except MetaAdsAuthError as e:
+            raise IntegrationAccountListingError(
+                f"{META_AUTH_ERROR_MESSAGE} Make sure the connected account can access your ad accounts."
+            ) from e
+
+        return [
+            IntegrationAccount(
+                # Bare id, as the Ads Manager shows it; the pipeline's `_clean_account_id` adds the
+                # `act_` prefix the Graph API wants.
+                value=account["account_id"],
+                display_name=account.get("name") or "Unnamed account",
+                badges=_status_badges(account),
+            )
+            for account in accounts
+        ]

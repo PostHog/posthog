@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
     PAGE_LIMIT_FALLBACK_SIZES,
+    MetaAdsAuthError,
     MetaAdsResumeConfig,
     _earliest_supported_since,
     _fetch_integration_row,
@@ -28,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     _override_limit,
     _strip_access_token,
     get_integration,
+    list_ad_accounts,
     meta_ads_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
@@ -1244,3 +1246,55 @@ class TestFetchIntegrationRowDbResilience:
 
         # A deleted integration row is non-retryable — don't mask it as a transient drop.
         assert get.call_count == 1
+
+
+class TestListAdAccounts:
+    @staticmethod
+    def _integration() -> Any:
+        integration = mock.MagicMock()
+        integration.sensitive_config = {"access_token": "token"}
+        return integration
+
+    def test_follows_paging_next_to_the_end(self, monkeypatch) -> None:
+        session = mock.MagicMock()
+        session.get.side_effect = [
+            _mock_response(
+                200,
+                {
+                    "data": [{"account_id": "1"}],
+                    "paging": {"next": "https://graph.facebook.com/v25.0/me/adaccounts?access_token=stale&after=abc"},
+                },
+            ),
+            _mock_response(200, {"data": [{"account_id": "2"}]}),
+        ]
+        monkeypatch.setattr(meta_ads_module, "make_tracked_session", lambda: session)
+
+        accounts = list_ad_accounts(self._integration())
+
+        assert [account["account_id"] for account in accounts] == ["1", "2"]
+        cursor_url, cursor_kwargs = session.get.call_args_list[1][0][0], session.get.call_args_list[1][1]
+        # The echoed-back token is stripped and a fresh one injected at request time.
+        assert "access_token" not in cursor_url
+        assert cursor_kwargs["params"] == {"access_token": "token"}
+
+    def test_stops_when_a_trailing_cursor_returns_no_data(self, monkeypatch) -> None:
+        next_page = {"next": "https://graph.facebook.com/v25.0/me/adaccounts?after=abc"}
+        session = mock.MagicMock()
+        session.get.side_effect = [
+            _mock_response(200, {"data": [{"account_id": "1"}], "paging": next_page}),
+            _mock_response(200, {"data": [], "paging": next_page}),
+        ]
+        monkeypatch.setattr(meta_ads_module, "make_tracked_session", lambda: session)
+
+        accounts = list_ad_accounts(self._integration())
+
+        assert [account["account_id"] for account in accounts] == ["1"]
+        assert session.get.call_count == 2
+
+    def test_permanent_auth_failure_raises_meta_ads_auth_error(self, monkeypatch) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = _mock_response(400, {"error": {"code": 190, "message": "Invalid OAuth token"}})
+        monkeypatch.setattr(meta_ads_module, "make_tracked_session", lambda: session)
+
+        with pytest.raises(MetaAdsAuthError):
+            list_ad_accounts(self._integration())
