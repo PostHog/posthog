@@ -29,6 +29,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
+from posthog.ducklake.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models import OrganizationMembership, User
@@ -181,6 +182,11 @@ class UsageReportCounters:
     # Data Warehouse
     rows_synced_in_period: int
     free_historical_rows_synced_in_period: int
+
+    # Managed Data Warehouse (staged from duckgres by posthog/temporal/duckgres_usage/)
+    managed_warehouse_compute_seconds_in_period: int
+    managed_warehouse_endpoints_compute_seconds_in_period: int
+    managed_warehouse_storage_gb_hours_in_period: int
 
     # Data Warehouse metadata
     active_external_data_schemas_in_period: int
@@ -1620,6 +1626,87 @@ def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> li
     )
 
 
+ENDPOINTS_QUERY_SOURCE = "endpoints"
+
+
+def _managed_warehouse_compute_rows(begin: datetime, end: datetime, *, endpoints: bool) -> list:
+    """Fold duckgres compute usage to the billable scalar, per team.
+
+    Reads the day-keyed usage mirror the duckgres poller maintains
+    (posthog/temporal/duckgres_usage/). The billable unit is
+    cpu_seconds + memory_seconds / 8 (the RFC's 1:8 rate ratio:
+    $0.025/GiB-hr = $0.20/8), floored so fractions under-charge. Endpoint
+    queries (query_source="endpoints") are a separate product.
+    """
+    queryset = DuckgresDailyUsage.objects.filter(date__gte=begin.date(), date__lte=end.date())
+    if endpoints:
+        queryset = queryset.filter(query_source=ENDPOINTS_QUERY_SOURCE)
+    else:
+        queryset = queryset.exclude(query_source=ENDPOINTS_QUERY_SOURCE)
+    return [
+        {"team_id": row["team_id"], "total": (row["total_cpu_seconds"] * 8 + row["total_memory_seconds"]) // 8}
+        for row in queryset.values("team_id").annotate(
+            total_cpu_seconds=Sum("cpu_seconds"), total_memory_seconds=Sum("memory_seconds")
+        )
+    ]
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_managed_warehouse_compute_seconds_in_period(begin: datetime, end: datetime) -> list:
+    return _managed_warehouse_compute_rows(begin, end, endpoints=False)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_managed_warehouse_endpoints_compute_seconds_in_period(begin: datetime, end: datetime) -> list:
+    return _managed_warehouse_compute_rows(begin, end, endpoints=True)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_managed_warehouse_storage_gb_hours_in_period(begin: datetime, end: datetime) -> list:
+    """Managed-warehouse storage, folded to billable decimal-GB hours.
+
+    The unit conversion is the whole point of this function, and it mixes binary
+    and decimal on purpose:
+
+    - duckgres meters in **GiB-seconds** (GiB = 2^30 bytes — a binary unit),
+      served as an exact decimal (integer byte-seconds / 2^30, up to 30
+      fractional digits).
+    - billing PRICES storage in **decimal GB** (GB = 10^9 bytes; $/GB-month,
+      100 GB free tier). Snowflake/BigQuery/etc. all price decimal GB, and our
+      calculator + free tier are decimal.
+
+    So the GiB->GB conversion is pinned here and only here. Getting the binary
+    vs decimal base wrong is a silent ~7.4% billing error, so keep it explicit.
+    """
+    from fractions import Fraction  # noqa: PLC0415
+
+    out = []
+    for row in (
+        DuckgresDailyStorageUsage.objects.filter(date__gte=begin.date(), date__lte=end.date())
+        .values("team_id")
+        .annotate(total_gib_seconds=Sum("gib_seconds"))
+    ):
+        # GiB-seconds -> billable decimal-GB-hours, in three exact steps:
+        #
+        #   1. GiB-seconds  x 2^30   ->  byte-seconds   recover duckgres's integer byte-seconds.
+        #                                               Fraction (not Decimal) so it's exact: Decimal's
+        #                                               28-digit context would round the 30-digit tail.
+        #   2. byte-seconds / 10^9   ->  GB-seconds     10^9 bytes = 1 *decimal* GB, the priced unit.
+        #   3. GB-seconds   / 3600   ->  GB-hours       3600 s = 1 hour.
+        #
+        # Steps 2 and 3 are a single floor-division by (10^9 * 3600) so any fraction
+        # under-charges. Worked example (the closed-day case in the tests):
+        #   360000 GiB-s  x 2^30            = 386_547_056_640_000 byte-s
+        #                 // (10^9 * 3600)  = 107.37...  ->  107 GB-hours
+        byte_seconds = int(Fraction(row["total_gib_seconds"]) * (2**30))
+        gb_hours = byte_seconds // (10**9 * 3600)
+        out.append({"team_id": row["team_id"], "total": gb_hours})
+    return out
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_active_external_data_schemas_in_period() -> list:
@@ -2471,6 +2558,15 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
+        "teams_with_managed_warehouse_compute_seconds_in_period": get_teams_with_managed_warehouse_compute_seconds_in_period(
+            period_start, period_end
+        ),
+        "teams_with_managed_warehouse_endpoints_compute_seconds_in_period": get_teams_with_managed_warehouse_endpoints_compute_seconds_in_period(
+            period_start, period_end
+        ),
+        "teams_with_managed_warehouse_storage_gb_hours_in_period": get_teams_with_managed_warehouse_storage_gb_hours_in_period(
+            period_start, period_end
+        ),
         "teams_with_free_historical_rows_synced_in_period": get_teams_with_free_historical_rows_synced_in_period(
             period_start, period_end
         ),
@@ -2622,6 +2718,15 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         survey_count=all_data["teams_with_survey_count"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
+        managed_warehouse_compute_seconds_in_period=all_data[
+            "teams_with_managed_warehouse_compute_seconds_in_period"
+        ].get(team.id, 0),
+        managed_warehouse_endpoints_compute_seconds_in_period=all_data[
+            "teams_with_managed_warehouse_endpoints_compute_seconds_in_period"
+        ].get(team.id, 0),
+        managed_warehouse_storage_gb_hours_in_period=all_data[
+            "teams_with_managed_warehouse_storage_gb_hours_in_period"
+        ].get(team.id, 0),
         free_historical_rows_synced_in_period=all_data["teams_with_free_historical_rows_synced_in_period"].get(
             team.id, 0
         ),

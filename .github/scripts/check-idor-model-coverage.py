@@ -165,6 +165,11 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "DuckgresServer",
         "DuckgresServerTeam",
         "DuckgresSinkSchemaState",
+        # Billing-usage mirror tables — written by the duckgres poller and read by the
+        # usage-report aggregation, both cross-tenant by design; no API endpoint serves them,
+        # so team_id here is an attribution label, not an IDOR-lookup key.
+        "DuckgresDailyUsage",
+        "DuckgresDailyStorageUsage",
         "EvaluationConfig",
         "RemoteConfig",
         "TeamConversationsSlackConfig",
@@ -287,6 +292,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "EventBuffer",
         "EventIngestionRestrictionConfig",
         "MessagingRecord",
+        # Global singleton (pk=1) tracking the last watermark acked to duckgres — no tenant data.
+        "DuckgresUsageCursor",
     }
 
     # Baseline violations — these models SHOULD have team_id but don't yet.
