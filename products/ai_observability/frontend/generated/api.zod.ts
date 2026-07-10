@@ -1748,6 +1748,8 @@ export const LlmAnalyticsTranslateCreateBody = /* @__PURE__ */ zod.object({
 
 export const llmPromptsCreateBodyNameMax = 255
 
+export const llmPromptsCreateBodyTagsItemMax = 255
+
 export const llmPromptsCreateBodyVersionDescriptionMax = 400
 
 export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
@@ -1756,6 +1758,16 @@ export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
         .max(llmPromptsCreateBodyNameMax)
         .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
     prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
+    config: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Optional JSON object with arbitrary configuration for this prompt version (e.g. model, temperature, max tokens). Returned alongside the prompt when it is fetched at runtime.'
+        ),
+    tags: zod
+        .array(zod.string().max(llmPromptsCreateBodyTagsItemMax))
+        .optional()
+        .describe('Tags attached to the prompt. Tags apply to the prompt as a whole, across all of its versions.'),
     version_description: zod
         .string()
         .max(llmPromptsCreateBodyVersionDescriptionMax)
@@ -1781,6 +1793,12 @@ export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "List of find\/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt."
         ),
+    config: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Optional JSON object with arbitrary configuration for this prompt version (e.g. model, temperature, max tokens). Returned alongside the prompt when it is fetched at runtime. If omitted, the new version keeps the config of the version it is published from. Pass null to clear it.'
+        ),
     base_version: zod
         .number()
         .min(1)
@@ -1795,6 +1813,8 @@ export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
 
 export const llmPromptsNameArchiveCreateBodyNameMax = 255
 
+export const llmPromptsNameArchiveCreateBodyTagsItemMax = 255
+
 export const llmPromptsNameArchiveCreateBodyVersionDescriptionMax = 400
 
 export const LlmPromptsNameArchiveCreateBody = /* @__PURE__ */ zod.object({
@@ -1803,6 +1823,16 @@ export const LlmPromptsNameArchiveCreateBody = /* @__PURE__ */ zod.object({
         .max(llmPromptsNameArchiveCreateBodyNameMax)
         .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
     prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
+    config: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Optional JSON object with arbitrary configuration for this prompt version (e.g. model, temperature, max tokens). Returned alongside the prompt when it is fetched at runtime.'
+        ),
+    tags: zod
+        .array(zod.string().max(llmPromptsNameArchiveCreateBodyTagsItemMax))
+        .optional()
+        .describe('Tags attached to the prompt. Tags apply to the prompt as a whole, across all of its versions.'),
     version_description: zod
         .string()
         .max(llmPromptsNameArchiveCreateBodyVersionDescriptionMax)
@@ -1819,6 +1849,15 @@ export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.'
         ),
+})
+
+export const llmPromptsNameTagsPartialUpdateBodyTagsItemMax = 255
+
+export const LlmPromptsNameTagsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(llmPromptsNameTagsPartialUpdateBodyTagsItemMax))
+        .optional()
+        .describe('Full list of tags to set on the prompt, replacing any existing tags. Applies to all versions.'),
 })
 
 export const taggersCreateBodyNameMax = 400

@@ -74,6 +74,7 @@ import type {
     PatchedEvaluationApi,
     PatchedEvaluationReportUpdateApi,
     PatchedLLMPromptPublishApi,
+    PatchedLLMPromptUpdateTagsApi,
     PatchedLLMProviderKeyApi,
     PatchedParserRecipeApi,
     PatchedReviewQueueItemUpdateApi,
@@ -1964,6 +1965,24 @@ export const llmPromptsNameDuplicateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMPromptDuplicateApi),
+    })
+}
+
+export const getLlmPromptsNameTagsPartialUpdateUrl = (projectId: string, promptName: string) => {
+    return `/api/projects/${projectId}/llm_prompts/name/${promptName}/tags/`
+}
+
+export const llmPromptsNameTagsPartialUpdate = async (
+    projectId: string,
+    promptName: string,
+    patchedLLMPromptUpdateTagsApi?: PatchedLLMPromptUpdateTagsApi,
+    options?: RequestInit
+): Promise<LLMPromptApi> => {
+    return apiMutator<LLMPromptApi>(getLlmPromptsNameTagsPartialUpdateUrl(projectId, promptName), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLLMPromptUpdateTagsApi),
     })
 }
 

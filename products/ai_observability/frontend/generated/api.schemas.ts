@@ -2013,6 +2013,13 @@ export interface LLMPromptListApi {
     readonly name: string
     /** Prompt payload as JSON or string data. */
     readonly prompt: unknown
+    /** Optional JSON object with arbitrary configuration for this prompt version (e.g. model, temperature, max tokens). Returned alongside the prompt when it is fetched at runtime. */
+    readonly config: unknown
+    /**
+     * Tags attached to the prompt. Tags apply to the prompt as a whole, across all of its versions.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -2050,6 +2057,13 @@ export interface LLMPromptApi {
     name: string
     /** Prompt payload as JSON or string data. */
     prompt: unknown
+    /** Optional JSON object with arbitrary configuration for this prompt version (e.g. model, temperature, max tokens). Returned alongside the prompt when it is fetched at runtime. */
+    config?: unknown
+    /**
+     * Tags attached to the prompt. Tags apply to the prompt as a whole, across all of its versions.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -2075,6 +2089,13 @@ export interface LLMPromptPublicApi {
     prompt?: unknown
     /** First 160 characters of the prompt. Only present when 'content=preview'. */
     prompt_preview?: string
+    /** Optional JSON object with arbitrary configuration for this prompt version (e.g. model, temperature, max tokens). Returned alongside the prompt when it is fetched at runtime. */
+    config?: unknown
+    /**
+     * Tags attached to the prompt. Tags apply to the prompt as a whole, across all of its versions.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
     outline: LLMPromptOutlineEntryApi[]
     version: number
@@ -2099,6 +2120,8 @@ export interface PatchedLLMPromptPublishApi {
     prompt?: unknown
     /** List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt. */
     edits?: LLMPromptEditOperationApi[]
+    /** Optional JSON object with arbitrary configuration for this prompt version (e.g. model, temperature, max tokens). Returned alongside the prompt when it is fetched at runtime. If omitted, the new version keeps the config of the version it is published from. Pass null to clear it. */
+    config?: unknown
     /**
      * Latest version you are editing from. Used for optimistic concurrency checks.
      * @minimum 1
@@ -2117,6 +2140,14 @@ export interface LLMPromptDuplicateApi {
      * @maxLength 255
      */
     new_name: string
+}
+
+export interface PatchedLLMPromptUpdateTagsApi {
+    /**
+     * Full list of tags to set on the prompt, replacing any existing tags. Applies to all versions.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 export interface LLMPromptVersionSummaryApi {
