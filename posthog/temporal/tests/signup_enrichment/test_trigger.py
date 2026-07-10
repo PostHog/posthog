@@ -1,8 +1,26 @@
+import pytest
 from unittest.mock import patch
 
 from django.test import override_settings
 
+from temporalio.exceptions import WorkflowAlreadyStartedError
+
 from posthog.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
+
+
+class _SyncThread:
+    def __init__(self, target, args=(), daemon=None):
+        self._target = target
+        self._args = args
+
+    def start(self):
+        self._target(*self._args)
+
+
+@pytest.fixture(autouse=True)
+def _run_dispatch_thread_inline():
+    with patch("posthog.temporal.signup_enrichment.trigger.threading.Thread", _SyncThread):
+        yield
 
 
 def _dispatch_mocks(region="US"):
@@ -77,3 +95,13 @@ def test_work_email_write_failure_does_not_block_dispatch():
             start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
     connect_mock.assert_called_once()
     capture_mock.assert_called_once()
+
+
+@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+def test_duplicate_workflow_is_logged_not_captured():
+    on_commit, connect, run, region, record = _dispatch_mocks()
+    with on_commit, connect, run as run_mock, region, record:
+        run_mock.side_effect = WorkflowAlreadyStartedError("signup-enrichment-org-1", "signup-enrichment")
+        with patch("posthog.temporal.signup_enrichment.trigger.capture_exception") as capture_mock:
+            start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
+    capture_mock.assert_not_called()

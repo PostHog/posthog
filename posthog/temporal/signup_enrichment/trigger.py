@@ -8,12 +8,14 @@ for every signup so consumers can read it either way.
 """
 
 import asyncio
+import threading
 
 from django.conf import settings
 from django.db import transaction
 
 import structlog
 from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
 
 from posthog.exceptions_capture import capture_exception
@@ -37,7 +39,8 @@ def _domain_from_email(email: str) -> str | None:
 
 def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str | None, email: str) -> None:
     """Dispatch enrichment for a freshly signed-up org, once the request transaction commits."""
-    if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED or not settings.HARMONIC_API_KEY:
+    # HARMONIC_API_KEY only exists in ee/settings, so read it defensively for non-EE deploys.
+    if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED or not getattr(settings, "HARMONIC_API_KEY", ""):
         return
     # v0 is US-only.
     if get_instance_region() != "US":
@@ -53,9 +56,11 @@ def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str |
         return
 
     inputs = SignupEnrichmentInputs(organization_id=str(organization_id), distinct_id=distinct_id, domain=domain)
-    # on_commit so the worker never reads the org/enrichment rows before they are committed;
-    # fires inline when no transaction is open.
-    transaction.on_commit(lambda: _dispatch(inputs))
+    # on_commit so the worker never reads the org/enrichment rows before they are committed. The
+    # callback fires inline on the signup request thread (it runs after that transaction commits),
+    # so dispatch goes on a daemon thread: building the Temporal client must not add latency to
+    # the signup response.
+    transaction.on_commit(lambda: threading.Thread(target=_dispatch, args=(inputs,), daemon=True).start())
 
 
 def _record_work_email(*, organization_id: str, work_email: bool) -> None:
@@ -78,8 +83,11 @@ def _dispatch(inputs: SignupEnrichmentInputs) -> None:
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             )
         )
+    except WorkflowAlreadyStartedError:
+        # A re-signup race hits the still-running workflow id; expected, not an error.
+        logger.info("signup_enrichment_dispatch_skipped", organization_id=inputs.organization_id)
     except RPCError as e:
-        # A duplicate id (re-signup race) or transient RPC issue must not surface to signup.
+        # A transient RPC issue must not surface to signup.
         logger.info("signup_enrichment_dispatch_skipped", organization_id=inputs.organization_id, error=str(e))
     except Exception as e:
         capture_exception(e)
