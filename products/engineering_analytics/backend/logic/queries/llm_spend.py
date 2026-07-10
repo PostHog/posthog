@@ -45,9 +45,11 @@ _LEAD_DAYS = 14
 _HEADER = pr_header_query("head_branch, base_branch, created_at, merged_at, closed_at")
 
 # The repo guard keeps events that stamped no $ai_git_repo (older agents that only carried the branch)
-# while still rejecting a same-named branch in a different repo once the repo is stamped. coalesce
-# collapses both NULL (property absent) and '' to the pass-through case. The group key is the AI session,
-# falling back to the trace id; empty properties are treated as absent everywhere (nullIf on '').
+# while still rejecting a same-named branch in a different repo once the repo is stamped. The compare
+# is case-insensitive: GitHub repo names are, and the stamped slug comes from a clone URL whose casing
+# need not match GitHub's canonical full_name. coalesce collapses both NULL (property absent) and ''
+# to the pass-through case. The group key is the AI session, falling back to the trace id; empty
+# properties are treated as absent everywhere (nullIf on '').
 _CANDIDATES = """
     candidates AS (
         SELECT
@@ -59,7 +61,7 @@ _CANDIDATES = """
             toInt(properties.$ai_output_tokens) AS output_tokens
         FROM events
         WHERE event = '$ai_generation'
-            AND (coalesce(properties.$ai_git_repo, '') = '' OR properties.$ai_git_repo = {repo_full})
+            AND (coalesce(properties.$ai_git_repo, '') = '' OR lower(properties.$ai_git_repo) = {repo_full})
             AND timestamp >= {window_start}
             AND timestamp <= {window_end}
     )
@@ -146,7 +148,7 @@ def query_pr_llm_spend(
             # base_branch can be empty on a malformed snapshot; '' is a branch no event ever stamps, so
             # the base-neutral prefix rule simply falls back to "unstamped only", never mis-crediting.
             "base": ast.Constant(value=base_branch or ""),
-            "repo_full": ast.Constant(value=f"{repo_owner}/{repo_name}"),
+            "repo_full": ast.Constant(value=f"{repo_owner}/{repo_name}".lower()),
             "window_start": ast.Constant(value=created_at - timedelta(days=_LEAD_DAYS)),
             "window_end": ast.Constant(value=window_end),
         },

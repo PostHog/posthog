@@ -53,12 +53,16 @@ def query_resolve_branch(
 
 
 def _repo_clause(alias: str, repo_owner: str | None, repo_name: str | None, placeholders: dict[str, ast.Expr]) -> str:
-    """Optional 'owner/name' narrowing on the given alias; a no-op filter when no repo was passed."""
+    """Optional 'owner/name' narrowing on the given alias; a no-op filter when no repo was passed.
+
+    Case-insensitive: GitHub repo names are, and the caller's slug comes from a clone URL whose
+    casing need not match GitHub's canonical ``full_name``.
+    """
     if not (repo_owner and repo_name):
         return ""
-    placeholders["repo_owner"] = ast.Constant(value=repo_owner)
-    placeholders["repo_name"] = ast.Constant(value=repo_name)
-    return f"AND {alias}.repo_owner = {{repo_owner}} AND {alias}.repo_name = {{repo_name}}"
+    placeholders["repo_owner"] = ast.Constant(value=repo_owner.lower())
+    placeholders["repo_name"] = ast.Constant(value=repo_name.lower())
+    return f"AND lower({alias}.repo_owner) = {{repo_owner}} AND lower({alias}.repo_name) = {{repo_name}}"
 
 
 def _to_match(row: tuple) -> BranchPRMatch:

@@ -1474,10 +1474,11 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
     def test_llm_spend_attributes_by_branch_within_window(self) -> None:
         branch = "feat/tokens"
         self._seed_pr(80, branch)
-        # Matches: on-branch, in-window; one with no repo stamped, one with the repo stamped equal.
+        # Matches: on-branch, in-window; one with no repo stamped, one with the repo stamped in clone-URL
+        # casing (the repo compare is case-insensitive, like GitHub repo names).
         self._generation(branch=branch, days_ago=4, cost=1.0, input_tokens=100, output_tokens=50)
         self._generation(
-            branch=branch, days_ago=10, cost=2.0, input_tokens=200, output_tokens=80, repo="PostHog/posthog"
+            branch=branch, days_ago=10, cost=2.0, input_tokens=200, output_tokens=80, repo="posthog/POSTHOG"
         )
         # Excluded: wrong repo, wrong branch, before the lead window, after merge, wrong event type.
         self._generation(branch=branch, days_ago=4, cost=99.0, repo="other/repo")
@@ -1662,7 +1663,8 @@ class TestMultiSourceResolutionWarehouse(_WarehouseMixin, BaseTest):
         )
         self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [], source=newer, prefix="repob")
 
-        matches = api.resolve_branch(team=self.team, branch="feat/login", repo="PostHog/posthog.com")
+        # Clone-URL casing: both the source hint and the repo filter compare case-insensitively.
+        matches = api.resolve_branch(team=self.team, branch="feat/login", repo="posthog/POSTHOG.com")
         assert [(m.repo, m.number) for m in matches] == [("PostHog/posthog.com", 61)]
         # Without the repo hint the oldest source (A) is searched and the PR is missed.
         assert api.resolve_branch(team=self.team, branch="feat/login") == []
