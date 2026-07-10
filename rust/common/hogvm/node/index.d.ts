@@ -18,13 +18,6 @@ export interface HogExecResult {
     logsTruncated?: boolean
 }
 
-export interface ExecuteBatchOptions {
-    /** Fan the batch out over a rayon thread pool instead of running sequentially. */
-    parallel?: boolean
-    /** Step budget per execution (the Rust VM has no wall-clock timeout). */
-    maxSteps?: number
-}
-
 export interface ExecuteSyncOptions {
     /** Step budget for the execution (the Rust VM has no wall-clock timeout). */
     maxSteps?: number
@@ -35,16 +28,6 @@ export interface ExecuteSyncOptions {
  * takes effect.
  */
 export function init(options: InitOptions): void
-
-/**
- * Run one Hog program (bytecode tokens) against many event-globals, off the JS event loop.
- * Returns one structured result per event, in input order.
- */
-export function executeBatch(
-    program: unknown[],
-    events: unknown[],
-    options?: ExecuteBatchOptions
-): Promise<HogExecResult[]>
 
 /**
  * Run one Hog program against one event-globals synchronously on the calling thread. This is the

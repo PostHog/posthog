@@ -187,10 +187,6 @@ export type CommonConfig = BaseServerConfig & {
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
 
-    // Fraction (0-1) of transformation executions shadow-executed on the Rust HogVM for
-    // latency/correctness comparison; the Node VM result stays authoritative
-    CDP_HOG_RUST_VM_SHADOW_SAMPLE_RATE: number
-
     // Execute transformations on the Rust HogVM instead of the Node VM. Invocations the Rust VM
     // can't run (unsupported host functions, addon not built) fall back to the Node VM.
     CDP_HOG_RUST_VM_EXECUTION_ENABLED: boolean
@@ -365,7 +361,6 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Shared between ingestion and CDP
         CDP_HOG_WATCHER_SAMPLE_RATE: 0,
-        CDP_HOG_RUST_VM_SHADOW_SAMPLE_RATE: 0,
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
 
         // Event loop yield helper

@@ -37,29 +37,24 @@ export class RustVmExecutor {
      * Execute one transformation invocation on the Rust VM. Returns null when the Node VM must
      * run it instead.
      *
-     * Runs through `executeBatch` (a napi AsyncTask on the libuv worker pool), NOT `executeSync`:
-     * the step budget bounds total work, but a costly program running synchronously would
-     * monopolize the ingestion worker's JS thread, bypassing the wall-clock limiting and
-     * event-loop yielding the Node path has. Concurrent events therefore execute in parallel on
-     * worker threads; batching many events into one call (rayon fan-out) is a possible follow-up.
+     * Runs through `executeSync` on the JS thread — the same threading model as the Node VM's
+     * exec, minus the work. Executions are sub-millisecond and bounded by the step budget, so a
+     * libuv thread-hop per invocation would cost more than the execution it offloads; batching
+     * many events into one async call is the follow-up if that changes.
      */
-    public async execute(
+    public execute(
         invocation: CyclotronJobInvocationHogFunction,
         sensitiveValues: string[]
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null> {
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null {
         const module_ = this.getModule()
         if (!module_) {
             rustVmExecution.inc({ outcome: 'fallback_unavailable' })
             return null
         }
 
-        const [rust] = await module_.executeBatch(invocation.hogFunction.bytecode, [invocation.state.globals], {
+        const rust = module_.executeSync(invocation.hogFunction.bytecode, invocation.state.globals, {
             maxSteps: RUST_MAX_STEPS,
         })
-        if (!rust) {
-            rustVmExecution.inc({ outcome: 'fallback_unavailable' })
-            return null
-        }
 
         if (rust.error && isUnsupportedByRustVm(rust.error)) {
             rustVmExecution.inc({ outcome: 'fallback_unsupported' })
