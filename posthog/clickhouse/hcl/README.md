@@ -97,11 +97,13 @@ HCL=posthog/clickhouse/hcl
 $HCL/bin/hclexp -help
 # it is equivalent to:
 docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
-  ghcr.io/posthog/chschema:sha-0409212 -help
+  "$(cat $HCL/bin/image.txt)" -help
 ```
 
-(For faster local iteration you can build the binary — `go build -o hclexp ./cmd/hclexp` in
-`../../../../python-clickhouse-schema` — and `export HCLEXP_BIN=…/hclexp`; the wrapper prefers it.)
+The image tag is pinned in `bin/image.txt` — the one place to bump when upgrading hclexp.
+The wrapper resolves `$HCLEXP_BIN` → `hclexp` on `$PATH` → that image, so a native binary always
+wins: run `bash $HCL/bin/install-hclexp` to extract one from the pinned image (what CI does), or
+build it yourself with `go build -o hclexp ./cmd/hclexp` in `../../../../python-clickhouse-schema`.
 
 1. **Edit the right layer** for what you're changing:
    - all-role object (the `query_log_archive` path, `custom_metrics_*` sub-views, cross-cluster MVs) → `roles/shared/`
