@@ -25,8 +25,10 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 
 from ..facade import api
 from ..facade.enums import HOGQL_DEFINITION_KIND, INSIGHT_DEFINITION_KINDS, NODE_DEFINITION_KINDS
-from ..facade.models import Metric
+from ..facade.models import Metric, TableCertification
 from .serializers import (
+    CertificationCreateSerializer,
+    CertificationSerializer,
     MetricRunQuerySerializer,
     MetricRunRequestSerializer,
     MetricRunResponseSerializer,
@@ -196,3 +198,48 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             query_id=overrides.get("query_id"),
         )
         return Response(envelope)
+
+
+class CertificationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """Trust marks on warehouse tables and views. Reads exclude soft-deleted targets."""
+
+    scope_object = "data_catalog"
+    serializer_class = CertificationSerializer
+    queryset = TableCertification.objects.unscoped()
+
+    def safely_get_queryset(self, queryset: QuerySet[TableCertification]) -> QuerySet[TableCertification]:
+        return api.certifications_for_team(self.team)
+
+    @extend_schema(request=CertificationCreateSerializer, responses={201: CertificationSerializer})
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        serializer = CertificationCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        cert = api.propose_certification(team=self.team, user=request.user, **serializer.validated_data)
+        return Response(CertificationSerializer(cert).data, status=status.HTTP_201_CREATED)
+
+    def perform_destroy(self, instance: TableCertification) -> None:
+        api.revoke_certification(instance, self.request.user)
+
+    @action(
+        detail=True,
+        methods=["POST"],
+        required_scopes=["data_catalog_approval:write"],
+        request=None,
+        responses={200: CertificationSerializer},
+    )
+    def certify(self, request: Request, **kwargs) -> Response:
+        """Mark the target as certified (prefer this source)."""
+        cert = api.certify(self.get_object(), request.user)
+        return Response(CertificationSerializer(cert).data)
+
+    @action(
+        detail=True,
+        methods=["POST"],
+        required_scopes=["data_catalog_approval:write"],
+        request=None,
+        responses={200: CertificationSerializer},
+    )
+    def deprecate(self, request: Request, **kwargs) -> Response:
+        """Mark the target as deprecated (avoid this source)."""
+        cert = api.deprecate(self.get_object(), request.user)
+        return Response(CertificationSerializer(cert).data)

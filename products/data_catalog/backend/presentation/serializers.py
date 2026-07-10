@@ -14,7 +14,7 @@ from posthog.schema_enums import IntervalType
 
 from ..facade import api
 from ..facade.enums import CreatedSource
-from ..facade.models import Metric
+from ..facade.models import Metric, TableCertification
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -177,3 +177,60 @@ class MetricSerializer(serializers.ModelSerializer):
         if drift_map is not None and obj.id in drift_map:
             return drift_map[obj.id]
         return api.compute_drift([obj])[obj.id]
+
+
+@extend_schema_serializer(component_name="DataCatalogCertification")
+class CertificationSerializer(serializers.ModelSerializer):
+    status = serializers.CharField(
+        read_only=True, help_text="proposed, certified (prefer this source), or deprecated (avoid this source)."
+    )
+    target_type = serializers.SerializerMethodField(help_text="Whether the marked target is a 'table' or a 'view'.")
+    target_name = serializers.SerializerMethodField(help_text="Name of the marked table or view.")
+    certified_by = UserBasicSerializer(read_only=True, help_text="User who last set certified/deprecated.")
+
+    class Meta:
+        model = TableCertification
+        fields = [
+            "id",
+            "table",
+            "saved_query",
+            "target_type",
+            "target_name",
+            "status",
+            "notes",
+            "certified_by",
+            "certified_at",
+            "created_by",
+            "created_at",
+        ]
+        read_only_fields = [
+            "id",
+            "table",
+            "saved_query",
+            "status",
+            "certified_by",
+            "certified_at",
+            "created_by",
+            "created_at",
+        ]
+        extra_kwargs = {"notes": {"help_text": "Why this mark exists, e.g. 'canonical MRR source'."}}
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_target_type(self, obj: TableCertification) -> str:
+        return "table" if obj.table_id else "view"
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_target_name(self, obj: TableCertification) -> str:
+        if obj.table_id:
+            return obj.table.name if obj.table else ""
+        return obj.saved_query.name if obj.saved_query else ""
+
+
+class CertificationCreateSerializer(serializers.Serializer):
+    """Input for proposing a certification: address the target by id or (convenience) by name."""
+
+    table_id = serializers.CharField(required=False, help_text="Warehouse table id to certify (XOR the other targets).")
+    saved_query_id = serializers.CharField(required=False, help_text="Warehouse view (saved query) id to certify.")
+    table_name = serializers.CharField(required=False, help_text="Table name; 409 with candidates if ambiguous.")
+    view_name = serializers.CharField(required=False, help_text="View name; 409 with candidates if ambiguous.")
+    notes = serializers.CharField(required=False, allow_blank=True, help_text="Why this mark exists.")
