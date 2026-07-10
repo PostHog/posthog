@@ -113,7 +113,7 @@ services:
             - PLUGIN_SERVER_IDLE=1
             - FEATURE_FLAGS_SERVICE_URL=http://feature-flags:3001
             - CLICKHOUSE_LOGS_CLUSTER_HOST=clickhouse
-            - CLICKHOUSE_LOGS_CLUSTER_PORT=8123
+            - CLICKHOUSE_LOGS_CLUSTER_PORT=9000
             - CLICKHOUSE_LOGS_CLUSTER_SECURE=false
             - CLICKHOUSE_LOGS_CLUSTER_USER=default
             - CLICKHOUSE_LOGS_CLUSTER_PASSWORD=
@@ -135,7 +135,7 @@ services:
             - JS_URL=http://localhost:8000
             - FEATURE_FLAGS_SERVICE_URL=http://feature-flags:3001
             - CLICKHOUSE_LOGS_CLUSTER_HOST=clickhouse
-            - CLICKHOUSE_LOGS_CLUSTER_PORT=8123
+            - CLICKHOUSE_LOGS_CLUSTER_PORT=9000
             - CLICKHOUSE_LOGS_CLUSTER_SECURE=false
             - CLICKHOUSE_LOGS_CLUSTER_USER=default
             - CLICKHOUSE_LOGS_CLUSTER_PASSWORD=
@@ -252,6 +252,13 @@ services:
         build: .
         volumes:
             - .:/app/posthog
+        environment:
+            - FEATURE_FLAGS_SERVICE_URL=http://feature-flags:3001
+            - CLICKHOUSE_LOGS_CLUSTER_HOST=clickhouse
+            - CLICKHOUSE_LOGS_CLUSTER_PORT=9000
+            - CLICKHOUSE_LOGS_CLUSTER_SECURE=false
+            - CLICKHOUSE_LOGS_CLUSTER_USER=default
+            - CLICKHOUSE_LOGS_CLUSTER_PASSWORD=
         depends_on:
             - db
             - redis7
