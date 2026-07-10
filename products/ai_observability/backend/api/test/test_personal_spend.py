@@ -586,11 +586,12 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
 
     def test_cache_key_includes_bucket_minutes(self) -> None:
         # Without `bucket_minutes` in the cache key, this second call would be served
-        # the cached bucketless payload and silently drop `by_bucket`.
+        # the cached bucketless payload and silently drop `by_bucket`. The window must
+        # stay under the 600-bucket cap, so pin it to a day rather than the 30d default.
         with patch("products.ai_observability.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
-            self.client.get(ENDPOINT_OK)
-            response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&bucket_minutes=60")
+            self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-1d")
+            response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-1d&bucket_minutes=60")
         assert response.status_code == status.HTTP_200_OK
         assert "by_bucket" in response.json()
 
