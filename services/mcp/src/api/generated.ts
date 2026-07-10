@@ -45147,12 +45147,12 @@ export namespace Schemas {
       truncated: boolean;
     }
 
-    export interface _HourBreakdownRow {
-      /** UTC hour bucket the events fall in (`toStartOfHour(timestamp)`). */
-      hour: string;
-      /** Number of $ai_generation + $ai_embedding events in this hour for the scoped product. */
+    export interface _BucketBreakdownRow {
+      /** UTC start of the time bucket the events fall in (`toStartOfInterval(timestamp, ...)`). */
+      bucket_start: string;
+      /** Number of $ai_generation + $ai_embedding events in this bucket for the scoped product. */
       event_count: number;
-      /** Total cost in USD in this hour (sum of `$ai_total_cost_usd`). Authoritative: the component columns below can sum to less than this when the cost breakdown was unavailable for some events — render any remainder as uncategorized rather than assuming the components reconcile. */
+      /** Total cost in USD in this bucket (sum of `$ai_total_cost_usd`). Authoritative: the component columns below can sum to less than this when the cost breakdown was unavailable for some events — render any remainder as uncategorized rather than assuming the components reconcile. */
       cost_usd: number;
       /** Cost of uncached (full-price) input tokens in USD (sum of `$ai_input_cost_usd`). */
       input_cost_usd: number;
@@ -45162,20 +45162,22 @@ export namespace Schemas {
       cache_read_cost_usd: number;
       /** Cost of prompt-cache writes in USD (sum of `$ai_cache_creation_cost_usd`). A spike here with near-zero cache reads is the signature of a cold session being revived: the full conversation context is re-written to the cache at the cache-write rate instead of being read back cheaply. */
       cache_creation_cost_usd: number;
-      /** Sum of uncached `$ai_input_tokens` in this hour. */
+      /** Sum of uncached `$ai_input_tokens` in this bucket. */
       input_tokens: number;
-      /** Sum of `$ai_output_tokens` in this hour. */
+      /** Sum of `$ai_output_tokens` in this bucket. */
       output_tokens: number;
-      /** Sum of `$ai_cache_read_input_tokens` (prompt tokens served from cache) in this hour. */
+      /** Sum of `$ai_cache_read_input_tokens` (prompt tokens served from cache) in this bucket. */
       cache_read_input_tokens: number;
-      /** Sum of `$ai_cache_creation_input_tokens` (prompt tokens written to cache) in this hour. */
+      /** Sum of `$ai_cache_creation_input_tokens` (prompt tokens written to cache) in this bucket. */
       cache_creation_input_tokens: number;
     }
 
-    export interface _HourBreakdown {
-      /** One row per UTC hour that has events, ordered by hour ascending. Hours with no events are omitted — zero-fill client-side when rendering a continuous series. */
-      items: _HourBreakdownRow[];
-      /** Effectively always false: `by_hour` ignores `limit` because truncating a time series by cost would be meaningless, and the 8-day window cap already bounds the series length. */
+    export interface _BucketBreakdown {
+      /** One row per UTC time bucket that has events, ordered by bucket start ascending. Buckets with no events are omitted — zero-fill client-side when rendering a continuous series. */
+      items: _BucketBreakdownRow[];
+      /** Bucket size in minutes the series was computed at — echoes the request `bucket_minutes`. */
+      bucket_minutes: number;
+      /** Effectively always false: `by_bucket` ignores `limit` because truncating a time series by cost would be meaningless, and the 600-bucket window cap already bounds the series length. */
       truncated: boolean;
     }
 
@@ -45217,8 +45219,8 @@ export namespace Schemas {
       by_model: _ModelBreakdown;
       /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
       by_day: _DayBreakdown;
-      /** Spend grouped by UTC hour with per-hour cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `hourly=true`. */
-      by_hour?: _HourBreakdown;
+      /** Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `bucket_minutes`. */
+      by_bucket?: _BucketBreakdown;
       /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
       top_traces: _TopTraces;
     }
@@ -63789,6 +63791,16 @@ export namespace Schemas {
 
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
+     * When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 48 hours at 5-minute buckets).
+     *
+     * * `5` - 5
+     * * `15` - 15
+     * * `30` - 30
+     * * `60` - 60
+     * @nullable
+     */
+    bucket_minutes?: LlmAnalyticsPersonalSpendListBucketMinutes;
+    /**
      * Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.
      * @minLength 1
      * @maxLength 32
@@ -63800,10 +63812,6 @@ export namespace Schemas {
      * @nullable
      */
     date_to?: string | null;
-    /**
-     * If true, additionally return a `by_hour` breakdown: an hour-ascending UTC cost series for the scoped product, with per-hour cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Only allowed for windows of 8 days or less.
-     */
-    hourly?: boolean;
     /**
      * Maximum number of rows to return per breakdown (1-200, defaults to 50). Each breakdown returns up to this many rows ordered by cost descending. Per-breakdown `truncated: true` indicates more rows exist beyond the limit.
      * @minimum 1
@@ -63821,6 +63829,16 @@ export namespace Schemas {
      */
     refresh?: boolean;
     };
+
+    export type LlmAnalyticsPersonalSpendListBucketMinutes = typeof LlmAnalyticsPersonalSpendListBucketMinutes[keyof typeof LlmAnalyticsPersonalSpendListBucketMinutes] | null;
+
+
+    export const LlmAnalyticsPersonalSpendListBucketMinutes = {
+      Number5: 5,
+      Number15: 15,
+      Number30: 30,
+      Number60: 60,
+    } as const;
 
     export type ListParams = {
     /**
