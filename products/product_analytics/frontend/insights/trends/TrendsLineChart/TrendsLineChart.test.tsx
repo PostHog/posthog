@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
-import { dragSelection, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { dimensions, dragSelection, rawDrag, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -708,6 +708,49 @@ describe('TrendsLineChart', () => {
             await waitFor(() => {
                 // Days, not the formatted axis labels ('Tue'/'Thu') the chart renders with.
                 expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-13')
+            })
+        })
+
+        it('zooms into the whole bucket when the drag stays within a single month bar', async () => {
+            const monthDays = ['2024-03-01', '2024-04-01', '2024-05-01']
+            const onDateRangeZoom = jest.fn()
+            renderInsight({
+                query: buildTrendsQuery({ interval: 'month' }),
+                mocks: {
+                    additionalMockResponses: [
+                        {
+                            match: (q) => q.kind === NodeKind.TrendsQuery,
+                            response: {
+                                results: [
+                                    {
+                                        action: { id: '$pageview', type: 'events', name: '$pageview', order: 0 },
+                                        order: 0,
+                                        label: '$pageview',
+                                        count: 60,
+                                        aggregated_value: 60,
+                                        data: [10, 20, 30],
+                                        labels: ['Mar 2024', 'Apr 2024', 'May 2024'],
+                                        days: monthDays,
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+                context: { onDateRangeZoom },
+                featureFlags: zoomFlag,
+            })
+            const wrapper = await getChartWrapper()
+
+            // Drag within the April bucket only — both edges snap to the same label.
+            const step = dimensions.plotWidth / (monthDays.length - 1)
+            const x = dimensions.plotLeft + step
+            const y = dimensions.plotTop + dimensions.plotHeight / 2
+            rawDrag(wrapper, { from: { x: x - 40, y }, to: { x: x + 40, y } })
+
+            await waitFor(() => {
+                // The whole selected bucket, not just its first day.
+                expect(onDateRangeZoom).toHaveBeenCalledWith('2024-04-01', '2024-04-30')
             })
         })
 

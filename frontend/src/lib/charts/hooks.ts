@@ -4,9 +4,11 @@ import { type DependencyList, useCallback, useMemo } from 'react'
 import type { ChartTheme, DateRangeZoomData } from '@posthog/quill-charts'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import type { IntervalType } from '~/types'
 
 import { buildTheme } from './utils/theme'
 
@@ -55,14 +57,36 @@ export function useDragToZoomEnabled(): boolean {
     return !!featureFlags[FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]
 }
 
+/** Last moment of the bucket starting at `bucketStart`, so a zoom keeps all the data the user
+ *  selected. Dates mark bucket *starts*, so without widening only the last bucket's first
+ *  day/instant survives — e.g. selecting the "May" bar of a monthly chart must zoom to
+ *  `2026-05-01..2026-05-31`, not `..2026-05-01`. Day buckets need no widening (a bare date
+ *  already means the whole day), and without a known interval the start is returned as-is. */
+export function dateRangeZoomEnd(bucketStart: string, interval: IntervalType | null | undefined): string {
+    if (!interval || interval === 'day') {
+        return bucketStart
+    }
+    const start = dayjs(bucketStart)
+    if (!start.isValid()) {
+        return bucketStart
+    }
+    if (interval === 'second' || interval === 'minute' || interval === 'hour') {
+        return start.add(1, interval).subtract(1, 'second').format('YYYY-MM-DD HH:mm:ss')
+    }
+    return start.add(1, interval).subtract(1, 'day').format('YYYY-MM-DD')
+}
+
 /** Adapts a quill chart's drag-to-zoom callback to the host's `onZoom(dateFrom, dateTo)` by mapping
  *  the dragged label indices into `dates` — the date value for each x position (trends result days,
- *  a SQL date column's values). Returns undefined when zooming is unavailable — drag-to-zoom is
- *  opt-in: it only surfaces behind the rollout flag, where the host passes a handler, and when the
- *  x positions map to dates. */
+ *  a SQL date column's values). `interval` is the chart's bucket size, used to widen the range end
+ *  to the last selected bucket's end (see `dateRangeZoomEnd`) — this is what makes a single-bucket
+ *  drag (e.g. across one bar of a monthly chart) zoom into that whole bucket. Returns undefined
+ *  when zooming is unavailable — drag-to-zoom is opt-in: it only surfaces behind the rollout flag,
+ *  where the host passes a handler, and when the x positions map to dates. */
 export function useDateRangeZoom(
     dates: string[] | undefined,
-    onZoom: ((dateFrom: string, dateTo: string) => void) | undefined
+    onZoom: ((dateFrom: string, dateTo: string) => void) | undefined,
+    interval?: IntervalType | null
 ): ((data: DateRangeZoomData) => void) | undefined {
     const enabled = useDragToZoomEnabled()
     const handler = useCallback(
@@ -74,9 +98,9 @@ export function useDateRangeZoom(
             }
             // Screen order isn't guaranteed chronological (e.g. unsorted SQL results).
             const [dateFrom, dateTo] = start <= end ? [start, end] : [end, start]
-            onZoom?.(dateFrom, dateTo)
+            onZoom?.(dateFrom, dateRangeZoomEnd(dateTo, interval))
         },
-        [dates, onZoom]
+        [dates, onZoom, interval]
     )
     return enabled && dates?.length && onZoom ? handler : undefined
 }

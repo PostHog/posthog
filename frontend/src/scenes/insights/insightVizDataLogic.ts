@@ -676,6 +676,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
 
         zoomDateRange: ({ dateFrom, dateTo }) => {
+            eventUsageLogic.actions.reportInsightDragToZoomed(values.querySource?.kind)
             // Sub-day buckets carry a time component; explicitDate stops the backend from
             // rounding them back out to whole days.
             actions.updateDateRange(

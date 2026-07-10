@@ -363,7 +363,7 @@ export function TrendsBarChart({
     )
 
     // Time-series layouts only — the aggregated bar-value layout has categorical labels, not dates.
-    const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
+    const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom, interval)
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
