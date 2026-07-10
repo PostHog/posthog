@@ -4,6 +4,9 @@
  * connection, every asker). DB-direct against `posthogDb`, no Django HTTP:
  * read → decrypt → refresh-on-expiry → write-back, duplicating mcp_store/oauth.py.
  * `FOR UPDATE` serialises the shared row; cross-pod single-flight is deferred.
+ * Intended successor: the PostHog MCP gateway surface backed by mcp_store's gateway
+ * module (products/mcp_store/backend/gateway.py) — migrating needs a runner
+ * token-minting design first.
  */
 
 import type { Pool, PoolClient } from 'pg'
