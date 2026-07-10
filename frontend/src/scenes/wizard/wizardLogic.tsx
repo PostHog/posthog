@@ -5,6 +5,7 @@ import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import type { wizardLogicType } from './wizardLogicType'
 
@@ -15,7 +16,15 @@ export interface WizardTokenResponseType {
 export const wizardLogic = kea<wizardLogicType>([
     path(['scenes', 'wizard', 'wizardLogic']),
     connect(() => ({
-        values: [organizationLogic, ['currentOrganization'], projectLogic, ['currentProject']],
+        values: [
+            organizationLogic,
+            ['currentOrganization'],
+            projectLogic,
+            ['currentProject'],
+            userLogic,
+            ['otherOrganizations'],
+        ],
+        actions: [userLogic, ['updateCurrentOrganization']],
     })),
     actions({
         setWizardHash: (wizardHash: string | null) => ({ wizardHash }),
@@ -23,6 +32,7 @@ export const wizardLogic = kea<wizardLogicType>([
         setSelectedProjectId: (projectId: number | null) => ({ projectId }),
         authenticateWizard: (wizardHash: string, projectId: number) => ({ wizardHash, projectId }),
         continueToAuthentication: () => ({}),
+        switchOrganization: (organizationId: string) => ({ organizationId }),
         handleWizardRouting: () => ({}),
     }),
     loaders(({ actions }) => ({
@@ -81,6 +91,26 @@ export const wizardLogic = kea<wizardLogicType>([
                 )
             },
         ],
+        availableOrganizations: [
+            (s) => [s.currentOrganization, s.otherOrganizations],
+            (currentOrganization, otherOrganizations) => {
+                const organizations = []
+
+                if (currentOrganization) {
+                    organizations.push({ value: currentOrganization.id, label: currentOrganization.name })
+                }
+
+                for (const organization of otherOrganizations) {
+                    organizations.push({ value: organization.id, label: organization.name })
+                }
+
+                return organizations
+            },
+        ],
+        currentOrganizationId: [
+            (s) => [s.currentOrganization],
+            (currentOrganization) => currentOrganization?.id ?? null,
+        ],
         selectedProject: [
             (s) => [s.availableProjects, s.selectedProjectId],
             (availableProjects, selectedProjectId) => {
@@ -101,6 +131,17 @@ export const wizardLogic = kea<wizardLogicType>([
             actions.setView('pending')
             actions.authenticateWizard(wizardHash, projectId)
         },
+        switchOrganization: ({ organizationId }) => {
+            const wizardHash = values.wizardHash
+
+            if (!wizardHash || organizationId === values.currentOrganizationId) {
+                return
+            }
+
+            // Switching org requires a reload to load that org's projects. Preserve the wizard
+            // hash in the destination so the flow resumes where it left off in the new org.
+            actions.updateCurrentOrganization(organizationId, `/wizard?hash=${wizardHash}`)
+        },
         handleWizardRouting: () => {
             const wizardHash = values.wizardHash
 
@@ -109,19 +150,15 @@ export const wizardLogic = kea<wizardLogicType>([
                 return
             }
 
-            // If we have a current project, auto-select it
+            // Pre-select the current project for convenience, but never auto-authenticate:
+            // always make the user confirm which project their events will be attached to,
+            // even when there's only one candidate.
             const currentProjectId = values.currentProject?.id
             if (currentProjectId) {
                 actions.setSelectedProjectId(currentProjectId)
             }
 
-            // If there's only one project, skip selection and authenticate
-            if (values.availableProjects.length <= 1 && currentProjectId) {
-                actions.authenticateWizard(wizardHash, currentProjectId)
-                actions.setView('pending')
-            } else {
-                actions.setView('project')
-            }
+            actions.setView('project')
         },
     })),
     urlToAction(({ actions }) => ({

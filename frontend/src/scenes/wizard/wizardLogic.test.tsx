@@ -68,15 +68,14 @@ describe('wizardLogic', () => {
             logic.mount()
         })
 
-        it('sets view to pending', async () => {
+        it('shows the project view instead of silently authenticating', async () => {
             router.actions.push('/wizard', { hash: MOCK_HASH })
+            // Even with a single candidate we must not auto-authenticate: the user has to
+            // confirm which project their events attach to.
             await expectLogic(logic).toMatchValues({
-                view: 'pending',
+                view: 'project',
                 wizardHash: MOCK_HASH,
             })
-            // Drain the auto-triggered authenticate request: its trailing setView would
-            // otherwise dispatch into the next test's store and flip its view.
-            await expectLogic(logic).toFinishAllListeners()
         })
     })
 

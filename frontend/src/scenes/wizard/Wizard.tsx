@@ -19,8 +19,9 @@ export const scene: SceneExport = {
 }
 
 export function Wizard(): JSX.Element {
-    const { view, selectedProjectId, availableProjects } = useValues(wizardLogic)
-    const { setSelectedProjectId, continueToAuthentication } = useActions(wizardLogic)
+    const { view, selectedProjectId, availableProjects, availableOrganizations, currentOrganizationId } =
+        useValues(wizardLogic)
+    const { setSelectedProjectId, continueToAuthentication, switchOrganization } = useActions(wizardLogic)
 
     return (
         <div className="flex h-full w-full items-center justify-center">
@@ -30,11 +31,25 @@ export function Wizard(): JSX.Element {
                         <div className="mb-8">
                             <h1 className="text-3xl font-bold mb-3">AI wizard</h1>
                             <p className="text-muted-alt">
-                                Select which project the wizard should use to install PostHog.
+                                Select the project the wizard should install PostHog into. Your events will be attached
+                                to this project.
                             </p>
                         </div>
 
                         <div className="space-y-6">
+                            {availableOrganizations.length > 1 && (
+                                <div className="justify-start items-start flex flex-col">
+                                    <label className="align-start block text-sm font-medium mb-3">Organization</label>
+                                    <LemonSelect
+                                        value={currentOrganizationId ?? undefined}
+                                        onChange={(organizationId: string) => switchOrganization(organizationId)}
+                                        options={availableOrganizations}
+                                        placeholder="Choose an organization..."
+                                        className="w-full"
+                                    />
+                                </div>
+                            )}
+
                             <div className="justify-start items-start flex flex-col">
                                 <label className="align-start block text-sm font-medium mb-3">Project</label>
                                 <LemonSelect
