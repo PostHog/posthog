@@ -77,39 +77,56 @@ function addPositive(counter: Counter, value: number, attributes?: Attributes): 
     }
 }
 
-export function recordLogsReceived(bytes: number, records: number): void {
+/**
+ * These run in finally blocks and error handlers of the ingestion hot path — a throw
+ * here would mask the real processing error and DLQ the message with the wrong reason,
+ * so recording failures are swallowed.
+ */
+function swallowing<Args extends unknown[]>(record: (...args: Args) => void): (...args: Args) => void {
+    return (...args: Args): void => {
+        try {
+            record(...args)
+        } catch {
+            // never let telemetry break ingestion
+        }
+    }
+}
+
+export const recordLogsReceived = swallowing((bytes: number, records: number): void => {
     const { bytesReceived, recordsReceived } = getInstruments()
     addPositive(bytesReceived, bytes)
     addPositive(recordsReceived, records)
-}
+})
 
-export function recordLogsAllowed(bytes: number, records: number): void {
+export const recordLogsAllowed = swallowing((bytes: number, records: number): void => {
     const { bytesAllowed, recordsAllowed } = getInstruments()
     addPositive(bytesAllowed, bytes)
     addPositive(recordsAllowed, records)
-}
+})
 
-export function recordLogsDropped(teamId: number, bytes: number, records: number): void {
+export const recordLogsDropped = swallowing((teamId: number, bytes: number, records: number): void => {
     const { bytesDropped, recordsDropped } = getInstruments()
     const attributes = { team_id: teamId.toString() }
     addPositive(bytesDropped, bytes, attributes)
     addPositive(recordsDropped, records, attributes)
-}
+})
 
-export function recordLogMessageDropped(reason: string, teamId: string, count: number = 1): void {
+export const recordLogMessageDropped = swallowing((reason: string, teamId: string, count: number = 1): void => {
     addPositive(getInstruments().messagesDropped, count, { reason, team_id: teamId })
-}
+})
 
-export function recordLogMessageDlq(reason: string, teamId: string): void {
+export const recordLogMessageDlq = swallowing((reason: string, teamId: string): void => {
     getInstruments().messagesDlq.add(1, { reason, team_id: teamId })
-}
+})
 
-export function recordLogProcessingDuration(
-    seconds: number,
-    attributes: { json_parse_enabled: string; pii_scrub_enabled: string; compression_codec: string }
-): void {
-    getInstruments().processingDuration.record(seconds, attributes)
-}
+export const recordLogProcessingDuration = swallowing(
+    (
+        seconds: number,
+        attributes: { json_parse_enabled: string; pii_scrub_enabled: string; compression_codec: string }
+    ): void => {
+        getInstruments().processingDuration.record(seconds, attributes)
+    }
+)
 
 /** Test seam: forget cached instruments so a test-installed provider is picked up. */
 export function resetLogsIngestionInstrumentsForTests(): void {
