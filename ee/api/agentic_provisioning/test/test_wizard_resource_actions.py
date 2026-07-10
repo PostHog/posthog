@@ -118,6 +118,7 @@ class TestWizardResourceActions(ProvisioningTestBase):
         assert response.json()["error"]["code"] == "grant_not_found"
 
     def test_github_integration_idempotent_retry_after_grant_consumed(self):
+        self._mark_user_unclaimed()
         Integration.objects.create(
             team_id=self.team.id,
             kind="github",
@@ -130,6 +131,12 @@ class TestWizardResourceActions(ProvisioningTestBase):
         )
         assert response.status_code == 200
         assert response.json()["github_integration"]["already_linked"] is True
+
+        # Onboarding flags are re-applied on the already-linked retry so a crash between
+        # grant consumption and the flag write doesn't leave the account routed into onboarding.
+        self.user.refresh_from_db()
+        assert self.user.onboarding_skipped_reason == OnboardingSkippedReason.PROVISIONED
+        assert self.user.onboarding_skipped_at is not None
 
     @parameterized.expand(
         [
