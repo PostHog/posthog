@@ -23,6 +23,30 @@ ENTRYPOINT="${2:?entrypoint required}"
 LOG=$(mktemp)
 trap 'rm -f "$LOG"' EXIT
 
+# The janitor compiles custom tool sources at runtime through esbuild's JS
+# API, which must stay external in the bundle — the API throws "The esbuild
+# JavaScript API cannot be bundled" when inlined, and booting the service
+# doesn't exercise it, so a bundling regression would otherwise only surface
+# on the first PUT /tools/:id in prod. Assert both halves of the contract
+# inside the image: the bundle didn't inline the API, and `require('esbuild')`
+# resolves from the bundle's location and can actually transform.
+if [ "$ENTRYPOINT" = "janitor" ]; then
+    docker run --rm --network=none --entrypoint node "$IMAGE_REF" --input-type=module -e '
+        import { readFileSync } from "fs"
+        import { createRequire } from "module"
+        const bundlePath = "/code/products/agent_platform/services/agents/dist/janitor.mjs"
+        if (readFileSync(bundlePath, "utf8").includes("esbuild JavaScript API cannot be bundled")) {
+            throw new Error("janitor bundle inlined the esbuild JS API - keep esbuild external in scripts/build.ts")
+        }
+        const { transform } = createRequire("file://" + bundlePath)("esbuild")
+        const out = await transform("const x: number = 1", { loader: "ts" })
+        if (!out.code.includes("x = 1")) {
+            throw new Error("esbuild transform returned unexpected output: " + out.code)
+        }
+    '
+    echo "✓ janitor keeps esbuild external and can transform TS at runtime"
+fi
+
 # `--network=none` keeps the container from accidentally reaching anything real;
 # 127.0.0.1:1 is unreachable inside that namespace so connect attempts fail fast
 # with ECONNREFUSED / ENETUNREACH — the exact signal we want.

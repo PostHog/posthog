@@ -104,7 +104,7 @@
                 "interval": {
                     "default": "day",
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`. This determines what counts as one \"interval\" for stickiness measurement. For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days, and each bar/point shows how many users performed the event on exactly that many days.",
-                    "enum": ["second", "minute", "hour", "day", "week", "month"],
+                    "enum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
                     "type": "string"
                 },
                 "intervalCount": {

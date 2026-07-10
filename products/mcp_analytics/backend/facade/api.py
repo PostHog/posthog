@@ -66,8 +66,14 @@ def list_mcp_sessions(
     )
 
 
-def list_mcp_tool_calls(team: Team, session_id: str, date_from: datetime | None = None) -> list[contracts.MCPToolCall]:
-    return logic.list_mcp_tool_calls(team, session_id=session_id, date_from=date_from)
+def list_mcp_tool_calls(
+    team: Team,
+    session_id: str,
+    limit: int,
+    offset: int,
+    date_from: datetime | None = None,
+) -> contracts.MCPToolCallsPage:
+    return logic.list_mcp_tool_calls(team, session_id=session_id, limit=limit, offset=offset, date_from=date_from)
 
 
 def generate_session_intent(team: Team, session_id: str, date_from: datetime | None = None) -> str:
@@ -79,6 +85,24 @@ def generate_session_intent(team: Team, session_id: str, date_from: datetime | N
     ``list_mcp_tool_calls``).
     """
     return logic.generate_session_intent(team, session_id=session_id, date_from=date_from)
+
+
+def generate_intent_digest(team: Team) -> contracts.IntentDigest:
+    """Generate (or return the cached) project-level digest of what agents are trying to do.
+
+    Powers the dashboard's low-volume activity stage. Content-addressed cache: only
+    regenerates when new intents arrive.
+    """
+    return logic.generate_intent_digest(team)
+
+
+def get_activity_overview(team: Team) -> contracts.ActivityOverview:
+    """Compute the activity view's aggregates and recent-call feed in one pass.
+
+    Bounded to the last 30 days; always computed fresh (the view polls to watch
+    data arrive).
+    """
+    return logic.get_activity_overview(team)
 
 
 def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:

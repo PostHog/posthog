@@ -1,5 +1,6 @@
 import re
 from time import perf_counter
+from typing import NoReturn
 
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
@@ -49,7 +50,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
-from posthog.event_usage import get_request_analytics_properties, report_user_or_team_action
+from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -74,6 +75,11 @@ logger = structlog.get_logger(__name__)
 
 tracer = trace.get_tracer(__name__)
 
+# Shown to the user when the org's concurrent-query limiter rejects a request. The raw limiter
+# exception embeds an internal Redis key + task id, so we log that for debugging and surface this
+# friendly message instead of leaking implementation details into the UI.
+CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
+
 QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "posthog_query_validation_error_total",
     "Query validation failures returned from the query API.",
@@ -92,6 +98,31 @@ def _extract_validation_code(error: ValidationError) -> str:
         if isinstance(first_code, list) and first_code and isinstance(first_code[0], str):
             return first_code[0]
     return "unknown"
+
+
+# Matches an absolute ISO date that carries an explicit time-of-day (e.g. `2026-07-09T00:00:00Z`,
+# `2026-07-09 05:00:00`), but not a bare calendar day (`2026-07-09`) or a relative token (`-7d`, `mStart`).
+_ISO_TIMESTAMP_WITH_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}")
+
+
+def _date_bound_has_explicit_time(value: object) -> bool:
+    return isinstance(value, str) and _ISO_TIMESTAMP_WITH_TIME_RE.match(value) is not None
+
+
+def _mark_explicit_date_boundaries(query: BaseModel) -> None:
+    """MCP query tools accept ISO timestamps in `dateRange.date_to`. When a caller passes a full
+    timestamp with a time-of-day (e.g. `2026-07-09T00:00:00Z`) rather than a bare calendar day, they
+    mean an exact boundary, so mark the range explicit instead of snapping `date_to` to end of day.
+
+    Scoped to the MCP entrypoint on purpose: the web UI serialises fixed calendar ranges as naive
+    `YYYY-MM-DDTHH:mm:ss` strings and relies on the default end-of-day rounding, so this must not
+    change that path.
+    """
+    date_range = getattr(query, "dateRange", None)
+    if date_range is None or not hasattr(date_range, "explicitDate") or date_range.explicitDate:
+        return
+    if _date_bound_has_explicit_time(getattr(date_range, "date_to", None)):
+        date_range.explicitDate = True
 
 
 def _process_query_request(
@@ -126,6 +157,14 @@ def _process_query_request(
     return query, query_id, execution_mode
 
 
+# Query kinds whose product exposes its own scoped API keep scope parity here: an
+# API token must hold the product scope, not just query:read, to run them through
+# the generic endpoint.
+_QUERY_KIND_SCOPES: dict[str, list[str]] = {
+    "MetricsQuery": ["metrics:read"],
+}
+
+
 class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
@@ -134,6 +173,13 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
     scope_object_write_actions: list[str] = []
     sharing_enabled_actions = ["retrieve"]
+
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        if getattr(view, "action", None) != "create":
+            return None
+        query = request.data.get("query") if isinstance(request.data, dict) else None
+        kind = query.get("kind") if isinstance(query, dict) else None
+        return _QUERY_KIND_SCOPES.get(kind) if isinstance(kind, str) else None
 
     def get_throttles(self):
         if self.action == "draft_sql":
@@ -162,6 +208,11 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             return new_val
         return False
 
+    def _raise_concurrency_throttled(self, exc: ConcurrencyLimitExceeded) -> NoReturn:
+        # Log the raw detail (Redis key + task id) for Loki, but surface a clean message to the user.
+        logger.warning("query_concurrency_limit_exceeded", detail=str(exc))
+        raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
+
     @extend_schema(
         request=QueryRequest,
         responses={
@@ -182,12 +233,20 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 data, self.team, data.client_query_id, request.user
             )
 
+            is_mcp_client = request.headers.get("x-posthog-client") == "mcp"
+            if is_mcp_client:
+                _mark_explicit_date_boundaries(query)
+
             self._tag_client_query_id(client_query_id)
             analytics_props = get_request_analytics_properties(request)
             query_dict = query.model_dump()
 
             if data.limit_context == SchemaLimitContext.POSTHOG_AI:
                 limit_context: LimitContext | None = LimitContext.POSTHOG_AI
+                # Max's insight tiles run in the browser, so the request looks like a session
+                # web request and get_event_source classifies it as "web". Attribute it to
+                # posthog_ai instead, matching the server-side executor's tagging.
+                analytics_props["source"] = EventSource.POSTHOG_AI
             elif (
                 is_async_query(query_dict)
                 or is_insight_actors_query(query_dict)
@@ -248,7 +307,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 else status.HTTP_200_OK
             )
 
-            if request.headers.get("x-posthog-client") == "mcp":
+            if is_mcp_client:
                 with tracer.start_as_current_span("posthog.query.format_for_llm") as llm_span:
                     formatted = self._try_format_for_llm(query, result)
                     llm_span.set_attribute("query.formatted", formatted is not None)
@@ -282,7 +341,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             ).inc()
             raise
         except ConcurrencyLimitExceeded as c:
-            raise Throttled(detail=str(c))
+            self._raise_concurrency_throttled(c)
         except Exception as e:
             capture_exception(e)
             raise
@@ -384,7 +443,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             result = hogql_runner.calculate()
             return Response(result.model_dump(), status=200)
         except ConcurrencyLimitExceeded as c:
-            raise Throttled(detail=str(c))
+            self._raise_concurrency_throttled(c)
         except Exception as e:
             capture_exception(e)
             raise
@@ -443,4 +502,6 @@ MAX_QUERY_TIMEOUT = 600
 async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
     # TEMPORARY endpoint to avoid breaking changes
 
-    return sse_streaming_response([], status=status.HTTP_200_OK, headers={"Connection": "keep-alive"})
+    return sse_streaming_response(
+        [], endpoint="query_progress_stub", status=status.HTTP_200_OK, headers={"Connection": "keep-alive"}
+    )

@@ -1,8 +1,11 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -28,16 +31,18 @@ import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersL
 import {
     DEFAULT_FILTERS,
     DEFAULT_QUARANTINE_FILTERS,
+    DEFAULT_WORKFLOW_FILTERS,
     PullRequestRow,
     QuarantineEntryRow,
+    WorkflowHealthRow,
     engineeringAnalyticsLogic,
     filterPullRequests,
+    filterWorkflowHealth,
     workflowFailureSeries,
     filterQuarantineEntries,
     inferOwnerFromSelector,
     quarantineCountsOf,
     quarantineRequestErrorMessage,
-    workflowFailureTrend,
 } from './engineeringAnalyticsLogic'
 import { engineeringAnalyticsSceneLogic } from './engineeringAnalyticsSceneLogic'
 import { groupRunsByCommit, sortRunsForTriage } from './pullRequestDetailLogic'
@@ -141,7 +146,9 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         passing: 0,
         failing: 0,
         pending: 0,
+        failingWorkflows: [],
         pushes: 0,
+        pushHistory: [],
         rerunCycles: 0,
         estimatedCostUsd: null,
         billableMinutes: null,
@@ -163,6 +170,7 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
         open_to_merge_seconds: null,
         labels: [],
         pushes: 0,
+        push_history: [],
         rerun_cycles: 0,
         estimated_cost_usd: null,
         ...overrides,
@@ -199,6 +207,24 @@ const WORKFLOWS: WorkflowHealthItemApi[] = [
         latest_run_conclusion: 'success',
     },
 ]
+function makeWorkflow(overrides: Partial<WorkflowHealthRow> = {}): WorkflowHealthRow {
+    return {
+        repoOwner: 'posthog',
+        repoName: 'posthog',
+        workflowName: 'CI',
+        runCount: 10,
+        successRate: 1,
+        p50Seconds: 60,
+        p95Seconds: 120,
+        lastFailureAt: null,
+        latestRunFailed: false,
+        latestRunConclusion: 'success',
+        granularity: 'day',
+        buckets: [],
+        ...overrides,
+    }
+}
+
 const SOURCES: GitHubSourceApi[] = [
     { id: 'src-older', repo: 'posthog/posthog', prefix: 'older' },
     { id: 'src-newer', repo: 'posthog/posthog.com', prefix: 'website' },
@@ -227,6 +253,7 @@ describe('engineeringAnalyticsLogic', () => {
 
     afterEach(() => {
         jest.restoreAllMocks()
+        resumeKeaLoadersErrors()
     })
 
     it.each([
@@ -445,6 +472,62 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', source_id: 'src-newer' })
     })
 
+    it.each([
+        // 'failing'/'passing' key off the latest settled run; a row with nothing completed
+        // (latestRunFailed null) must show only under 'all' — it is neither green nor red.
+        ['failing keeps only rows whose latest run failed', { status: 'failing' as const }, ['E2E']],
+        ['passing keeps only settled green rows', { status: 'passing' as const }, ['CI']],
+        ['unsettled rows show only under all', {}, ['CI', 'E2E', 'Nightly']],
+        ['search is case-insensitive over the name', { search: 'NIGHT' }, ['Nightly']],
+    ])('filterWorkflowHealth: %s', (_label, overrides, expected) => {
+        const rows = [
+            makeWorkflow({ workflowName: 'CI', latestRunFailed: false }),
+            makeWorkflow({ workflowName: 'E2E', latestRunFailed: true }),
+            makeWorkflow({ workflowName: 'Nightly', latestRunFailed: null, latestRunConclusion: null }),
+        ]
+        expect(
+            filterWorkflowHealth(rows, { ...DEFAULT_WORKFLOW_FILTERS, ...overrides }).map((row) => row.workflowName)
+        ).toEqual(expected)
+    })
+
+    it('resetWorkflowFilters returns the workflow filters to defaults and clears hasActiveWorkflowFilters', () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        expect(logic.values.hasActiveWorkflowFilters).toBe(false)
+
+        logic.actions.setWorkflowSearch('e2e')
+        logic.actions.setWorkflowStatusFilter('failing')
+        expect(logic.values.hasActiveWorkflowFilters).toBe(true)
+
+        logic.actions.resetWorkflowFilters()
+        expect(logic.values.workflowFilters).toEqual(DEFAULT_WORKFLOW_FILTERS)
+        expect(logic.values.hasActiveWorkflowFilters).toBe(false)
+    })
+
+    it('workflowCostAvailable flips on once any row carries cost data', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(logic.values.workflowCostAvailable).toBe(false)
+
+        mockWorkflowHealth.mockResolvedValue([{ ...WORKFLOWS[0], billable_minutes: 12, estimated_cost_usd: 0.5 }])
+        logic.actions.loadWorkflowHealth()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(logic.values.workflowCostAvailable).toBe(true)
+    })
+
+    it.each([
+        ['workflows', () => urls.engineeringAnalyticsWorkflows()],
+        ['test health', () => urls.engineeringAnalyticsTestHealth()],
+    ])('the %s route applies ?source like the other tabs', async (_label, url) => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        router.actions.push(url(), { source: 'src-newer' })
+        await expectLogic(logic).toDispatchActions(['setSourceId'])
+        expect(logic.values.sourceId).toBe('src-newer')
+    })
+
     it('resetFilters returns every filter to defaults and clears hasActiveFilters', async () => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -490,22 +573,6 @@ describe('engineeringAnalyticsLogic', () => {
     ])('workflowFailureSeries: %s', (_label, counts, completed, failures, label) => {
         const series = workflowFailureSeries([{ bucketStart: '2026-06-05', runCount: 30, ...counts }], 'day')
         expect(series).toEqual({ completed: [completed], failures: [failures], labels: [label] })
-    })
-
-    it.each([
-        ['rising failures trend up', [0, 0, 2, 3], 'up'],
-        ['falling failures trend down', [4, 3, 1, 0], 'down'],
-        ['steady failures stay flat', [1, 1, 1, 1], 'flat'],
-        ['a single bucket is flat', [5], 'flat'],
-    ])('workflowFailureTrend: %s', (_label, failuresPerBucket, expected) => {
-        const buckets = failuresPerBucket.map((failures, i) => ({
-            bucketStart: `2026-06-0${i + 1}`,
-            runCount: 10,
-            completed: 10,
-            successes: 10 - failures,
-            failures,
-        }))
-        expect(workflowFailureTrend(buckets)).toBe(expected)
     })
 
     it('summarizeLifecycle rolls events up into milestones and verdicts', () => {
@@ -620,6 +687,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('flags notConnected when no GitHub source is connected (cards 400s)', async () => {
+        silenceKeaLoadersErrors() // the 400 loader failure is the scenario under test
         mockCiCards.mockRejectedValue(
             new ApiError('Connect a GitHub data warehouse source to use engineering analytics.', 400)
         )
@@ -633,6 +701,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('flags notConnected from the workflow-health loader too (the Workflows scene renders no cards)', async () => {
+        silenceKeaLoadersErrors() // the 400 loader failure is the scenario under test
         // notConnected must react to any loader's 400, not cards alone — else the Workflows scene
         // could miss the connect prompt.
         mockWorkflowHealth.mockRejectedValue(new ApiError('Connect a GitHub data warehouse source.', 400))
@@ -645,6 +714,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('a cards/PR 500 errors the PR scene only — not the Workflows scene', async () => {
+        silenceKeaLoadersErrors() // the 500 loader failure is the scenario under test
         mockCiCards.mockRejectedValue(new ApiError('Internal Server Error', 500))
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -656,6 +726,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('a workflow-health 500 errors the Workflows scene only — not the PR scene', async () => {
+        silenceKeaLoadersErrors() // the 500 loader failure is the scenario under test
         mockWorkflowHealth.mockRejectedValue(new ApiError('Internal Server Error', 500))
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -766,6 +837,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('flags quarantineLoadFailed when the quarantine endpoint 400s', async () => {
+        silenceKeaLoadersErrors() // the loader failure is the scenario under test
         mockQuarantine.mockRejectedValue(
             new Error('Connect a GitHub data warehouse source to use engineering analytics.')
         )
@@ -851,6 +923,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('a failed submit keeps the modal open so the user can retry', async () => {
+        silenceKeaLoadersErrors() // the submit failure is the scenario under test
         mockQuarantineRequest.mockRejectedValue({ detail: "The App isn't installed on PostHog." })
         logic = engineeringAnalyticsLogic()
         logic.mount()

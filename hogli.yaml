@@ -616,7 +616,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run NGINX Unit application server
+        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
         hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
@@ -941,6 +941,10 @@ tools:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references
         hidden: true
+    tool:granian-metrics:
+        bin_script: granian_metrics.py
+        description: HTTP server that aggregates Prometheus metrics from Granian workers
+        hidden: true
     sync:storage:
         bin_script: sync-storage
         description: 'TODO: add description for sync-storage'
@@ -1016,6 +1020,9 @@ utilities:
     worktrees:clean:
         click: hogli_commands.worktrees:worktrees_clean
         description: Clear out unused Claude Code / Codex / PostHog Code worktrees by age
+    pr:upload-image:
+        click: hogli_commands.upload_image:upload_image
+        description: Upload screenshot(s) to the public PostHog/pr-assets repo and print embeddable PR markdown
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development

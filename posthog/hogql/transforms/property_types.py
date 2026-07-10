@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Literal, Optional, cast
 
@@ -31,6 +32,15 @@ from posthog.clickhouse.materialized_columns import (
 )
 from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
+
+# ISO 8601 datetimes carrying a `T` date/time separator followed by a `Z`/±HH:MM
+# offset suffix. ClickHouse's toDateTime64 uses a strict parser that rejects these,
+# so they must go through parseDateTime64BestEffortOrNull instead.
+_ISO8601_WITH_OFFSET_RE = re.compile(r"\d{4}-\d{2}-\d{2}T.*(Z|[+-]\d{2}:?\d{2})")
+
+
+def _is_iso8601_with_offset(value: str) -> bool:
+    return bool(_ISO8601_WITH_OFFSET_RE.fullmatch(value))
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
@@ -211,11 +221,11 @@ class PropertySwapper(CloningVisitor):
     }
 
     # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
-    # toFloat64OrDefault) require a String first argument and raise
+    # toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
     # ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
     # Numeric-typed property in one of these, we must not auto-convert the property
-    # to Float — the raw String value has to flow through for the parser to work.
-    _STRING_INPUT_CONVERSIONS: set[str] = {"toFloatOrZero", "toIntOrZero", "toFloatOrDefault"}
+    # to Float, the raw String value has to flow through for the parser to work.
+    _STRING_INPUT_CONVERSIONS: set[str] = {"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"}
 
     # ClickHouse array-membership functions whose first argument must be an array. Users write these
     # against exception properties (e.g. hasAny(properties.$exception_values, [...])), but those
@@ -572,10 +582,22 @@ class PropertySwapper(CloningVisitor):
         if isinstance(inner, ast.Constant):
             if isinstance(inner.value, datetime) and inner.value.tzinfo is not None:
                 return expr
-            new_call = ast.Call(
-                name="toDateTime64",
-                args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
-            )
+            # ISO 8601 strings carrying a `T` separator followed by a `Z`/offset suffix
+            # (e.g. '2026-05-18T00:00:00.000Z') are preserved upstream so the offset
+            # can be honored (see property.py:_resolve_date_value). toDateTime64 uses
+            # a strict parser that rejects the trailing `Z`, so route these through
+            # HogQL's toDateTime, which lowers a string arg to
+            # parseDateTime64BestEffortOrNull(str, 6, tz) and honors the offset.
+            if isinstance(inner.value, str) and _is_iso8601_with_offset(inner.value):
+                new_call = ast.Call(
+                    name="toDateTime",
+                    args=[inner, ast.Constant(value=tz)],
+                )
+            else:
+                new_call = ast.Call(
+                    name="toDateTime64",
+                    args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
+                )
             if isinstance(expr, ast.Alias):
                 return ast.Alias(alias=expr.alias, expr=new_call)
             return new_call

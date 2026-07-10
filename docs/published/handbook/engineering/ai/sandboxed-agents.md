@@ -305,6 +305,34 @@ the agent cannot bypass them through proxy settings or DNS tricks.
 Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
 or the PostHog Code settings UI.
 
+### Custom base images
+
+Teams can bake their own tools and dependencies into a custom base image (`SandboxCustomImage`)
+and select it as a cloud environment's base via `SandboxEnvironment.custom_image`.
+Custom images always layer on top of the published VM sandbox base —
+agent tooling, git guard, and the VM runtime are always present —
+and the whole mechanism is gated on the Modal VM runtime being available:
+the `sandbox_custom_images` API returns 403 (and the PostHog Code UI hides the feature)
+unless the `tasks-modal-vm-sandbox` flag is enabled for the org
+with `user_created` in its `origin_products` payload allowlist,
+since custom-image sandboxes cannot run under gVisor.
+
+The flow, driven from the PostHog Code Environments → Cloud tab:
+
+1. Creating an image spawns an interactive **image-builder agent task**
+   (`custom_image_builder_id` in the run state, VM runtime forced)
+   that iterates inside the real VM base and maintains a declarative spec
+   (`SandboxImageSpec`: `apt_packages`, `run_commands`, `env`) at `/tmp/workspace/image-spec.yaml`.
+2. "Save & build" reads the spec from the builder sandbox (or accepts it inline via
+   `POST /api/projects/:id/sandbox_custom_images/:id/build/`), then the
+   `build-sandbox-image` Temporal workflow runs an LLM security scan of the spec,
+   builds it layered on the VM base, and publishes it as a Modal named image
+   (`Image.publish()` / `Image.from_name()`).
+3. Runs using an environment with a ready custom image provision their sandbox
+   from the published image (`SandboxConfig.custom_image_name`),
+   falling back to the standard base if the image can't be loaded.
+   Repo-setup snapshots are skipped for custom-image runs; resume snapshots still apply.
+
 ## Local development
 
 To set up sandboxed agents for local development:

@@ -30,6 +30,41 @@ tools:
     vision-actions-runs-retrieve:
         operation: vision_actions_runs_retrieve
         enabled: false
+    vision-observations-label-create:
+        operation: vision_observations_label_create
+        enabled: true
+        scopes:
+            - replay_scanner:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Rate a scanner observation
+        description: >
+            Set or update the shared thumbs up/down rating on a replay scanner observation: `is_correct` true means the
+            scanner got the session right (thumbs up), false means it got it wrong (thumbs down), plus optional written
+            `feedback` explaining why (applies to both directions). One shared rating per observation, team-wide, last
+            write wins; re-posting updates it in place. These ratings power the scanner's Quality tab: the
+            quality-over-time chart and the AI prompt recommendations (see
+            `vision-scanners-prompt-suggestions-generate`). Find observation IDs via `vision-scanners-observations-list`
+            (filter `labeled=false` for unrated ones) or `vision-observations-list` for a session.
+        feature_flag: replay-vision
+    vision-observations-label-destroy:
+        operation: vision_observations_label_destroy
+        enabled: true
+        scopes:
+            - replay_scanner:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Remove a scanner observation rating
+        description: >
+            Remove the shared thumbs up/down rating (and its feedback) from a replay scanner observation, returning it
+            to unrated. Team-wide: this clears the rating for everyone.
+        feature_flag: replay-vision
     vision-observations-list:
         operation: vision_observations_list
         enabled: true
@@ -67,6 +102,9 @@ tools:
             `scanner_snapshot` (the scanner's configuration at run time) and `scanner_result` (the LLM output, with any
             event citations). Use `vision-observations-list` to find observation IDs for a session first.
         feature_flag: replay-vision
+    vision-observations-retry-create:
+        operation: vision_observations_retry_create
+        enabled: false
     vision-quota-retrieve:
         operation: environment_vision_quota_retrieve
         enabled: true
@@ -78,10 +116,11 @@ tools:
             idempotent: true
         title: Get replay vision quota
         description: >
-            Get the organization's monthly Replay Vision observation budget. Returns `monthly_quota`, `usage_this_month`
-            (in-flight + succeeded observations counted against it), `remaining`, `exhausted`, and the
+            Get the organization's monthly Replay vision credit budget (1 credit = $0.01; observations cost credits by
+            model). Returns `credit_limit` (null when uncapped), `credits_used` (in-flight + succeeded observations
+            counted against it), `remaining`, `exhausted`, `projected_monthly_credits`, and the
             `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before
-            creating a scanner or calling `vision-scanners-scan-session` — observations requested over quota are
+            creating a scanner or calling `vision-scanners-scan-session` — observations requested over budget are
             silently skipped until the next period. Pair with `vision-scanners-estimate-create` to size a new scanner
             against the remaining budget.
         feature_flag: replay-vision
@@ -208,6 +247,12 @@ tools:
             Pair with the session-recording MCP tools or the investigating-replay skill to inspect the underlying
             recording.
         feature_flag: replay-vision
+    vision-scanners-observations-label-create:
+        operation: vision_scanners_observations_label_create
+        enabled: false
+    vision-scanners-observations-label-destroy:
+        operation: vision_scanners_observations_label_destroy
+        enabled: false
     vision-scanners-observations-list:
         operation: vision_scanners_observations_list
         enabled: true
@@ -229,11 +274,108 @@ tools:
             scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has
             found over time; to see every scanner's observations for one session, use `vision-observations-list`.
         feature_flag: replay-vision
-    vision-scanners-observations-stats-retrieve:
-        operation: vision_scanners_observations_stats_retrieve
+    vision-scanners-observations-retry-create:
+        operation: vision_scanners_observations_retry_create
         enabled: false
+    vision-scanners-observations-stats:
+        operation: vision_scanners_observations_stats_retrieve
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get scanner observation stats
+        description: >
+            Aggregate statistics over one scanner's observations. Accepts the same filters as
+            `vision-scanners-observations-list` plus `recent_days` (default 14, clamped 1..365) for the windowed series.
+            Returns `status_counts` (totals and success rate), `coverage` (distinct sessions scanned), `labels` (thumbs
+            up/down rating totals, a per-day accuracy series bucketed by scan day, per-day rating activity, and
+            `version_markers`: each prompt version's first day, prompt text, and rating counts), plus per-type
+            distributions (`monitor` verdict counts, `classifier` tag rankings, `scorer` score summary and histogram).
+            Use it to judge scanner quality and rating coverage, e.g. before generating a prompt suggestion with
+            `vision-scanners-prompt-suggestions-generate`.
+        feature_flag: replay-vision
     vision-scanners-partial-update:
         operation: vision_scanners_partial_update
+        enabled: false
+    vision-scanners-prompt-suggestions-apply:
+        operation: vision_scanners_prompt_suggestions_apply_create
+        enabled: true
+        scopes:
+            - replay_scanner:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Apply prompt suggestion
+        description: >
+            Apply a prompt suggestion to its scanner: writes the `suggested_prompt` into the scanner's config (bumping
+            `scanner_version`) and marks the suggestion applied. Only the current (pending or dismissed) suggestion can
+            be applied, and only while the scanner's prompt is unchanged since it was generated. Otherwise the call is
+            rejected and you should generate a fresh one. This is a team-wide change: the scanner scans with the new
+            prompt from its next sweep onward.
+        feature_flag: replay-vision
+    vision-scanners-prompt-suggestions-current:
+        operation: vision_scanners_prompt_suggestions_current_retrieve
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get current prompt suggestion
+        description: >
+            Get a scanner's newest AI prompt-rewrite suggestion, generated from the team's thumbs up/down ratings.
+            Returns `suggestion` (null when none has been generated yet) with its `suggested_prompt`, the `base_prompt`
+            it rewrote (for diffing), the `rationale`, and `status` (pending/applied/dismissed/superseded). Also returns
+            `stale` (true when ratings changed since it was generated, so regenerating may give a better rewrite) and
+            `rated_count` (rated observations available to generate from).
+        feature_flag: replay-vision
+    vision-scanners-prompt-suggestions-dismiss:
+        operation: vision_scanners_prompt_suggestions_dismiss_create
+        enabled: true
+        scopes:
+            - replay_scanner:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Dismiss prompt suggestion
+        description: >
+            Dismiss a prompt suggestion without applying it. The scanner's prompt is unchanged and the suggestion stays
+            in history. A dismissed suggestion can still be applied later with
+            `vision-scanners-prompt-suggestions-apply` as long as the scanner's prompt hasn't changed since it was
+            generated.
+        feature_flag: replay-vision
+    vision-scanners-prompt-suggestions-generate:
+        operation: vision_scanners_prompt_suggestions_generate_create
+        enabled: true
+        scopes:
+            - replay_scanner:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Generate prompt suggestion from ratings
+        description: >
+            Generate a fresh AI prompt-rewrite suggestion for a scanner from the team's current thumbs up/down ratings
+            and their written feedback. Requires at least one rated observation (check `rated_count` on
+            `vision-scanners-prompt-suggestions-current`; create ratings with `vision-observations-label-create`). The
+            previous pending suggestion becomes superseded. The LLM call runs inline, so expect the request to take a
+            while. Review the returned suggestion, then apply it with `vision-scanners-prompt-suggestions-apply` or
+            dismiss it with `vision-scanners-prompt-suggestions-dismiss`.
+        requires_ai_consent: true
+        feature_flag: replay-vision
+    vision-scanners-prompt-suggestions-list:
+        operation: vision_scanners_prompt_suggestions_list
         enabled: false
     vision-scanners-scan-session:
         operation: vision_scanners_observe_create

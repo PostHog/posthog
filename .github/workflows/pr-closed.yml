@@ -24,6 +24,92 @@ jobs:
             CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
             CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+    cleanup-hogbox-preview:
+        name: Cleanup hogbox preview
+        # Tear down the per-PR hogbox (box + pen) on close. The daily stale-sweep
+        # in pr-cleanup.yml is the backstop; the GitHub Deployment/environment is
+        # reaped there too. Idempotent — a no-op if nothing is up.
+        #
+        # Frontend PRs auto-preview WITHOUT the `hogbox-preview` label, so a
+        # label-only gate here would leak their boxes until the daily sweep. The
+        # job `if:` only prunes PRs that can't have had a preview at all (forks,
+        # bots); the real gate is the credential-free deployment check below —
+        # a preview always leaves a `preview-pr-<n>` GitHub Deployment behind.
+        if: >-
+            contains(github.event.pull_request.labels.*.name, 'hogbox-preview')
+            || (github.event.pull_request.head.repo.full_name == github.repository
+                && github.event.pull_request.user.type != 'Bot')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            deployments: read # the had-a-preview gate lists the PR's deployments
+            id-token: write # OIDC for the tailnet join + hogplane token
+        env:
+            HOG_HOST: https://hogland.hedgehog-kitefin.ts.net
+            HOG_OIDC_AUDIENCE: hogland.prod-us.posthog.dev
+            PR: ${{ github.event.pull_request.number }}
+        steps:
+            # Credential-free gate: only PRs that actually had a preview (labeled
+            # or auto) proceed to the tailnet join + token mint below.
+            - name: Check whether this PR had a preview
+              id: gate
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              with:
+                  script: |
+                      const pr = Number(process.env.PR);
+                      const { data } = await github.rest.repos.listDeployments({
+                          ...context.repo, environment: `preview-pr-${pr}`, per_page: 1 });
+                      const had = data.length > 0;
+                      core.info(`preview deployment for PR #${pr}: ${had}`);
+                      core.setOutput('had_preview', had ? 'true' : 'false');
+            # Run the teardown tool from the trusted default branch, never the PR's
+            # code. On a `closed` event the default checkout can resolve to the PR
+            # merge ref, which would execute PR-modified tools/hogbox-preview with
+            # the hogland token below. Cleanup only needs the SDK + a destroy call,
+            # so master's copy is correct and removes that exec vector.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: steps.gate.outputs.had_preview == 'true'
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+            - name: Connect to Tailscale (tag:hogland-ci)
+              if: steps.gate.outputs.had_preview == 'true'
+              uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+              with:
+                  oauth-client-id: ${{ vars.TS_HOGLAND_CI_CLIENT_ID }}
+                  audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
+                  tags: tag:hogland-ci
+            - name: Mint hogland OIDC token
+              if: steps.gate.outputs.had_preview == 'true'
+              # A transient OIDC outage (2026-07-09 ~12:58–13:10 UTC) used to slip
+              # an EMPTY token through here: `curl | jq` takes jq's exit code, jq
+              # succeeds on empty input, the step passed, and the downstream
+              # destroy failed with "no API token provided" — leaking two preview
+              # pens (runs 29019106966, 29019621216). Retry the mint to ride out
+              # the blip, and keep the empty-token guard as the hard backstop.
+              run: |
+                  token=""
+                  for attempt in 1 2 3; do
+                    token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                      "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value') || token=""
+                    [ -n "$token" ] && [ "$token" != "null" ] && break
+                    echo "::warning::OIDC mint attempt ${attempt} failed; retrying"
+                    [ "$attempt" -lt 3 ] && sleep 5
+                  done
+                  [ -n "$token" ] && [ "$token" != "null" ] || { echo "::error::OIDC mint failed after 3 attempts"; exit 1; }
+                  echo "::add-mask::$token"
+                  echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
+            # uv (repo convention): --no-project skips the monorepo sync, --with
+            # pins the first-party SDK (exempted from the 7-day soak in [tool.uv]).
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              if: steps.gate.outputs.had_preview == 'true'
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+            - name: Destroy preview box + pen
+              if: steps.gate.outputs.had_preview == 'true'
+              working-directory: tools/hogbox-preview
+              run: uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-${PR}" destroy
+
     disable-canary-flags:
         name: Disable feature flags canary
         if: contains(github.event.pull_request.labels.*.name, 'canary-flags')
@@ -70,7 +156,14 @@ jobs:
                   pr_age=$((($(date '+%s') - $(date -d "$PR_CREATED_AT" '+%s'))))
                   echo "pr_age=$pr_age" >> $GITHUB_ENV
 
-                  first_commit_message_in_pr=$(curl -s "$PR_HREF" | jq '.[0].commit.message')
+                  # The commits endpoint returns an ARRAY on success, but an error
+                  # OBJECT (rate limit, or a 404 after a force-push-and-close) on
+                  # failure — and `.[0]` on an object makes jq exit 5, which used
+                  # to fail the whole run and mask real cleanup failures on the
+                  # dashboard (4x on 2026-07-09, e.g. run 29040552494). Guard on the
+                  # type: degrade to an empty message instead of crashing.
+                  first_commit_message_in_pr=$(curl -s "$PR_HREF" \
+                    | jq 'if type == "array" and length > 0 then .[0].commit.message else "" end')
                   echo "first_commit_message_in_pr<<EOF" >> $GITHUB_ENV
                   echo "$first_commit_message_in_pr" >> $GITHUB_ENV
                   echo "EOF" >> $GITHUB_ENV

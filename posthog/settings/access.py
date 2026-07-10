@@ -36,7 +36,7 @@ CSRF_TRUSTED_ORIGINS += get_list(os.getenv("EXTRA_CSRF_TRUSTED_ORIGINS", ""))
 # Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
 TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
-TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
+TRUST_ALL_PROXIES = get_from_env("TRUST_ALL_PROXIES", False, type_cast=str_to_bool)
 
 
 if IS_BEHIND_PROXY:
@@ -129,6 +129,12 @@ TASKS_AGENT_PROXY_INGEST_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INGEST_U
 # https://agent-proxy.us.posthog.com). The stream_token endpoint returns it to clients only when this
 # is set AND the read-via-proxy flag is enabled for the user; unset means clients read from Django.
 TASKS_AGENT_PROXY_PUBLIC_URL: str | None = os.getenv("TASKS_AGENT_PROXY_PUBLIC_URL") or None
+
+# In-cluster base URL of the agent-proxy for backend consumers (e.g. the Temporal worker relaying a
+# run's live stream to Slack) that read the stream leg without going through the ingress/CDN. Points
+# at the ClusterIP service (e.g. http://agent-proxy.agent-proxy.svc.cluster.local:8003). Unset falls
+# back to TASKS_AGENT_PROXY_PUBLIC_URL, then to reading the Django-side Redis stream directly.
+TASKS_AGENT_PROXY_INTERNAL_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INTERNAL_URL") or None
 
 # Shared service-to-service secret proving a call to the agent-proxy side-effect callback came from the
 # agent-proxy and not directly from a sandbox (which also holds the event-ingest JWT). When set, the
