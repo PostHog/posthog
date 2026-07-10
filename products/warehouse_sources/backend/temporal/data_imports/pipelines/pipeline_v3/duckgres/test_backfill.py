@@ -333,13 +333,10 @@ class TestFailureStreak:
     def test_mark_primed_resets_streak(self):
         candidate = _sink_state(self._team(), _State.BACKFILLING)
         DuckgresSinkSchemaState.objects.filter(id=candidate.id).update(
-            consecutive_failures=5,
-            first_failed_at=timezone.now(),
-            last_error="boom",
-            backfill_run_uuid="run-1",
+            consecutive_failures=5, first_failed_at=timezone.now(), last_error="boom"
         )
 
-        backfill_module.mark_primed(str(candidate.schema_id), run_uuid="run-1")
+        backfill_module.mark_primed(str(candidate.schema_id))
 
         candidate.refresh_from_db()
         assert candidate.state == _State.PRIMED
