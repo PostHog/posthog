@@ -361,23 +361,25 @@ async function assignReviewers(teams, users) {
 
     const response = await post(payload)
 
-    // GitHub returns 422 for the whole batch if *any* requested team isn't a
-    // collaborator on the repo (teams get renamed, deleted, or never set up,
-    // owners.yaml and product.yaml drift). Salvage by retrying users +
-    // each team independently so valid entries still land, and log the bad
-    // slugs so they're visible in the action log as cleanup nudges.
-    if (response.status === 422 && teams.length > 0) {
+    // GitHub returns 422 for the whole batch if *any* requested team or user
+    // isn't assignable on the repo (teams get renamed or deleted, individual
+    // @handles go stale or leave, owners.yaml and product.yaml drift). Salvage
+    // by retrying every user and team independently so valid entries still
+    // land, and log the bad ones so they're visible as cleanup nudges.
+    if (response.status === 422) {
         const errorText = await response.text()
         console.warn(`⚠️  422 on bulk request, retrying individually:\n${errorText}`)
 
-        if (users.length > 0) {
-            const r = await post({ reviewers: users })
-            if (!r.ok) {
-                throw new Error(`GitHub API error assigning users: ${r.status} ${r.statusText}\n${await r.text()}`)
+        const dropped = []
+        for (const user of users) {
+            const r = await post({ reviewers: [user] })
+            if (r.status === 422) {
+                dropped.push(`@${user}`)
+            } else if (!r.ok) {
+                throw new Error(`GitHub API error assigning user '${user}': ${r.status} ${r.statusText}\n${await r.text()}`)
             }
         }
 
-        const dropped = []
         for (const team of teams) {
             const r = await post({ team_reviewers: [team] })
             if (r.status === 422) {
@@ -391,7 +393,7 @@ async function assignReviewers(teams, users) {
 
         if (dropped.length > 0) {
             console.warn(
-                `⚠️  Dropped ${dropped.length} stale team(s): ${dropped.join(', ')}. ` +
+                `⚠️  Dropped ${dropped.length} stale reviewer(s): ${dropped.join(', ')}. ` +
                     `Fix product.yaml / owners.yaml so these get assigned next time.`
             )
         }
