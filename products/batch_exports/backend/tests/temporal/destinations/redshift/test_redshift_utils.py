@@ -104,7 +104,6 @@ async def test_upload_manifest_file(minio_client, bucket_name):
         ),
         files_uploaded=files_uploaded,
         manifest_key=manifest_key,
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
     )
 
     obj = await minio_client.get_object(Bucket=bucket_name, Key=manifest_key)
@@ -159,7 +158,6 @@ async def test_upload_manifest_file_raises_on_client_error(minio_client, bucket_
                 ),
                 files_uploaded=files_uploaded,
                 manifest_key=manifest_key,
-                endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
             )
         assert all(isinstance(exc, botocore.exceptions.ClientError) for exc in exc_info.value.exceptions)
         assert exc_info.value.ops == {"list_objects_v2": {"AccessDenied"}}  # type: ignore

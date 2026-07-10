@@ -1051,11 +1051,14 @@ async def upload_manifest_file(
     requirement when using Parquet. Since we don't track exactly the size of bytes of
     each Parquet file produced, this function gets it from S3 instead.
     """
+
     async with s3_client(
         credentials.aws_access_key_id,
         credentials.aws_secret_access_key,
         credentials.aws_session_token,
         region=region_name,
+        # Required for unit tests which run against a local bucket, otherwise always None.
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT_URL if settings.TEST else None,
     ) as client:
         entries = []
 
