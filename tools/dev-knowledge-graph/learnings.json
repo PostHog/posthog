@@ -122,57 +122,6 @@
       ]
     },
     {
-      "id": "error-noise-has-patterns",
-      "title": "Most error-tracking signal work is noise reduction with recurring code patterns",
-      "markdown": "A large share of inbox-driven fixes were \"stop capturing a benign exception\":\n\n- expected access denials captured as errors\n- network flakes in fire-and-forget calls (e.g. the replay player's markViewed)\n- third-party injected scripts (Firefox iOS reader mode) surfacing as our errors\n- timeout signals swallowed in `object_storage` that should propagate\n- non-Error objects passed to `captureException` producing opaque issues\n\nThe decision tree — swallow vs propagate vs normalize vs suppress-by-fingerprint — repeats and should be written down as a repo-side skill.",
-      "evidence_tasks": [
-        76670,
-        79313,
-        81753,
-        84394,
-        85108,
-        86969,
-        86976
-      ],
-      "skills": [
-        {
-          "name": "reducing-error-tracking-noise",
-          "status": "proposed"
-        }
-      ],
-      "author": "paul",
-      "concepts": [
-        "error-capture"
-      ],
-      "observations": [
-        {
-          "date": "2026-07-01",
-          "kind": "observed",
-          "note": "1 conversation hit this"
-        },
-        {
-          "date": "2026-07-02",
-          "kind": "observed",
-          "note": "1 conversation hit this"
-        },
-        {
-          "date": "2026-07-04",
-          "kind": "observed",
-          "note": "1 conversation hit this"
-        },
-        {
-          "date": "2026-07-07",
-          "kind": "observed",
-          "note": "2 conversations hit this"
-        },
-        {
-          "date": "2026-07-08",
-          "kind": "observed",
-          "note": "2 conversations hit this"
-        }
-      ]
-    },
-    {
       "id": "automation-ladder-works",
       "title": "Moving conventions from instructions to linters pays off immediately",
       "markdown": "The em-dash rule lived in `AGENTS.md` and was routinely violated; turning it into an automatic commit-time replacement ([#69970](https://github.com/PostHog/posthog/pull/69970)) removed the review churn entirely — and the instruction text could then be deleted.\n\nSame shape as enforcing the `StreamingHttpResponse` wrapper with a linter instead of asking people to remember. When a convention is checkable, spend the effort on the linter, not on better prose. The ladder: **linter > lint-staged > skill > instructions**.",

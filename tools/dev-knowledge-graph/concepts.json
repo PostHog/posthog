@@ -126,13 +126,6 @@
       "markdown": "All S3-compatible access goes through `posthog/storage/object_storage.py` (MinIO today for general storage, SeaweedFS for replay v2 and the direction of travel). Its broad `except Exception` wrappers must not capture control-flow signals: `SoftTimeLimitExceeded` from Celery has to propagate or timed-out tasks look like storage bugs."
     },
     {
-      "id": "error-capture",
-      "name": "Exception capture conventions",
-      "layer": "django",
-      "parent": null,
-      "markdown": "`capture_exception` is an alerting decision, not a logging habit. The decision tree learned from a fortnight of noise triage:\n\n- expected outcomes (access denials, validation) → never capture\n- fire-and-forget network calls → swallow, at most log\n- control-flow signals (timeouts) → propagate\n- third-party injected script errors → suppress by fingerprint\n- non-Error objects → normalize into a real Error first"
-    },
-    {
       "id": "mcp-analytics",
       "name": "MCP analytics",
       "layer": "django",
