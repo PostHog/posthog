@@ -559,8 +559,13 @@ class ExperimentService:
     def _strip_feature_flag_config(cls, parameters: dict | None) -> dict | None:
         """Return ``parameters`` without the feature-flag config keys, so they are not stored in the
         deprecated column. Callers consume those keys earlier to build/sync the flag; reads
-        re-derive them from it. Returns a new dict, leaving the caller's input untouched."""
-        if not parameters:
+        re-derive them from it. Returns a new dict, leaving the caller's input untouched.
+
+        The column is a JSONField, so pre-0026 rows may hold a non-dict (list/str/number). There is
+        no flag config to strip from those, so return them unchanged rather than calling ``.items()``
+        on a non-dict; this keeps every caller (clone, update strip, serializer validation) tolerant
+        of legacy drift."""
+        if not parameters or not isinstance(parameters, dict):
             return parameters
         return {k: v for k, v in parameters.items() if k not in cls.FEATURE_FLAG_CONFIG_KEYS}
 
@@ -873,6 +878,15 @@ class ExperimentService:
         )
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
+
+        # Flag config belongs on feature_flag_config; parameters must stay clean (migration 0026).
+        # isinstance guard: a non-dict `parameters` (list/str/number) carries no flag config, and `in`
+        # on those would substring-match a string or raise on a number instead of checking keys.
+        if isinstance(parameters, dict) and any(key in parameters for key in self.FEATURE_FLAG_CONFIG_KEYS):
+            raise ValueError(
+                "Flag config is not accepted via parameters; pass feature_flag_config "
+                "({filters, ensure_experience_continuity})."
+            )
 
         feature_flag, used_variants = self._ensure_feature_flag(
             feature_flag_key=feature_flag_key,
@@ -3231,8 +3245,10 @@ class ExperimentService:
             feature_flag_key = source_experiment.feature_flag.key
 
         # `parameters` carries only the source's experiment-own keys — flag config lives on the
-        # flag and is passed via feature_flag_config below.
-        parameters = deepcopy(source_experiment.parameters) or {}
+        # flag and is passed via feature_flag_config below. Strip any flag-config keys a pre-0026
+        # source column still holds so the clean copy does not trip create_experiment's guard.
+        # The helper passes non-dict legacy drift through unchanged, so a drifted row still clones.
+        parameters = self._strip_feature_flag_config(deepcopy(source_experiment.parameters)) or {}
 
         # Variants, payloads, group aggregation, and experience continuity come from the source
         # experiment's feature flag (the source of truth), in the flag's own write shape.

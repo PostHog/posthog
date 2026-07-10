@@ -173,6 +173,27 @@ class TestExperimentService(APIBaseTest):
         assert variants[1]["key"] == "test"
         assert flag.active is False  # draft → flag inactive
 
+    @parameterized.expand(
+        [
+            ("feature_flag_variants", {"feature_flag_variants": [{"key": "control", "rollout_percentage": 100}]}),
+            ("ensure_experience_continuity", {"ensure_experience_continuity": True}),
+        ]
+    )
+    def test_create_experiment_rejects_flag_config_in_parameters(self, _name, parameters):
+        # Flag config must arrive via feature_flag_config; the deprecated `parameters` keys are rejected
+        # so no caller can revive the derive path or leak flag config into the parameters column.
+        service = self._service()
+
+        with pytest.raises(ValueError, match="not accepted via parameters"):
+            service.create_experiment(
+                name="Rejects Flag Config",
+                feature_flag_key="rejects-flag-config",
+                parameters=parameters,
+            )
+
+        assert not Experiment.objects.filter(name="Rejects Flag Config").exists()
+        assert not FeatureFlag.objects.filter(key="rejects-flag-config", team_id=self.team.id).exists()
+
     def test_create_launched_experiment_activates_flag(self):
         from django.utils import timezone
 
@@ -2181,6 +2202,20 @@ class TestExperimentService(APIBaseTest):
 
         assert dup.feature_flag.key == "dup-stale-target"
         assert [v["key"] for v in dup.feature_flag.variants] == ["control", "test"]
+
+    def test_duplicate_experiment_tolerates_non_dict_legacy_parameters(self):
+        self._create_flag(key="dup-nondict-source")
+        service = self._service()
+        source = service.create_experiment(name="Non-dict Params", feature_flag_key="dup-nondict-source")
+        # The parameters column is a JSONField; a pre-0026 row may hold a non-dict value. Migration
+        # 0026 only rewrote dicts, so this drift survives. Cloning must copy it through unchanged, not
+        # crash on `.items()` inside the flag-config strip.
+        Experiment.objects.filter(id=source.id).update(parameters=["legacy", "list", "drift"])
+        source.refresh_from_db()
+
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-nondict-target")
+
+        assert dup.parameters == ["legacy", "list", "drift"]
 
     def test_duplicate_experiment_copies_saved_metrics(self):
         self._create_flag(key="dup-saved")

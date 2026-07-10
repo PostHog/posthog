@@ -6150,6 +6150,48 @@ class TestExperimentParametersFlagConfigCompatibility(APILicensedTest):
         flag = FeatureFlag.objects.get(key=key, team_id=self.team.id)
         self.assertEqual([v["rollout_percentage"] for v in flag.variants], [30, 70], flag.filters)
 
+    @parameterized.expand(
+        [
+            ("list", ["legacy"]),
+            ("string", "legacy"),
+        ]
+    )
+    def test_create_rejects_non_dict_parameters(self, name: str, parameters) -> None:
+        # `parameters` is a JSON object. A non-dict body is rejected at the write boundary so it can
+        # never persist; a stored non-dict would later crash the read projection's dict() call.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": f"reject-{name}", "feature_flag_key": f"reject-{name}", "parameters": parameters},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("parameters must be an object", str(response.json()))
+
+    def test_read_tolerates_non_dict_legacy_parameters(self) -> None:
+        # A pre-0026 row can hold a non-dict in the JSON `parameters` column. Reads must project the
+        # flag config without crashing on dict(); the drifted value is left untouched, not stripped.
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="nondict-legacy",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team, name="Non-dict legacy", feature_flag=flag, parameters=["legacy", "list", "drift"]
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["parameters"], ["legacy", "list", "drift"])
+
 
 class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTestMixin, APILicensedTest):
     def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):
