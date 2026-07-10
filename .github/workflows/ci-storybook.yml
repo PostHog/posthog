@@ -1,10 +1,10 @@
 name: Storybook
 on:
     pull_request:
-        # PRs run a narrowed visual-regression matrix when the Storybook module graph
-        # can safely identify affected stories. Shared infrastructure and uncertain
-        # changes fall back to the full chromium matrix. To force the full matrix, add
-        # the `run-ci-frontend` label —
+        # Draft PRs run a narrowed visual-regression matrix when the Storybook module
+        # graph can safely identify affected stories. Ready PRs run the full chromium
+        # matrix as the merge gate. To force the full matrix on a draft, add the
+        # `run-ci-frontend` label —
         # labeled/unlabeled re-trigger the run so it starts without needing a push.
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     merge_group:
@@ -338,9 +338,9 @@ jobs:
             fail-fast: false
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
             # are tuned for runner CPU — consult #team-devex before changing.
-            # On PRs, select-stories may narrow the matrix to chromium shards running
-            # only affected story files. Shared or uncertain changes fall back to
-            # changes.outputs.matrix (full chromium). Master pushes run chromium + webkit.
+            # Draft PRs may use chromium shards running only affected story files.
+            # Ready PRs fall back to changes.outputs.matrix (full chromium), while
+            # master pushes run chromium + webkit.
             # Storybook CI is skipped entirely on merge_group (changes.if).
             matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
@@ -727,10 +727,11 @@ jobs:
                   github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Visual regression tests pass'
 
-    # Pick the visual-regression matrix on PRs based on which stories the Vite
-    # module graph says are affected by the diff. Shared UI infrastructure,
-    # unresolved runtime files, selector failures, and the run-ci-frontend label
-    # fall back to the full chromium matrix. Master pushes run the full matrix.
+    # Pick a narrowed visual-regression matrix for draft PRs based on which stories
+    # the Vite module graph says are affected by the diff. Ready PRs and drafts with
+    # the run-ci-frontend label skip this job and use the full chromium matrix.
+    # Selector uncertainty skips draft visual regression because the ready run is
+    # still the merge gate.
     select-stories:
         name: Story selection
         runs-on: ubuntu-latest
@@ -739,6 +740,7 @@ jobs:
         if: |
             always() && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
+            && github.event.pull_request.draft == true
             && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
@@ -795,37 +797,33 @@ jobs:
               run: |
                   set -euo pipefail
 
-                  fall_back_to_full() {
-                      echo "mode=full" >> "$GITHUB_OUTPUT"
-                      echo "should_run=true" >> "$GITHUB_OUTPUT"
+                  fall_back_to_skip() {
+                      echo "mode=skip" >> "$GITHUB_OUTPUT"
+                      echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+                      echo "should_run=false" >> "$GITHUB_OUTPUT"
                       echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
                   }
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection-result.json ]]; then
-                      echo "::warning::story selector did not produce output; running the full visual-regression matrix"
-                      fall_back_to_full
+                      echo "::warning::story selector did not produce output; skipping draft visual regression"
+                      fall_back_to_skip
                       exit 0
                   fi
 
                   MODE=$(jq -r '.mode' /tmp/selection-result.json)
                   if [[ "$MODE" != "selective" ]]; then
-                      echo "Selector declined to narrow (mode=$MODE); running the full visual-regression matrix"
-                      fall_back_to_full
+                      echo "Selector declined to narrow (mode=$MODE); skipping draft visual regression"
+                      fall_back_to_skip
                       exit 0
                   fi
 
                   COUNT=$(jq -r '.affected_story_count' /tmp/selection-result.json)
                   if [[ "$COUNT" -eq 0 ]]; then
-                      if [[ "${{ github.event.pull_request.draft }}" == "true" ]]; then
-                          echo "mode=selective" >> "$GITHUB_OUTPUT"
-                          echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
-                          echo "should_run=false" >> "$GITHUB_OUTPUT"
-                          echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
-                          echo "Selective mode: 0 affected stories on a draft, skipping visual-regression"
-                      else
-                          echo "::warning::selector found no affected stories on a ready PR; running the full visual-regression matrix"
-                          fall_back_to_full
-                      fi
+                      echo "mode=selective" >> "$GITHUB_OUTPUT"
+                      echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+                      echo "should_run=false" >> "$GITHUB_OUTPUT"
+                      echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
+                      echo "Selective mode: 0 affected stories, skipping draft visual regression"
                       exit 0
                   fi
 
