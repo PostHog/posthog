@@ -1493,10 +1493,25 @@ class TestGithubWebhookSource:
         assert result.error is not None
         assert "admin:repo_hook" in result.error
 
+    @staticmethod
+    def _hook_session(list_response: mock.Mock, patch_response: mock.Mock | None = None) -> mock.Mock:
+        # The hook list rides github_request, which sends via session.request(method, url, ...);
+        # route by method so a stray write (e.g. a PATCH on a no-drift path) fails loudly.
+        session = mock.Mock()
+
+        def route(method: str, url: str, **kwargs: Any) -> mock.Mock:
+            if method == "GET":
+                return list_response
+            if method == "PATCH" and patch_response is not None:
+                return patch_response
+            raise AssertionError(f"Unexpected {method} request: {url}")
+
+        session.request.side_effect = route
+        return session
+
     def test_delete_webhook_lists_then_deletes_matching_hook(self) -> None:
         webhook_url = "https://app.posthog.com/webhook"
-        session = mock.Mock()
-        session.get.return_value = _make_response(status=200, body=[{"id": 42, "config": {"url": webhook_url}}])
+        session = self._hook_session(_make_response(status=200, body=[{"id": 42, "config": {"url": webhook_url}}]))
         session.delete.return_value = _make_response(status=204)
 
         with mock.patch(
@@ -1511,18 +1526,19 @@ class TestGithubWebhookSource:
 
     def test_get_external_webhook_info_reports_existing_hook(self) -> None:
         webhook_url = "https://app.posthog.com/webhook"
-        session = mock.Mock()
-        session.get.return_value = _make_response(
-            status=200,
-            body=[
-                {
-                    "id": 42,
-                    "active": True,
-                    "events": ["workflow_job", "workflow_run"],
-                    "config": {"url": webhook_url},
-                    "created_at": "2026-01-01T00:00:00Z",
-                }
-            ],
+        session = self._hook_session(
+            _make_response(
+                status=200,
+                body=[
+                    {
+                        "id": 42,
+                        "active": True,
+                        "events": ["workflow_job", "workflow_run"],
+                        "config": {"url": webhook_url},
+                        "created_at": "2026-01-01T00:00:00Z",
+                    }
+                ],
+            )
         )
 
         with mock.patch(
@@ -1540,8 +1556,7 @@ class TestGithubWebhookSource:
         # The hook is found in the list but DELETE races a concurrent removal and
         # 404s — the desired end state, so it must not surface as a permission error.
         webhook_url = "https://app.posthog.com/webhook"
-        session = mock.Mock()
-        session.get.return_value = _make_response(status=200, body=[{"id": 42, "config": {"url": webhook_url}}])
+        session = self._hook_session(_make_response(status=200, body=[{"id": 42, "config": {"url": webhook_url}}]))
         session.delete.return_value = _make_response(status=404, body={"message": "Not Found"})
 
         with mock.patch(
@@ -1557,13 +1572,14 @@ class TestGithubWebhookSource:
         # A hook whose `config` is present-but-null must be skipped, not crash the
         # match loop — the real hook still resolves.
         webhook_url = "https://app.posthog.com/webhook"
-        session = mock.Mock()
-        session.get.return_value = _make_response(
-            status=200,
-            body=[
-                {"id": 7, "config": None},
-                {"id": 42, "active": True, "events": ["workflow_job"], "config": {"url": webhook_url}},
-            ],
+        session = self._hook_session(
+            _make_response(
+                status=200,
+                body=[
+                    {"id": 7, "config": None},
+                    {"id": 42, "active": True, "events": ["workflow_job"], "config": {"url": webhook_url}},
+                ],
+            )
         )
 
         with mock.patch(
@@ -1597,54 +1613,53 @@ class TestGithubWebhookSource:
         # through the gated egress transport. Replacing instead of merging would drop events the
         # user subscribed themselves (push).
         webhook_url = "https://app.posthog.com/webhook"
-        session = mock.Mock()
-        session.get.return_value = _make_response(
-            status=200,
-            body=[{"id": 42, "events": ["workflow_job", "workflow_run", "push"], "config": {"url": webhook_url}}],
+        session = self._hook_session(
+            _make_response(
+                status=200,
+                body=[{"id": 42, "events": ["workflow_job", "workflow_run", "push"], "config": {"url": webhook_url}}],
+            ),
+            patch_response=_make_response(status=200, body={"id": 42}),
         )
 
-        with (
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
-                return_value=session,
-            ),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.github_request",
-                return_value=_make_response(status=200, body={"id": 42}),
-            ) as patch_request,
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
         ):
             result = update_repo_webhook(
                 "tok", "owner/repo", webhook_url, ["workflow_job", "workflow_run", "pull_request_review"]
             )
 
         assert result.success is True
-        method, patch_url = patch_request.call_args.args
-        assert method == "PATCH"
-        assert "/repos/owner/repo/hooks/42" in patch_url
-        sent_events = patch_request.call_args.kwargs["json"]["events"]
+        patch_calls = [c for c in session.request.call_args_list if c.args[0] == "PATCH"]
+        assert len(patch_calls) == 1
+        assert "/repos/owner/repo/hooks/42" in patch_calls[0].args[1]
+        sent_events = patch_calls[0].kwargs["json"]["events"]
         assert sent_events == ["pull_request_review", "push", "workflow_job", "workflow_run"]
 
-    def test_update_repo_webhook_rate_limit_is_not_a_permission_error(self) -> None:
+    @parameterized.expand(
+        [
+            ("on_the_hook_list", True),
+            ("on_the_patch", False),
+        ]
+    )
+    def test_update_repo_webhook_rate_limit_is_not_a_permission_error(self, _name: str, on_list: bool) -> None:
         # A rate-limited 403 carries limit markers; misreading it as a missing admin:repo_hook
-        # grant would send the user off to rotate a token that is fine.
+        # grant would send the user off to rotate a token that is fine. Both request stages
+        # must classify the rate limit before the permission mapping.
         webhook_url = "https://app.posthog.com/webhook"
-        session = mock.Mock()
-        session.get.return_value = _make_response(
-            status=200, body=[{"id": 42, "events": ["workflow_job"], "config": {"url": webhook_url}}]
-        )
         rate_limited = _make_response(status=403, body={"message": "API rate limit exceeded"})
         rate_limited.headers = {"x-ratelimit-remaining": "0"}
         rate_limited.text = "API rate limit exceeded"
+        hooks_list = _make_response(
+            status=200, body=[{"id": 42, "events": ["workflow_job"], "config": {"url": webhook_url}}]
+        )
+        session = (
+            self._hook_session(rate_limited) if on_list else self._hook_session(hooks_list, patch_response=rate_limited)
+        )
 
-        with (
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
-                return_value=session,
-            ),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.github_request",
-                return_value=rate_limited,
-            ),
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
         ):
             result = update_repo_webhook("tok", "owner/repo", webhook_url, ["pull_request_review"])
 
@@ -1662,10 +1677,10 @@ class TestGithubWebhookSource:
     def test_update_repo_webhook_no_ops_without_drift(self, _name: str, current_events: list[str]) -> None:
         # Reconciliation runs on every schema enable, so it must not PATCH when nothing is
         # missing (or "*" already covers everything); a write per enable would churn the hook.
+        # The routed session has no PATCH response, so a stray write raises.
         webhook_url = "https://app.posthog.com/webhook"
-        session = mock.Mock()
-        session.get.return_value = _make_response(
-            status=200, body=[{"id": 42, "events": current_events, "config": {"url": webhook_url}}]
+        session = self._hook_session(
+            _make_response(status=200, body=[{"id": 42, "events": current_events, "config": {"url": webhook_url}}])
         )
 
         with mock.patch(
@@ -1675,14 +1690,15 @@ class TestGithubWebhookSource:
             result = update_repo_webhook("tok", "owner/repo", webhook_url, ["pull_request_review"])
 
         assert result.success is True
-        session.patch.assert_not_called()
+        assert all(call.args[0] == "GET" for call in session.request.call_args_list)
 
     def test_update_repo_webhook_permission_error_fails_with_hint(self) -> None:
         # A 403 must come back as a failed result naming the missing grant, never raise:
         # reconciliation runs non-fatally after the table is enabled, and a raise would only
         # be swallowed with a generic log instead of the actionable message.
-        session = mock.Mock()
-        session.get.return_value = _make_response(status=403, body={"message": "Forbidden"})
+        denied = _make_response(status=403, body={"message": "Forbidden"})
+        denied.text = "Forbidden"  # no rate-limit markers, so this must map to the grant hint
+        session = self._hook_session(denied)
 
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
@@ -1700,8 +1716,7 @@ class TestGithubWebhookSource:
     def test_update_repo_webhook_with_no_matching_hook_is_a_no_op(self) -> None:
         # A manually deleted webhook must not fail reconciliation (creation is handled
         # elsewhere); failing here would warn on every schema enable for no reason.
-        session = mock.Mock()
-        session.get.return_value = _make_response(status=200, body=[])
+        session = self._hook_session(_make_response(status=200, body=[]))
 
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
@@ -1712,7 +1727,7 @@ class TestGithubWebhookSource:
             )
 
         assert result.success is True
-        session.patch.assert_not_called()
+        assert all(call.args[0] == "GET" for call in session.request.call_args_list)
 
 
 # A response that raise_if_github_rate_limited classifies as rate limited: 429 is

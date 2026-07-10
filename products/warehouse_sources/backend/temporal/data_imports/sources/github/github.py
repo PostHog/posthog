@@ -999,11 +999,26 @@ def create_repo_webhook(
 
 def _list_repo_hooks(token: str, repo: str) -> tuple[list[dict[str, Any]] | None, str | None]:
     """List repo webhooks via GET /repos/{repo}/hooks. Returns (hooks, error); error is
-    ``"permission"`` when the token lacks admin:repo_hook so callers can fall back to manual setup."""
+    ``"permission"`` when the token lacks admin:repo_hook so callers can fall back to manual setup.
+
+    Rate limits (and egress budget sheds) are classified before the permission mapping: a
+    rate-limited 403 also lands in _is_repo_hook_permission_error's status set, and misreading it
+    would tell the user their token lacks webhook permissions while the token is fine."""
     try:
-        response = make_tracked_session().get(
-            f"{GITHUB_BASE_URL}/repos/{repo}/hooks", headers=_get_headers(token), params={"per_page": 100}, timeout=30
+        # Gated + recorded transport, like the data plane and the reconcile PATCH. NORMAL, not
+        # BATCH: webhook management on an interactive path is not deferrable bulk.
+        response = github_request(
+            "GET",
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks?per_page=100",
+            source="warehouse",
+            headers=_get_headers(token),
+            priority=Priority.NORMAL,
+            timeout=30,
+            session=make_tracked_session(),
         )
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        return None, "GitHub rate limit reached while listing repository webhooks; please retry shortly."
     except requests.exceptions.RequestException as e:
         return None, str(e)
 
