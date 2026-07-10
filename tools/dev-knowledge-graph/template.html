@@ -15,10 +15,13 @@
   #controls input[type="search"] { width: 100%; box-sizing: border-box; background: #131015; color: #eee; border: 1px solid #444; border-radius: 5px; padding: 5px 8px; margin-bottom: 8px; }
   #controls label { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; }
   .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-  #panel { position: fixed; bottom: 12px; left: 12px; max-width: 380px; max-height: 45vh; overflow: auto; background: #1d1a20ee; border: 1px solid #333; border-radius: 8px; padding: 12px 14px; display: none; }
+  #panel { position: fixed; bottom: 12px; left: 12px; max-width: 460px; max-height: 55vh; overflow: auto; background: #1d1a20ee; border: 1px solid #333; border-radius: 8px; padding: 12px 14px; display: none; }
   #panel h2 { margin: 0 0 4px; font-size: 14px; }
   #panel .meta { color: #999; font-size: 11px; margin-bottom: 6px; }
-  #panel .detail { white-space: pre-wrap; color: #ccc; }
+  #panel .detail { color: #ccc; }
+  #panel .detail p { margin: 6px 0; }
+  #panel .detail ul { margin: 6px 0; padding-left: 18px; }
+  #panel .detail code { background: #2a2630; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
   #panel a { color: #f7a501; }
   .count { color: #777; font-variant-numeric: tabular-nums; margin-left: auto; }
 </style>
@@ -37,8 +40,8 @@
 <div id="panel"></div>
 <script>
 const GRAPH = /*__GRAPH_DATA__*/null;
-const COLORS = { task: "#4c8eda", pr: "#36c46f", theme: "#f7a501", learning: "#e0407b", skill: "#9d5cf5" };
-const RADII = { task: 4, pr: 5, theme: 14, learning: 10, skill: 8 };
+const COLORS = { learning: "#e0407b", module: "#36c46f", product: "#f7a501", property: "#4cc3da", skill: "#9d5cf5", task: "#4c8eda" };
+const RADII = { learning: 10, module: 7, product: 14, property: 6, skill: 8, task: 4 };
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -213,12 +216,26 @@ function select(n) {
   panel.style.display = "block";
   panel.innerHTML = `
     <h2>${esc(n.label)}</h2>
-    <div class="meta">${n.kind}${n.status ? " · " + n.status : ""}${n.date ? " · " + n.date : ""}${n.origin ? " · via " + esc(n.origin) : ""}${n.author && n.author !== "unknown" ? " · by " + esc(n.author) : ""}
+    <div class="meta">${n.kind}${n.status ? " · " + n.status : ""}${n.date ? " · " + n.date : ""}${n.author && n.author !== "unknown" ? " · by " + esc(n.author) : ""}${n.evidence_count ? ` · from ${n.evidence_count} conversations` : ""}
       ${n.url ? ` · <a href="${esc(n.url)}" target="_blank">open</a>` : ""}</div>
-    ${n.detail ? `<div class="detail">${esc(n.detail)}</div>` : ""}
+    ${n.markdown ? `<div class="detail">${md(n.markdown)}</div>` : n.detail ? `<div class="detail">${esc(n.detail)}</div>` : ""}
     <div class="meta" style="margin-top:8px">${neighbors.length} connections: ${neighbors.slice(0, 12).map((m) => esc(m.label.slice(0, 30))).join(" · ")}${neighbors.length > 12 ? " …" : ""}</div>`;
 }
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+// Minimal markdown: escape everything first, then re-introduce links, bold,
+// code, and bullet lists. Enough for learning bodies; not a full parser.
+function md(src) {
+  return src.split(/\n{2,}/).map((block) => {
+    const lines = block.split("\n").filter((l) => l.trim());
+    const isList = lines.length > 0 && lines.every((l) => l.trim().startsWith("- "));
+    const inline = (t) => esc(t)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (m, text, url) => `<a href="${url}" target="_blank" rel="noopener">${text}</a>`);
+    if (isList) return "<ul>" + lines.map((l) => "<li>" + inline(l.trim().slice(2)) + "</li>").join("") + "</ul>";
+    return "<p>" + inline(block) + "</p>";
+  }).join("");
+}
 
 const filters = document.getElementById("filters");
 for (const kind of Object.keys(COLORS)) {
