@@ -453,12 +453,14 @@ export interface ScannerResultApi {
 /**
  * * `schedule` - Schedule
  * * `on_demand` - On demand
+ * * `retry` - Retry
  */
 export type ObservationTriggerEnumApi = (typeof ObservationTriggerEnumApi)[keyof typeof ObservationTriggerEnumApi]
 
 export const ObservationTriggerEnumApi = {
     Schedule: 'schedule',
     OnDemand: 'on_demand',
+    Retry: 'retry',
 } as const
 
 /**
@@ -496,10 +498,11 @@ export interface ReplayObservationApi {
     readonly scanner_snapshot: ScannerSnapshotApi | null
     /** Result data persisted on success; null until the observation succeeds. */
     readonly scanner_result: ScannerResultApi | null
-    /** Whether this observation came from the schedule or an on-demand request.
+    /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.
      *
      * * `schedule` - Schedule
-     * * `on_demand` - On demand */
+     * * `on_demand` - On demand
+     * * `retry` - Retry */
     readonly triggered_by: ObservationTriggerEnumApi
     /** User who triggered an on-demand observation; null for scheduled observations. */
     readonly triggered_by_user: UserBasicApi | null
@@ -514,12 +517,12 @@ export interface ReplayObservationApi {
      */
     readonly recording_subject_email: string | null
     /**
-     * Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.
+     * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
      * @nullable
      */
     readonly previous_observation_id: string | null
     /**
-     * Id of the older sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the end.
+     * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
      * @nullable
      */
     readonly next_observation_id: string | null
@@ -824,6 +827,8 @@ export interface ObservationVersionMarkerApi {
     up: number
     /** Thumbs-down ratings on this version's observations. */
     down: number
+    /** Succeeded (ratable) observations this version produced, rated or not. */
+    total: number
 }
 
 export interface ObservationLabelStatsApi {
@@ -1169,13 +1174,48 @@ export type VisionObservationsListParams = {
      */
     offset?: number
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string
     /**
      * Session recording id to return observations for.
      */
     session_id: string
+}
+
+export type VisionObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
 }
 
 export type VisionScannersListParams = {
@@ -1227,7 +1267,7 @@ export type VisionScannersObservationsListParams = {
      */
     offset?: number
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string
     /**
@@ -1247,7 +1287,42 @@ export type VisionScannersObservationsListParams = {
      */
     tags?: string
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
+}
+
+export type VisionScannersObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string
     /**
@@ -1282,7 +1357,7 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     tags?: string
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string
     /**

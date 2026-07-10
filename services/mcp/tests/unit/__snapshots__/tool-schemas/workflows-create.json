@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Mixin for serializers to add user access control fields",
     "properties": {
         "actions": {
             "description": "Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too.",

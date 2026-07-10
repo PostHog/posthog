@@ -12,6 +12,7 @@ import {
     taxonomicFilterLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { getMCPPropertyFilterOptions } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -779,6 +780,105 @@ describe('taxonomicFilterLogic', () => {
 
             workflowLogicTest.unmount()
         })
+    })
+
+    describe('MCP properties group by event scope', () => {
+        // Mirrors the rebuild-side assertions in utils/mcpProperties.test.ts — the two
+        // variants define the group independently, so both sides guard against drift.
+        it.each([
+            { eventNames: ['$mcp_tool_call'], expectPresent: true },
+            { eventNames: ['$pageview'], expectPresent: false },
+            { eventNames: undefined, expectPresent: false },
+        ])(
+            'MCP group present=$expectPresent for eventNames=$eventNames',
+            ({ eventNames, expectPresent }: { eventNames?: string[]; expectPresent: boolean }) => {
+                const testLogic = taxonomicFilterLogic({
+                    taxonomicFilterLogicKey: `testMcp-${eventNames?.join('-') ?? 'none'}`,
+                    taxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.MCPProperties,
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.EventFeatureFlags,
+                    ],
+                    eventNames,
+                })
+                testLogic.mount()
+
+                const groupTypes = testLogic.values.taxonomicGroupTypes
+                expect(groupTypes.includes(TaxonomicFilterGroupType.MCPProperties)).toBe(expectPresent)
+                if (expectPresent) {
+                    // The curated schema leads the tabs when in scope — the separation is the point.
+                    expect(groupTypes.indexOf(TaxonomicFilterGroupType.MCPProperties)).toBeLessThan(
+                        groupTypes.indexOf(TaxonomicFilterGroupType.EventProperties)
+                    )
+                    const suggested = testLogic.values.taxonomicGroups.find(
+                        (g) => g.type === TaxonomicFilterGroupType.SuggestedFilters
+                    )
+                    expect(suggested?.options).toContainEqual({
+                        name: '$mcp_is_error',
+                        group: TaxonomicFilterGroupType.EventProperties,
+                    })
+                }
+
+                testLogic.unmount()
+            }
+        )
+
+        it.each([
+            {
+                name: 'excludes the known schema from Event properties when the MCP tab is requested',
+                eventNames: ['$mcp_tool_call'],
+                groupTypes: [TaxonomicFilterGroupType.MCPProperties, TaxonomicFilterGroupType.EventProperties],
+                expectExcluded: true,
+            },
+            {
+                name: 'keeps Event properties intact when the MCP tab is not requested',
+                eventNames: ['$mcp_tool_call'],
+                groupTypes: [TaxonomicFilterGroupType.EventProperties],
+                expectExcluded: false,
+            },
+            {
+                name: 'keeps Event properties intact when not scoped to MCP events',
+                eventNames: ['$pageview'],
+                groupTypes: [TaxonomicFilterGroupType.MCPProperties, TaxonomicFilterGroupType.EventProperties],
+                expectExcluded: false,
+            },
+        ])(
+            '$name',
+            ({
+                name,
+                eventNames,
+                groupTypes,
+                expectExcluded,
+            }: {
+                name: string
+                eventNames: string[]
+                groupTypes: TaxonomicFilterGroupType[]
+                expectExcluded: boolean
+            }) => {
+                const testLogic = taxonomicFilterLogic({
+                    taxonomicFilterLogicKey: `testMcpExclusion-${name}`,
+                    taxonomicGroupTypes: groupTypes,
+                    eventNames,
+                })
+                testLogic.mount()
+
+                const eventProperties = testLogic.values.taxonomicGroups.find(
+                    (g) => g.type === TaxonomicFilterGroupType.EventProperties
+                )
+                if (expectExcluded) {
+                    // Exclusive like autocapture: the known schema lives only in the MCP tab.
+                    // The concrete key guards against arrayContaining([]) matching vacuously.
+                    expect(eventProperties?.excludedProperties).toContain('$mcp_tool_name')
+                    expect(eventProperties?.excludedProperties).toEqual(
+                        expect.arrayContaining(getMCPPropertyFilterOptions())
+                    )
+                } else {
+                    expect(eventProperties?.excludedProperties ?? []).not.toContain('$mcp_tool_name')
+                }
+
+                testLogic.unmount()
+            }
+        )
     })
 
     describe('SuggestedFilters presence by variant', () => {

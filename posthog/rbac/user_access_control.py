@@ -68,6 +68,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "external_data_source",
     "warehouse_objects",
     "feature_flag",
+    "hog_flow",
     "insight",
     "llm_analytics",
     "notebook",
@@ -150,6 +151,8 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
     # Handle special cases
     if resource == "organization":
         return "organization"  # singular
+    if resource == "hog_flow":
+        return "workflows"
     if resource == "external_data_source":
         return "data warehouse sources"
     if resource == "warehouse_objects":
@@ -311,6 +314,10 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "experiment_holdout"
     if name == "endpointversion":
         return "endpoint"
+    # The workflow scope is "hog_flow" but the model is "hogflow"; its batch jobs and schedules have no
+    # route of their own and inherit the parent workflow's access (same idea as endpointversion → endpoint).
+    if name in ("hogflow", "hogflowbatchjob", "hogflowschedule"):
+        return "hog_flow"
     if name == "externaldatasource":
         return "external_data_source"
     if name == "externaldataschema":
