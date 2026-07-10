@@ -6,12 +6,16 @@ the markdown links to a team's admin page and the worker logs, and the
 ``WorkflowDetails`` builder used to assemble the details panel.
 """
 
+import re
 import json
 from urllib.parse import quote, urlencode
 
 from django.conf import settings
 
 import humanize
+
+# Temporal caps the static summary at 200 bytes; longer values are rejected.
+STATIC_SUMMARY_MAX_BYTES = 200
 
 
 def humanize_interval(interval: str) -> str:
@@ -24,10 +28,20 @@ def humanize_bytes(num_bytes: int) -> str:
     return humanize.naturalsize(num_bytes, binary=True)
 
 
+def _truncate_to_bytes(text: str, max_bytes: int) -> str:
+    """Truncate to at most max_bytes of UTF-8, appending an ellipsis, without splitting a character."""
+    if len(text.encode("utf-8")) <= max_bytes:
+        return text
+    ellipsis = "…"
+    budget = max_bytes - len(ellipsis.encode("utf-8"))
+    return text.encode("utf-8")[:budget].decode("utf-8", errors="ignore") + ellipsis
+
+
 def build_static_summary(destination_type: str, model: str, interval: str, *, is_backfill: bool = False) -> str:
     """Build the Temporal static_summary shown next to a workflow in the UI."""
     prefix = "Backfill batch export" if is_backfill else "Batch export"
-    return f"{prefix} {model} {humanize_interval(interval)} to {destination_type}"
+    summary = f"{prefix} {model} {humanize_interval(interval)} to {destination_type}"
+    return _truncate_to_bytes(summary, STATIC_SUMMARY_MAX_BYTES)
 
 
 def build_team_admin_link(team_id: int) -> str:
@@ -103,6 +117,21 @@ class WorkflowDetails:
         if value is None:
             return self
         return WorkflowDetails(self._footer, (*self._rows, value))
+
+    def code_block(self, label: str, value: object | None) -> "WorkflowDetails":
+        """Append a ``label`` followed by ``value`` in a fenced code block, or nothing if None.
+
+        Used for code blocks, but also, untrusted, potentially multi-line values (e.g. destination
+        error text) so the Temporal UI does not render them as markdown. The fence is one backtick
+        longer than the longest backtick run in the value, so the value cannot close the block early
+        and escape it.
+        """
+        if value is None:
+            return self
+        text = str(value)
+        longest_backtick_run = max((len(run) for run in re.findall(r"`+", text)), default=0)
+        fence = "`" * max(3, longest_backtick_run + 1)
+        return WorkflowDetails(self._footer, (*self._rows, f"{label}:\n{fence}\n{text}\n{fence}"))
 
     def render(self) -> str:
         parts = self._rows if self._footer is None else (*self._rows, self._footer)

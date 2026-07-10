@@ -1040,7 +1040,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             temporalio.workflow.set_current_details(
                 base_details.add("Range", backfill_range)
                 .add("Status", update_inputs.status)
-                .add("Error", update_inputs.latest_error)
+                .code_block("Error", update_inputs.latest_error)
                 .render()
             )
 

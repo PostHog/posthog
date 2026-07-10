@@ -114,13 +114,12 @@ async def execute_batch_export_using_internal_stage(
     model_name = batch_export_inputs.batch_export_model.name if batch_export_inputs.batch_export_model else "events"
     get_export_started_metric(model=model_name).add(1)
 
+    data_window = f"`{batch_export_inputs.data_interval_start}` → `{batch_export_inputs.data_interval_end}`"
+    interval_value = data_window if batch_export_inputs.on_demand else f"{interval} {data_window}"
     details = (
         WorkflowDetails(footer=build_logs_link(workflow.info().workflow_id))
         .add("Team", build_team_admin_link(batch_export_inputs.team_id))
-        .add(
-            "Interval",
-            f"{interval} `{batch_export_inputs.data_interval_start}` → `{batch_export_inputs.data_interval_end}`",
-        )
+        .add("Interval", interval_value)
         .add("Model", model_name)
     )
     workflow.set_current_details(details.render())
@@ -253,7 +252,7 @@ async def execute_batch_export_using_internal_stage(
             details.add("Status", finish_inputs.status)
             .add("Records completed", finish_inputs.records_completed)
             .add("Bytes exported", bytes_exported)
-            .add("Error", finish_inputs.latest_error)
+            .code_block("Error", finish_inputs.latest_error)
             .render()
         )
 

@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from products.batch_exports.backend.temporal.workflow_metadata import (
+    STATIC_SUMMARY_MAX_BYTES,
     WorkflowDetails,
     build_logs_link,
     build_static_summary,
@@ -65,6 +66,13 @@ def test_build_static_summary(interval, is_backfill, expected):
     assert build_static_summary("S3", "events", interval, is_backfill=is_backfill) == expected
 
 
+def test_build_static_summary_truncated_to_temporal_byte_limit():
+    # A long model name would otherwise push the summary past Temporal's 200-byte cap and be rejected.
+    summary = build_static_summary("S3", "events_" * 50, "hour")
+    assert len(summary.encode("utf-8")) <= STATIC_SUMMARY_MAX_BYTES
+    assert summary.endswith("…")
+
+
 @pytest.mark.parametrize(
     "num_bytes,expected",
     [
@@ -92,6 +100,16 @@ def test_workflow_details_skips_none_values():
     details = WorkflowDetails().add("Records", 0).add("Bytes", None).text(None).add("Status", "Completed")
     # 0 is kept (only None is skipped); None rows and a None footer drop out entirely.
     assert details.render() == "Records: 0\n\nStatus: Completed"
+
+
+def test_workflow_details_code_block_prevents_markdown_injection():
+    # A destination error is user-influenced text; it must render inside a fence, and a fence that
+    # the error's own backticks cannot break out of, so a crafted "[link](...)" can't reach the UI.
+    error = "boom ``` [View logs](https://attacker.example)"
+    rendered = WorkflowDetails().code_block("Error", error).render()
+
+    fence = "````"  # grown past the triple-backtick run in the error
+    assert rendered == f"Error:\n{fence}\n{error}\n{fence}"
 
 
 def test_workflow_details_is_immutable_so_a_base_can_be_reused():
