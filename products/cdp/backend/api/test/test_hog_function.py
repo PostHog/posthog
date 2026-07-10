@@ -19,6 +19,7 @@ from products.cdp.backend.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_T
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
+from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
 
@@ -282,6 +283,42 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data=patch,
         )
         assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            # Filters that no longer compile (e.g. the team's test account filters gained a static
+            # cohort after this function was saved) must not trap the function: disabling or deleting
+            # it stays possible, while any save that leaves it enabled is still rejected.
+            ("disable_allowed", True, {"enabled": False}, status.HTTP_200_OK),
+            ("delete_allowed", True, {"deleted": True}, status.HTTP_200_OK),
+            ("edit_while_disabled_allowed", False, {"name": "renamed"}, status.HTTP_200_OK),
+            ("enable_blocked", False, {"enabled": True}, status.HTTP_400_BAD_REQUEST),
+            ("edit_while_enabled_blocked", True, {"name": "renamed"}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_uncompilable_filters_only_block_saves_that_leave_function_enabled(
+        self, _name, initial_enabled, patch, expected
+    ):
+        cohort = Cohort.objects.create(team=self.team, name="Test users", is_static=True)
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk}]
+        self.team.save()
+        fn = HogFunction.objects.create(
+            team=self.team,
+            name="Destination with stale filters",
+            type="destination",
+            enabled=initial_enabled,
+            inputs_schema=[],
+            inputs={},
+            hog="return event",
+            filters={"filter_test_accounts": True},
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{fn.id}/",
+            data=patch,
+        )
+        assert response.status_code == expected, response.json()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert "static cohort" in response.json()["detail"]
 
     def test_create_hog_function(self, *args):
         response = self.client.post(

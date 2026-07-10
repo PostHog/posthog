@@ -258,6 +258,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         # Set some context variables that are used in the sub validators
         self.context["function_type"] = data["type"]
+        # Uncompilable filters only block saves that leave the function enabled — disabling or
+        # deleting must stay possible even when e.g. the team's test account filters have since
+        # gained a cohort that real-time filters can't evaluate.
+        if data.get("deleted") is True:
+            self.context["function_will_be_enabled"] = False
+        else:
+            self.context["function_will_be_enabled"] = data.get("enabled", instance.enabled if instance else False)
         # Warehouse-table sources deliver the synced row under event.properties, so input templates
         # may use the `{record.x}` alias — flag it so the inputs serializer rewrites it on compile.
         self.context["is_dwh_source"] = data["filters"].get("source") == "data-warehouse-table"
