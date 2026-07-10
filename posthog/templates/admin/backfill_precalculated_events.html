@@ -97,14 +97,14 @@
         </div>
 
         <div class="form-row">
-            <label for="{{ form.force_reprocess.id_for_label }}">
-                {{ form.force_reprocess.label }}:
+            <label for="{{ form.ignore_backfilled_dates.id_for_label }}">
+                {{ form.ignore_backfilled_dates.label }}:
             </label>
-            {{ form.force_reprocess }}
-            {% if form.force_reprocess.help_text %}
-                <p class="help">{{ form.force_reprocess.help_text }}</p>
+            {{ form.ignore_backfilled_dates }}
+            {% if form.ignore_backfilled_dates.help_text %}
+                <p class="help">{{ form.ignore_backfilled_dates.help_text }}</p>
             {% endif %}
-            {{ form.force_reprocess.errors }}
+            {{ form.ignore_backfilled_dates.errors }}
         </div>
     </fieldset>
 

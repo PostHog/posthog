@@ -22,10 +22,10 @@ class TestBackfillPrecalculatedEventsAdmin(BaseTest):
         self.factory = RequestFactory()
 
     @parameterized.expand([(True,), (False,)])
-    def test_force_reprocess_checkbox_controls_command_flag(self, force_reprocess: bool) -> None:
+    def test_ignore_backfilled_dates_checkbox_controls_command_flag(self, ignore_backfilled_dates: bool) -> None:
         data = {"team_id": "2", "cohort_id": "123", "concurrent_workflows": "5"}
-        if force_reprocess:
-            data["force_reprocess"] = "on"
+        if ignore_backfilled_dates:
+            data["ignore_backfilled_dates"] = "on"
         request = self.factory.post("/admin/backfill-precalculated-events/", data)
         request.user = self.user
         _attach_messages(request)
@@ -39,5 +39,5 @@ class TestBackfillPrecalculatedEventsAdmin(BaseTest):
         mock_call_command.assert_called_once()
         command_args = mock_call_command.call_args[0]
         assert command_args[0] == "backfill_precalculated_events"
-        assert ("--force-reprocess" in command_args) is force_reprocess
+        assert ("--ignore-backfilled-dates" in command_args) is ignore_backfilled_dates
         mock_redirect.assert_called_once_with("backfill-precalculated-events")
