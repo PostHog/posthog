@@ -12,7 +12,7 @@ All three converge to create_or_update_slack_ticket().
 import re
 import json
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Literal, NamedTuple
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -23,12 +23,13 @@ import structlog
 import posthoganalytics
 from slack_sdk import WebClient
 
-from posthog.event_usage import report_team_action
+from posthog.event_usage import groups, report_team_action
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.ph_client import ph_scoped_capture
 
 from .cache import (
     NUDGE_COOLDOWN_TTL,
@@ -688,16 +689,26 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
         # reaction or @mention. On by default; the ticket is created only when they
         # click "Open ticket" (handled by the interactivity endpoint). Heuristics
         # keep us from pestering the whole channel.
-        if settings_dict.get("slack_nudge_enabled", True) and _should_send_nudge(
-            team, channel, slack_user_id, text, blocks, files
-        ):
-            post_ticket_confirmation_prompt(
-                team=team,
-                slack_channel_id=channel,
-                message_ts=message_ts or "",
-                slack_user_id=slack_user_id,
-            )
-            suppress_nudge(_get_team_id(team), channel, slack_user_id, NUDGE_COOLDOWN_TTL)
+        if settings_dict.get("slack_nudge_enabled", True):
+            decision = _should_send_nudge(team, channel, slack_user_id, text, blocks, files)
+            if decision.send:
+                post_ticket_confirmation_prompt(
+                    team=team,
+                    slack_channel_id=channel,
+                    message_ts=message_ts or "",
+                    slack_user_id=slack_user_id,
+                    classifier_verdict=decision.classifier_verdict,
+                )
+                suppress_nudge(_get_team_id(team), channel, slack_user_id, NUDGE_COOLDOWN_TTL)
+            elif decision.classifier_verdict == "no":
+                # The one outcome the funnel can't infer from absence: how much volume the
+                # classifier suppresses. Keyed like "support nudge sent" so AI-mode impact
+                # is comparable. Heuristic rejections stay uncaptured, as before.
+                capture_nudge_event(
+                    team,
+                    "support nudge suppressed",
+                    nudge_event_properties(channel, message_ts or "", slack_user_id, decision.classifier_verdict),
+                )
         return
 
     # Top-level message in a support channel -> create new ticket, use message ts as thread_ts
@@ -752,6 +763,39 @@ NUDGE_CLASSIFIER_SYSTEM_PROMPT = (
 # before the classifier existed.
 NUDGE_CLASSIFIER_FLAG = "product-support-nudge-llm-classifier"
 
+# "skipped" = a gate was closed (AI consent, rollout flag, gateway config) so the classifier
+# never ran; "error" = it ran but the gateway call failed and we fell back to heuristics.
+NudgeClassifierVerdict = Literal["yes", "no", "skipped", "error"]
+
+
+def nudge_event_properties(
+    slack_channel_id: str, slack_thread_ts: str, slack_user_id: str, classifier_verdict: str
+) -> dict[str, Any]:
+    """Shared property shape for the nudge funnel events ("support nudge sent" /
+    "support nudge suppressed" / the button-click events). ``slack_thread_ts`` is the
+    aggregation key that joins the funnel steps; ``classifier_verdict`` /
+    ``llm_classifier_used`` split any step by AI mode."""
+    return {
+        "slack_channel_id": slack_channel_id,
+        "slack_thread_ts": slack_thread_ts,
+        "slack_user_id": slack_user_id,
+        "classifier_verdict": classifier_verdict,
+        "llm_classifier_used": classifier_verdict in ("yes", "no"),
+    }
+
+
+def capture_nudge_event(team: Team, event: str, properties: dict[str, Any]) -> None:
+    """Internal product analytics for the nudge funnel, attributed to the team like
+    report_team_action — but through a scoped client, since both call sites run in
+    Celery tasks where the global client's flush can be lost."""
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(team.uuid),
+            event=event,
+            properties=properties,
+            groups=groups(team=team),
+        )
+
 
 def _is_nudge_classifier_flag_enabled(team: Team) -> bool:
     # Same shape as the AI-suggestions master flag (temporal/coordinator.py): targeted by
@@ -777,27 +821,27 @@ def _is_nudge_classifier_flag_enabled(team: Team) -> bool:
         return False
 
 
-def _llm_allows_nudge(team: Team, text: str, files: list[dict] | None) -> bool:
+def _nudge_classifier_verdict(team: Team, text: str, files: list[dict] | None) -> NudgeClassifierVerdict:
     """Final nudge gate: ask a cheap LLM whether the message reads like a genuine support
     request rather than channel chatter.
 
     Only consulted for orgs that approved AI data processing, with the rollout flag on, and
-    when the LLM gateway is configured; otherwise returns True so the word-count heuristics
-    alone decide, as before. A gateway failure also falls back to True (the classifier
-    refines the nudge, it must not be able to kill it); a completed call nudges only on an
-    affirmative answer.
+    when the LLM gateway is configured; otherwise "skipped" and the word-count heuristics
+    alone decide, as before. A gateway failure maps to "error", which callers also treat as
+    heuristics-only (the classifier refines the nudge, it must not be able to kill it); a
+    completed call nudges only on an affirmative answer.
     """
     # DEBUG/TEST default LLM_GATEWAY_URL to a dev value, so "gateway configured" is only a
     # real signal outside tests, and unit tests must never depend on whether something is
     # listening on that port. Classifier tests opt back in with override_settings(TEST=False).
     if settings.TEST:
-        return True
+        return "skipped"
     if not team.organization.is_ai_data_processing_approved:
-        return True
+        return "skipped"
     if not _is_nudge_classifier_flag_enabled(team):
-        return True
+        return "skipped"
     if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        return True
+        return "skipped"
 
     team_id = _get_team_id(team)
     content = (text or "")[:NUDGE_CLASSIFIER_MAX_TEXT_CHARS]
@@ -820,8 +864,15 @@ def _llm_allows_nudge(team: Team, text: str, files: list[dict] | None) -> bool:
         answer = (response.choices[0].message.content or "").strip().lower()
     except Exception as e:
         logger.warning("slack_nudge_classifier_failed", team_id=team_id, error=str(e))
-        return True
-    return answer.startswith("yes")
+        return "error"
+    return "yes" if answer.startswith("yes") else "no"
+
+
+class NudgeDecision(NamedTuple):
+    send: bool
+    # Stamped onto the nudge analytics events (and the prompt's button values) so funnels
+    # can compare AI-vetted nudges against heuristics-only ones.
+    classifier_verdict: NudgeClassifierVerdict
 
 
 def _should_send_nudge(
@@ -831,7 +882,7 @@ def _should_send_nudge(
     text: str,
     blocks: list[dict] | None,
     files: list[dict] | None,
-) -> bool:
+) -> NudgeDecision:
     """Heuristics to avoid pestering the channel: nudge only external users on substantive
     messages, skipping anyone recently nudged/dismissed or who @mentioned the bot (which
     opens a ticket directly). For orgs with AI data processing approved, a cheap LLM makes
@@ -840,23 +891,23 @@ def _should_send_nudge(
 
     # Cheapest checks first — no Slack API.
     if _is_trivial_message(text, files):
-        return False
+        return NudgeDecision(send=False, classifier_verdict="skipped")
     if is_nudge_suppressed(team_id, channel, slack_user_id):
-        return False
+        return NudgeDecision(send=False, classifier_verdict="skipped")
 
     client = get_slack_client(team)
 
     # If the author @mentioned the bot, the app_mention event opens a ticket directly.
     bot_id = get_bot_user_id_cached(team, client)
     if bot_id and bot_id in extract_slack_user_ids(text, blocks):
-        return False
+        return NudgeDecision(send=False, classifier_verdict="skipped")
 
     # External users only — internal teammates don't need nudging. Skipped in local
     # dev, where the tester's own account is the only org member and would never nudge.
     if not settings.DEBUG:
         user_info = resolve_slack_user(client, slack_user_id)
         if resolve_posthog_user_for_slack(user_info.get("email"), team):
-            return False
+            return NudgeDecision(send=False, classifier_verdict="skipped")
 
     # The only paid check, so it runs last: with org consent and the rollout flag on, a
     # cheap LLM screens out chatter that the word-count heuristic can't catch. A "no"
@@ -864,10 +915,11 @@ def _should_send_nudge(
     # message from a chatty author re-runs the classifier, unbounded; with it, the cadence
     # is what the pre-classifier nudge already established: one evaluation per
     # user/channel per window.
-    if not _llm_allows_nudge(team, text, files):
+    verdict = _nudge_classifier_verdict(team, text, files)
+    if verdict == "no":
         suppress_nudge(team_id, channel, slack_user_id, NUDGE_COOLDOWN_TTL)
-        return False
-    return True
+        return NudgeDecision(send=False, classifier_verdict=verdict)
+    return NudgeDecision(send=True, classifier_verdict=verdict)
 
 
 def post_ticket_confirmation_prompt(
@@ -876,6 +928,7 @@ def post_ticket_confirmation_prompt(
     slack_channel_id: str,
     message_ts: str,
     slack_user_id: str,
+    classifier_verdict: NudgeClassifierVerdict = "skipped",
 ) -> None:
     """Ask the message author whether to open a ticket, via a threaded reply.
 
@@ -888,7 +941,9 @@ def post_ticket_confirmation_prompt(
         return
 
     client = get_slack_client(team)
-    action_value = json.dumps({"channel": slack_channel_id, "message_ts": message_ts})
+    # The verdict rides in the button value so the click events can report it without a
+    # join against "support nudge sent".
+    action_value = json.dumps({"channel": slack_channel_id, "message_ts": message_ts, "classifier": classifier_verdict})
     prompt_text = f"👋 <@{slack_user_id}> - did you want to open a support ticket?"
     emoji = get_safe_ticket_emoji(team.conversations_settings or {})
     bot_id = get_bot_user_id_cached(team, client)
@@ -937,6 +992,13 @@ def post_ticket_confirmation_prompt(
             team_id=_get_team_id(team),
             slack_channel_id=slack_channel_id,
         )
+        return
+
+    capture_nudge_event(
+        team,
+        "support nudge sent",
+        nudge_event_properties(slack_channel_id, message_ts, slack_user_id, classifier_verdict),
+    )
 
 
 def _create_ticket_and_backfill(

@@ -59,6 +59,7 @@ from products.conversations.backend.services.attachments import CONVERSATIONS_MA
 from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
+    capture_nudge_event,
     create_ticket_from_confirmation,
     get_bot_user_id,
     get_safe_ticket_emoji,
@@ -68,6 +69,7 @@ from products.conversations.backend.slack import (
     handle_support_mention,
     handle_support_message,
     handle_support_reaction,
+    nudge_event_properties,
     resolve_slack_avatar_by_email,
     ticket_created_text,
 )
@@ -257,6 +259,12 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
             value = {}
         source_channel = value.get("channel", "")
         source_message_ts = value.get("message_ts", "")
+        # Echoed back from the prompt's button value; "unknown" for prompts posted before
+        # the verdict was stamped in. slack_user_id here is the clicker, not necessarily
+        # the nudged author — buttons are clickable by anyone in the channel.
+        click_properties = nudge_event_properties(
+            source_channel, source_message_ts, clicker, value.get("classifier") or "unknown"
+        )
 
         if action_id == TICKET_CONFIRM_ACTION_DISMISS:
             _delete_supporthog_prompt(team, prompt_channel, prompt_ts)
@@ -264,6 +272,7 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
             # Don't pester them again in this channel for a while.
             if clicker:
                 suppress_nudge(team.pk, prompt_channel, clicker, NUDGE_DISMISS_TTL)
+            capture_nudge_event(team, "support nudge dismissed", click_properties)
             return
         if action_id == TICKET_CONFIRM_ACTION_OPEN:
             ticket = None
@@ -285,6 +294,17 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
                         raise cast(Any, process_supporthog_interactivity).retry(exc=e)
                     except MaxRetriesExceededError:
                         pass
+            # Captured after retries resolve (the retry re-raise above exits the task first),
+            # so the event fires once with the final outcome.
+            capture_nudge_event(
+                team,
+                "support nudge open ticket clicked",
+                {
+                    **click_properties,
+                    "ticket_created": ticket is not None,
+                    "ticket_id": str(ticket.id) if ticket else None,
+                },
+            )
             # Replace the prompt in place: a confirmation when we have a ticket (created or
             # already open), or an explicit error so a failed open never reads as success.
             # post_confirmation=False above means no separate confirmation was posted.
