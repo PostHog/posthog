@@ -82,9 +82,14 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
 const win = window as any
 win['posthogToolbarController'] = posthogToolbarController
 
-win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?: PostHog) {
-    // Store the start time so we can measure total load duration in initInstrumentation
-    ;(window as any).__posthog_toolbar_load_start = performance.now()
+// Re-exported for the loader script (loader.ts), which forwards its controller stub here.
+export { posthogToolbarController }
+
+export async function loadToolbar(toolbarParams: ToolbarParams, posthog?: PostHog): Promise<void> {
+    // Store the start time so we can measure total load duration in initInstrumentation.
+    // The loader script already stamps this before fetching the app module, so the measured
+    // duration includes the chunk fetch — keep the earliest timestamp.
+    ;(window as any).__posthog_toolbar_load_start ??= performance.now()
 
     // If posthog and toolbarFlagsKey is present, fetch the feature flags from the backend
     if (posthog && toolbarParams.toolbarFlagsKey) {
@@ -154,5 +159,8 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
     setToolbarRefs(root, container)
 }
 
+// Kept for direct consumers and back-compat: once this module evaluates, calls skip the loader.
+win['ph_load_toolbar'] = loadToolbar
+
 /** @deprecated, use "ph_load_toolbar" instead */
-win['ph_load_editor'] = win['ph_load_toolbar']
+win['ph_load_editor'] = loadToolbar

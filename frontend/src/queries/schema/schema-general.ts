@@ -111,6 +111,7 @@ export enum NodeKind {
     LogsQuery = 'LogsQuery',
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
+    MetricsQuery = 'MetricsQuery',
     TraceSpansQuery = 'TraceSpansQuery',
     TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
     TraceSpansTreeQuery = 'TraceSpansTreeQuery',
@@ -249,6 +250,7 @@ export type AnyDataNode =
     | LogsQuery
     | LogAttributesQuery
     | LogValuesQuery
+    | MetricsQuery
     | TraceSpansQuery
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
@@ -360,6 +362,9 @@ export type QuerySchema =
     | LogAttributesQuery
     | LogValuesQuery
 
+    // Metrics
+    | MetricsQuery
+
     // Tracing
     | TraceSpansQuery
     | TraceSpansAggregationQuery
@@ -434,6 +439,7 @@ export type AnyResponseType =
     | LogsQueryResponse
     | LogAttributesQueryResponse
     | LogValuesQueryResponse
+    | MetricsQueryResponse
     | TraceSpansQueryResponse
     | TraceSpansAggregationQueryResponse
     | TraceSpansTreeQueryResponse
@@ -514,6 +520,8 @@ export interface DataWarehouseEventsModifier {
 }
 
 export interface DataWarehouseSyncWarning {
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type: 'warehouse_sync'
     /** Name of the warehouse table the warning refers to */
     table_name: string
     /** Name of the ExternalDataSchema responsible for syncing the table */
@@ -524,6 +532,15 @@ export interface DataWarehouseSyncWarning {
     source_id?: string | null
     /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
     status: string
+    /** Human-readable warning shown to the user */
+    message: string
+}
+
+export interface AccessControlFilterWarning {
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type: 'access_control'
+    /** Resource types the user has access restrictions on, referenced by the query, e.g. ["insight", "dashboard"] */
+    resources: string[]
     /** Human-readable warning shown to the user */
     message: string
 }
@@ -545,8 +562,9 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
     /**
      * Warnings about data warehouse sources referenced by the query whose latest sync failed,
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
+     * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
-    warnings?: DataWarehouseSyncWarning[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2246,8 +2264,9 @@ export interface AnalyticsQueryResponseBase {
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
      * Accumulated across every HogQL execution that contributes to this response — so insights backed
      * by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.
+     * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
-    warnings?: DataWarehouseSyncWarning[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
 }
 
 interface CachedQueryResponseMixin {
@@ -3484,6 +3503,76 @@ export interface LogValuesQuery extends DataNode<LogValuesQueryResponse> {
     serviceNames?: string[]
     attributeKey: string
     attributeType: string
+}
+
+/** Which attribute map a metric label key lives in; `auto` resolves resource attributes first, then datapoint attributes. */
+export type MetricsAttributeScope = 'resource' | 'attribute' | 'auto'
+
+export type MetricsFilterOp = 'eq' | 'neq' | 'regex' | 'not_regex'
+
+export type MetricsAggregation =
+    | 'sum'
+    | 'avg'
+    | 'count'
+    | 'min'
+    | 'max'
+    | 'quantile'
+    | 'rate'
+    | 'increase'
+    | 'histogram_quantile'
+
+export interface MetricsQueryFilter {
+    key: string
+    op: MetricsFilterOp
+    value: string
+    scope?: MetricsAttributeScope
+}
+
+export interface MetricsQueryGroupBy {
+    key: string
+    scope?: MetricsAttributeScope
+}
+
+export interface MetricsQueryClause {
+    /** Alias a formula refers to (e.g. "a"); must be unique within the query */
+    name: string
+    metricName: string
+    aggregation: MetricsAggregation
+    filters?: MetricsQueryFilter[]
+    groupBy?: MetricsQueryGroupBy[]
+    /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
+    quantile?: number
+}
+
+export interface MetricsQueryPoint {
+    /** Bucket start, ISO 8601 */
+    time: string
+    value: number
+}
+
+export interface MetricsQuerySeries {
+    /** Label values identifying this series; empty for an ungrouped query */
+    labels: Record<string, string>
+    points: MetricsQueryPoint[]
+    metricName?: string
+    /** Clause alias that produced this series (`formula` for the formula result) */
+    clause?: string
+}
+
+export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MetricsQuerySeries[]
+}
+export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
+
+export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
+    kind: NodeKind.MetricsQuery
+    clauses: MetricsQueryClause[]
+    /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
+    dateRange?: DateRange
+    /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted */
+    interval?: string
+    /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
+    formula?: string
 }
 
 export interface SessionEventsItem {
@@ -6477,6 +6566,19 @@ export interface SourceFieldInputConfig {
     secret: boolean
 }
 
+export interface SourceFieldOauthAccountSelectConfig {
+    type: 'oauth-account-select'
+    name: string
+    label: string
+    /** Name of the OAuth integration id field this account selector reads from. */
+    integrationField: string
+    /** Integration kind to validate and route the account fetch through. */
+    integrationKind: string
+    placeholder?: string
+    caption?: string
+    required?: boolean
+}
+
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
 
 export interface SourceFieldSelectConfigOption {
@@ -6522,6 +6624,7 @@ export type SourceFieldConfig =
     | SourceFieldSwitchGroupConfig
     | SourceFieldSelectConfig
     | SourceFieldOauthConfig
+    | SourceFieldOauthAccountSelectConfig
     | SourceFieldFileUploadConfig
     | SourceFieldSSHTunnelConfig
 

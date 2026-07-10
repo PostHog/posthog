@@ -55,6 +55,13 @@ class OwnershipLostError(Exception):
     """Raised when the group lease for a (team_id, schema_id) is no longer held by this consumer."""
 
 
+class PermanentBatchApplyError(Exception):
+    """Raise from process_batch for errors retries cannot fix (unsupported batch
+    kind, missing primary keys, malformed batch metadata). The consumer skips
+    the waiting_retry cycle and fails the run on the first attempt — retrying a
+    permanent error only delays the terminal state and burns sink throughput."""
+
+
 @dataclass
 class BatchConsumerConfig:
     """Tuning knobs for the batch consumer."""
@@ -844,8 +851,8 @@ class BatchConsumer:
     ) -> None:
         """Write the retry/terminal state after a processing error."""
         if not self._adapter.is_retryable_error(err):
-            # Deterministic failure: retrying repeats the same outcome. The raw
-            # message is the customer-visible latest_error, so keep it unwrapped.
+            # Deterministic failures do not benefit from retrying. Preserve their
+            # messages, except for explicitly classified permanent apply errors.
             logger.exception(
                 self._event("batch_failed_non_retryable"),
                 batch_id=batch.id,
@@ -853,8 +860,10 @@ class BatchConsumer:
                 attempt=attempt,
             )
             capture_exception(err)
-            await self._fail_run(batch, reason=str(err), conn=lock_conn)
+            reason = f"permanent apply error: {err}" if isinstance(err, PermanentBatchApplyError) else str(err)
+            await self._fail_run(batch, reason=reason, conn=lock_conn)
         elif attempt >= self._config.max_attempts:
+            reason = f"max retries exceeded: {err}"
             logger.exception(
                 self._event("batch_failed_no_retries_left"),
                 batch_id=batch.id,
@@ -862,7 +871,7 @@ class BatchConsumer:
                 attempt=attempt,
             )
             capture_exception(err)
-            await self._fail_run(batch, reason=f"max retries exceeded: {err}", conn=lock_conn)
+            await self._fail_run(batch, reason=reason, conn=lock_conn)
         else:
             logger.warning(
                 self._event("batch_failed_will_retry"),

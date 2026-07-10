@@ -28,7 +28,7 @@ from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.utils import UUIDT
-from posthog.ph_client import feature_enabled_or_false, get_client
+from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
@@ -37,6 +37,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
 from products.error_tracking.backend.facade import api as error_tracking_api
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -914,6 +915,83 @@ def send_canary_email(user_email: str) -> None:
     )
     message.add_recipient(email=user_email)
     message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit  # User/OrganizationMembership/MessagingRecord still on RootTeamManager; team access is checked explicitly below
+def send_wizard_pr_ready_email(run_id: str) -> None:
+    context = tasks_facade.get_wizard_pr_ready_email_context(run_id)
+    if context is None or context.created_by_id is None:
+        return
+    user = User.objects.filter(id=context.created_by_id).first()
+    team = Team.objects.select_related("organization").filter(id=context.team_id).first()
+    if user is None or not user.email or team is None:
+        return
+    membership = OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).first()
+    if not user.is_active or membership is None:
+        return
+    team_permissions = UserPermissions(user).team(team)
+    if team_permissions.effective_membership_level_for_parent_membership(team.organization, membership) is None:
+        return
+    if context.already_sent:
+        return
+
+    campaign_key = f"wizard_pr_ready_{context.task_id}"
+    recipient_email_hashes = get_email_hashes(user.email)
+    already_delivered = MessagingRecord.objects.filter(
+        campaign_key=campaign_key, email_hash__in=recipient_email_hashes, sent_at__isnull=False
+    ).exists()
+    if already_delivered:
+        tasks_facade.mark_task_pr_ready_email_sent(context.task_id, context.pr_url)
+        return
+
+    template_context = {
+        "pr_url": context.pr_url,
+        "repository": context.repository or "",
+        "first_name": user.first_name or "",
+        "organization_name": team.organization.name,
+        "project_name": team.name,
+        "branch_name": context.branch or "",
+        "task_id": str(context.task_id),
+        "run_id": str(context.run_id),
+        "site_url": settings.SITE_URL,
+    }
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject="Your pull request is ready",
+        template_name="wizard_pr_ready",
+        template_context=template_context,
+    )
+    message.add_user_recipient(user)
+    message.send(send_async=False)
+    delivered = MessagingRecord.objects.filter(
+        campaign_key=campaign_key, email_hash__in=recipient_email_hashes, sent_at__isnull=False
+    ).exists()
+    if not delivered:
+        logger.warning(
+            "send_wizard_pr_ready_email.delivery_unconfirmed",
+            task_id=str(context.task_id),
+            run_id=str(context.run_id),
+            campaign_key=campaign_key,
+        )
+        return
+    tasks_facade.mark_task_pr_ready_email_sent(context.task_id, context.pr_url)
+
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(user.distinct_id),
+            event="wizard pr ready email sent",
+            properties={
+                "task_id": str(context.task_id),
+                "run_id": str(context.run_id),
+                "team_id": context.team_id,
+                "origin_product": context.origin_product,
+                "repository": context.repository,
+                "branch_name": context.branch,
+            },
+            groups=groups(team=team),
+        )
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

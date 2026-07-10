@@ -7,6 +7,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.metrics import observe_wizard_run_unbound
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
@@ -48,6 +49,7 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
     task_run.publish_stream_state_event()
+    observe_wizard_run_unbound(task_run)
 
     if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED] and old_status != input.status:
         _capture_terminal_analytics(task_run, input)
@@ -87,6 +89,7 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                 origin_product=task_run.task.origin_product,
                 run_environment=task_run.environment,
                 rtk_enabled=task_run.effective_rtk(),
+                status=input.status,
             )
     except Exception:
         activity.logger.warning(f"Failed to capture terminal analytics for run {task_run.id}", exc_info=True)

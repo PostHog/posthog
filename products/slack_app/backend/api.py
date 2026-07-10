@@ -11,6 +11,7 @@ from urllib.parse import urlparse, urlunparse
 from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -106,6 +107,7 @@ from products.slack_app.backend.services.slack_user_oauth import (
     post_link_invite_message,
 )
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -1101,6 +1103,11 @@ def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     return None
 
 
+def _thread_message_event_has_files(event: dict[str, Any]) -> bool:
+    files = event.get("files")
+    return isinstance(files, list) and len(files) > 0
+
+
 def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     """Return a short reason if this ``message`` event shouldn't be considered as an
     untagged thread follow-up, else None.
@@ -1112,7 +1119,10 @@ def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     """
     if not event.get("user"):
         return "no_user"
-    if not event.get("text"):
+    # A file-only reply has empty text and the ``file_share`` subtype — both
+    # must be admitted here or the attachment silently never reaches the agent.
+    has_files = _thread_message_event_has_files(event)
+    if not event.get("text") and not has_files:
         return "no_text"
     if event.get("edited") or event.get("subtype") == "message_changed":
         return "edit"
@@ -1130,8 +1140,9 @@ def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     # etc.) is system noise from this gate's perspective. ``thread_broadcast``
     # is the only one a human types, but it's typically an announcement to the
     # parent channel, not agent-directed work.
-    if event.get("subtype"):
-        return f"subtype:{event.get('subtype')}"
+    subtype = event.get("subtype")
+    if subtype and not (subtype == "file_share" and has_files):
+        return f"subtype:{subtype}"
     return None
 
 
@@ -3219,6 +3230,24 @@ def _is_permission_interaction(payload: dict) -> bool:
     return any(action.get("action_id") in permission_action_ids for action in payload.get("actions", []))
 
 
+def _build_permission_denial_followup_message(context: dict[str, Any], denied_option_label: str) -> str:
+    tool_label = context.get("tool_label")
+    tool_detail = context.get("tool_detail")
+
+    subject = tool_label if isinstance(tool_label, str) and tool_label.strip() else "the requested action"
+    message = (
+        f"The Slack user denied your approval request for {subject!r} "
+        f"using the option {denied_option_label!r}.\n\n"
+        "Treat this denial as a constraint, not as a reason to stop working. "
+        "Do not retry the same denied action unchanged. Try a different safe approach that avoids the denied "
+        "permission. If the denied action is truly required to complete the task, ask the user why they denied it "
+        "or what constraint they want you to follow, then wait for their answer."
+    )
+    if isinstance(tool_detail, str) and tool_detail.strip():
+        message = f"{message}\n\nDenied action detail:\n{tool_detail.strip()}"
+    return message
+
+
 def _post_permission_ephemeral_feedback(payload: dict, text: str) -> None:
     response_url = payload.get("response_url", "")
     if not response_url:
@@ -3316,6 +3345,22 @@ def _selected_permission_mode(payload: dict) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _sync_permission_mode_to_task_run(context: dict[str, Any], integration: Integration, selected_mode: str) -> None:
+    run_id = context.get("run_id")
+    task_id = context.get("task_id")
+    if not isinstance(run_id, str) or not isinstance(task_id, str):
+        return
+
+    try:
+        task_run = tasks_facade.get_task_run(run_id, team_id=integration.team_id)
+    except (ValidationError, ValueError):
+        return
+    if task_run is None or str(task_run.task_id) != task_id or task_run.is_terminal:
+        return
+
+    tasks_facade.update_task_run_state(task_run.id, updates={"slack_permission_mode": selected_mode})
+
+
 def _handle_permission_config_select(payload: dict) -> HttpResponse:
     resolved = _resolve_permission_interaction(payload)
     if resolved is None:
@@ -3346,6 +3391,7 @@ def _handle_permission_config_select(payload: dict) -> HttpResponse:
     permission_modes[str(integration.id)] = selected_mode
     settings_row.permission_modes = permission_modes
     settings_row.save(update_fields=["permission_modes", "updated_at"])
+    _sync_permission_mode_to_task_run(context, integration, selected_mode)
 
     selected_label = SlackPermissionMode(selected_mode).label
     _post_permission_ephemeral_feedback(payload, f"Permission mode saved: `{selected_label}`.")
@@ -3374,7 +3420,7 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
     resolved = _resolve_permission_interaction(payload)
     if resolved is None:
         return HttpResponse(status=200)
-    context_token, context, integration, _clicker_slack_user_id = resolved
+    context_token, context, integration, clicker_slack_user_id = resolved
 
     options_by_id = _permission_options_by_id(context)
     if not options_by_id:
@@ -3386,7 +3432,8 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
     if not isinstance(request_id, str) or not isinstance(run_id, str) or not isinstance(task_id, str):
         return HttpResponse(status=200)
 
-    if action.get("action_id") == SLACK_PERMISSION_ACTION_DENY:
+    action_id = action.get("action_id")
+    if action_id == SLACK_PERMISSION_ACTION_DENY:
         option_id = context.get("reject_option_id")
         action_label = "Denied"
     else:
@@ -3396,45 +3443,81 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
     if not isinstance(option_id, str) or option_id not in options_by_id:
         return HttpResponse(status=200)
 
-    from products.tasks.backend.facade import api as tasks_facade
+    task_run = tasks_facade.get_task_run(run_id, team_id=integration.team_id)
+    if task_run is None or str(task_run.task_id) != task_id:
+        return HttpResponse(status=200)
 
-    result = tasks_facade.respond_to_permission_request(
-        run_id,
-        task_id,
+    if task_run.is_terminal:
+        _replace_permission_prompt(payload, f"This run is already `{task_run.status}`. There is nothing to approve.")
+        cache.delete(_picker_context_cache_key(context_token))
+        return HttpResponse(status=200)
+
+    channel = context.get("channel")
+    thread_ts = context.get("thread_ts")
+    if not isinstance(channel, str) or not isinstance(thread_ts, str):
+        return HttpResponse(status=200)
+
+    actor_context = resolve_slack_user(
+        SlackIntegration(integration),
+        integration,
+        clicker_slack_user_id,
+        channel,
+        thread_ts,
+        post_feedback=False,
+    )
+    if actor_context is None:
+        _post_permission_ephemeral_feedback(
+            payload,
+            "I couldn't resolve your PostHog account for this approval. Please try again from the Task UI.",
+        )
+        return HttpResponse(status=200)
+
+    option_label = options_by_id[option_id]["label"]
+    denial_message = None
+    if action_id == SLACK_PERMISSION_ACTION_DENY:
+        denial_message = _build_permission_denial_followup_message(context, option_label)
+
+    signaled = tasks_facade.signal_task_run_permission_response(
+        task_run.id,
+        task_run.task_id,
         integration.team_id,
         request_id=request_id,
         option_id=option_id,
+        actor_user_id=actor_context.user.id,
+        actor_slack_user_id=clicker_slack_user_id,
+        is_denial=action_id == SLACK_PERMISSION_ACTION_DENY,
+        denial_message=denial_message,
+        broker_reason="slack_human_response",
     )
-    if result.outcome == "not_found":
-        return HttpResponse(status=200)
-    if result.outcome == "terminal":
-        _replace_permission_prompt(payload, f"This run is already `{result.run_status}`. There is nothing to approve.")
-        cache.delete(_picker_context_cache_key(context_token))
-        return HttpResponse(status=200)
-    if result.outcome == "failed":
+    if signaled is not True:
         logger.warning(
-            "slack_app_permission_response_failed",
+            "slack_app_permission_response_signal_failed",
             run_id=run_id,
             request_id=request_id,
             option_id=option_id,
-            status_code=result.status_code,
-            error=result.error,
+            actor_user_id=actor_context.user.id,
         )
         _post_permission_ephemeral_feedback(
             payload,
-            "I couldn't deliver that response to the agent. Please try again from the Task UI.",
+            "I couldn't queue that response for the agent. Please try again from the Task UI.",
         )
         return HttpResponse(status=200)
 
     cache.delete(_picker_context_cache_key(context_token))
-    option_label = options_by_id[option_id]["label"]
-    _replace_permission_prompt(payload, f"{action_label} `{option_label}` for the agent.")
+    if action_id == SLACK_PERMISSION_ACTION_DENY:
+        _replace_permission_prompt(
+            payload,
+            f"{action_label} `{option_label}` for the agent. I told it to find another path or ask for context.",
+        )
+    else:
+        _replace_permission_prompt(payload, f"{action_label} `{option_label}` for the agent.")
     logger.info(
-        "slack_app_permission_response_sent",
+        "slack_app_permission_response_signaled",
         run_id=run_id,
         request_id=request_id,
         option_id=option_id,
         action=action.get("action_id"),
+        actor_user_id=actor_context.user.id,
     )
     return HttpResponse(status=200)
 

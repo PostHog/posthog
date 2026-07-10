@@ -3,15 +3,17 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.test import TestCase
 
+from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.temporal.ai.slack_app.activities.task_creation import _resolve_slack_permission_policy
 
 from products.slack_app.backend.api import _decode_picker_context
-from products.slack_app.backend.models import SlackPermissionMode, SlackThreadTaskMapping
+from products.slack_app.backend.models import SlackPermissionMode, SlackSettings, SlackThreadTaskMapping
 from products.slack_app.backend.services.agent_permissions import (
     SLACK_PERMISSION_ACTION_APPROVE,
     SLACK_PERMISSION_ACTION_DENY,
@@ -104,7 +106,7 @@ class TestSlackAgentPermissionPrompt(TestCase):
         assert blocks[1]["type"] == "actions"
         config_select = blocks[1]["elements"][0]
         assert config_select["action_id"] == SLACK_PERMISSION_ACTION_SELECT
-        assert config_select["initial_option"]["value"] == SlackPermissionMode.ASK_BEFORE_WRITE
+        assert config_select["initial_option"]["value"] == SlackPermissionMode.FULL_AUTO
         assert [option["value"] for option in config_select["options"]] == [
             SlackPermissionMode.READ_ONLY,
             SlackPermissionMode.ASK_BEFORE_WRITE,
@@ -120,6 +122,8 @@ class TestSlackAgentPermissionPrompt(TestCase):
         assert context["expected_slack_user_id"] == "U_ORIGINAL"
         assert context["default_option_id"] == "allow"
         assert context["reject_option_id"] == "reject"
+        assert context["tool_label"] == "Check available PDF generation tools"
+        assert context["tool_detail"] == 'python3 -c "import reportlab"'
         assert [option["label"] for option in context["options"]] == [
             "Allow once",
             "Always allow this command",
@@ -128,14 +132,14 @@ class TestSlackAgentPermissionPrompt(TestCase):
 
     @patch("products.slack_app.backend.services.agent_permissions.SlackIntegration")
     def test_select_reflects_run_permission_mode(self, mock_slack_cls: MagicMock) -> None:
-        self.task_run.state = {"slack_permission_mode": SlackPermissionMode.FULL_AUTO}
+        self.task_run.state = {"slack_permission_mode": SlackPermissionMode.READ_ONLY}
         self.task_run.save(update_fields=["state"])
 
         post_slack_permission_request_for_task_run(self.task_run, self._permission_request())
 
         blocks = mock_slack_cls.return_value.client.chat_postMessage.call_args.kwargs["blocks"]
         config_select = blocks[1]["elements"][0]
-        assert config_select["initial_option"]["value"] == SlackPermissionMode.FULL_AUTO
+        assert config_select["initial_option"]["value"] == SlackPermissionMode.READ_ONLY
 
     @patch("products.slack_app.backend.services.agent_permissions.SlackIntegration")
     def test_dedupes_repeated_permission_request(self, mock_slack_cls: MagicMock) -> None:
@@ -179,3 +183,63 @@ class TestSlackAgentPermissionPrompt(TestCase):
         card = blocks[0]
         assert card["type"] == "card"
         assert len(card["body"]["text"]) <= 200
+
+
+class TestResolveSlackPermissionPolicy(TestCase):
+    WORKSPACE_ID = "T12345"
+    SLACK_USER_ID = "U1"
+    INTEGRATION_ID = 123
+
+    def _create_settings(self, rows: list[tuple[str | None, str]]) -> None:
+        for slack_user_id, mode in rows:
+            SlackSettings.objects.create(
+                slack_workspace_id=self.WORKSPACE_ID,
+                slack_user_id=slack_user_id,
+                permission_modes={str(self.INTEGRATION_ID): mode},
+            )
+
+    def _resolve(self, *, is_ext_shared_channel: bool = False):
+        return _resolve_slack_permission_policy(
+            integration_id=self.INTEGRATION_ID,
+            slack_workspace_id=self.WORKSPACE_ID,
+            slack_user_id=self.SLACK_USER_ID,
+            is_ext_shared_channel=is_ext_shared_channel,
+        )
+
+    @parameterized.expand(
+        [
+            ("no_settings_defaults_to_full_auto", [], SlackPermissionMode.FULL_AUTO, "default"),
+            (
+                "workspace_row_overrides_default",
+                [(None, SlackPermissionMode.ASK_BEFORE_WRITE)],
+                SlackPermissionMode.ASK_BEFORE_WRITE,
+                "default",
+            ),
+            (
+                "user_row_overrides_workspace_row",
+                [(None, SlackPermissionMode.ASK_BEFORE_WRITE), ("U1", SlackPermissionMode.READ_ONLY)],
+                SlackPermissionMode.READ_ONLY,
+                "plan",
+            ),
+        ]
+    )
+    def test_mode_resolution(
+        self,
+        _name: str,
+        rows: list[tuple[str | None, str]],
+        expected_mode: str,
+        expected_initial_permission_mode: str,
+    ) -> None:
+        self._create_settings(rows)
+
+        policy = self._resolve()
+
+        assert policy.mode == expected_mode
+        assert policy.initial_permission_mode == expected_initial_permission_mode
+        assert policy.customer_facing_approval_required is False
+
+    def test_ext_shared_channel_requires_customer_facing_approval(self) -> None:
+        policy = self._resolve(is_ext_shared_channel=True)
+
+        assert policy.mode == SlackPermissionMode.FULL_AUTO
+        assert policy.customer_facing_approval_required is True
