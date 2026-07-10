@@ -50,7 +50,11 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
                             {item.experiment_name}
                         </Link>
                         <Tooltip
-                            title={`This session saw variant "${item.variant}" of ${item.experiment_name}. Flag evaluation — may differ from the experiment's exposure criteria.`}
+                            title={
+                                item.multiple_variants
+                                    ? `This session saw multiple variants (${item.variants_seen.join(', ')}) of ${item.experiment_name}. Flag evaluation may differ from the experiment's exposure criteria.`
+                                    : `This session saw variant "${item.variant}" of ${item.experiment_name}. Flag evaluation may differ from the experiment's exposure criteria.`
+                            }
                         >
                             <LemonTag type={item.multiple_variants ? 'warning' : 'default'}>
                                 {item.multiple_variants ? 'saw multiple variants' : item.variant}

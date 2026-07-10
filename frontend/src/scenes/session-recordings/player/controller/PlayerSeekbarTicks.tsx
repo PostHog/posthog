@@ -104,7 +104,7 @@ function PlayerSeekbarTick({
                 title={
                     isExperimentVariantItem(item) ? (
                         <>
-                            Saw variant "{item.data.variant}" — {item.data.experimentName}
+                            Saw variant "{item.data.variant}" of {item.data.experimentName}
                         </>
                     ) : isEventItem(item) ? (
                         <>
