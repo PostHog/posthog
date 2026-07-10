@@ -231,7 +231,7 @@ class TestFetchPageRetries:
     def test_client_error_raises_immediately(self) -> None:
         # A 403 (bad/insufficient key) must surface at once so get_non_retryable_errors can stop the sync.
         bad = MagicMock(status_code=403, ok=False, text="Invalid API key")
-        bad.raise_for_status.side_effect = requests.HTTPError("403 Client Error: Forbidden")
+        bad.raise_for_status.side_effect = requests.HTTPError("403 Client Error: Forbidden", response=bad)
         session = MagicMock()
         session.get.return_value = bad
 
