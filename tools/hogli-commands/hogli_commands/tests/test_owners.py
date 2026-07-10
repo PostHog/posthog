@@ -206,8 +206,10 @@ def test_reserved_location_error(rel: str, reserved: bool) -> None:
     [
         # Branch point with enough simple files spread across children fires.
         ({"a/b": True, "a/c": True, "a/d": True, "a/e": True, "a/f": True}, [("a", 5)]),
+        # Exactly at threshold (3) across ≥2 children fires.
+        ({"a/b": True, "a/c": True, "a/d": True}, [("a", 3)]),
         # Below threshold stays quiet.
-        ({"a/b": True, "a/c": True, "a/d": True, "a/e": True}, []),
+        ({"a/b": True, "a/c": True}, []),
         # A passthrough ancestor (all files under one child) yields the deeper branch point only.
         (
             {"a/b/1": True, "a/b/2": True, "a/b/3": True, "a/b/4": True, "a/b/5": True},
@@ -218,8 +220,6 @@ def test_reserved_location_error(rel: str, reserved: bool) -> None:
             {
                 "a/b": True,
                 "a/c": True,
-                "a/d": True,
-                "a/e": True,
                 "a/mid": False,
                 "a/mid/f": True,
                 "a/mid/g": True,

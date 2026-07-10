@@ -130,7 +130,7 @@ def _is_simple_owners(parsed: OwnersFile | None) -> bool:
     )
 
 
-def _consolidation_suggestions(owners_dirs: dict[str, bool], threshold: int = 5) -> list[tuple[str, int]]:
+def _consolidation_suggestions(owners_dirs: dict[str, bool], threshold: int = 3) -> list[tuple[str, int]]:
     """Advisory: directories that could fold a cluster of single-purpose owners.yaml
     files into one anchored ``rules:`` block.
 
