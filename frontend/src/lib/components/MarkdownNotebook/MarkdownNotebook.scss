@@ -1506,6 +1506,10 @@ h3.MarkdownNotebook__text-block--heading {
     // Diagrams render at natural width (see MermaidDiagram's naturalWidth prop), so wide ones
     // scroll here instead of shrinking to fit. Don't cap the svg width, that would re-shrink them.
     overflow-x: auto;
+
+    // Mermaid measures node label widths against the document font, but the surrounding
+    // code group is monospace; without this reset labels render wider than their boxes and clip.
+    font-family: var(--font-sans);
 }
 
 .MarkdownNotebook__divider-block {

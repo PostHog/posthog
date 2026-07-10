@@ -111,6 +111,7 @@ const meta: Meta<StoryArgs> = {
     tags: ['autodocs'],
     args: {
         showDebug: true,
+        onInteractionStateChange: () => {},
     },
     render: (props) => <ControlledNotebook {...props} />,
 }
