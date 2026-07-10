@@ -14443,6 +14443,22 @@
             },
             "type": "object"
         },
+        "DashboardFilterConflict": {
+            "additionalProperties": false,
+            "description": "A contradictory pair of property filters: the insight's own filter was dropped in favor of the dashboard's, because combining the two could never match any data.",
+            "properties": {
+                "dashboard_filter": {
+                    "$ref": "#/definitions/AnyPropertyFilter",
+                    "description": "The dashboard property filter that replaced it"
+                },
+                "insight_filter": {
+                    "$ref": "#/definitions/AnyPropertyFilter",
+                    "description": "The insight's own property filter that was dropped"
+                }
+            },
+            "required": ["insight_filter", "dashboard_filter"],
+            "type": "object"
+        },
         "DataColorToken": {
             "enum": [
                 "preset-1",

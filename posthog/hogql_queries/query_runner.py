@@ -21,6 +21,7 @@ from posthog.schema import (
     ChartDisplayType,
     DashboardAutoRefreshInterval,
     DashboardFilter,
+    DashboardFilterConflict,
     DateRange,
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
@@ -115,6 +116,7 @@ from posthog.hogql_queries.query_cache import count_query_cache_hit
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.hogql_queries.query_metadata import extract_query_metadata
+from posthog.hogql_queries.utils.dashboard_filter_conflicts import drop_conflicting_insight_filters
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
 from posthog.hogql_queries.validation.validation import (
     QueryValidationContext,
@@ -1304,6 +1306,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     response: R
     cached_response: CR
     query_id: Optional[str]
+    # Insight filters dropped by apply_dashboard_filters because a dashboard filter contradicted them
+    dashboard_filter_conflicts: list[DashboardFilterConflict]
 
     team: Team
     user: Optional[User]
@@ -1332,6 +1336,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.limit_context = limit_context or LimitContext.QUERY
         self.query_id = query_id
         self.workload = workload
+        self.dashboard_filter_conflicts = []
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
@@ -2293,23 +2298,30 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         )
 
         if dashboard_filter.properties and not has_data_warehouse_series:
-            if self.query.properties and has_any_property_filters(self.query.properties):
+            insight_properties = self.query.properties
+            if isinstance(insight_properties, list):
+                # Stacking a contradictory pair would guarantee zero results, so the insight
+                # filter is dropped instead: dashboard filters win
+                insight_properties, self.dashboard_filter_conflicts = drop_conflicting_insight_filters(
+                    insight_properties, dashboard_filter.properties
+                )
+            if insight_properties and has_any_property_filters(insight_properties):
                 # Check if query expects only a list (e.g. WebOverviewQuery) vs union with PropertyGroupFilter
                 properties_field = self.query.__class__.model_fields.get("properties")
                 expects_only_list = properties_field and get_origin(properties_field.annotation) is list
 
-                if expects_only_list and isinstance(self.query.properties, list):
+                if expects_only_list and isinstance(insight_properties, list):
                     # Concatenate lists to avoid TypeError when query does: properties + other_list
-                    self.query.properties = list(self.query.properties) + list(dashboard_filter.properties)
+                    self.query.properties = list(insight_properties) + list(dashboard_filter.properties)
                 else:
                     # Wrap in PropertyGroupFilter with AND
                     self.query.properties = PropertyGroupFilter(
                         type=FilterLogicalOperator.AND_,
                         values=[
                             (
-                                PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=self.query.properties)
-                                if isinstance(self.query.properties, list)
-                                else PropertyGroupFilterValue(**self.query.properties.model_dump())
+                                PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=insight_properties)
+                                if isinstance(insight_properties, list)
+                                else PropertyGroupFilterValue(**insight_properties.model_dump())
                             ),
                             PropertyGroupFilterValue(
                                 type=FilterLogicalOperator.AND_, values=dashboard_filter.properties

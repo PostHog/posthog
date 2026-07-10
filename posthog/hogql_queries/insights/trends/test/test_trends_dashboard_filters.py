@@ -10,6 +10,7 @@ from posthog.schema import (
     BreakdownType,
     CompareFilter,
     DashboardFilter,
+    DashboardFilterConflict,
     DataWarehouseNode,
     DateRange,
     EventPropertyFilter,
@@ -206,6 +207,100 @@ class TestTrendsDashboardFilters(BaseTest):
         )
         assert query_runner.query.breakdownFilter is None  # type: ignore[unreachable]
         assert query_runner.query.trendsFilter is None
+
+    def test_contradictory_insight_filter_replaced_by_dashboard_filter(self):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            None,
+            properties=[EventPropertyFilter(key="utm_medium", value="abc", operator="exact")],
+        )
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(properties=[EventPropertyFilter(key="utm_medium", value="abc", operator="is_not")])
+        )
+
+        assert query_runner.query.properties == [EventPropertyFilter(key="utm_medium", value="abc", operator="is_not")]
+        assert query_runner.dashboard_filter_conflicts == [
+            DashboardFilterConflict(
+                insight_filter=EventPropertyFilter(key="utm_medium", value="abc", operator="exact"),
+                dashboard_filter=EventPropertyFilter(key="utm_medium", value="abc", operator="is_not"),
+            )
+        ]
+
+    def test_mixed_insight_filters_drop_only_the_contradicted_one(self):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            None,
+            properties=[
+                EventPropertyFilter(key="utm_medium", value="abc", operator="exact"),
+                EventPropertyFilter(key="utm_source", value="google", operator="exact"),
+            ],
+        )
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(properties=[EventPropertyFilter(key="utm_medium", value="abc", operator="is_not")])
+        )
+
+        assert query_runner.query.properties == PropertyGroupFilter(  # type: ignore[comparison-overlap]
+            type=FilterLogicalOperator.AND_,
+            values=[
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.AND_,
+                    values=[EventPropertyFilter(key="utm_source", value="google", operator="exact")],
+                ),
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.AND_,
+                    values=[EventPropertyFilter(key="utm_medium", value="abc", operator="is_not")],
+                ),
+            ],
+        )
+        assert len(query_runner.dashboard_filter_conflicts) == 1
+
+    def test_property_group_insight_filters_keep_stacking_despite_contradiction(self):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            None,
+            properties=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[EventPropertyFilter(key="utm_medium", value="abc", operator="exact")],
+                    )
+                ],
+            ),
+        )
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(properties=[EventPropertyFilter(key="utm_medium", value="abc", operator="is_not")])
+        )
+
+        # Conflict detection only covers flat filter lists; AND/OR group trees keep stacking
+        assert query_runner.query.properties == PropertyGroupFilter(  # type: ignore[comparison-overlap]
+            type=FilterLogicalOperator.AND_,
+            values=[
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.AND_,
+                            values=[EventPropertyFilter(key="utm_medium", value="abc", operator="exact")],
+                        )
+                    ],
+                ),
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.AND_,
+                    values=[EventPropertyFilter(key="utm_medium", value="abc", operator="is_not")],
+                ),
+            ],
+        )
+        assert query_runner.dashboard_filter_conflicts == []
 
     def test_properties_list_extends_filters_group(self):
         query_runner = self._create_query_runner(

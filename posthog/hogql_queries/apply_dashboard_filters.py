@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.schema import DashboardFilter, HogQLVariable, NodeKind
+from posthog.schema import DashboardFilter, DashboardFilterConflict, HogQLVariable, NodeKind
 
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
@@ -11,20 +11,29 @@ WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE
 
 # Apply the filters from the django-style Dashboard object
 def apply_dashboard_filters_to_dict(query: dict, filters: dict, team: Team) -> dict:
+    query_dict, _ = apply_dashboard_filters_to_dict_with_conflicts(query, filters, team)
+    return query_dict
+
+
+def apply_dashboard_filters_to_dict_with_conflicts(
+    query: dict, filters: dict, team: Team
+) -> tuple[dict, list[DashboardFilterConflict]]:
+    """Like apply_dashboard_filters_to_dict, but also returns the insight filters dropped
+    because a dashboard filter contradicted them."""
     if not filters:
-        return query
+        return query, []
 
     if query.get("kind") in WRAPPER_NODE_KINDS:
-        source = apply_dashboard_filters_to_dict(query["source"], filters, team)
-        return {**query, "source": source}
+        source, conflicts = apply_dashboard_filters_to_dict_with_conflicts(query["source"], filters, team)
+        return {**query, "source": source}, conflicts
 
     try:
         query_runner = get_query_runner(query, team)
     except ValueError:
         capture_exception()
-        return query
+        return query, []
     query_runner.apply_dashboard_filters(DashboardFilter(**filters))
-    return query_runner.query.model_dump()
+    return query_runner.query.model_dump(), query_runner.dashboard_filter_conflicts
 
 
 # Apply the variables from the django-style Dashboard object

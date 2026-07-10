@@ -45,6 +45,7 @@ import type {
     CurrencyCode,
     CustomerAnalyticsConfig,
     DashboardFilter,
+    DashboardFilterConflict,
     DataWarehouseManagedViewsetKind,
     DataWarehouseSavedQueryOrigin,
     DatabaseSchemaField,
@@ -2530,6 +2531,8 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     query?: Node | null
     query_status?: QueryStatus
     is_cached?: boolean
+    /** Insight filters dropped because dashboard filters on the same property contradict them. Only set in dashboard context. */
+    dashboard_filter_conflicts?: DashboardFilterConflict[] | null
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }

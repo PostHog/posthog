@@ -5193,6 +5193,17 @@ export interface TileFilters {
     filterTestAccounts?: boolean | null | undefined
 }
 
+/**
+ * A contradictory pair of property filters: the insight's own filter was dropped in favor of the
+ * dashboard's, because combining the two could never match any data.
+ */
+export interface DashboardFilterConflict {
+    /** The insight's own property filter that was dropped */
+    insight_filter: AnyPropertyFilter
+    /** The dashboard property filter that replaced it */
+    dashboard_filter: AnyPropertyFilter
+}
+
 export interface InsightsThresholdBounds {
     /** Alert fires when the value drops below this number. */
     lower?: number

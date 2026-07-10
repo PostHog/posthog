@@ -7731,6 +7731,23 @@ export namespace Schemas {
     } | null;
 
     /**
+     * The insight's own property filter that was dropped
+     */
+    export type InsightDashboardFilterConflictsItemInsightFilter = { [key: string]: unknown };
+
+    /**
+     * The dashboard property filter that replaced it
+     */
+    export type InsightDashboardFilterConflictsItemDashboardFilter = { [key: string]: unknown };
+
+    export type InsightDashboardFilterConflictsItem = {
+      /** The insight's own property filter that was dropped */
+      insight_filter?: InsightDashboardFilterConflictsItemInsightFilter;
+      /** The dashboard property filter that replaced it */
+      dashboard_filter?: InsightDashboardFilterConflictsItemDashboardFilter;
+    };
+
+    /**
      * Simplified serializer to speed response times when loading large amounts of objects.
      */
     export interface Insight {
@@ -7831,6 +7848,16 @@ export namespace Schemas {
       readonly last_viewed_at: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
+      /**
+         *
+       *     Pairs of contradictory property filters found while applying dashboard filters to this insight:
+       *     the insight's own filter was dropped in favor of the dashboard's, because combining the two
+       *     could never match any data. Only populated when the insight is served in a dashboard context;
+       *     null otherwise.
+       *
+         * @nullable
+         */
+      readonly dashboard_filter_conflicts: readonly InsightDashboardFilterConflictsItem[] | null;
     }
 
     export interface Text {
@@ -40935,6 +40962,23 @@ export namespace Schemas {
     } | null;
 
     /**
+     * The insight's own property filter that was dropped
+     */
+    export type PatchedInsightDashboardFilterConflictsItemInsightFilter = { [key: string]: unknown };
+
+    /**
+     * The dashboard property filter that replaced it
+     */
+    export type PatchedInsightDashboardFilterConflictsItemDashboardFilter = { [key: string]: unknown };
+
+    export type PatchedInsightDashboardFilterConflictsItem = {
+      /** The insight's own property filter that was dropped */
+      insight_filter?: PatchedInsightDashboardFilterConflictsItemInsightFilter;
+      /** The dashboard property filter that replaced it */
+      dashboard_filter?: PatchedInsightDashboardFilterConflictsItemDashboardFilter;
+    };
+
+    /**
      * Simplified serializer to speed response times when loading large amounts of objects.
      */
     export interface PatchedInsight {
@@ -41035,6 +41079,16 @@ export namespace Schemas {
       readonly last_viewed_at?: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
+      /**
+         *
+       *     Pairs of contradictory property filters found while applying dashboard filters to this insight:
+       *     the insight's own filter was dropped in favor of the dashboard's, because combining the two
+       *     could never match any data. Only populated when the insight is served in a dashboard context;
+       *     null otherwise.
+       *
+         * @nullable
+         */
+      readonly dashboard_filter_conflicts?: readonly PatchedInsightDashboardFilterConflictsItem[] | null;
     }
 
     export interface PatchedInsightVariable {

@@ -2438,6 +2438,39 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["query"]["source"]["after"], "-180d")
 
+    def test_contradictory_dashboard_filter_replaces_insight_filter_and_reports_conflict(self):
+        insight_filter = EventPropertyFilter(key="utm_medium", value="abc", operator="exact")
+        dashboard_filter = EventPropertyFilter(key="utm_medium", value="abc", operator="is_not")
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "the dashboard", "filters": {"properties": [dashboard_filter.model_dump()]}}
+        )
+        query = InsightVizNode(
+            source=TrendsQuery(series=[EventsNode(event="$pageview")], properties=[insight_filter])
+        ).model_dump()
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"query": query, "name": "insight", "dashboards": [dashboard_id]}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["dashboard_filter_conflicts"], None)
+        self.assertEqual(response.json()["query"]["source"]["properties"], [insight_filter.model_dump()])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?from_dashboard={dashboard_id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["dashboard_filter_conflicts"],
+            [
+                {
+                    "insight_filter": insight_filter.model_dump(),
+                    "dashboard_filter": dashboard_filter.model_dump(),
+                }
+            ],
+        )
+        self.assertEqual(response.json()["query"]["source"]["properties"], [dashboard_filter.model_dump()])
+
     # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 
     def test_insight_trends_basic(self) -> None:

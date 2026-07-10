@@ -13819,6 +13819,60 @@ class DashboardFilter(BaseModel):
     ) = None
 
 
+class DashboardFilterConflict(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dashboard_filter: (
+        EventPropertyFilter
+        | PersonPropertyFilter
+        | PersonMetadataPropertyFilter
+        | ElementPropertyFilter
+        | EventMetadataPropertyFilter
+        | SessionPropertyFilter
+        | CohortPropertyFilter
+        | RecordingPropertyFilter
+        | LogEntryPropertyFilter
+        | GroupPropertyFilter
+        | FeaturePropertyFilter
+        | FlagPropertyFilter
+        | HogQLPropertyFilter
+        | EmptyPropertyFilter
+        | DataWarehousePropertyFilter
+        | DataWarehousePersonPropertyFilter
+        | ErrorTrackingIssueFilter
+        | LogPropertyFilter
+        | MetricPropertyFilter
+        | SpanPropertyFilter
+        | RevenueAnalyticsPropertyFilter
+        | WorkflowVariablePropertyFilter
+    ) = Field(..., description="The dashboard property filter that replaced it")
+    insight_filter: (
+        EventPropertyFilter
+        | PersonPropertyFilter
+        | PersonMetadataPropertyFilter
+        | ElementPropertyFilter
+        | EventMetadataPropertyFilter
+        | SessionPropertyFilter
+        | CohortPropertyFilter
+        | RecordingPropertyFilter
+        | LogEntryPropertyFilter
+        | GroupPropertyFilter
+        | FeaturePropertyFilter
+        | FlagPropertyFilter
+        | HogQLPropertyFilter
+        | EmptyPropertyFilter
+        | DataWarehousePropertyFilter
+        | DataWarehousePersonPropertyFilter
+        | ErrorTrackingIssueFilter
+        | LogPropertyFilter
+        | MetricPropertyFilter
+        | SpanPropertyFilter
+        | RevenueAnalyticsPropertyFilter
+        | WorkflowVariablePropertyFilter
+    ) = Field(..., description="The insight's own property filter that was dropped")
+
+
 class Response(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

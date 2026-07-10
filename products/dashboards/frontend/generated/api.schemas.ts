@@ -8108,6 +8108,23 @@ export type InsightApiResolvedDateRange = {
 } | null
 
 /**
+ * The insight's own property filter that was dropped
+ */
+export type InsightApiDashboardFilterConflictsItemInsightFilter = { [key: string]: unknown }
+
+/**
+ * The dashboard property filter that replaced it
+ */
+export type InsightApiDashboardFilterConflictsItemDashboardFilter = { [key: string]: unknown }
+
+export type InsightApiDashboardFilterConflictsItem = {
+    /** The insight's own property filter that was dropped */
+    insight_filter?: InsightApiDashboardFilterConflictsItemInsightFilter
+    /** The dashboard property filter that replaced it */
+    dashboard_filter?: InsightApiDashboardFilterConflictsItemDashboardFilter
+}
+
+/**
  * Simplified serializer to speed response times when loading large amounts of objects.
  */
 export interface InsightApi {
@@ -8208,6 +8225,16 @@ export interface InsightApi {
     readonly last_viewed_at: string | null
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
+    /**
+     *
+     *     Pairs of contradictory property filters found while applying dashboard filters to this insight:
+     *     the insight's own filter was dropped in favor of the dashboard's, because combining the two
+     *     could never match any data. Only populated when the insight is served in a dashboard context;
+     *     null otherwise.
+     *
+     * @nullable
+     */
+    readonly dashboard_filter_conflicts: readonly InsightApiDashboardFilterConflictsItem[] | null
 }
 
 export interface TextApi {

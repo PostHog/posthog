@@ -73,7 +73,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
-    apply_dashboard_filters_to_dict,
+    apply_dashboard_filters_to_dict_with_conflicts,
     apply_dashboard_variables_to_dict,
 )
 from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
@@ -522,6 +522,15 @@ class InsightSerializer(InsightBasicSerializer):
     resolved_date_range = serializers.SerializerMethodField(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
+    dashboard_filter_conflicts = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="""
+    Pairs of contradictory property filters found while applying dashboard filters to this insight:
+    the insight's own filter was dropped in favor of the dashboard's, because combining the two
+    could never match any data. Only populated when the insight is served in a dashboard context;
+    null otherwise.
+    """,
+    )
 
     class Meta:
         model = Insight
@@ -565,6 +574,7 @@ class InsightSerializer(InsightBasicSerializer):
             "alerts",
             "last_viewed_at",
             "search_match_type",
+            "dashboard_filter_conflicts",
         ]
         read_only_fields = (
             "created_at",
@@ -580,6 +590,7 @@ class InsightSerializer(InsightBasicSerializer):
             "timezone",
             "refreshing",
             "is_cached",
+            "dashboard_filter_conflicts",
         )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -947,6 +958,28 @@ class InsightSerializer(InsightBasicSerializer):
     def get_resolved_date_range(self, insight: Insight):
         return self.insight_result(insight).resolved_date_range
 
+    @extend_schema_field(
+        {
+            "type": "array",
+            "nullable": True,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "insight_filter": {
+                        "type": "object",
+                        "description": "The insight's own property filter that was dropped",
+                    },
+                    "dashboard_filter": {
+                        "type": "object",
+                        "description": "The dashboard property filter that replaced it",
+                    },
+                },
+            },
+        }
+    )
+    def get_dashboard_filter_conflicts(self, insight: Insight) -> list | None:
+        return None  # Overwritten in to_representation when dashboard filters get applied
+
     @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):
         if insight.alertable_query_kind is None:
@@ -1023,11 +1056,14 @@ class InsightSerializer(InsightBasicSerializer):
                         else {}
                     )
                 )
-                query = apply_dashboard_filters_to_dict(
+                query, filter_conflicts = apply_dashboard_filters_to_dict_with_conflicts(
                     query,
                     effective_filters,
                     instance.team,
                 )
+                representation["dashboard_filter_conflicts"] = [
+                    conflict.model_dump() for conflict in filter_conflicts
+                ] or None
 
                 query = apply_dashboard_variables_to_dict(
                     query,
