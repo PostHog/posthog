@@ -19,7 +19,7 @@ import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
 
 import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, Spinner, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
@@ -33,6 +33,7 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { objectsEqual } from 'lib/utils/objects'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -427,7 +428,9 @@ function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | un
     model.pushStackElement()
 }
 
-const LazyQuery = lazy(() => import('~/queries/Query/Query').then((m) => ({ default: m.Query<DataVisualizationNode> })))
+const LazyQuery = lazyWithRetry(() =>
+    import('~/queries/Query/Query').then((m) => ({ default: m.Query<DataVisualizationNode> }))
+)
 
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
