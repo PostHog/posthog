@@ -192,12 +192,12 @@ def bar(pct: float) -> str:
     return "█" * filled + "░" * (BAR_WIDTH - filled)
 
 
-def format_line_ranges(numbers: list[int]) -> str:
-    """Compress a line-number list into compact ranges, e.g. [408,409,410,412] -> '408–410, 412'."""
+def compress_ranges(numbers: list[int]) -> list[tuple[int, int]]:
+    """Collapse a line-number list into sorted (start, end) ranges."""
     nums = sorted(set(numbers))
-    if not nums:
-        return ""
     ranges: list[tuple[int, int]] = []
+    if not nums:
+        return ranges
     start = prev = nums[0]
     for n in nums[1:]:
         if n == prev + 1:
@@ -206,7 +206,12 @@ def format_line_ranges(numbers: list[int]) -> str:
         ranges.append((start, prev))
         start = prev = n
     ranges.append((start, prev))
-    return ", ".join(str(a) if a == b else f"{a}–{b}" for a, b in ranges)
+    return ranges
+
+
+def format_line_ranges(numbers: list[int]) -> str:
+    """Render line numbers as compact ranges, e.g. [408,409,410,412] -> '408–410, 412'."""
+    return ", ".join(str(a) if a == b else f"{a}–{b}" for a, b in compress_ranges(numbers))
 
 
 def render_patch_section(data: dict) -> str:
@@ -232,32 +237,126 @@ def render_patch_section(data: dict) -> str:
     return header + "\n" + "\n".join(rows)
 
 
-def render_markdown(results: list[ProductCoverage], patch_section: str | None) -> str:
+def build_agent_hint() -> str:
+    """Visible steering line pointing agents at the action + the machine-readable payload."""
+    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    if repo and run_id:
+        payload = f"the **patch-coverage** artifact on [this run]({server}/{repo}/actions/runs/{run_id}) (`gh run download {run_id} -n patch-coverage`)"
+    else:
+        payload = "the **patch-coverage** artifact"
+    return (
+        '🤖 **Agents:** add a test covering the lines above, or note why under "How did you test '
+        f'this code?". Machine-readable gap list: {payload}, or the `coverage-data` block at the end of this comment.'
+    )
+
+
+def delta_label(pct: float, base: float | None) -> str:
+    """Human Δ vs the master baseline; 'new' when the product has no baseline yet."""
+    if base is None:
+        return "new"
+    diff = pct - base
+    if abs(diff) < 0.05:
+        return "±0%"
+    return f"{'▲' if diff > 0 else '▼'} {abs(diff):.1f}%"
+
+
+def render_product_table(results: list[ProductCoverage], baseline: dict[str, float]) -> list[str]:
+    """Per-product absolute coverage, with a Δ-vs-master column when a baseline is present."""
+    if baseline:
+        rows = ["| Product | Coverage | Δ vs master | Lines |", "| --- | --- | --- | --- |"]
+        for r in sorted(results, key=lambda x: x.pct):
+            rows.append(
+                f"| `{r.product}` | `{bar(r.pct)}` {r.pct:.1f}% | {delta_label(r.pct, baseline.get(r.product))} | {r.covered:,} / {r.valid:,} |"
+            )
+        return rows
+    rows = ["| Product | Coverage | Lines |", "| --- | --- | --- |"]
+    for r in sorted(results, key=lambda x: x.pct):
+        rows.append(f"| `{r.product}` | `{bar(r.pct)}` {r.pct:.1f}% | {r.covered:,} / {r.valid:,} |")
+    return rows
+
+
+def build_machine_block(patch_data: dict, results: list[ProductCoverage], baseline: dict[str, float]) -> str:
+    """A hidden, compact JSON block agents can parse straight from the comment body."""
+    src = patch_data.get("src_stats", {})
+    payload = {
+        "patch": {
+            "pct": round(float(patch_data.get("total_percent_covered", 0)), 1),
+            "changed": int(patch_data.get("total_num_lines", 0)),
+            "uncovered": int(patch_data.get("total_num_violations", 0)),
+        },
+        "uncovered_lines": {
+            path: [[a, b] for a, b in compress_ranges(stats.get("violation_lines", []))]
+            for path, stats in src.items()
+            if stats.get("violation_lines")
+        },
+        "products": {
+            r.product: {
+                "pct": round(r.pct, 1),
+                "base": round(baseline[r.product], 1) if r.product in baseline else None,
+                "delta": round(r.pct - baseline[r.product], 1) if r.product in baseline else None,
+            }
+            for r in results
+        },
+    }
+    return f"<!-- coverage-data:{json.dumps(payload, separators=(',', ':'))} -->"
+
+
+def render_markdown(results: list[ProductCoverage], patch_data: dict | None, baseline: dict[str, float]) -> str:
     lines = [MARKER, "### 🧪 Backend test coverage", ""]
     if not results:
         lines.append("_No product backends were touched by this PR._")
         return "\n".join(lines)
 
-    lines += [patch_section or "_Patch coverage unavailable for this run._", ""]
+    patch_section = (
+        render_patch_section(patch_data) if patch_data is not None else "_Patch coverage unavailable for this run._"
+    )
+    lines += [patch_section, ""]
 
-    lines += [
-        "<details>",
-        "<summary>Per-product line coverage (touched products)</summary>",
-        "",
-        "| Product | Coverage | Lines |",
-        "| --- | --- | --- |",
-    ]
-    for r in sorted(results, key=lambda x: x.pct):
-        lines.append(f"| `{r.product}` | `{bar(r.pct)}` {r.pct:.1f}% | {r.covered:,} / {r.valid:,} |")
+    if patch_data is not None and int(patch_data.get("total_num_violations", 0)) > 0:
+        lines += [build_agent_hint(), ""]
 
+    lines += ["<details>", "<summary>Per-product line coverage (touched products)</summary>", ""]
+    lines += render_product_table(results, baseline)
+    delta_note = " Δ is vs the latest master baseline." if baseline else ""
     lines += [
         "",
         "</details>",
         "",
-        "_Report-only. Patch coverage compares changed lines against `origin/master`; per-product "
-        "figures cover `products/<name>/backend` measured during this PR's test run. Sorted lowest first._",
+        f"_Report-only. Patch coverage = changed lines covered vs `origin/master`.{delta_note} Sorted lowest first._",
     ]
+    if patch_data is not None:
+        lines += ["", build_machine_block(patch_data, results, baseline)]
     return "\n".join(lines)
+
+
+def load_baseline(path: Path | None) -> dict[str, float]:
+    """Load {product: coverage_pct} from a master baseline JSON; {} if absent or unreadable."""
+    if path is None or not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        sys.stderr.write(f"::warning::ignoring unreadable baseline {path}: {exc}\n")
+        return {}
+    pcts: dict[str, float] = {}
+    for product, stats in raw.items():
+        valid = stats.get("valid", 0)
+        pcts[product] = 100.0 * stats.get("covered", 0) / valid if valid else 0.0
+    return pcts
+
+
+def write_baseline(covered: LineMap, valid: LineMap, out_path: Path) -> None:
+    """Write a per-product {covered, valid} baseline JSON (master side; PRs read it for Δ)."""
+    base = {
+        product: {
+            "covered": sum(len(s) for s in covered[product].values()),
+            "valid": sum(len(s) for s in valid[product].values()),
+        }
+        for product in valid
+    }
+    out_path.write_text(json.dumps(base, separators=(",", ":")))
 
 
 def gh_request(method: str, url: str, token: str, payload: dict | None = None) -> bytes:
@@ -315,20 +414,26 @@ def main() -> int:
     )
     parser.add_argument("--compare-branch", default="origin/master", help="diff-cover compare branch")
     parser.add_argument("--patch-json-out", type=Path, help="path for diff-cover's JSON report (machine payload)")
+    parser.add_argument("--baseline", type=Path, help="master coverage baseline JSON to compute per-product Δ against")
+    parser.add_argument("--write-baseline", type=Path, help="master side: write the per-product baseline JSON and exit")
     args = parser.parse_args()
 
     covered, valid = aggregate(args.artifacts)
+
+    if args.write_baseline is not None:
+        write_baseline(covered, valid, args.write_baseline)
+        sys.stderr.write(f"Wrote coverage baseline for {len(valid)} products to {args.write_baseline}\n")
+        return 0
+
     results = collect(covered, valid)
+    baseline = load_baseline(args.baseline)
 
     patch_data: dict | None = None
-    patch_section: str | None = None
     if args.combined_out is not None and results:
         write_combined_cobertura(covered, valid, args.combined_out)
         patch_data = run_diff_cover(args.combined_out, args.compare_branch, args.patch_json_out)
-        if patch_data is not None:
-            patch_section = render_patch_section(patch_data)
 
-    markdown = render_markdown(results, patch_section)
+    markdown = render_markdown(results, patch_data, baseline)
 
     if args.out:
         args.out.write_text(markdown)
