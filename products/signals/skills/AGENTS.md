@@ -141,8 +141,10 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   with a page-scoped-vs-site-wide second axis (one page is code/content; all pages
   together is a population / CDN / third-party shift). Every finding carries a
   metric-specific cause hypothesis and a concrete remediation (bundled
-  `references/remediation.md`). Vitals-capture _absence_ is the health-checks scout's
-  territory, not this one's.
+  `references/remediation.md`). On the **report channel** (`emit_report` /
+  `edit_report`): files each page+metric finding as a 1:1 inbox report, editing the
+  live report while the page stays slow. Vitals-capture _absence_ is the health-checks
+  scout's territory, not this one's.
 - `signals-scout-experiments/` — validity watcher for A/B experiments. Audits the
   measurement machinery rather than the results: sample ratio mismatch, `$multiple`
   contamination, exposure stalls, mid-run flag mutations, plus lifecycle drift
@@ -186,6 +188,20 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   prioritizes issues an agent can resolve via the MCP over credential-gated ones.
   Its discriminator is kind-concentration × severity × agent-fixability ×
   persistence, not raw firing count.
+- `signals-scout-ingestion-warnings/` — root-cause watcher for the ingestion
+  warnings stream: events and person/group updates dropped, mangled, or partially
+  rejected at ingestion, read via the `ingestion-warnings-list` MCP tool. Watches
+  for new warning types, bursts above a type's own baseline, and error-severity
+  clusters with broad reach. Warning counts are debounced by the producers
+  (some types bypass the debounce and record every occurrence), so it weights
+  by reach — distinct affected IDs — not raw count; its discriminator is
+  severity-weighted data loss × reach ×
+  novelty against the type's own baseline (`error` = dropped, `warning` =
+  ingested-but-modified, `info` = intentional). On the **report channel**
+  (`emit_report` / `edit_report`): files one report per actionable root cause —
+  which may span several warning types — with the dated onset, reach, and the
+  fix. Triage of `ingestion_warning` _health issues_ stays with the health-checks
+  scout; this scout owns the stream depth the deterministic check can't reach.
 - `signals-scout-inbox-validation/` — follow-up watcher for the inbox itself.
   Watches reports that recently transitioned to `resolved` (implementation PR
   merged), waits out a deployment soak window, then re-probes the entities the
@@ -319,9 +335,8 @@ per-scout reference. The generalist keeps one bundled reference:
 - **`references/conventions.md`** — the four-states author/edit classifier, scratchpad
   key-prefix vocabulary, and cross-project noise patterns.
 
-The canonical fleet is on the **report channel** (ported one scout per PR,
-biggest reach first — see the `scouts-emit-reports` spec; `signals-scout-web-vitals`
-is the last one still on the signal channel, with its port planned as a follow-up). A report-channel scout is
+The entire canonical fleet is on the **report channel** (ported one scout per PR,
+biggest reach first — see the `scouts-emit-reports` spec). A report-channel scout is
 report-only — its frontmatter `allowed_tools` lists `emit_report` / `edit_report` — and it
 carries only its _domain-specific_ report framing **inline in its body** (what's
 report-shaped for its surface, its `reviewer:<domain>` / `report:<domain>` scratchpad
@@ -330,10 +345,9 @@ bundles **no** `report.md`. The exception is `signals-scout-anomaly-detection`, 
 slimmed `references/report-contract.md` for its genuinely scout-specific **notebook write-up +
 embedded-chart recipe** (it defers the generic contract to the prompt). The legacy signal
 channel (weak `emit_signal` findings for the pipeline to cluster) still exists in the
-harness for scouts that never opted in via `allowed_tools`, but it is deprecated: the
-user-facing skills (`authoring-scouts`, `exploring-scouts`) no longer teach it — new
-scouts always list the report tools. When the last signal-channel scout is ported,
-update this note.
+harness for custom scouts that never opted in via `allowed_tools`, but it is deprecated:
+no canonical scout uses it, and the user-facing skills (`authoring-scouts`,
+`exploring-scouts`) no longer teach it — new scouts always list the report tools.
 
 The specialists each carry their own domain discriminator + investigation patterns.
 Most are a single self-contained `SKILL.md`; a few bundle surface-specific references

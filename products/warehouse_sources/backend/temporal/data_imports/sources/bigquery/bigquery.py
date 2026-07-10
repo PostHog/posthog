@@ -638,6 +638,23 @@ def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, 
     return False
 
 
+def _is_missing_table_or_dataset(error: Exception) -> bool:
+    """True for a table/dataset that's absent from the region the query job runs in.
+
+    BigQuery raises a `NotFound` whose `str()` is "Not found: Table <id> was not found in
+    location EU" (or "Not found: Dataset ..." / "... was not found in location ...") when the
+    table was deleted or renamed after schema discovery selected it, or lives in a different
+    region than the one we query. That's a user-side condition the main read path already
+    surfaces non-retryably (see `BigQuerySource.get_non_retryable_errors`), so the best-effort
+    row-count probe shouldn't also capture it as error-tracking noise. Distinct from the
+    transient "Not found: Job" lookup race, which is retried before reaching here.
+    """
+    if not isinstance(error, NotFound):
+        return False
+    message = str(error)
+    return "was not found in location" in message or "Not found: Table" in message or "Not found: Dataset" in message
+
+
 def _get_rows_to_sync(
     table: bigquery.Table,
     client: bigquery.Client,
@@ -683,7 +700,8 @@ def _get_rows_to_sync(
         return 0
     except Exception as e:
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-        capture_exception(e)
+        if not _is_missing_table_or_dataset(e):
+            capture_exception(e)
 
         return 0
 

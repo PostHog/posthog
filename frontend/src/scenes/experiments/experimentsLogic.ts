@@ -26,6 +26,7 @@ import {
 } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
+import { getFlagVariants } from './utils'
 
 export const EXPERIMENTS_PER_PAGE = 100
 
@@ -70,7 +71,13 @@ const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
     evaluation_runtime: undefined,
 }
 
-export { getExperimentStatus, hasEnded, isExperimentPaused, isLaunched } from './experimentStatus'
+export {
+    getExperimentStatus,
+    hasEnded,
+    isExperimentExposureFrozen,
+    isExperimentPaused,
+    isLaunched,
+} from './experimentStatus'
 
 export function isSingleVariantShipped(experiment: Experiment): boolean {
     const filters = experiment.feature_flag?.filters
@@ -81,7 +88,7 @@ export function isSingleVariantShipped(experiment: Experiment): boolean {
         Array.isArray(filters.groups?.[0]?.properties) &&
         filters.groups?.[0]?.properties?.length === 0 &&
         filters.groups?.[0]?.rollout_percentage === 100 &&
-        (filters.multivariate?.variants?.some(({ rollout_percentage }) => rollout_percentage === 100) || false)
+        getFlagVariants(experiment.feature_flag).some(({ rollout_percentage }) => rollout_percentage === 100)
     )
 }
 
@@ -90,9 +97,8 @@ export function getShippedVariantKey(experiment: Experiment): string | null {
         return null
     }
     return (
-        experiment.feature_flag?.filters.multivariate?.variants?.find(
-            ({ rollout_percentage }) => rollout_percentage === 100
-        )?.key || null
+        getFlagVariants(experiment.feature_flag).find(({ rollout_percentage }) => rollout_percentage === 100)?.key ||
+        null
     )
 }
 
@@ -104,6 +110,8 @@ export function getExperimentStatusLabel(status: ExperimentStatus): string {
             return 'Running'
         case ExperimentStatus.Paused:
             return 'Paused'
+        case ExperimentStatus.ExposureFrozen:
+            return 'Exposure frozen'
         case ExperimentStatus.Stopped:
             return 'Complete'
     }
@@ -117,6 +125,8 @@ export function getExperimentStatusColor(status: ExperimentStatus): LemonTagType
             return 'success'
         case ExperimentStatus.Paused:
             return 'warning'
+        case ExperimentStatus.ExposureFrozen:
+            return 'highlight'
         case ExperimentStatus.Stopped:
             return 'completion'
     }

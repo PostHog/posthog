@@ -1,19 +1,22 @@
 import { useActions, useValues } from 'kea'
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 
 import { LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { getHedgehogModeAssetsUrl } from 'lib/components/HedgehogMode/HedgehogMode'
 import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 const LazyHedgehogCustomization =
     typeof window !== 'undefined'
-        ? lazy(() => import('@posthog/hedgehog-mode').then((module) => ({ default: module.HedgehogCustomization })))
+        ? lazyWithRetry(() =>
+              import('@posthog/hedgehog-mode').then((module) => ({ default: module.HedgehogCustomization }))
+          )
         : () => null
 
 const LazyHedgehogModeRendererContent =
     typeof window !== 'undefined'
-        ? lazy(() =>
+        ? lazyWithRetry(() =>
               import('@posthog/hedgehog-mode').then((module) => ({ default: module.HedgehogModeRendererContent }))
           )
         : () => null

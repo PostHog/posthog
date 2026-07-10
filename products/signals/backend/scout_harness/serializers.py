@@ -1303,7 +1303,7 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
             "experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each "
             "scope reports `edits` (total log entries), `users` (distinct user count), "
             "and `last_edit` (ISO-8601). Use to triage which scope a team has been working "
-            "in lately before drilling down via the per-entity readers or `activity-log-list`."
+            "in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`."
         ),
     )
     recent_reviewer_corrections = RecentReviewerCorrectionsSerializer(

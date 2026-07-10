@@ -10,6 +10,7 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 import { HeatmapSettings } from '~/queries/schema/schema-general'
 
+import { getContrastingTextClass } from '../../colorUtils'
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import {
     buildFallbackGradientStops,
@@ -17,7 +18,6 @@ import {
     formatHeatmapValue,
     getHeatmapNullLabel,
     getHeatmapNullValue,
-    getHeatmapTextClassName,
     interpolateHeatmapColor,
     resolveGradientStops,
     stretchGradientStopsToValues,
@@ -365,7 +365,7 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
                                             key={`${yValue}-${xValue}`}
                                             className={clsx(
                                                 'border border-border px-2 py-1 text-center',
-                                                cellValue !== null && getHeatmapTextClassName(cellColor)
+                                                cellValue !== null && getContrastingTextClass(cellColor)
                                             )}
                                             style={{ backgroundColor: cellColor }}
                                         >

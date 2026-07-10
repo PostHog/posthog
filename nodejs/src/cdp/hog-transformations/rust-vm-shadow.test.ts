@@ -84,7 +84,7 @@ describe('RustVmShadow', () => {
             [
                 'host function missing from the rust vm',
                 finishedNode({}),
-                { error: 'Unknown Global sendEmail', durationUs: 1 },
+                { error: 'Unknown function sendEmail', durationUs: 1 },
                 'skipped_unsupported',
             ],
             ['missing rust result', finishedNode({}), undefined, 'rust_error'],
