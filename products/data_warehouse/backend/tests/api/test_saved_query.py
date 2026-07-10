@@ -293,6 +293,38 @@ class TestSavedQuery(APIBaseTest):
 
             mock_get_columns.assert_not_called()
 
+    def test_columns_preserve_select_order_after_db_round_trip(self):
+        # The columns JSONField is Postgres jsonb, which reorders object keys on write, so reading
+        # a view back from the DB must not fall back to that scrambled key order. These names are
+        # deliberately chosen so jsonb's (length, then bytewise) key order differs from SELECT order.
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "ordered_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select 'a' as gamma, 'b' as beta, 'c' as alpha",
+                },
+                "types": [
+                    ["gamma", "Nullable(String)"],
+                    ["beta", "Nullable(String)"],
+                    ["alpha", "Nullable(String)"],
+                ],
+            },
+        )
+        assert create_response.status_code == 201
+        saved_query_id = create_response.json()["id"]
+
+        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+        assert saved_query.column_order == ["gamma", "beta", "alpha"]
+
+        # Re-fetch through the API so columns are rebuilt from the persisted (jsonb) row.
+        retrieve_response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/"
+        )
+        assert retrieve_response.status_code == 200
+        assert [column["name"] for column in retrieve_response.json()["columns"]] == ["gamma", "beta", "alpha"]
+
     def test_create_name_overlap_error(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",

@@ -84,6 +84,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         blank=True,
         help_text="Dict of all columns with ClickHouse type (including Nullable())",
     )
+    column_order = models.JSONField(
+        default=list,
+        null=True,
+        blank=True,
+        help_text="Ordered list of column names preserving the query's SELECT order. Stored explicitly "
+        "because `columns` is a Postgres jsonb field, which does not preserve object-key insertion order.",
+    )
     external_tables = models.JSONField(default=list, null=True, blank=True, help_text="List of all external tables")
     query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
     status = models.CharField(
@@ -358,7 +365,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         from products.warehouse_sources.backend.facade.hogql import CLICKHOUSE_HOGQL_MAPPING
 
-        for column, type in columns.items():
+        # Iterate columns in the explicitly stored SELECT order. `columns` is jsonb and loses key
+        # order on write, so fall back to its keys only for legacy rows that predate column_order,
+        # and reconcile any drift (names present in one but not the other).
+        stored_order = self.column_order or []
+        ordered_columns = [name for name in stored_order if name in columns]
+        ordered_columns.extend(name for name in columns if name not in stored_order)
+
+        for column in ordered_columns:
+            type = columns[column]
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type
