@@ -892,7 +892,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert expected_error_fragment in str(response.content).lower()
+        assert expected_error_fragment in response.json()["detail"].lower()
 
     @parameterized.expand(
         [
@@ -955,7 +955,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             {"detector_config": {"type": "zscore", "threshold": 0.95, "window": 30}},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "anomaly detection isn't supported for non time series trends" in str(response.content).lower()
+        assert "anomaly detection isn't supported for non time series trends" in response.json()["detail"].lower()
 
     @parameterized.expand(
         [
