@@ -18,6 +18,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import sync_connect
 
 from products.pulse.backend.config import WORKFLOW_EXECUTION_TIMEOUT
@@ -259,6 +260,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         responses={
             201: ProductBriefSerializer,
             409: OpenApiResponse(description="A generation for this brief is already in progress"),
+            500: OpenApiResponse(description="Dispatch to the generation workflow failed; the brief is marked failed"),
         },
     )
     @action(methods=["POST"], detail=False, url_path="generate")
@@ -284,10 +286,11 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             if config is None:
                 raise ValidationError("Brief config not found.")
 
+        user = cast(User, request.user)
         brief = ProductBrief.objects.for_team(self.team_id).create(
             team_id=self.team_id,
             config=config,
-            created_by=cast(User, request.user),
+            created_by=user,
             status=ProductBrief.Status.GENERATING,
             trigger=ProductBrief.Trigger.ON_DEMAND,
             period=period,
@@ -303,6 +306,18 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                         brief_id=str(brief.id),
                         brief_config_id=str(config.id) if config else None,
                         period=period,
+                        slo=SloConfig(
+                            operation=SloOperation.PULSE_BRIEF_GENERATION,
+                            area=SloArea.ANALYTIC_PLATFORM,
+                            team_id=self.team_id,
+                            resource_id=str(brief.id),
+                            distinct_id=str(user.distinct_id),
+                            start_properties={"trigger": "on_demand", "config_id": str(config.id) if config else None},
+                            completion_properties={
+                                "trigger": "on_demand",
+                                "config_id": str(config.id) if config else None,
+                            },
+                        ),
                     ),
                     # Keyed on team+config (not brief id) so a second generate while one is
                     # running for the same focus hits WorkflowAlreadyStartedError.
@@ -312,6 +327,12 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                 )
             )
         except WorkflowAlreadyStartedError:
+            report_user_action(
+                user,
+                "pulse brief generation contended",
+                {"config_id": str(config.id) if config else None},
+                team=self.team,
+            )
             try:
                 brief.delete()
             except Exception:
@@ -323,14 +344,21 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             return Response({"detail": "Brief generation already in progress"}, status=status.HTTP_409_CONFLICT)
         except Exception as exc:
             # Dispatch never reached Temporal — mark the row FAILED so it can't strand in GENERATING.
+            # Return the failed brief's id+status (not a bare raise) so the frontend can surface it.
             logger.exception("pulse_brief_dispatch_failed", team_id=self.team_id, brief_id=str(brief.id))
             ProductBrief.objects.for_team(self.team_id).filter(id=brief.id).update(
                 status=ProductBrief.Status.FAILED, error=str(exc)
             )
-            raise
+            return Response(
+                {
+                    "detail": "Brief generation could not be started.",
+                    "brief": {"id": str(brief.id), "status": ProductBrief.Status.FAILED.value},
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         report_user_action(
-            cast(User, request.user),
+            user,
             "pulse brief generated",
             {"config_id": str(config.id) if config else None, "period": period, "trigger": "on_demand"},
             team=self.team,

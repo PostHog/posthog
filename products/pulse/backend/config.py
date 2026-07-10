@@ -20,9 +20,9 @@ SYNTHESIZE_MAX_ATTEMPTS = 1
 MARK_FAILED_ACTIVITY_TIMEOUT = dt.timedelta(minutes=1)
 MARK_FAILED_MAX_ATTEMPTS = 3
 
-# Headroom above the workflow execution_timeout so a brief still legitimately running is never
-# reaped early.
-STALE_AFTER = dt.timedelta(minutes=60)
+# 5-min headroom above the 20-min WORKFLOW_EXECUTION_TIMEOUT so a brief still legitimately running
+# is never reaped early, while a truly-stranded row is reconciled promptly.
+STALE_AFTER = dt.timedelta(minutes=25)
 # The reaper sweeps at most this many stranded rows per run; a later run drains the rest.
 REAP_BATCH_CAP = 500
 
