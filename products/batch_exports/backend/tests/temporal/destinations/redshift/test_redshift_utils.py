@@ -143,9 +143,7 @@ async def test_upload_manifest_file_raises_on_client_error(minio_client, bucket_
     assert settings.OBJECT_STORAGE_ACCESS_KEY_ID is not None
     assert settings.OBJECT_STORAGE_SECRET_ACCESS_KEY is not None
 
-    with mock.patch(
-        "products.batch_exports.backend.temporal.destinations.redshift_batch_export.aioboto3.Session"
-    ) as mock_session_class:
+    with mock.patch("aioboto3.Session") as mock_session_class:
         mock_session_class.return_value = mock_session_instance
 
         with pytest.raises(ClientErrorGroup) as exc_info:
@@ -195,9 +193,7 @@ async def test_is_s3_read_access_denied(error_code, status_code, expected):
         response: Any = {"Error": {"Code": error_code}, "ResponseMetadata": {"HTTPStatusCode": status_code}}
         head_object = mock.AsyncMock(side_effect=botocore.exceptions.ClientError(response, "HeadObject"))
 
-    with mock.patch(
-        "products.batch_exports.backend.temporal.destinations.redshift_batch_export.aioboto3.Session"
-    ) as mock_session_class:
+    with mock.patch("aioboto3.Session") as mock_session_class:
         mock_session_class.return_value = _mock_s3_session_with_head_object(head_object)
 
         denied = await is_s3_read_access_denied(
@@ -214,9 +210,7 @@ async def test_is_s3_read_access_denied_swallows_unexpected_error():
     """An unexpected probe failure (e.g. a connection error) is treated as 'not confirmed' (False)."""
     head_object = mock.AsyncMock(side_effect=botocore.exceptions.EndpointConnectionError(endpoint_url="https://s3"))
 
-    with mock.patch(
-        "products.batch_exports.backend.temporal.destinations.redshift_batch_export.aioboto3.Session"
-    ) as mock_session_class:
+    with mock.patch("aioboto3.Session") as mock_session_class:
         mock_session_class.return_value = _mock_s3_session_with_head_object(head_object)
 
         denied = await is_s3_read_access_denied(
