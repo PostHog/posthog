@@ -39,11 +39,13 @@ import { ObservationResultSummary } from '../../components/ObservationCard'
 import type { ReplayObservationApi, ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
+import { formatCredits } from '../../utils/credits'
 import { fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
 import { readConfidence } from '../../utils/observation'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { LABEL_CHART_DAYS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from '../scannerQualityLogic'
+import { OBSERVATION_CREDITS_BY_MODEL } from '../types'
 import { versionTag } from './ScannerObservationsTable'
 
 const RATED_FILTER_OPTIONS: { value: RatedFilterValue; label: string }[] = [
@@ -338,6 +340,9 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     const { isDarkModeOn } = useValues(themeLogic)
     // Only scanner types with a discrete outcome (verdict, tags) can be diffed against ratings.
     const evaluationSupported = scanner?.scanner_type === 'monitor' || scanner?.scanner_type === 'classifier'
+    // Each re-run is charged like a normal observation of the scanner's model.
+    const creditsPerTestSession = scanner ? (OBSERVATION_CREDITS_BY_MODEL[scanner.model] ?? 0) : 0
+    const plannedTestCredits = plannedTestSessions * creditsPerTestSession
     const [historyOpen, setHistoryOpen] = useState(false)
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
@@ -414,13 +419,13 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                     editDisabledReason ??
                                     (ratedCount === 0
                                         ? 'Rate at least one result first'
-                                        : quota?.exhausted
-                                          ? `Monthly Replay Vision quota of ${quota.monthly_quota.toLocaleString()} observations reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
-                                          : quota && plannedTestSessions > quota.remaining
-                                            ? `Only ${quota.remaining.toLocaleString()} observations left this month. Lower the test session count.`
+                                        : quota?.exhausted && quota.credit_limit !== null
+                                          ? `Monthly Replay Vision budget of ${formatCredits(quota.credit_limit)} reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
+                                          : quota && quota.remaining !== null && plannedTestCredits > quota.remaining
+                                            ? `Only ${formatCredits(quota.remaining)} of budget left this month. Lower the test session count.`
                                             : undefined)
                                 }
-                                tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying. Each tested session uses one observation of your monthly Replay Vision quota. Pick how many below."
+                                tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying. Each tested session is charged like a normal observation. Pick how many below."
                                 onClick={() => evaluateSuggestion(currentSuggestion.id)}
                                 data-attr="vision-quality-evaluate-suggestion"
                             >
@@ -469,10 +474,10 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                         />
                         <span>
                             of your {Math.min(evaluationSessionCap, ratedCount)} most useful rated session
-                            {Math.min(evaluationSessionCap, ratedCount) === 1 ? '' : 's'}, using {plannedTestSessions}{' '}
-                            observation{plannedTestSessions === 1 ? '' : 's'} of quota
-                            {quota
-                                ? ` (${quota.remaining.toLocaleString()} of ${quota.monthly_quota.toLocaleString()} left this month)`
+                            {Math.min(evaluationSessionCap, ratedCount) === 1 ? '' : 's'}, charging{' '}
+                            {formatCredits(plannedTestCredits)}
+                            {quota && quota.remaining !== null && quota.credit_limit !== null
+                                ? ` (${formatCredits(quota.remaining)} of ${formatCredits(quota.credit_limit)} left this month)`
                                 : ''}
                             .
                         </span>

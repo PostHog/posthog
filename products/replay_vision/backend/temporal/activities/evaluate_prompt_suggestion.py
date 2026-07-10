@@ -9,6 +9,7 @@ from django.utils import timezone
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
     ReplayScannerPromptSuggestion,
@@ -63,7 +64,7 @@ def select_evaluation_sessions_activity(inputs: SelectEvaluationSessionsInputs) 
         EvaluationSession(
             observation_id=o.id,
             session_id=o.session_id,
-            rated_correct=o.label.is_correct,  # type: ignore[attr-defined]
+            rated_correct=o.label.is_correct,
             before_outcome=primary_outcome((o.scanner_result or {}).get("model_output")),
         )
         for o in observations
@@ -119,8 +120,8 @@ def record_evaluation_result_activity(inputs: RecordEvaluationResultInputs) -> N
         suggestion.evaluation = {**suggestion.evaluation, "results": results}
         suggestion.save(update_fields=["evaluation"])
         if outcome != "error":
-            # One observation of monthly quota per successful re-run, in the same transaction as the
-            # result so a crash can't record one without the other.
+            # Each successful re-run charges credits like a normal observation, in the same transaction
+            # as the result so a crash can't record one without the other.
             ReplayObservationUsage.objects.get_or_create(
                 observation_id=evaluation_usage_id(
                     suggestion.id,
@@ -129,7 +130,10 @@ def record_evaluation_result_activity(inputs: RecordEvaluationResultInputs) -> N
                 ),
                 defaults={
                     "organization_id": suggestion.team.organization_id,
+                    "team_id": inputs.team_id,
                     "observation_created_at": timezone.now(),
+                    "model": inputs.model,
+                    "credits": observation_credits_for_model(inputs.model or ""),
                 },
             )
 

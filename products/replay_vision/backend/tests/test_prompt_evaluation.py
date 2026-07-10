@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -25,7 +26,7 @@ from products.replay_vision.backend.prompt_evaluation import (
     select_evaluation_observations,
     summarize_results,
 )
-from products.replay_vision.backend.quota import MONTHLY_OBSERVATION_QUOTA, compute_quota_snapshot
+from products.replay_vision.backend.quota import MONTHLY_CREDIT_QUOTA, QuotaSnapshot, compute_quota_snapshot
 from products.replay_vision.backend.temporal.activities.evaluate_prompt_suggestion import (
     finalize_evaluation_activity,
     record_evaluation_result_activity,
@@ -163,6 +164,7 @@ class TestPromptEvaluation(_VisionAPITestCase):
             suggestion_id=suggestion.id,
             team_id=self.team.id,
             session=session,
+            model=self.scanner.model,
             after_output={"verdict": "no"},
         )
         record_evaluation_result_activity(inputs)
@@ -179,10 +181,13 @@ class TestPromptEvaluation(_VisionAPITestCase):
             suggestion.evaluation["summary"], {"kept": 0, "regressed": 0, "fixed": 1, "still_wrong": 0, "errors": 0}
         )
         self.assertIsNotNone(suggestion.evaluation["finished_at"])
-        # The retried run charged the org's quota exactly once, inside the current monthly window.
+        # The retried run charged the org's quota exactly once, priced by the re-run's model.
         receipts = ReplayObservationUsage.objects.filter(organization_id=self.team.organization_id)
         self.assertEqual(receipts.count(), 1)
-        self.assertEqual(compute_quota_snapshot(self.team.organization_id).usage_this_month, 1)
+        self.assertEqual(
+            compute_quota_snapshot(self.team.organization_id).credits_used,
+            observation_credits_for_model(self.scanner.model),
+        )
 
     def test_failed_session_run_does_not_charge_quota(self) -> None:
         observation = self._create_rated("sess-1", False)
@@ -375,7 +380,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
     def test_evaluate_refuses_when_quota_exhausted(self) -> None:
         self._create_rated()
         suggestion = self._create_pending_suggestion()
-        quota = MagicMock(remaining=0, monthly_quota=100, period_end=timezone.now())
+        quota = MagicMock(remaining=0, credit_limit=100, period_end=timezone.now())
         connect_patch, client = self._mock_temporal()
         with (
             connect_patch,
@@ -392,7 +397,15 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         for i in range(3):
             self._create_rated(f"sess-{i}")
         suggestion = self._create_pending_suggestion()
-        quota = MagicMock(remaining=2, monthly_quota=100, period_end=timezone.now())
+        # Real snapshot: exactly two re-runs' worth of credits left this month.
+        session_credits = observation_credits_for_model(self.scanner.model)
+        quota = QuotaSnapshot(
+            credit_limit=2 * session_credits,
+            credits_used=0,
+            period_start=timezone.now(),
+            period_end=timezone.now(),
+            projected_monthly_credits=0,
+        )
         connect_patch, client = self._mock_temporal()
         with (
             connect_patch,
@@ -423,7 +436,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
                 "status": "running",
                 "started_at": timezone.now().isoformat(),
                 "results": [],
-                "total": MONTHLY_OBSERVATION_QUOTA,
+                "total": MONTHLY_CREDIT_QUOTA,
             },
         )
         connect_patch, client = self._mock_temporal()

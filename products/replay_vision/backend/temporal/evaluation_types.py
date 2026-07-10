@@ -39,6 +39,8 @@ class RecordEvaluationResultInputs(BaseModel, frozen=True):
     suggestion_id: UUID
     team_id: int
     session: EvaluationSession
+    # Model that ran the re-run, frozen from the evaluation snapshot; prices the usage receipt.
+    model: str | None = None
     # The fresh scanner output, None when the run errored.
     after_output: dict[str, Any] | None = None
     error: str | None = None

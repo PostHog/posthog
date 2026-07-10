@@ -156,9 +156,11 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=_STEP_RETRY,
             )
-            await self._record(inputs, session, after_output=call_output.model_output.model_dump(mode="json"))
+            await self._record(
+                inputs, session, selection, after_output=call_output.model_output.model_dump(mode="json")
+            )
         except Exception as e:
-            await self._record(inputs, session, error=_cause_message(e))
+            await self._record(inputs, session, selection, error=_cause_message(e))
         finally:
             if uploaded is not None:
                 try:
@@ -175,6 +177,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
         self,
         inputs: EvaluatePromptSuggestionInputs,
         session: EvaluationSession,
+        selection: SelectEvaluationSessionsOutput,
         after_output: dict | None = None,
         error: str | None = None,
     ) -> None:
@@ -184,6 +187,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 suggestion_id=inputs.suggestion_id,
                 team_id=inputs.team_id,
                 session=session,
+                model=selection.snapshot.model if selection.snapshot else None,
                 after_output=after_output,
                 error=error,
             ),

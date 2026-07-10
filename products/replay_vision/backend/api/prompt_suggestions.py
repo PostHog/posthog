@@ -26,6 +26,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 
 from products.replay_vision.backend.api.scanners import _scanner_config_error_message
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.feature_flag import (
     ReplayVisionEnabledPermission,
     ReplayVisionQualityEnabledPermission,
@@ -160,9 +161,9 @@ class EvaluatePromptSuggestionRequestSerializer(serializers.Serializer):
         min_value=1,
         max_value=EVALUATION_SESSION_CAP,
         help_text=(
-            "How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run consumes one "
-            "observation of the monthly Replay Vision quota. Defaults to `evaluation_session_cap`, which is "
-            "also the maximum."
+            "How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges "
+            "credits like a normal observation of the same model. Defaults to `evaluation_session_cap`, "
+            "which is also the maximum."
         ),
     )
 
@@ -179,8 +180,8 @@ class CurrentPromptSuggestionSerializer(serializers.Serializer):
         help_text="Number of rated (thumbs up or down) succeeded observations available to generate from."
     )
     evaluation_session_cap = serializers.IntegerField(
-        help_text="Maximum rated sessions one suggestion test re-runs. Each successful re-run consumes "
-        "one observation of the monthly Replay Vision quota."
+        help_text="Maximum rated sessions one suggestion test re-runs. Each successful re-run charges "
+        "credits like a normal observation of the same model."
     )
 
 
@@ -336,9 +337,10 @@ class ReplayScannerPromptSuggestionViewSet(
             "already-rated sessions in the background and compare each fresh output with the stored one. "
             "Results land on the suggestion's `evaluation` field. Poll `current` while status is running. "
             "`session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to "
-            "`evaluation_session_cap`). Each successful re-run consumes one observation of the monthly "
-            "Replay Vision quota. The request is refused with 402 when the planned re-runs exceed what is "
-            "left. Only monitor and classifier scanners are supported. Requires session recording edit access."
+            "`evaluation_session_cap`). Each successful re-run charges credits like a normal observation of "
+            "the same model. The request is refused with 402 when the planned credits exceed what is left of "
+            "the monthly limit. Only monitor and classifier scanners are supported. Requires session "
+            "recording edit access."
         ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
@@ -359,15 +361,18 @@ class ReplayScannerPromptSuggestionViewSet(
         # A test already in flight keeps reporting its state even if quota ran out meanwhile.
         if evaluation_in_flight(suggestion.evaluation):
             return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
-        # Each re-run session charges a usage receipt, so refuse a test that would overspend the month.
+        # Each re-run session charges credits like a normal observation, so refuse a test that would
+        # overspend the month. An uncapped org (no credit limit) never trips this.
         planned = min(session_limit, rated_count)
+        planned_credits = planned * observation_credits_for_model(scanner.model)
         quota = compute_quota_snapshot(organization_id=self.team.organization_id)
-        if planned > quota.remaining:
+        if quota.would_exceed(planned_credits):
             raise QuotaLimitExceeded(
                 detail=(
-                    f"This test would use {planned} observations but only {quota.remaining:,} of the monthly "
-                    f"Replay Vision quota of {quota.monthly_quota:,} remain. Lower the test session count or "
-                    f"wait for the reset on {quota.period_end.strftime('%b')} {quota.period_end.day}."
+                    f"This test would use {planned_credits:,} credits but only {quota.remaining or 0:,} of the "
+                    f"monthly Replay Vision credit limit of {quota.credit_limit or 0:,} remain. Lower the test "
+                    f"session count or wait for the reset on "
+                    f"{quota.period_end.strftime('%b')} {quota.period_end.day}."
                 )
             )
 

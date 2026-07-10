@@ -14835,7 +14835,7 @@ export namespace Schemas {
       stale: boolean;
       /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
       rated_count: number;
-      /** Maximum rated sessions one suggestion test re-runs. Each successful re-run consumes one observation of the monthly Replay Vision quota. */
+      /** Maximum rated sessions one suggestion test re-runs. Each successful re-run charges credits like a normal observation of the same model. */
       evaluation_session_cap: number;
     }
 
@@ -21661,7 +21661,7 @@ export namespace Schemas {
 
     export interface EvaluatePromptSuggestionRequest {
       /**
-         * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run consumes one observation of the monthly Replay Vision quota. Defaults to `evaluation_session_cap`, which is also the maximum.
+         * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to `evaluation_session_cap`, which is also the maximum.
          * @minimum 1
          * @maximum 10
          */

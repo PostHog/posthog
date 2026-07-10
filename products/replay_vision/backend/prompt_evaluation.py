@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from django.utils import timezone
 
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
@@ -95,16 +96,17 @@ def evaluation_in_flight(evaluation: Any) -> bool:
     return timezone.now() - started_at < EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT + _EVALUATION_RUNNING_GRACE
 
 
-def in_flight_evaluation_sessions(organization_id: uuid.UUID) -> int:
-    """Sessions that running evaluations still plan to charge. Settled ones hold a receipt or never charge."""
-    evaluations = ReplayScannerPromptSuggestion.objects.filter(
+def in_flight_evaluation_credits(organization_id: uuid.UUID) -> int:
+    """Credits that running evaluations still plan to charge. Settled sessions hold a receipt or never charge."""
+    rows = ReplayScannerPromptSuggestion.objects.filter(
         team__organization_id=organization_id, evaluation__status="running"
-    ).values_list("evaluation", flat=True)
+    ).values_list("evaluation", "scanner__model")
     total = 0
-    for evaluation in evaluations:
+    for evaluation, model in rows:
         if not isinstance(evaluation, dict) or not evaluation_in_flight(evaluation):
             continue
-        total += max(0, int(evaluation.get("total") or 0) - len(evaluation.get("results") or []))
+        unsettled = max(0, int(evaluation.get("total") or 0) - len(evaluation.get("results") or []))
+        total += unsettled * observation_credits_for_model(model or "")
     return total
 
 
