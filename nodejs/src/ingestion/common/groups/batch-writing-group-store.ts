@@ -436,16 +436,21 @@ export class BatchWritingGroupStore implements GroupStore {
             return await this.flushIndividual(pendingWrites)
         }
 
+        // Key by the full row identity — unlike the cache key, which omits
+        // group_type_index — so two group types sharing a group key can never
+        // sync each other's row.
+        const rowIdentity = (group: { team_id: TeamId; group_type_index: GroupTypeIndex; group_key: string }) =>
+            `${group.team_id}:${group.group_type_index}:${group.group_key}`
         const updatedByKey = new Map<string, Group>()
         for (const group of updatedGroups) {
-            updatedByKey.set(`${group.team_id}:${group.group_key}`, group)
+            updatedByKey.set(rowIdentity(group), group)
         }
 
         const results: GroupFlushResult[] = []
         const missingWrites: PendingGroupWrite[] = []
 
         for (const pendingWrite of pendingWrites) {
-            const row = updatedByKey.get(pendingWrite.cacheKey)
+            const row = updatedByKey.get(rowIdentity(pendingWrite.update))
             if (!row) {
                 missingWrites.push(pendingWrite)
                 continue
@@ -658,9 +663,6 @@ export class BatchWritingGroupStore implements GroupStore {
             {},
             {}
         )
-        if (insertedVersion > 1) {
-            logVersionMismatch(teamId, groupTypeIndex, groupKey, insertedVersion - 1)
-        }
 
         this.groupCache.obtainForBatchId(batchId).set(teamId, groupKey, {
             team_id: teamId,

@@ -30,8 +30,13 @@ describe('prefetchGroupsStep', () => {
     let groupTypeManager: GroupTypeManager
 
     beforeEach(() => {
+        const groupTypes: Record<string, number> = { organization: 0, project: 1 }
         groupTypeManager = {
-            fetchGroupTypes: jest.fn().mockResolvedValue({ organization: 0, project: 1 }),
+            lookupGroupTypeIndex: jest
+                .fn()
+                .mockImplementation((_projectId: number, groupType: string) =>
+                    Promise.resolve(Object.hasOwn(groupTypes, groupType) ? groupTypes[groupType] : null)
+                ),
         } as unknown as GroupTypeManager
     })
 
@@ -44,12 +49,14 @@ describe('prefetchGroupsStep', () => {
             createInput('$pageview', { $group_type: 'organization', $group_key: 'org-2' }, 3, store),
             // Unknown group type — would require an insert, so it's skipped.
             createInput('$groupidentify', { $group_type: 'brand-new-type', $group_key: 'x' }, 3, store),
+            // Inherited object property names must not resolve to a group type.
+            createInput('$groupidentify', { $group_type: '__proto__', $group_key: 'evil' }, 3, store),
             createInput('$groupidentify', { $group_type: 'project', $group_key: 42 }, 4, store),
             createInput('$groupidentify', { $group_type: 'organization' }, 3, store),
         ])
 
         expect(results.every((result) => result.type === PipelineResultType.OK)).toBe(true)
-        expect(results.filter(isOkResult)).toHaveLength(5)
+        expect(results.filter(isOkResult)).toHaveLength(6)
         expect(store.prefetchGroups).toHaveBeenCalledWith([
             { teamId: 3, groupTypeIndex: 0, groupKey: 'org-1', batchId: 1 },
             { teamId: 4, groupTypeIndex: 1, groupKey: '42', batchId: 1 },

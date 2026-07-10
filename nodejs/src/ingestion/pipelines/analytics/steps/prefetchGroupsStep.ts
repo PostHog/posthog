@@ -38,9 +38,8 @@ export function prefetchGroupsStep<T extends PrefetchGroupsStepInput>(
                     continue
                 }
 
-                const groupTypes = await groupTypeManager.fetchGroupTypes(event.team.project_id)
-                const groupTypeIndex = groupTypes[groupType]
-                if (groupTypeIndex === undefined) {
+                const groupTypeIndex = await groupTypeManager.lookupGroupTypeIndex(event.team.project_id, groupType)
+                if (groupTypeIndex === null) {
                     continue
                 }
 

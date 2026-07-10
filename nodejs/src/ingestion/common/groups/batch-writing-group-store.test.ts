@@ -1,7 +1,7 @@
 // sort-imports-ignore
 import { DateTime } from 'luxon'
 
-import { Group, ProjectId, TeamId } from '~/types'
+import { Group, GroupTypeIndex, ProjectId, TeamId } from '~/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { RaceConditionError } from '~/common/utils/utils'
@@ -422,17 +422,33 @@ describe('BatchWritingGroupStore', () => {
             })
         })
 
-        it('flushes all dirty groups in one statement with only the changed keys and returns the merged row', async () => {
-            // The DB merges concurrently-written keys from other pods into the row.
-            const mergedRow = {
+        it('flushes all dirty groups in one statement, routing each merged row and fallback to its own group', async () => {
+            // Each group gets its own row back, distinct rows include keys the
+            // DB merged from other pods, and one group is missing from the
+            // result (deleted or never created) so it falls back to an
+            // individual write.
+            jest.spyOn(groupRepository, 'fetchGroup').mockImplementation((_teamId, groupTypeIndex, groupKey) =>
+                Promise.resolve({ ...group, group_type_index: groupTypeIndex, group_key: groupKey })
+            )
+            const rowA = {
                 ...group,
-                group_properties: { test: 'test', a: '1', b: '2', from_other_pod: 'x' },
+                group_type_index: 0 as GroupTypeIndex,
+                group_key: 'g-a',
+                group_properties: { test: 'test', a: '1', from_other_pod: 'x' },
                 version: 5,
             }
-            jest.spyOn(groupRepository, 'updateGroupsBatch').mockResolvedValue([mergedRow])
+            const rowB = {
+                ...group,
+                group_type_index: 1 as GroupTypeIndex,
+                group_key: 'g-b',
+                group_properties: { test: 'test', b: '2' },
+                version: 9,
+            }
+            jest.spyOn(groupRepository, 'updateGroupsBatch').mockResolvedValue([rowA, rowB])
 
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { b: '2' }, DateTime.now())
+            await groupStore.upsertGroup(teamId, projectId, 0, 'g-a', { a: '1' }, DateTime.now())
+            await groupStore.upsertGroup(teamId, projectId, 1, 'g-b', { b: '2' }, DateTime.now())
+            await groupStore.upsertGroup(teamId, projectId, 0, 'g-missing', { c: '3' }, DateTime.now())
 
             const results = await groupStore.flush()
 
@@ -440,35 +456,48 @@ describe('BatchWritingGroupStore', () => {
             expect(groupRepository.updateGroupsBatch).toHaveBeenCalledWith([
                 {
                     teamId,
+                    groupTypeIndex: 0,
+                    groupKey: 'g-a',
+                    propertiesToSet: { a: '1' },
+                    createdAt: group.created_at,
+                },
+                {
+                    teamId,
                     groupTypeIndex: 1,
-                    groupKey: 'test',
-                    propertiesToSet: { a: '1', b: '2' },
+                    groupKey: 'g-b',
+                    propertiesToSet: { b: '2' },
+                    createdAt: group.created_at,
+                },
+                {
+                    teamId,
+                    groupTypeIndex: 0,
+                    groupKey: 'g-missing',
+                    propertiesToSet: { c: '3' },
                     createdAt: group.created_at,
                 },
             ])
-            expect(groupRepository.updateGroupOptimistically).not.toHaveBeenCalled()
 
-            // The ClickHouse message reflects the authoritative merged row.
-            expect(results).toHaveLength(1)
-            const message = parseJSON(results[0].messages[0].value.toString())
-            expect(parseJSON(message.group_properties)).toEqual(mergedRow.group_properties)
-            expect(message.version).toBe(5)
-
-            // The cache converges on the merged row too.
-            const cached = groupStore.getGroupCache().get(teamId, 'test')
-            expect(cached?.version).toBe(5)
-            expect(cached?.group_properties).toEqual(mergedRow.group_properties)
-        })
-
-        it('falls back to individual writes for groups missing from the batch result', async () => {
-            jest.spyOn(groupRepository, 'updateGroupsBatch').mockResolvedValue([])
-
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
-            const results = await groupStore.flush()
-
-            expect(groupRepository.updateGroupsBatch).toHaveBeenCalledTimes(1)
+            // Only the group missing from the batch result goes through the individual path.
             expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
-            expect(results).toHaveLength(1)
+            expect(jest.mocked(groupRepository.updateGroupOptimistically).mock.calls[0][2]).toBe('g-missing')
+
+            // Each ClickHouse message reflects that group's own authoritative row.
+            expect(results).toHaveLength(3)
+            const messagesByKey = new Map(
+                results.map((result) => [result.groupKey, parseJSON(result.messages[0].value.toString())])
+            )
+            expect(parseJSON(messagesByKey.get('g-a').group_properties)).toEqual(rowA.group_properties)
+            expect(messagesByKey.get('g-a').version).toBe(5)
+            expect(messagesByKey.get('g-a').group_type_index).toBe(0)
+            expect(parseJSON(messagesByKey.get('g-b').group_properties)).toEqual(rowB.group_properties)
+            expect(messagesByKey.get('g-b').version).toBe(9)
+            expect(messagesByKey.get('g-b').group_type_index).toBe(1)
+
+            // The cache converges on each group's own merged row.
+            expect(groupStore.getGroupCache().get(teamId, 'g-a')?.version).toBe(5)
+            expect(groupStore.getGroupCache().get(teamId, 'g-a')?.group_properties).toEqual(rowA.group_properties)
+            expect(groupStore.getGroupCache().get(teamId, 'g-b')?.version).toBe(9)
+            expect(groupStore.getGroupCache().get(teamId, 'g-b')?.group_properties).toEqual(rowB.group_properties)
         })
 
         it('falls back to individual writes when the batch statement fails', async () => {
