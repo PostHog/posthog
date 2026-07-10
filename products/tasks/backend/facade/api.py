@@ -176,6 +176,7 @@ __all__ = [
     "read_task_run_artifact",
     "read_task_run_logs",
     "redeem_code_invite",
+    "rebind_sandbox_identity_for_user",
     "redispatch_task_run",
     "refresh_team_code_workstreams",
     "relay_task_run_message",
@@ -4581,3 +4582,38 @@ def forward_thread_message(
         message.forwarded_run = run
         message.save(update_fields=["forwarded_to_agent_at", "forwarded_by", "forwarded_run"])
     return "ok", _thread_message_to_dto(message)
+
+
+def rebind_sandbox_identity_for_user(
+    run_id: str | UUID,
+    user_id: int,
+    *,
+    auth_token: str | None = None,
+) -> None:
+    """Rebind a run's live sandbox to ``user_id``: mint a PostHog MCP OAuth
+    token for them and push fresh MCP configs.
+
+    Used by Slack follow-ups so a teammate taking over the conversation acts
+    as themselves — insights, dashboards, and other PostHog writes attribute
+    to the live actor rather than the task creator. Best-effort by contract:
+    failures are logged, never raised, so a rebind problem can't block the
+    message that triggered it.
+    """
+    from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        refresh_sandbox_mcp_for_user,
+    )
+
+    try:
+        run = TaskRun.objects.select_related("task").get(id=run_id)
+        user = User.objects.get(id=user_id)
+    except Exception as e:
+        logger.warning(
+            "Sandbox identity rebind skipped: could not load run or user",
+            extra={"run_id": str(run_id), "user_id": user_id, "error": str(e)},
+        )
+        return
+
+    try:
+        refresh_sandbox_mcp_for_user(run, user, scopes="full", auth_token=auth_token)
+    except Exception:
+        logger.exception("Sandbox MCP identity rebind failed", extra={"run_id": str(run_id), "user_id": user_id})

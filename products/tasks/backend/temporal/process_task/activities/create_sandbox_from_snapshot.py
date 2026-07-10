@@ -17,6 +17,7 @@ from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
     build_sandbox_environment_variables,
+    clear_sandbox_identities,
     get_git_identity_env_vars,
     get_sandbox_github_token,
     get_sandbox_name_for_task,
@@ -113,6 +114,11 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
             sandbox_environment=sandbox_env,
         )
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
+        # A brand-new sandbox boots with the task's own (creator) credentials;
+        # forget any per-message identity swap recorded against this run_id by
+        # a previous sandbox (mid-run workflow retry, dead-restore fallback),
+        # or the marks would diverge from what this sandbox actually holds.
+        clear_sandbox_identities(str(ctx.run_id))
 
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
