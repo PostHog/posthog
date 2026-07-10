@@ -68,6 +68,16 @@ describe('RustVmExecutor', () => {
         ])
     })
 
+    it("redacts each invocation's logs with its own sensitive values, not another invocation's", () => {
+        mockHogvmNode.executeSync.mockReturnValue(rustResult({ logs: ['token is secret-a and secret-b'] }))
+
+        const first = executor.execute(createExampleInvocation(), ['secret-a'])
+        const second = executor.execute(createExampleInvocation(), ['secret-b'])
+
+        expect(first!.logs[0].message).toEqual('token is ***REDACTED*** and secret-b')
+        expect(second!.logs[0].message).toEqual('token is secret-a and ***REDACTED***')
+    })
+
     it('a rust execution error becomes the result error with an error log, without falling back', () => {
         mockHogvmNode.executeSync.mockReturnValue(rustResult({ result: undefined, error: 'Division by zero' }))
 
