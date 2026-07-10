@@ -18,7 +18,6 @@ duckgres will never re-serve.
 import datetime as dt
 
 from django.db import transaction
-from django.db.models import Q
 
 import structlog
 
@@ -35,28 +34,40 @@ def replace_window(response: UsageResponse) -> int:
     """
     if response.watermark_high <= response.watermark_low:
         # Empty window (fresh cursor, or a pull racing right behind an ack).
-        if response.rows:
+        if response.rows or response.storage_rows:
             logger.warning(
                 "duckgres_usage_rows_in_empty_window_skipped",
                 watermark_low=response.watermark_low.isoformat(),
-                row_count=len(response.rows),
+                row_count=len(response.rows) + len(response.storage_rows),
             )
         return 0
 
     window_first = (response.watermark_low + dt.timedelta(seconds=1)).astimezone(dt.UTC).date()
     window_last = response.watermark_high.astimezone(dt.UTC).date()
-    # Defensive union with the row dates: if duckgres's cursor regressed and
-    # re-serves an already-acked day, its rows must replace ours rather than
-    # collide with the unique key.
-    row_dates = {row.date for row in response.rows} | {row.date for row in response.storage_rows}
-    window = Q(date__gte=window_first, date__lte=window_last) | Q(date__in=row_dates)
+
+    # Acked days are immutable: replace strictly within the derived open window.
+    # A row dated outside it means duckgres served data at or below its own cursor
+    # — a contract violation (it serves `(cursor, watermark_high]`) — so drop it
+    # and warn rather than mutate already-acked, already-billed history. (A normal
+    # cursor regression keeps its re-served days inside the window, since
+    # window_first tracks watermark_low, so this only fires on genuinely bad data.)
+    compute_rows = [row for row in response.rows if window_first <= row.date <= window_last]
+    storage_rows = [row for row in response.storage_rows if window_first <= row.date <= window_last]
+    dropped = (len(response.rows) - len(compute_rows)) + (len(response.storage_rows) - len(storage_rows))
+    if dropped:
+        logger.warning(
+            "duckgres_usage_rows_outside_window_dropped",
+            dropped=dropped,
+            window_first=window_first.isoformat(),
+            window_last=window_last.isoformat(),
+        )
 
     # BOTH families commit in this one transaction: duckgres's ack deletes
     # compute AND storage buckets atomically, so persisting one family and
     # acking would permanently destroy the other's un-persisted data.
     with transaction.atomic():
-        DuckgresDailyUsage.objects.filter(window).delete()
-        DuckgresDailyStorageUsage.objects.filter(window).delete()
+        DuckgresDailyUsage.objects.filter(date__gte=window_first, date__lte=window_last).delete()
+        DuckgresDailyStorageUsage.objects.filter(date__gte=window_first, date__lte=window_last).delete()
         created = DuckgresDailyUsage.objects.bulk_create(
             DuckgresDailyUsage(
                 date=row.date,
@@ -68,7 +79,7 @@ def replace_window(response: UsageResponse) -> int:
                 cpu_seconds=row.cpu_seconds,
                 memory_seconds=row.memory_seconds,
             )
-            for row in response.rows
+            for row in compute_rows
         )
         created_storage = DuckgresDailyStorageUsage.objects.bulk_create(
             DuckgresDailyStorageUsage(
@@ -77,6 +88,6 @@ def replace_window(response: UsageResponse) -> int:
                 team_id=row.team_id,
                 gib_seconds=row.gib_seconds,
             )
-            for row in response.storage_rows
+            for row in storage_rows
         )
     return len(created) + len(created_storage)

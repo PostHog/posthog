@@ -15,9 +15,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio.client import ScheduleOverlapPolicy
 
+from posthog.temporal.duckgres_usage.workflow import (
+    POLL_DUCKGRES_USAGE_SCHEDULE_ID as SCHEDULE_ID,
+    POLL_DUCKGRES_USAGE_WORKFLOW,
+)
 from posthog.temporal.schedule import create_poll_duckgres_usage_schedule
-
-SCHEDULE_ID = "poll-duckgres-usage-schedule"
 
 
 async def _capture_schedule() -> dict:
@@ -85,4 +87,4 @@ async def test_schedule_pins_cadence_overlap_and_queue() -> None:
     from django.conf import settings
 
     assert schedule.action.task_queue == settings.BILLING_TASK_QUEUE
-    assert schedule.action.workflow == "poll-duckgres-usage"
+    assert schedule.action.workflow == POLL_DUCKGRES_USAGE_WORKFLOW

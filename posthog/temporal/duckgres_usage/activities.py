@@ -1,19 +1,29 @@
-"""The poll-duckgres-usage activity: fetch → replace-upsert (commit) → ack.
+"""Activities for the duckgres usage poll.
 
-One activity on purpose: the rows never cross an activity boundary (Temporal
-payload limits never see them), and two custody rules live in one readable
-function:
+Two activities, split on purpose:
 
-- **commit before ack** — rows are persisted before we ack, because the ack
-  tells duckgres to delete the acked buckets.
-- **record before ack** — the watermark we're about to ack is written in the
-  same transaction as the rows, so a failed ack leaves our record *ahead* of
-  duckgres (the benign "duckgres behind" direction) rather than behind it.
+- **poll_duckgres_usage** — fetch the un-acked window, persist it to the mirror,
+  and *decide* the ack, but don't perform it. The fetched rows can be tens of MB
+  at scale, so they can't cross the workflow boundary as an activity return
+  value — fetch and persist must live together here.
+- **ack_duckgres_usage** — perform the ack POST. Separate so a transient ack
+  failure retries just the POST, not the whole (large) fetch+persist.
 
-On each pull we cross-check our recorded watermark against duckgres's own
-cursor (`watermark_low`). If duckgres is *ahead* of our record it has deleted
-buckets we have no record of processing — a possible hole in billable usage —
-so we persist what we got, alert, and refuse to ack until it's reconciled.
+Two custody rules hold across the split:
+
+- **commit before ack** — the poll commits the rows before it returns, and the
+  workflow only acks after that, so duckgres is never told to delete unpersisted data.
+- **record before ack** — the poll writes the watermark it will ack in the same
+  transaction as the rows, so an ack that never lands (crash, exhausted retries)
+  leaves our record *ahead* of duckgres — the benign "duckgres behind" direction
+  that self-heals (re-acks) on the next pull.
+
+Each pull cross-checks our recorded watermark against duckgres's own cursor
+(`watermark_low`). If duckgres is *ahead* of our record it has deleted buckets we
+have no record of processing — a possible hole in billable usage — so we persist
+what we got, alert, and withhold the ack until it's reconciled. An unparseable
+row is treated the same way: persist the good rows, alert, withhold the ack so
+duckgres keeps the source data until the upstream cause is fixed.
 """
 
 import datetime as dt
@@ -41,6 +51,10 @@ class DuckgresWatermarkHole(Exception):
     past what we have any record of processing, so billable usage may be lost."""
 
 
+class DuckgresRowParseError(Exception):
+    """One or more duckgres usage rows could not be parsed and were dropped."""
+
+
 @activity.defn(name="poll-duckgres-usage")
 async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUsageResult:
     async with Heartbeater():
@@ -52,6 +66,7 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
 
         recorded = await database_sync_to_async(_read_recorded_watermark)()
         hole = recorded is not None and response.watermark_low > recorded
+        parse_failure = response.unparsed_row_count > 0
         if recorded is not None and response.watermark_low < recorded:
             # Duckgres re-serves data we already acked past; replace semantics
             # absorb it idempotently. Worth noting, not halting.
@@ -62,24 +77,29 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             )
 
         ack_at = day_boundary_ack(watermark_low=response.watermark_low, watermark_high=response.watermark_high)
-        should_ack = ack_at is not None and not hole
+        # Withhold the ack on a hole or a parse failure — acking would let
+        # duckgres delete data this pull didn't fully capture.
+        should_ack = ack_at is not None and not hole and not parse_failure
+        ack_watermark = ack_at.isoformat() if (should_ack and ack_at is not None) else None
 
         # One transaction: persist the mirror rows and — record-before-ack — the
-        # watermark we're about to hand to duckgres. If the ack below fails, our
-        # record is ahead of duckgres, i.e. the benign "behind" direction.
+        # watermark the workflow will ack next.
         rows_written = await database_sync_to_async(_persist)(response, ack_at if should_ack else None)
-
-        acked_watermark = ack_at.isoformat() if (should_ack and ack_at is not None) else None
 
         if hole:
             capture_exception(
                 DuckgresWatermarkHole(
                     f"duckgres watermark_low {response.watermark_low.isoformat()} is ahead of last acked "
-                    f"{recorded.isoformat() if recorded else None}; persisted this window but did not ack"
+                    f"{recorded.isoformat() if recorded else None}; persisted this window but withheld the ack"
                 )
             )
-        elif should_ack and ack_at is not None:
-            await sync_to_async(ack_usage)(ack_at)
+        if parse_failure:
+            capture_exception(
+                DuckgresRowParseError(
+                    f"dropped {response.unparsed_row_count} unparseable duckgres usage row(s) and withheld "
+                    f"the ack; sample: {response.unparsed_row_sample}"
+                )
+            )
 
         await logger.ainfo(
             "duckgres_usage_polled",
@@ -88,16 +108,26 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             storage_row_count=len(response.storage_rows),
             watermark_low=response.watermark_low.isoformat(),
             watermark_high=response.watermark_high.isoformat(),
-            acked_watermark=acked_watermark,
+            ack_watermark=ack_watermark,
             watermark_hole=hole,
+            unparsed_row_count=response.unparsed_row_count,
         )
         return PollDuckgresUsageResult(
             rows_written=rows_written,
             watermark_low=response.watermark_low.isoformat(),
             watermark_high=response.watermark_high.isoformat(),
-            acked_watermark=acked_watermark,
+            ack_watermark=ack_watermark,
             watermark_hole=hole,
+            unparsed_row_count=response.unparsed_row_count,
         )
+
+
+@activity.defn(name="ack-duckgres-usage")
+async def ack_duckgres_usage(ack_watermark: str) -> None:
+    """Ack the watermark the poll activity committed. Its own activity so a
+    transient failure retries just this POST. Idempotent on duckgres (re-acking
+    the same watermark is a no-op)."""
+    await sync_to_async(ack_usage)(dt.datetime.fromisoformat(ack_watermark))
 
 
 def _read_recorded_watermark() -> dt.datetime | None:

@@ -171,19 +171,23 @@ class TestReplaceWindow:
         assert DuckgresDailyUsage.objects.get(date=dt.date(2026, 7, 6)).cpu_seconds == 600
         assert DuckgresDailyUsage.objects.get(date=dt.date(2026, 7, 7)).cpu_seconds == 300
 
-    def test_replaces_row_dates_outside_derived_window(self) -> None:
-        # Defensive: if duckgres's cursor regressed and re-serves an older day,
-        # rows for that day must replace ours (not crash on the unique key).
+    def test_drops_rows_outside_derived_window_leaving_acked_days_untouched(self) -> None:
+        # Acked days are immutable: a row dated outside the window (duckgres
+        # serving data at/below its own cursor — a contract violation) is dropped,
+        # NOT applied, and our existing row for that day is left as-is.
         _seed(dt.date(2026, 7, 3), cpu_seconds=1)
         response = _response(
             [_row(dt.date(2026, 7, 3), cpu_seconds=500), _row(dt.date(2026, 7, 7))],
-            low=dt.datetime(2026, 7, 6, 23, 59, 59, tzinfo=dt.UTC),
+            low=dt.datetime(2026, 7, 6, 23, 59, 59, tzinfo=dt.UTC),  # window is [day 7, day 7]
             high=dt.datetime(2026, 7, 7, 12, 0, tzinfo=dt.UTC),
         )
 
         replace_window(response)
 
-        assert DuckgresDailyUsage.objects.get(date=dt.date(2026, 7, 3)).cpu_seconds == 500
+        # Day 3 out of window: seed survives (1), the re-served 500 is dropped.
+        assert DuckgresDailyUsage.objects.get(date=dt.date(2026, 7, 3)).cpu_seconds == 1
+        # Day 7 in window: applied.
+        assert DuckgresDailyUsage.objects.filter(date=dt.date(2026, 7, 7)).count() == 1
 
     def test_first_pull_with_epoch_low_inserts_everything(self) -> None:
         # Never-acked cursor serves everything buffered; zero-time low must not

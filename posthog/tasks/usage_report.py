@@ -1673,12 +1673,18 @@ def get_teams_with_managed_warehouse_endpoints_compute_seconds_in_period(begin: 
 def get_teams_with_managed_warehouse_storage_gb_hours_in_period(begin: datetime, end: datetime) -> list:
     """Managed-warehouse storage, folded to billable decimal-GB hours.
 
-    duckgres serves `gib_seconds` as exact decimals (integer byte-seconds /
-    2^30, up to 30 fractional digits). Storage is PRICED in decimal GB
-    ($/GB-month, 100 GB free tier), so the GiB->GB conversion is pinned here
-    and only here: recover integer byte-seconds exactly (x 2^30 via Fraction —
-    Decimal arithmetic would round at its 28-digit context), then floor to
-    GB-hours (// (10^9 x 3600)) so fractions under-charge.
+    The unit conversion is the whole point of this function, and it mixes binary
+    and decimal on purpose:
+
+    - duckgres meters in **GiB-seconds** (GiB = 2^30 bytes — a binary unit),
+      served as an exact decimal (integer byte-seconds / 2^30, up to 30
+      fractional digits).
+    - billing PRICES storage in **decimal GB** (GB = 10^9 bytes; $/GB-month,
+      100 GB free tier). Snowflake/BigQuery/etc. all price decimal GB, and our
+      calculator + free tier are decimal.
+
+    So the GiB->GB conversion is pinned here and only here. Getting the binary
+    vs decimal base wrong is a silent ~7.4% billing error, so keep it explicit.
     """
     from fractions import Fraction  # noqa: PLC0415
 
@@ -1688,8 +1694,21 @@ def get_teams_with_managed_warehouse_storage_gb_hours_in_period(begin: datetime,
         .values("team_id")
         .annotate(total_gib_seconds=Sum("gib_seconds"))
     ):
+        # GiB-seconds -> billable decimal-GB-hours, in three exact steps:
+        #
+        #   1. GiB-seconds  x 2^30   ->  byte-seconds   recover duckgres's integer byte-seconds.
+        #                                               Fraction (not Decimal) so it's exact: Decimal's
+        #                                               28-digit context would round the 30-digit tail.
+        #   2. byte-seconds / 10^9   ->  GB-seconds     10^9 bytes = 1 *decimal* GB, the priced unit.
+        #   3. GB-seconds   / 3600   ->  GB-hours       3600 s = 1 hour.
+        #
+        # Steps 2 and 3 are a single floor-division by (10^9 * 3600) so any fraction
+        # under-charges. Worked example (the closed-day case in the tests):
+        #   360000 GiB-s  x 2^30            = 386_547_056_640_000 byte-s
+        #                 // (10^9 * 3600)  = 107.37...  ->  107 GB-hours
         byte_seconds = int(Fraction(row["total_gib_seconds"]) * (2**30))
-        out.append({"team_id": row["team_id"], "total": byte_seconds // (10**9 * 3600)})
+        gb_hours = byte_seconds // (10**9 * 3600)
+        out.append({"team_id": row["team_id"], "total": gb_hours})
     return out
 
 

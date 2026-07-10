@@ -142,8 +142,11 @@ class DuckgresDailyUsage(UUIDModel):
         verbose_name = "Duckgres daily usage"
         verbose_name_plural = "Duckgres daily usage"
         constraints = [
+            # organization_id is the true tenant key: duckgres attributes usage to the
+            # org's *default* team, which falls back to a shared default (team_id 0) when
+            # unresolved — so team_id alone can collide across orgs. org_id never does.
             models.UniqueConstraint(
-                fields=["date", "team_id", "query_source", "cpu", "mem_gib"],
+                fields=["date", "organization_id", "team_id", "query_source", "cpu", "mem_gib"],
                 name="duckgres_daily_usage_key",
             )
         ]
@@ -171,7 +174,8 @@ class DuckgresDailyStorageUsage(UUIDModel):
         verbose_name = "Duckgres daily storage usage"
         verbose_name_plural = "Duckgres daily storage usage"
         constraints = [
-            models.UniqueConstraint(fields=["date", "team_id"], name="duckgres_daily_storage_key"),
+            # See DuckgresDailyUsage: org_id is the tenant key; team_id can collide on the default.
+            models.UniqueConstraint(fields=["date", "organization_id", "team_id"], name="duckgres_daily_storage_key"),
         ]
 
 

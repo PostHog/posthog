@@ -1,20 +1,17 @@
-"""Tests for the poll-duckgres-usage activity.
+"""Tests for the poll and ack activities.
 
-The activity is the whole poll: fetch → replace-upsert (commit) → ack. Two
-custody rules are load-bearing:
+The poll activity fetches, persists, and *decides* the ack — it records the
+watermark to ack (in the same transaction as the rows, record-before-ack) but
+does not perform it; the workflow runs a separate ack activity for that. Custody
+rules under test:
 
-- **commit before ack** — rows must be persisted before we ack, because the ack
-  tells duckgres to delete the acked buckets.
-- **record before ack** — we persist the watermark we're about to ack in the
-  same transaction as the rows, so a failed ack leaves our record *ahead* of
-  duckgres (the benign "duckgres behind" direction) rather than behind it.
+- The poll withholds the ack (returns no `ack_watermark`, doesn't advance the
+  cursor) on a detected hole (`watermark_low > recorded`) or a parse failure, so
+  duckgres keeps data this pull didn't fully capture.
+- The benign "duckgres behind" direction still yields an `ack_watermark`.
+- The ack activity is a thin, idempotent POST.
 
-The recorded watermark is then cross-checked against duckgres's own cursor
-(`watermark_low`) on the next pull: if duckgres is *ahead* of our record it has
-deleted buckets we have no record of processing — a possible hole — so we
-persist what we got, alert, and refuse to ack until it's reconciled.
-
-Client calls are mocked; the mirror tables are real.
+Client calls are mocked; the mirror tables and cursor are real.
 """
 
 import datetime as dt
@@ -26,8 +23,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import sync_to_async
 
 from posthog.ducklake.models import DuckgresDailyStorageUsage, DuckgresDailyUsage, DuckgresUsageCursor
-from posthog.temporal.duckgres_usage.activities import poll_duckgres_usage
-from posthog.temporal.duckgres_usage.client import DuckgresBillingAPIError, StorageRow, UsageResponse, UsageRow
+from posthog.temporal.duckgres_usage.activities import ack_duckgres_usage, poll_duckgres_usage
+from posthog.temporal.duckgres_usage.client import StorageRow, UsageResponse, UsageRow
 from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs
 
 ORG = "018f0000-0000-0000-0000-000000000000"
@@ -72,11 +69,19 @@ TWO_FAMILY_RESPONSE = UsageResponse(
     storage_rows=[_storage_row(dt.date(2026, 7, 6)), _storage_row(dt.date(2026, 7, 7))],
 )
 
+PARSE_FAILURE_RESPONSE = UsageResponse(
+    # A day closed (would normally ack), but one row failed to parse.
+    watermark_low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
+    watermark_high=dt.datetime(2026, 7, 7, 12, 39, tzinfo=dt.UTC),
+    rows=[_row(dt.date(2026, 7, 6))],
+    unparsed_row_count=1,
+    unparsed_row_sample={"date": "2026-07-06", "team_id": "not-a-number"},
+)
+
 DAY_6_END = dt.datetime(2026, 7, 6, 23, 59, 59, tzinfo=dt.UTC)
 
 # ORM access from the async test bodies must hop to a sync thread.
 usage_count = sync_to_async(lambda: DuckgresDailyUsage.objects.count())
-storage_count = sync_to_async(lambda: DuckgresDailyStorageUsage.objects.count())
 cursor_exists = sync_to_async(lambda: DuckgresUsageCursor.objects.exists())
 get_cursor_watermark = sync_to_async(lambda: DuckgresUsageCursor.objects.get(singleton=1).last_acked_watermark)
 usage_dates = sync_to_async(lambda: sorted(DuckgresDailyUsage.objects.values_list("date", flat=True)))
@@ -88,13 +93,11 @@ def create_cursor(last_acked: dt.datetime) -> None:
     DuckgresUsageCursor.objects.create(singleton=1, last_acked_watermark=last_acked)
 
 
-def _patched(response, ack_side_effect=None):
-    """Standard patch bundle: configured, given response, capturable ack + capture_exception + logger."""
-    ack = patch("posthog.temporal.duckgres_usage.activities.ack_usage", side_effect=ack_side_effect)
+def _patched(response):
+    """Poll never acks, so no ack_usage patch — just config, response, capture, logger."""
     return (
         patch("posthog.temporal.duckgres_usage.activities.is_configured", return_value=True),
         patch("posthog.temporal.duckgres_usage.activities.fetch_usage", return_value=response),
-        ack,
         patch("posthog.temporal.duckgres_usage.activities.capture_exception"),
         patch("posthog.temporal.duckgres_usage.activities.logger", MagicMock(ainfo=AsyncMock())),
     )
@@ -102,45 +105,28 @@ def _patched(response, ack_side_effect=None):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_upserts_and_acks_when_a_day_closed(activity_environment) -> None:
-    is_conf, fetch, ack, _cap, _log = _patched(CLOSED_DAY_RESPONSE)
-    with is_conf, fetch, ack as mock_ack, _cap, _log:
+async def test_persists_and_returns_ack_watermark_when_a_day_closed(activity_environment) -> None:
+    is_conf, fetch, cap, log = _patched(CLOSED_DAY_RESPONSE)
+    with is_conf, fetch, cap, log:
         result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
 
     assert await usage_count() == 2
-    mock_ack.assert_called_once_with(DAY_6_END)
     assert result.rows_written == 2
-    assert result.acked_watermark == DAY_6_END.isoformat()
+    assert result.ack_watermark == DAY_6_END.isoformat()  # for the workflow to ack
     assert result.watermark_hole is False
-    assert await get_cursor_watermark() == DAY_6_END
+    assert await get_cursor_watermark() == DAY_6_END  # recorded before the ack (record-before-ack)
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_does_not_ack_when_nothing_closed(activity_environment) -> None:
-    is_conf, fetch, ack, _cap, _log = _patched(OPEN_DAY_RESPONSE)
-    with is_conf, fetch, ack as mock_ack, _cap, _log:
+async def test_no_ack_watermark_when_nothing_closed(activity_environment) -> None:
+    is_conf, fetch, cap, log = _patched(OPEN_DAY_RESPONSE)
+    with is_conf, fetch, cap, log:
         result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
 
     assert await usage_count() == 1
-    mock_ack.assert_not_called()
-    assert result.acked_watermark is None
+    assert result.ack_watermark is None
     assert not await cursor_exists()
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_records_watermark_before_ack_so_failed_ack_is_recoverable(activity_environment) -> None:
-    # Record-before-ack: the watermark is committed with the rows, so an ack
-    # that fails afterwards leaves the record AHEAD of duckgres (benign "behind"
-    # next pull), not behind it. Rows persist; the error surfaces for retry.
-    is_conf, fetch, ack, _cap, _log = _patched(CLOSED_DAY_RESPONSE, ack_side_effect=DuckgresBillingAPIError("boom"))
-    with is_conf, fetch, ack, _cap, _log:
-        with pytest.raises(DuckgresBillingAPIError):
-            await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
-
-    assert await usage_count() == 2
-    assert await get_cursor_watermark() == DAY_6_END  # recorded before the ack was attempted
 
 
 @pytest.mark.django_db(transaction=True)
@@ -159,39 +145,52 @@ async def test_skips_when_not_configured(activity_environment) -> None:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_halts_and_alerts_on_watermark_hole(activity_environment) -> None:
-    # Our record says we acked day 4's end, but duckgres now serves a window
-    # starting at day 5's end — it advanced its cursor and deleted buckets past
-    # anything we recorded processing. Possible lost usage: persist what we got,
-    # alert, and DO NOT ack (don't delete more while we're inconsistent).
+async def test_withholds_ack_and_alerts_on_watermark_hole(activity_environment) -> None:
+    # Duckgres serves a window starting past our record — it deleted buckets we
+    # never processed. Persist what we got, alert, and DON'T offer an ack.
     await create_cursor(dt.datetime(2026, 7, 4, 23, 59, 59, tzinfo=dt.UTC))
 
-    is_conf, fetch, ack, cap, _log = _patched(CLOSED_DAY_RESPONSE)
-    with is_conf, fetch, ack as mock_ack, cap as mock_capture, _log:
+    is_conf, fetch, cap, log = _patched(CLOSED_DAY_RESPONSE)
+    with is_conf, fetch, cap as mock_capture, log:
         result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
 
     assert result.watermark_hole is True
-    assert result.acked_watermark is None
+    assert result.ack_watermark is None  # withheld
     assert await usage_count() == 2  # still persisted
-    mock_ack.assert_not_called()  # did NOT ack
-    mock_capture.assert_called_once()  # surfaced to error tracking
-    # Record untouched — we never acked, so it must not advance.
+    mock_capture.assert_called_once()
+    # Record untouched — we didn't ack, so it must not advance.
     assert await get_cursor_watermark() == dt.datetime(2026, 7, 4, 23, 59, 59, tzinfo=dt.UTC)
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_logs_benign_and_acks_when_duckgres_is_behind(activity_environment) -> None:
-    # Our record is ahead of duckgres (e.g. a prior ack didn't stick): duckgres
-    # re-serves data we already processed. Idempotent — log it, keep acking.
+async def test_withholds_ack_and_alerts_on_parse_failure(activity_environment) -> None:
+    # A row failed to parse: persist the good ones, alert, and withhold the ack
+    # so duckgres keeps the source data until the upstream cause is fixed.
+    is_conf, fetch, cap, log = _patched(PARSE_FAILURE_RESPONSE)
+    with is_conf, fetch, cap as mock_capture, log:
+        result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+
+    assert result.unparsed_row_count == 1
+    assert result.ack_watermark is None  # withheld despite a closed day
+    assert await usage_count() == 1  # the good row persisted
+    mock_capture.assert_called_once()
+    assert not await cursor_exists()  # nothing acked, nothing recorded
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_benign_when_duckgres_is_behind_still_offers_ack(activity_environment) -> None:
+    # Our record is ahead of duckgres (a prior ack didn't stick): it re-serves
+    # data we already have. Idempotent — log it, still offer the ack.
     await create_cursor(dt.datetime(2026, 7, 7, 23, 59, 59, tzinfo=dt.UTC))
 
-    is_conf, fetch, ack, cap, _log = _patched(CLOSED_DAY_RESPONSE)
-    with is_conf, fetch, ack as mock_ack, cap as mock_capture, _log as mock_logger:
+    is_conf, fetch, cap, log = _patched(CLOSED_DAY_RESPONSE)
+    with is_conf, fetch, cap as mock_capture, log as mock_logger:
         result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
 
     assert result.watermark_hole is False
-    mock_ack.assert_called_once_with(DAY_6_END)  # not halted
+    assert result.ack_watermark == DAY_6_END.isoformat()  # not withheld
     mock_capture.assert_not_called()  # benign, not an error
     warned = [c.args[0] for c in mock_logger.warning.call_args_list]
     assert "duckgres_usage_watermark_behind" in warned
@@ -202,8 +201,8 @@ async def test_logs_benign_and_acks_when_duckgres_is_behind(activity_environment
 async def test_in_sync_cursor_does_not_warn_and_advances(activity_environment) -> None:
     await create_cursor(CLOSED_DAY_RESPONSE.watermark_low)
 
-    is_conf, fetch, ack, cap, _log = _patched(CLOSED_DAY_RESPONSE)
-    with is_conf, fetch, ack, cap as mock_capture, _log as mock_logger:
+    is_conf, fetch, cap, log = _patched(CLOSED_DAY_RESPONSE)
+    with is_conf, fetch, cap as mock_capture, log as mock_logger:
         await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
 
     warned = [c.args[0] for c in mock_logger.warning.call_args_list]
@@ -214,15 +213,21 @@ async def test_in_sync_cursor_does_not_warn_and_advances(activity_environment) -
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_two_families_two_days_upserts_both_and_acks_only_closed_day(activity_environment) -> None:
-    # The scenario spelled out: yesterday (closed) + today (open), both compute
-    # and storage, land as separate day rows per family; only yesterday acks.
-    is_conf, fetch, ack, _cap, _log = _patched(TWO_FAMILY_RESPONSE)
-    with is_conf, fetch, ack as mock_ack, _cap, _log:
+async def test_two_families_two_days_persist_and_offer_ack_of_closed_day(activity_environment) -> None:
+    is_conf, fetch, cap, log = _patched(TWO_FAMILY_RESPONSE)
+    with is_conf, fetch, cap, log:
         result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
 
     assert result.rows_written == 4  # 2 compute + 2 storage
     assert await usage_dates() == [dt.date(2026, 7, 6), dt.date(2026, 7, 7)]
     assert await storage_dates() == [dt.date(2026, 7, 6), dt.date(2026, 7, 7)]
-    mock_ack.assert_called_once_with(DAY_6_END)
+    assert result.ack_watermark == DAY_6_END.isoformat()
     assert await get_cursor_watermark() == DAY_6_END
+
+
+@pytest.mark.asyncio
+async def test_ack_activity_acks_the_parsed_watermark(activity_environment) -> None:
+    with patch("posthog.temporal.duckgres_usage.activities.ack_usage") as mock_ack:
+        await activity_environment.run(ack_duckgres_usage, DAY_6_END.isoformat())
+
+    mock_ack.assert_called_once_with(DAY_6_END)

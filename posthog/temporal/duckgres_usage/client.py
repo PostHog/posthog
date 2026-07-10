@@ -4,8 +4,8 @@ Duckgres meters managed-warehouse compute per (org, team, query_source, worker
 size) and serves it aggregated per UTC day over the un-acked window
 (`GET /api/v1/billing/usage`). Acking a watermark (`POST /api/v1/billing/ack`)
 advances the server-side cursor and deletes the acked buckets, so the caller
-must persist rows before acking. Wire contract: duckgres PR #893
-(`docs/design/billing-pull-api.md`).
+must persist rows before acking. Wire contract: `docs/design/billing-pull-api.md`
+in the duckgres repo.
 
 Uses the same control-plane base URL, internal-secret header, and outbound
 proxy as the provisioning adapter
@@ -19,11 +19,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 
-import structlog
-
 from posthog.security.outbound_proxy import internal_requests
-
-logger = structlog.get_logger(__name__)
 
 SECRET_HEADER = "X-Duckgres-Internal-Secret"
 
@@ -70,6 +66,11 @@ class UsageResponse:
     watermark_high: dt.datetime
     rows: list[UsageRow]
     storage_rows: list[StorageRow] = dataclasses.field(default_factory=list)
+    # Rows (either family) that failed to parse. The caller alerts on these and
+    # withholds the ack — a dropped row is dropped billable usage, so it must be
+    # loud and its source data preserved, not silently skipped.
+    unparsed_row_count: int = 0
+    unparsed_row_sample: dict | None = None
 
 
 def is_configured() -> bool:
@@ -94,6 +95,12 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
     """Fetch usage aggregated per key per UTC day over the un-acked window."""
     body = _request("GET", "billing/usage", timeout=timeout)
 
+    # Un-parseable rows are collected, not logged-and-forgotten: the caller
+    # alerts on them and withholds the ack so duckgres keeps the source data
+    # until the upstream cause is fixed (dropping a row silently = silent
+    # under-billing).
+    unparsed: list[dict] = []
+
     rows: list[UsageRow] = []
     for raw in body.get("usage") or []:
         try:
@@ -110,15 +117,11 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
                 )
             )
         except (KeyError, ValueError, TypeError, InvalidOperation):
-            # team_id comes from posthog itself (the org's default team at
-            # provision time), so an unparseable row is an upstream bug in a
-            # single row — skip it rather than poisoning every poll. The
-            # replace semantics re-serve the row on every pull until fixed.
-            logger.warning("duckgres_usage_row_unparseable", row=raw)
+            unparsed.append(raw)
 
     storage_rows: list[StorageRow] = []
-    # Absent on pre-#913 servers; present-but-unconsumed is NOT an option once
-    # this environment acks (the shared ack deletes both families).
+    # Absent on servers without the storage metric; present-but-unconsumed is NOT
+    # an option once this environment acks (the shared ack deletes both families).
     for raw in body.get("storage") or []:
         try:
             storage_rows.append(
@@ -130,13 +133,15 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
                 )
             )
         except (KeyError, ValueError, TypeError, InvalidOperation):
-            logger.warning("duckgres_storage_row_unparseable", row=raw)
+            unparsed.append(raw)
 
     return UsageResponse(
         watermark_low=_parse_rfc3339(body["watermark_low"]),
         watermark_high=_parse_rfc3339(body["watermark_high"]),
         rows=rows,
         storage_rows=storage_rows,
+        unparsed_row_count=len(unparsed),
+        unparsed_row_sample=unparsed[0] if unparsed else None,
     )
 
 

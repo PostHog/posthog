@@ -1,6 +1,6 @@
 """Tests for the duckgres billing pull API client.
 
-The wire contract is duckgres PR #893 (`docs/design/billing-pull-api.md`):
+The wire contract is `docs/design/billing-pull-api.md` in the duckgres repo:
 `GET /api/v1/billing/usage` returns `{watermark_low, watermark_high, usage: [...]}`
 with one row per (org, team, query_source, worker size) per UTC day, and
 `POST /api/v1/billing/ack` advances the server-side cursor.
@@ -133,7 +133,7 @@ class TestFetchUsage:
 
     @patch("posthog.temporal.duckgres_usage.client.internal_requests")
     def test_missing_storage_key_means_no_storage_rows(self, mock_requests: MagicMock) -> None:
-        # Pre-#913 servers have no storage array; the client must not require it.
+        # A server without the storage metric has no storage array; the client must not require it.
         body = {k: v for k, v in USAGE_BODY.items() if k != "storage"}
         mock_requests.request.return_value = _response(200, body)
 
@@ -154,7 +154,7 @@ class TestFetchUsage:
         assert headers["X-Duckgres-Internal-Secret"] == "shh"
 
     @patch("posthog.temporal.duckgres_usage.client.internal_requests")
-    def test_skips_rows_with_unparseable_team_id(self, mock_requests: MagicMock) -> None:
+    def test_surfaces_unparseable_rows_instead_of_dropping_silently(self, mock_requests: MagicMock) -> None:
         body = {
             **USAGE_BODY,
             "usage": [{**USAGE_BODY["usage"][0], "team_id": "not-a-team"}, USAGE_BODY["usage"][1]],
@@ -163,8 +163,12 @@ class TestFetchUsage:
 
         result = fetch_usage()
 
-        assert len(result.rows) == 1
+        assert len(result.rows) == 1  # the good row parsed
         assert result.rows[0].query_source == "endpoints"
+        # The bad row is reported, not silently skipped — the caller alerts + withholds the ack.
+        assert result.unparsed_row_count == 1
+        assert result.unparsed_row_sample is not None
+        assert result.unparsed_row_sample["team_id"] == "not-a-team"
 
     @patch("posthog.temporal.duckgres_usage.client.internal_requests")
     def test_empty_window_returns_no_rows(self, mock_requests: MagicMock) -> None:

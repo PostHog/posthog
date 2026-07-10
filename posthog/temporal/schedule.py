@@ -44,6 +44,7 @@ from posthog.temporal.alerts.schedule import (
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs
+from posthog.temporal.duckgres_usage.workflow import POLL_DUCKGRES_USAGE_SCHEDULE_ID, POLL_DUCKGRES_USAGE_WORKFLOW
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.experiments.schedule import (
     create_experiment_regular_metrics_schedules,
@@ -668,11 +669,11 @@ async def create_poll_duckgres_usage_schedule(client: Client):
     """
     poll_duckgres_usage_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
-            "poll-duckgres-usage",
+            POLL_DUCKGRES_USAGE_WORKFLOW,
             # Pydantic model, not a dataclass — `dataclasses.asdict` would
             # TypeError on registration.
             PollDuckgresUsageInputs().model_dump(mode="json"),
-            id="poll-duckgres-usage-schedule",
+            id=POLL_DUCKGRES_USAGE_SCHEDULE_ID,
             task_queue=settings.BILLING_TASK_QUEUE,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
@@ -680,12 +681,12 @@ async def create_poll_duckgres_usage_schedule(client: Client):
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
-    if await a_schedule_exists(client, "poll-duckgres-usage-schedule"):
-        await a_update_schedule(client, "poll-duckgres-usage-schedule", poll_duckgres_usage_schedule)
+    if await a_schedule_exists(client, POLL_DUCKGRES_USAGE_SCHEDULE_ID):
+        await a_update_schedule(client, POLL_DUCKGRES_USAGE_SCHEDULE_ID, poll_duckgres_usage_schedule)
     else:
         await a_create_schedule(
             client,
-            "poll-duckgres-usage-schedule",
+            POLL_DUCKGRES_USAGE_SCHEDULE_ID,
             poll_duckgres_usage_schedule,
             trigger_immediately=False,
         )
