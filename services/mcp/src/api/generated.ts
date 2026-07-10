@@ -594,6 +594,8 @@ export namespace Schemas {
       end_time?: string | null;
       /** If the query failed, this will be set to true. More information can be found in the error_message field. */
       error?: boolean | null;
+      /** Stable machine-readable code for the error (the DRF exception code), when known. */
+      error_code?: string | null;
       error_message?: string | null;
       expiration_time?: string | null;
       id: string;
@@ -12967,6 +12969,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `new` - new
+     * * `rate_shift` - rate_shift
+     * * `gone` - gone
+     * * `unchanged` - unchanged
+     */
+    export type ClassificationEnum = typeof ClassificationEnum[keyof typeof ClassificationEnum];
+
+
+    export const ClassificationEnum = {
+      New: 'new',
+      RateShift: 'rate_shift',
+      Gone: 'gone',
+      Unchanged: 'unchanged',
+    } as const;
+
+    /**
      * * `abandoned` - Abandoned
      * * `off-topic` - Off-topic
      */
@@ -13422,6 +13440,7 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `plan` - plan
      * * `auto` - auto
      * * `read-only` - read-only
      * * `full-access` - full-access
@@ -13430,6 +13449,7 @@ export namespace Schemas {
 
 
     export const CodexTaskRunCreateSchemaInitialPermissionModeEnum = {
+      Plan: 'plan',
       Auto: 'auto',
       ReadOnly: 'read-only',
       FullAccess: 'full-access',
@@ -13498,6 +13518,7 @@ export namespace Schemas {
       github_user_token?: string;
       /** Initial permission mode for Codex runtimes.
        *
+       * * `plan` - plan
        * * `auto` - auto
        * * `read-only` - read-only
        * * `full-access` - full-access */
@@ -36351,6 +36372,8 @@ export namespace Schemas {
          * @nullable
          */
       invite_message?: string | null;
+      /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+      send_test_now?: boolean;
       /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
       summary_enabled?: boolean;
       /**
@@ -43544,6 +43567,8 @@ export namespace Schemas {
          * @nullable
          */
       invite_message?: string | null;
+      /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+      send_test_now?: boolean;
       /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
       summary_enabled?: boolean;
       /**
@@ -55875,7 +55900,7 @@ export namespace Schemas {
       reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
       github_user_token?: string;
-      /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.
+      /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
        *
        * * `default` - default
        * * `acceptEdits` - acceptEdits
@@ -58182,6 +58207,33 @@ export namespace Schemas {
       match_literal: string | null;
     }
 
+    export interface _LogPatternDiffEntry {
+      /** "new": appears only in the current window and clears the novelty floor (at least ~1% volume share, or any error/fatal occurrences). "rate_shift": present in both windows with the per-second rate changed by at least 2x either way, backed by enough samples on both sides to trust the estimates. "gone": cleared the floor in the baseline but absent from the current window. "unchanged" means "no confident claim", not "provably identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.
+       *
+       * * `new` - new
+       * * `rate_shift` - rate_shift
+       * * `gone` - gone
+       * * `unchanged` - unchanged */
+      classification: ClassificationEnum;
+      /**
+         * Current-window rate divided by baseline rate, both normalized per second so windows of different lengths compare fairly. 4.0 means 4x faster now; 0.25 means quartered. Null when the pattern is missing from either window.
+         * @nullable
+         */
+      rate_ratio: number | null;
+      /** The mined pattern with full stats. Taken from the current window, or from the baseline window for "gone" entries. When template wobble split one message across several near-identical templates, this is the highest-volume representative and the entry's classification reflects their combined counts. */
+      pattern: _LogPattern;
+      /**
+         * Estimated occurrences across the baseline window (extrapolated like `estimated_count`). Null when the pattern was not seen in the baseline sample.
+         * @nullable
+         */
+      baseline_estimated_count: number | null;
+      /**
+         * Share of the baseline sample this pattern represented (0-100). Null when absent from the baseline.
+         * @nullable
+         */
+      baseline_volume_share_pct: number | null;
+    }
+
     /**
      * * `log` - log
      * * `log_attribute` - log_attribute
@@ -58435,6 +58487,37 @@ export namespace Schemas {
       searchTerm?: string;
       /** Property filters applied before mining. Same shape as the query-logs endpoint. */
       filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsPatternsDiffRequest {
+      /** The patterns query for the current (foreground) window: date range plus any severity/service/search/property filters. The same filters are applied to the baseline window. */
+      query: _LogsPatternsBody;
+      /** Baseline window to compare against. Omit to default to the current window shifted back exactly one week, which absorbs daily and weekly log-volume cycles. Pass an explicit range to compare against a specific period, e.g. pre-deploy or pre-incident. */
+      baselineDateRange?: _DateRange;
+    }
+
+    export interface _LogsPatternsDiffWindow {
+      /** Log rows fed to the miner for this window (sample size). */
+      scanned_count: number;
+      /** Total log rows matching the filters in this window. */
+      total_count: number;
+      /** True when this window's counts are extrapolated from a sample rather than exact. */
+      sampled: boolean;
+      /** Share of this window's rows eligible for sampling (0-100); below 100 the scan was time-slice bounded. */
+      sample_coverage_pct: number;
+      /** Resolved window start (ISO 8601, inclusive). */
+      date_from: string;
+      /** Resolved window end (ISO 8601, exclusive). */
+      date_to: string;
+    }
+
+    export interface _LogsPatternsDiffResponse {
+      /** Classified diff entries, most interesting first: "new" (by estimated count), then "rate_shift" (by shift magnitude), then "gone", then "unchanged". A pattern in the baseline is matched to the current window by literal-content fingerprint, so a placeholder widening between runs does not read as one pattern vanishing and another appearing. */
+      entries: _LogPatternDiffEntry[];
+      /** Mining metadata for the current window. */
+      current: _LogsPatternsDiffWindow;
+      /** Mining metadata for the baseline window. Check `total_count` before trusting a wall of "new" entries: an empty or tiny baseline (e.g. logging only started this week) makes everything look new. */
+      baseline: _LogsPatternsDiffWindow;
     }
 
     export interface _LogsPatternsRequest {
@@ -63720,9 +63803,17 @@ export namespace Schemas {
      */
     dashboard?: number;
     /**
+     * Filter to subscriptions on insights that are tiles of the given dashboard ID.
+     */
+    dashboard_tiles?: number;
+    /**
      * Filter by insight ID.
      */
     insight?: number;
+    /**
+     * Filter by a comma-separated list of insight IDs.
+     */
+    insights?: string;
     /**
      * Number of results to return per page.
      */
@@ -71583,9 +71674,17 @@ export namespace Schemas {
      */
     dashboard?: number;
     /**
+     * Filter to subscriptions on insights that are tiles of the given dashboard ID.
+     */
+    dashboard_tiles?: number;
+    /**
      * Filter by insight ID.
      */
     insight?: number;
+    /**
+     * Filter by a comma-separated list of insight IDs.
+     */
+    insights?: string;
     /**
      * Number of results to return per page.
      */
