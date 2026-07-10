@@ -1,20 +1,38 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { visionObservationsRetrieve } from '../generated/api'
-import type { ReplayObservationApi } from '../generated/api.schemas'
+import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
+import { OBSERVATION_LIST_FILTER_KEYS } from '../replay_scanners/types'
 import { observationProgressLogic } from './observationProgressLogic'
 import type { replayObservationLogicType } from './replayObservationLogicType'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 export interface ReplayObservationLogicProps {
     id: string
+}
+
+/** List filters carried in the observation URL; passed to retrieve so prev/next stay within the filtered set. */
+export function neighborFilterParams(searchParams: Record<string, unknown>): VisionObservationsRetrieveParams {
+    const params: Record<string, string> = {}
+    for (const key of OBSERVATION_LIST_FILTER_KEYS) {
+        const value = searchParams[key]
+        if (typeof value === 'string' && value) {
+            params[key] = value
+        }
+    }
+    return params
+}
+
+/** Canonical link to an observation's detail page, carrying list filters so prev/next honors them. */
+export function observationDetailUrl(id: string, filterParams: Record<string, string>): string {
+    return combineUrl(urls.replayVisionObservation(id), filterParams).url
 }
 
 export const replayObservationLogic = kea<replayObservationLogicType>([
@@ -74,7 +92,11 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                     return
                 }
                 try {
-                    const response = await visionObservationsRetrieve(String(teamId), props.id)
+                    const response = await visionObservationsRetrieve(
+                        String(teamId),
+                        props.id,
+                        neighborFilterParams(router.values.searchParams)
+                    )
                     actions.loadObservationSuccess(response)
                     // Link the breadcrumb to the parent scanner so "back" returns to the scanner, not the vision home.
                     replayObservationSceneLogic().actions.setScannerContext(

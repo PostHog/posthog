@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import {
@@ -62,11 +63,12 @@ import {
     modelLabel,
     parseFailureReason,
     parseIneligibleReason,
+    OBSERVATION_TRIGGER_TAG,
     type ScannerType,
 } from '../replay_scanners/types'
 import { ImproveScannerPromptButton, describeObservationOutcome } from './ImproveScannerPromptButton'
 import { ObservationLabelControl } from './ObservationLabelControl'
-import { replayObservationLogic } from './replayObservationLogic'
+import { neighborFilterParams, observationDetailUrl, replayObservationLogic } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 export const scene: SceneExport = {
@@ -111,9 +113,10 @@ function AutoSeekToTime({
 
 export function ReplayObservationSceneComponent(): JSX.Element {
     const { observationId } = useValues(replayObservationSceneLogic)
+    const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const qualityEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
-    const [recordingExpanded, setRecordingExpanded] = useState(true)
+    const [recordingExpanded, setRecordingExpanded] = useState(false)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
 
     // A citation seek belongs to one observation — never replay it on a sibling after prev/next navigation.
@@ -157,7 +160,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const reasoningSegments = result?.reasoning_segments
     const scannerType = snapshot?.scanner_type
     const scannerName = snapshot?.name || 'Scanner'
-    const triggerLabel = observation.triggered_by === 'on_demand' ? 'On demand' : 'Schedule'
+    const triggerLabel = OBSERVATION_TRIGGER_TAG[observation.triggered_by].label
     const snapshotConfig = configFromSnapshot(snapshot)
     const prompt = snapshotConfig?.prompt ?? null
     const summarizerConfig = scannerType === 'summarizer' ? (snapshotConfig as SummarizerScannerConfig | null) : null
@@ -193,6 +196,12 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 : humanFriendlyDuration(durationMs / 1000)
             : null
 
+    // Filters carried over from the scanner's observations table; preserved on prev/next so
+    // navigation (and the server-computed neighbor ids) stay within the filtered list.
+    const neighborParams = neighborFilterParams(searchParams)
+    const neighborsFiltered = Object.keys(neighborParams).some((key) => key !== 'order_by')
+    const observationUrl = (id: string): string => observationDetailUrl(id, neighborParams)
+
     const seekEmbeddedPlayer = (ms: number): void => {
         if (!recordingExpanded) {
             setRecordingExpanded(true)
@@ -222,11 +231,21 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             size="small"
                             to={
                                 observation.previous_observation_id
-                                    ? urls.replayVisionObservation(observation.previous_observation_id)
+                                    ? observationUrl(observation.previous_observation_id)
                                     : undefined
                             }
-                            disabledReason={observation.previous_observation_id ? undefined : 'No newer observation'}
-                            tooltip="Previous (newer) observation for this scanner"
+                            disabledReason={
+                                observation.previous_observation_id
+                                    ? undefined
+                                    : neighborsFiltered
+                                      ? 'No previous observation matching your filters'
+                                      : 'No newer observation'
+                            }
+                            tooltip={
+                                neighborsFiltered
+                                    ? 'Previous observation matching your filters'
+                                    : 'Previous (newer) observation for this scanner'
+                            }
                             data-attr="vision-observation-prev"
                         >
                             Previous
@@ -237,11 +256,21 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             size="small"
                             to={
                                 observation.next_observation_id
-                                    ? urls.replayVisionObservation(observation.next_observation_id)
+                                    ? observationUrl(observation.next_observation_id)
                                     : undefined
                             }
-                            disabledReason={observation.next_observation_id ? undefined : 'No older observation'}
-                            tooltip="Next (older) observation for this scanner"
+                            disabledReason={
+                                observation.next_observation_id
+                                    ? undefined
+                                    : neighborsFiltered
+                                      ? 'No next observation matching your filters'
+                                      : 'No older observation'
+                            }
+                            tooltip={
+                                neighborsFiltered
+                                    ? 'Next observation matching your filters'
+                                    : 'Next (older) observation for this scanner'
+                            }
                             data-attr="vision-observation-next"
                         >
                             Next
@@ -251,141 +280,46 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 }
             />
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <LemonCard className="p-4" hoverEffect={false}>
-                    <CardHeader icon={<IconInfo />} title="Observation details" />
-                    <div className="flex flex-col gap-3 text-sm">
-                        <LabeledRow label="Status">
-                            <ObservationStatusTag status={observation.status} />
-                        </LabeledRow>
-                        {result && typeof result.confidence === 'number' && (
-                            <LabeledRow label="Confidence">
-                                <ObservationConfidence result={result} />
-                            </LabeledRow>
-                        )}
-                        <LabeledRow label="Triggered by">
-                            {observation.triggered_by === 'on_demand' && observation.triggered_by_user ? (
-                                <ProfilePicture
-                                    user={{
-                                        first_name: observation.triggered_by_user.first_name,
-                                        last_name: observation.triggered_by_user.last_name,
-                                        email: observation.triggered_by_user.email,
-                                    }}
-                                    size="sm"
-                                    showName
-                                />
-                            ) : (
-                                <span>{triggerLabel}</span>
-                            )}
-                        </LabeledRow>
-                        <LabeledRow label="Session">
-                            <Link
-                                to={urls.sessionProfile(observation.session_id)}
-                                data-attr="vision-observation-session-link"
-                            >
-                                {observation.session_id}
-                            </Link>
-                        </LabeledRow>
-                        <LabeledRow label="Recording subject">
-                            {observation.distinct_id ? (
-                                <Link to={urls.personByDistinctId(observation.distinct_id)}>
-                                    {observation.recording_subject_email ?? observation.distinct_id}
-                                </Link>
-                            ) : observation.recording_subject_email ? (
-                                <span>{observation.recording_subject_email}</span>
-                            ) : (
-                                <span className="text-muted">—</span>
-                            )}
-                        </LabeledRow>
-                    </div>
-                </LemonCard>
-
-                <LemonCard className="p-4" hoverEffect={false}>
-                    <CardHeader icon={<IconClock />} title="Lifecycle" />
-                    <div className="flex flex-col gap-3 text-sm">
-                        <LabeledRow label="Created at">
-                            <TZLabel time={observation.created_at} />
-                        </LabeledRow>
-                        {observation.started_at && (
-                            <LabeledRow label="Started at">
-                                <TZLabel time={observation.started_at} />
-                            </LabeledRow>
-                        )}
-                        {observation.completed_at && (
-                            <LabeledRow label="Completed at">
-                                <TZLabel time={observation.completed_at} />
-                            </LabeledRow>
-                        )}
-                        {durationLabel && (
-                            <LabeledRow label="Duration">
-                                <span>{durationLabel}</span>
-                            </LabeledRow>
+            <LemonCard className="overflow-hidden p-0" hoverEffect={false}>
+                <div
+                    className="flex items-center gap-2 bg-surface-primary p-3 cursor-pointer hover:bg-surface-secondary"
+                    onClick={toggleRecordingExpanded}
+                >
+                    <LemonButton
+                        icon={recordingExpanded ? <IconCollapse /> : <IconExpand />}
+                        size="small"
+                        tooltip={recordingExpanded ? 'Collapse recording' : 'Expand recording'}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            toggleRecordingExpanded()
+                        }}
+                        data-attr="vision-observation-recording-toggle"
+                    />
+                    <IconVideoCamera className="text-muted-alt" />
+                    <h3 className="text-lg font-semibold m-0">Recording</h3>
+                </div>
+                {recordingExpanded && (
+                    <div className="border-t border-border h-[calc(100vh-16rem)] min-h-[480px]">
+                        <SessionRecordingPlayer
+                            sessionRecordingId={observation.session_id}
+                            playerKey={`vision-observation-${observation.id}`}
+                            mode={SessionRecordingPlayerMode.Standard}
+                            autoPlay={false}
+                            noBorder
+                            noDock
+                            withSidebar
+                        />
+                        {pendingSeek && (
+                            <AutoSeekToTime
+                                playerKey={`vision-observation-${observation.id}`}
+                                sessionRecordingId={observation.session_id}
+                                ms={pendingSeek.ms}
+                                trigger={pendingSeek.trigger}
+                            />
                         )}
                     </div>
-                </LemonCard>
-
-                <LemonCard className="p-4" hoverEffect={false}>
-                    <CardHeader icon={<IconGear />} title="Configuration" />
-                    <div className="flex flex-col gap-3 text-sm">
-                        {snapshot?.model && (
-                            <LabeledRow label="Model">
-                                <span>{modelLabel(snapshot.model)}</span>
-                            </LabeledRow>
-                        )}
-                        {summarizerLength && (
-                            <LabeledRow label="Summary length">
-                                <span className="capitalize">{summarizerLength}</span>
-                            </LabeledRow>
-                        )}
-                        {classifierVocab && classifierVocab.length > 0 && (
-                            <LabeledRow label="Vocabulary">
-                                <div className="flex flex-wrap gap-1">
-                                    {classifierVocab.map((tag) => (
-                                        <LemonTag key={tag} type="default" size="small">
-                                            {tag}
-                                        </LemonTag>
-                                    ))}
-                                </div>
-                            </LabeledRow>
-                        )}
-                        {monitorAllowInconclusive !== null && (
-                            <LabeledRow label="Allow inconclusive verdicts">
-                                <BooleanTag value={monitorAllowInconclusive} />
-                            </LabeledRow>
-                        )}
-                        {classifierMultiLabel !== null && (
-                            <LabeledRow label="Multi-label">
-                                <BooleanTag value={classifierMultiLabel} />
-                            </LabeledRow>
-                        )}
-                        {classifierAllowFreeform !== null && (
-                            <LabeledRow label="Freeform tags">
-                                <BooleanTag value={classifierAllowFreeform} />
-                            </LabeledRow>
-                        )}
-                        {scorerMin !== null && (
-                            <LabeledRow label="Scale minimum">
-                                <span>{scorerMin}</span>
-                            </LabeledRow>
-                        )}
-                        {scorerMax !== null && (
-                            <LabeledRow label="Scale maximum">
-                                <span>{scorerMax}</span>
-                            </LabeledRow>
-                        )}
-                        {scorerLabel && (
-                            <LabeledRow label="Score label">
-                                <span>{scorerLabel}</span>
-                            </LabeledRow>
-                        )}
-                        {snapshot?.emits_signals && (
-                            <LabeledRow label="Signals">
-                                <span>Emitted ({observation.scanner_result?.signals_count ?? 0})</span>
-                            </LabeledRow>
-                        )}
-                    </div>
-                </LemonCard>
-            </div>
+                )}
+            </LemonCard>
 
             <div className={scannerType === 'summarizer' ? '' : 'grid grid-cols-1 lg:grid-cols-2 gap-4'}>
                 <section className="border rounded p-4 bg-surface-primary space-y-3">
@@ -530,46 +464,141 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 )}
             </div>
 
-            <LemonCard className="overflow-hidden p-0" hoverEffect={false}>
-                <div
-                    className="flex items-center gap-2 bg-surface-primary p-3 cursor-pointer hover:bg-surface-secondary"
-                    onClick={toggleRecordingExpanded}
-                >
-                    <LemonButton
-                        icon={recordingExpanded ? <IconCollapse /> : <IconExpand />}
-                        size="small"
-                        tooltip={recordingExpanded ? 'Collapse recording' : 'Expand recording'}
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            toggleRecordingExpanded()
-                        }}
-                        data-attr="vision-observation-recording-toggle"
-                    />
-                    <IconVideoCamera className="text-muted-alt" />
-                    <h3 className="text-lg font-semibold m-0">Recording</h3>
-                </div>
-                {recordingExpanded && (
-                    <div className="border-t border-border h-[480px]">
-                        <SessionRecordingPlayer
-                            sessionRecordingId={observation.session_id}
-                            playerKey={`vision-observation-${observation.id}`}
-                            mode={SessionRecordingPlayerMode.Standard}
-                            autoPlay={false}
-                            noMeta
-                            noBorder
-                            withSidebar
-                        />
-                        {pendingSeek && (
-                            <AutoSeekToTime
-                                playerKey={`vision-observation-${observation.id}`}
-                                sessionRecordingId={observation.session_id}
-                                ms={pendingSeek.ms}
-                                trigger={pendingSeek.trigger}
-                            />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <LemonCard className="p-4" hoverEffect={false}>
+                    <CardHeader icon={<IconInfo />} title="Observation details" />
+                    <div className="flex flex-col gap-3 text-sm">
+                        <LabeledRow label="Status">
+                            <ObservationStatusTag status={observation.status} />
+                        </LabeledRow>
+                        {result && typeof result.confidence === 'number' && (
+                            <LabeledRow label="Confidence">
+                                <ObservationConfidence result={result} />
+                            </LabeledRow>
+                        )}
+                        <LabeledRow label="Triggered by">
+                            {observation.triggered_by !== 'schedule' && observation.triggered_by_user ? (
+                                <ProfilePicture
+                                    user={{
+                                        first_name: observation.triggered_by_user.first_name,
+                                        last_name: observation.triggered_by_user.last_name,
+                                        email: observation.triggered_by_user.email,
+                                    }}
+                                    size="sm"
+                                    showName
+                                />
+                            ) : (
+                                <span>{triggerLabel}</span>
+                            )}
+                        </LabeledRow>
+                        <LabeledRow label="Session">
+                            <Link
+                                to={urls.sessionProfile(observation.session_id)}
+                                data-attr="vision-observation-session-link"
+                            >
+                                {observation.session_id}
+                            </Link>
+                        </LabeledRow>
+                        <LabeledRow label="Recording subject">
+                            {observation.distinct_id ? (
+                                <Link to={urls.personByDistinctId(observation.distinct_id)}>
+                                    {observation.recording_subject_email ?? observation.distinct_id}
+                                </Link>
+                            ) : observation.recording_subject_email ? (
+                                <span>{observation.recording_subject_email}</span>
+                            ) : (
+                                <span className="text-muted">—</span>
+                            )}
+                        </LabeledRow>
+                    </div>
+                </LemonCard>
+
+                <LemonCard className="p-4" hoverEffect={false}>
+                    <CardHeader icon={<IconClock />} title="Lifecycle" />
+                    <div className="flex flex-col gap-3 text-sm">
+                        <LabeledRow label="Created at">
+                            <TZLabel time={observation.created_at} />
+                        </LabeledRow>
+                        {observation.started_at && (
+                            <LabeledRow label="Started at">
+                                <TZLabel time={observation.started_at} />
+                            </LabeledRow>
+                        )}
+                        {observation.completed_at && (
+                            <LabeledRow label="Completed at">
+                                <TZLabel time={observation.completed_at} />
+                            </LabeledRow>
+                        )}
+                        {durationLabel && (
+                            <LabeledRow label="Duration">
+                                <span>{durationLabel}</span>
+                            </LabeledRow>
                         )}
                     </div>
-                )}
-            </LemonCard>
+                </LemonCard>
+
+                <LemonCard className="p-4" hoverEffect={false}>
+                    <CardHeader icon={<IconGear />} title="Configuration" />
+                    <div className="flex flex-col gap-3 text-sm">
+                        {snapshot?.model && (
+                            <LabeledRow label="Model">
+                                <span>{modelLabel(snapshot.model)}</span>
+                            </LabeledRow>
+                        )}
+                        {summarizerLength && (
+                            <LabeledRow label="Summary length">
+                                <span className="capitalize">{summarizerLength}</span>
+                            </LabeledRow>
+                        )}
+                        {classifierVocab && classifierVocab.length > 0 && (
+                            <LabeledRow label="Vocabulary">
+                                <div className="flex flex-wrap gap-1">
+                                    {classifierVocab.map((tag) => (
+                                        <LemonTag key={tag} type="default" size="small">
+                                            {tag}
+                                        </LemonTag>
+                                    ))}
+                                </div>
+                            </LabeledRow>
+                        )}
+                        {monitorAllowInconclusive !== null && (
+                            <LabeledRow label="Allow inconclusive verdicts">
+                                <BooleanTag value={monitorAllowInconclusive} />
+                            </LabeledRow>
+                        )}
+                        {classifierMultiLabel !== null && (
+                            <LabeledRow label="Multi-label">
+                                <BooleanTag value={classifierMultiLabel} />
+                            </LabeledRow>
+                        )}
+                        {classifierAllowFreeform !== null && (
+                            <LabeledRow label="Freeform tags">
+                                <BooleanTag value={classifierAllowFreeform} />
+                            </LabeledRow>
+                        )}
+                        {scorerMin !== null && (
+                            <LabeledRow label="Scale minimum">
+                                <span>{scorerMin}</span>
+                            </LabeledRow>
+                        )}
+                        {scorerMax !== null && (
+                            <LabeledRow label="Scale maximum">
+                                <span>{scorerMax}</span>
+                            </LabeledRow>
+                        )}
+                        {scorerLabel && (
+                            <LabeledRow label="Score label">
+                                <span>{scorerLabel}</span>
+                            </LabeledRow>
+                        )}
+                        {snapshot?.emits_signals && (
+                            <LabeledRow label="Signals">
+                                <span>Emitted ({observation.scanner_result?.signals_count ?? 0})</span>
+                            </LabeledRow>
+                        )}
+                    </div>
+                </LemonCard>
+            </div>
         </SceneContent>
     )
 }

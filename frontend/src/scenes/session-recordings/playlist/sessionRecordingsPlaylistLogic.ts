@@ -504,7 +504,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 loadEventsHaveSessionId: async () => {
                     const filters = filtersFromUniversalFilterGroups(values.filters)
-                    const events: FilterType['events'] = filters.filter(isEventFilter)
+                    // "All events" (id == null) matches any event, so it can always filter recordings
+                    const events: FilterType['events'] = filters
+                        .filter(isEventFilter)
+                        .filter((event) => event.id != null)
 
                     if (events === undefined || events.length === 0) {
                         return {}
