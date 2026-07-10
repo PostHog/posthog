@@ -17,10 +17,16 @@ import { metricsViewsListLogic } from './metricsViewsListLogic'
 import { metricsViewsLogic } from './metricsViewsLogic'
 
 function filterGroupKeys(group: UniversalFiltersGroup): string[] {
+    // `filters` is a free-form persisted blob, so a saved view may contain a malformed
+    // group (e.g. a nested group missing `values`). Guard against it rather than throwing
+    // and crashing the shared views list for everyone on the team.
+    if (!group || !Array.isArray(group.values)) {
+        return []
+    }
     return group.values.flatMap((value: UniversalFiltersGroupValue) =>
         isUniversalGroupFilterLike(value)
             ? filterGroupKeys(value)
-            : 'key' in value && value.key
+            : value && 'key' in value && value.key
               ? [String(value.key)]
               : []
     )
@@ -67,7 +73,7 @@ function FiltersSummaryDisplay({ filters }: { filters: MetricsViewerSavedFilters
 }
 
 function SaveViewModal(): JSX.Element | null {
-    const { isSaveModalOpen, viewName, savedFilters } = useValues(metricsViewsListLogic)
+    const { isSaveModalOpen, viewName, savedFilters, viewsLoading } = useValues(metricsViewsListLogic)
     const { closeSaveModal, setViewName, saveView } = useActions(metricsViewsListLogic)
     const shouldRender = useKeepMountedWhileOpen(isSaveModalOpen)
 
@@ -88,7 +94,8 @@ function SaveViewModal(): JSX.Element | null {
                     <LemonButton
                         type="primary"
                         onClick={saveView}
-                        disabledReason={!viewName.trim() ? 'Enter a name' : undefined}
+                        loading={viewsLoading}
+                        disabledReason={!viewName.trim() ? 'Enter a name' : viewsLoading ? 'Saving…' : undefined}
                     >
                         Save view
                     </LemonButton>

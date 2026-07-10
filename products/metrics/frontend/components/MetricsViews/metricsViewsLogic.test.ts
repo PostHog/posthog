@@ -1,5 +1,3 @@
-import api from 'lib/api'
-
 import { initKeaTests } from '~/test/init'
 
 import { metricsViewsCreate, metricsViewsList } from 'products/metrics/frontend/generated/api'
@@ -21,6 +19,8 @@ jest.mock('products/metrics/frontend/generated/api', () => ({
     metricsViewsDestroy: jest.fn(async () => undefined),
     metricsQueryCreate: jest.fn(async () => ({ results: [] })),
     metricsCharacterizeCreate: jest.fn(async () => null),
+    metricsValuesRetrieve: jest.fn(async () => ({ results: [] })),
+    metricsAttributesRetrieve: jest.fn(async () => ({ results: [], count: 0 })),
 }))
 
 const VIEW: MetricsViewApi = {
@@ -40,7 +40,6 @@ describe('metricsViewsLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         initKeaTests()
-        jest.spyOn(api.metrics, 'values').mockResolvedValue({ results: [] })
         logic = metricsViewsLogic()
         logic.mount()
     })

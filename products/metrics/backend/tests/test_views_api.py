@@ -69,3 +69,21 @@ class TestMetricsViewAPI(APIBaseTest):
     def test_returns_403_when_feature_flag_disabled(self, _mock_feature_enabled):
         response = self.client.get(self.base_url)
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("too_deep", {"nested": {}}),
+            ("array_too_long", {"values": list(range(1001))}),
+        ]
+    )
+    def test_rejects_out_of_bounds_filters(self, label, filters):
+        if label == "too_deep":
+            node: dict = filters["nested"]
+            for _ in range(25):
+                child: dict = {}
+                node["nested"] = child
+                node = child
+
+        response = self.client.post(self.base_url, {"name": "Bad view", "filters": filters}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "filters" in response.json()

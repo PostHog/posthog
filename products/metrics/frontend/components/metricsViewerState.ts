@@ -1,6 +1,6 @@
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
 
-import { UniversalFiltersGroup } from '~/types'
+import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { MetricAggregation, MetricsViewMode } from './metricsViewerLogic'
 
@@ -28,5 +28,23 @@ export const isValidViewMode = (value: unknown): value is MetricsViewMode =>
 export const isValidStatSummary = (value: unknown): value is MetricSummary =>
     STAT_SUMMARIES.includes(value as MetricSummary)
 
-export const isValidFilterGroup = (value: unknown): value is UniversalFiltersGroup =>
-    typeof value === 'object' && value !== null && 'type' in value && 'values' in value && Array.isArray(value.values)
+const isGroupLike = (value: unknown): boolean =>
+    typeof value === 'object' &&
+    value !== null &&
+    'type' in value &&
+    (value.type === FilterLogicalOperator.And || value.type === FilterLogicalOperator.Or)
+
+// Validates the persisted/URL filter blob recursively. A saved view is a free-form blob a
+// teammate could have written malformed (e.g. a nested group missing `values`); rejecting it
+// here keeps bad data out of state so the viewer's filter flattening never throws.
+export const isValidFilterGroup = (value: unknown): value is UniversalFiltersGroup => {
+    if (typeof value !== 'object' || value === null || !('type' in value) || !('values' in value)) {
+        return false
+    }
+    if (!isGroupLike(value) || !Array.isArray(value.values)) {
+        return false
+    }
+    return value.values.every((child) =>
+        isGroupLike(child) ? isValidFilterGroup(child) : typeof child === 'object' && child !== null
+    )
+}

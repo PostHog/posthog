@@ -8,7 +8,7 @@ export const metricsViewsListLogic = kea<metricsViewsListLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'MetricsViews', 'metricsViewsListLogic']),
 
     connect(() => ({
-        values: [metricsViewerLogic, ['savedFilters']],
+        values: [metricsViewerLogic, ['savedFilters'], metricsViewsLogic, ['viewsLoading']],
         actions: [metricsViewsLogic, ['createView', 'createViewSuccess', 'loadView', 'loadViews']],
     })),
 
@@ -54,7 +54,9 @@ export const metricsViewsListLogic = kea<metricsViewsListLogicType>([
         },
         saveView: () => {
             const name = values.viewName.trim()
-            if (!name) {
+            // Guard against double-submit (Enter + click, or a rapid double-click): a create is
+            // already in flight while `viewsLoading` is set, and each success prepends a duplicate.
+            if (!name || values.viewsLoading) {
                 return
             }
             actions.createView({ name, filters: values.savedFilters })

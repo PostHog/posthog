@@ -338,4 +338,18 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.filterGroup).toEqual(filterGroup)
         expect(logic.values.viewMode).toBe('stat')
     })
+
+    // A saved view is a free-form blob a teammate may have written malformed (here a nested group
+    // with no `values`). It must be rejected rather than entering state, since the query-filter
+    // flattening would otherwise throw and crash the viewer for everyone.
+    it('ignores a malformed filter group in a saved state', () => {
+        const before = logic.values.filterGroup
+        logic.actions.applySavedState({
+            metricName: 'queue_depth',
+            filters: { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And }] } as any,
+        })
+        expect(logic.values.metricName).toBe('queue_depth')
+        expect(logic.values.filterGroup).toEqual(before)
+        expect(logic.values.queryFilters).toEqual([])
+    })
 })

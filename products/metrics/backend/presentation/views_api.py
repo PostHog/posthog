@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 from django.db.models import QuerySet
 
@@ -14,6 +14,27 @@ from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.metrics.backend.models import MetricsView
 
+# The `filters` blob is free-form frontend state, so it is not schema-validated field by field.
+# These bounds keep a teammate from persisting a pathologically large or deeply nested payload
+# that every other viewer of the shared view then has to parse and render.
+MAX_FILTERS_DEPTH = 20
+MAX_FILTERS_ARRAY_LENGTH = 1000
+
+
+def _validate_filters_bounds(value: Any, depth: int = 0) -> None:
+    if depth > MAX_FILTERS_DEPTH:
+        raise serializers.ValidationError(f"Saved filters nest deeper than the {MAX_FILTERS_DEPTH} level limit.")
+    if isinstance(value, dict):
+        for item in value.values():
+            _validate_filters_bounds(item, depth + 1)
+    elif isinstance(value, list):
+        if len(value) > MAX_FILTERS_ARRAY_LENGTH:
+            raise serializers.ValidationError(
+                f"Saved filters contain an array longer than the {MAX_FILTERS_ARRAY_LENGTH} entry limit."
+            )
+        for item in value:
+            _validate_filters_bounds(item, depth + 1)
+
 
 class MetricsViewSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the view.")
@@ -25,6 +46,10 @@ class MetricsViewSerializer(serializers.ModelSerializer):
             "metricName, aggregation, filters, groupBy, dateFrom, dateTo, viewMode, and statSummary."
         ),
     )
+
+    def validate_filters(self, value: dict) -> dict:
+        _validate_filters_bounds(value)
+        return value
 
     class Meta:
         model = MetricsView
