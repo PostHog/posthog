@@ -4,7 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { dateFilterToText, dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -30,14 +30,16 @@ WHERE event = '$mcp_tool_call'
 ORDER BY category
 `
 
-// Per-category call counts over a fixed 7-day window powering the "share of MCP
+// Per-category call counts over the selected window, powering the "share of MCP
 // usage" headline. Rows with an empty category count toward the total but not the
-// in-scope numerator, so uncategorized traffic dilutes the share as expected.
-const CATEGORY_COUNTS_QUERY = hogql`
+// in-scope numerator, so uncategorized traffic dilutes the share as expected. The
+// date range rides in via the {filters} placeholder so the headline tracks the
+// same window as the rest of the tab.
+const CATEGORY_COUNTS_QUERY = `
 SELECT toString(properties.$mcp_tool_category) AS category, count() AS calls
 FROM events
 WHERE event = '$mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
+    AND {filters}
 GROUP BY category
 `
 
@@ -221,8 +223,17 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             [] as CategoryCount[],
             {
                 loadCategoryCounts: async (): Promise<CategoryCount[]> => {
-                    const response = await hogqlQuery(CATEGORY_COUNTS_QUERY)
-                    return ((response?.results as unknown[][]) ?? []).map((r) => ({
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: CATEGORY_COUNTS_QUERY,
+                        filters: {
+                            dateRange: {
+                                date_from: values.dateFilter.dateFrom,
+                                date_to: values.dateFilter.dateTo,
+                            },
+                        },
+                    })) as HogQLQueryResponse
+                    return ((response.results as unknown[][]) ?? []).map((r) => ({
                         category: String(r[0] ?? ''),
                         calls: Number(r[1] ?? 0),
                     }))
@@ -341,6 +352,14 @@ ORDER BY day
                       ]
                     : [],
         ],
+        // Human-readable label for the active window (e.g. "Last 7 days"), used by
+        // the scope-share headline so it never falls out of sync with the filter.
+        dateRangeLabel: [
+            (s) => [s.dateFilter],
+            (dateFilter: DateFilter): string =>
+                dateFilterToText(dateFilter.dateFrom, dateFilter.dateTo, 'the selected range') ??
+                'the selected range',
+        ],
         scopeShare: [
             (s) => [s.categoryCounts, s.selectedCategories],
             (categoryCounts: CategoryCount[], selectedCategories: string[]): ScopeShare => {
@@ -374,9 +393,12 @@ ORDER BY day
     }),
 
     listeners(({ actions, values }) => ({
-        // Both scope filters refetch the table and the charts
+        // Both scope filters refetch the table and the charts; a date change also
+        // refreshes the category counts so the "share of MCP usage" headline tracks
+        // the same window.
         setDateFilter: () => {
             actions.reloadAll()
+            actions.loadCategoryCounts()
         },
         setSelectedCategories: () => {
             actions.reloadAll()
@@ -406,6 +428,11 @@ ORDER BY day
             } else {
                 delete searchParams.tool
             }
+            if (values.selectedCategories.length > 0) {
+                searchParams.categories = values.selectedCategories
+            } else {
+                delete searchParams.categories
+            }
             if (values.dateFilter.dateFrom) {
                 searchParams.date_from = values.dateFilter.dateFrom
             } else {
@@ -421,6 +448,7 @@ ORDER BY day
         return {
             setSelectedTool: syncUrl,
             setDateFilter: syncUrl,
+            setSelectedCategories: syncUrl,
         }
     }),
 
@@ -429,6 +457,14 @@ ORDER BY day
             const tool = typeof searchParams.tool === 'string' && searchParams.tool ? searchParams.tool : null
             if (tool !== values.selectedTool) {
                 actions.setSelectedTool(tool)
+            }
+            const categories = Array.isArray(searchParams.categories)
+                ? searchParams.categories.map(String)
+                : typeof searchParams.categories === 'string' && searchParams.categories
+                  ? [searchParams.categories]
+                  : []
+            if (JSON.stringify(categories) !== JSON.stringify(values.selectedCategories)) {
+                actions.setSelectedCategories(categories)
             }
             const dateFrom =
                 typeof searchParams.date_from === 'string' ? searchParams.date_from : values.dateFilter.dateFrom
