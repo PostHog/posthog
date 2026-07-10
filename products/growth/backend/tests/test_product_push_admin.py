@@ -74,6 +74,61 @@ class TestProductPushCampaignAdmin(BaseTest):
 
         assert form.is_valid(), form.errors
 
+    def test_inline_add_of_a_duplicate_pending_product_is_a_form_error_not_a_500(self) -> None:
+        # A scheduled/active row already holds the org+product_key partial unique slot.
+        ProductPushCampaign.objects.create(
+            organization=self.organization, product_key="surveys", status=ProductPushCampaign.Status.SCHEDULED
+        )
+        inline = ProductPushCampaignInline(Organization, AdminSite())
+        request = self.request_factory.post("/admin/posthog/organization/")
+        request.user = self.user
+        formset_class = inline.get_formset(request, self.organization)
+        prefix = formset_class.get_default_prefix()
+
+        formset = formset_class(
+            instance=self.organization,
+            data={
+                f"{prefix}-TOTAL_FORMS": "1",
+                f"{prefix}-INITIAL_FORMS": "0",
+                f"{prefix}-MIN_NUM_FORMS": "0",
+                f"{prefix}-MAX_NUM_FORMS": "1000",
+                f"{prefix}-0-id": "",
+                f"{prefix}-0-product_key": "surveys",
+                f"{prefix}-0-position": "0",
+                f"{prefix}-0-scheduled_for": "",
+                f"{prefix}-0-reason_text": "",
+            },
+        )
+
+        assert not formset.is_valid()
+        assert "already has a 'surveys' campaign that is scheduled" in str(formset.errors)
+
+    def test_change_form_rejects_switching_to_an_already_pending_product(self) -> None:
+        ProductPushCampaign.objects.create(
+            organization=self.organization, product_key="surveys", status=ProductPushCampaign.Status.ACTIVE
+        )
+        scheduled = ProductPushCampaign.objects.create(
+            organization=self.organization, product_key="error_tracking", status=ProductPushCampaign.Status.SCHEDULED
+        )
+        request = self._request()
+        form_class = self.admin.get_form(request, obj=scheduled, change=True)
+
+        # Editing a scheduled row to a product the org is already pushing clashes.
+        form = form_class(
+            instance=scheduled,
+            data={"organization": str(self.organization.pk), "product_key": "surveys", "position": "0"},
+        )
+
+        assert not form.is_valid()
+        assert "already has a 'surveys' campaign that is active" in str(form.errors)
+
+        # Editing the same row without changing product_key must still validate.
+        ok_form = form_class(
+            instance=scheduled,
+            data={"organization": str(self.organization.pk), "product_key": "error_tracking", "position": "3"},
+        )
+        assert ok_form.is_valid(), ok_form.errors
+
     def test_inline_rows_are_attributed_to_the_tam_who_added_them(self) -> None:
         inline = ProductPushCampaignInline(Organization, AdminSite())
         request = self.request_factory.post("/admin/posthog/organization/")

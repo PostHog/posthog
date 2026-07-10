@@ -76,7 +76,44 @@ class ProductPushCampaignForm(forms.ModelForm):
                     f"Campaign is {self.instance.status}; only the reason text can still be edited "
                     f"(attempted: {', '.join(sorted(immutable_changes))}). Use the cancel action to stop it."
                 )
+        self._reject_duplicate_pending_campaign(cleaned_data or {})
         return cleaned_data
+
+    def _reject_duplicate_pending_campaign(self, cleaned_data: dict[str, Any]) -> None:
+        """Enforce the partial unique constraint that ModelForm.validate_unique() skips.
+
+        `uniq_pending_product_push_per_org_product` is scoped with a `condition`, so
+        Django never checks it at form time and a duplicate would surface as a raw
+        IntegrityError 500. Turn it into a friendly field error instead."""
+        product_key = cleaned_data.get("product_key")
+        if not product_key:
+            return
+        # The inline form excludes `organization`; there the FK is set on the instance
+        # by BaseInlineFormSet before validation. Fall back to the standalone field.
+        organization = cleaned_data.get("organization")
+        organization_id = self.instance.organization_id or (organization.id if organization else None)
+        if organization_id is None:
+            return
+
+        clash = (
+            ProductPushCampaign.objects.filter(
+                organization_id=organization_id,
+                product_key=product_key,
+                status__in=[ProductPushCampaign.Status.SCHEDULED, ProductPushCampaign.Status.ACTIVE],
+            )
+            .exclude(pk=self.instance.pk)
+            .first()
+        )
+        if clash is not None:
+            raise ValidationError(
+                {
+                    "product_key": (
+                        f"This organization already has a '{humanize_product_key(product_key)}' campaign "
+                        f"that is {clash.get_status_display().lower()} (row {clash.id}). "
+                        f"Cancel or reschedule that one before adding another for the same product."
+                    )
+                }
+            )
 
 
 @admin.register(ProductPushCampaign)
