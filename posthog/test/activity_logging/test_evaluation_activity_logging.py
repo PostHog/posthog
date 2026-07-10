@@ -18,6 +18,11 @@ def _create_evaluation_payload(**overrides: Any) -> dict[str, Any]:
         "description": "Initial",
         "enabled": True,
         "evaluation_type": "llm_judge",
+        "model_configuration": {
+            "provider": "openai",
+            "model": "gpt-5-mini",
+            "provider_key_id": None,
+        },
         "evaluation_config": {"prompt": "Test prompt"},
         "output_type": "boolean",
         "output_config": {},

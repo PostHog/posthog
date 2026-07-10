@@ -21,6 +21,13 @@ except ImportError:
     pass
 
 
+_DEFAULT_MODEL_CONFIGURATION = {
+    "provider": "openai",
+    "model": "gpt-5-mini",
+    "provider_key_id": None,
+}
+
+
 @pytest.mark.ee
 class TestAIObservabilityAccessControl(APIBaseTest):
     def setUp(self):
@@ -241,6 +248,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {
                 "name": "New Evaluation",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "prompt"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -400,6 +408,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {
                 "name": "Editor Evaluation",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "prompt"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -635,6 +644,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {
                 "name": "Admin Evaluation",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "prompt"},
                 "output_type": "boolean",
                 "output_config": {},
