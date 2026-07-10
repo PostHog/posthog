@@ -484,6 +484,10 @@ snapshots:
         hash: v1.k794b7964.1c67bda02dd96cc1f8b0d9ea2f58a2b6e53c3030e99948f261748d9628bad020.OvR6CRtXmjrSYpRu6lb13hg5BA8J8e_qamrLA046Dus
     components-errors-error-display--with-cymbal-errors--light:
         hash: v1.k794b7964.25ff8cae17be5a1513f98e64ff90a8131c15f124c7c0913d592b0be8a2036211.vIpGHojabnc36XJMlwaTG3TFzIyPjUf1LTCMC-K0fo8
+    components-eventdetails--nested-properties--dark:
+        hash: v1.k794b7964.acbbd66bb3841f17a58d897e19c4b073fcbbf0452e959355276b012c7cd6b463.n89wKvwy5vfBtTTyqqi5InfW-EdZ8-pjfT0N1pRafQ0
+    components-eventdetails--nested-properties--light:
+        hash: v1.k794b7964.6f1c381cb3e974066a9b11169cf51b0ecaf39e636598a67e9a7d695bfcadd866.7oJQgvEiijwBqHCOAfPbYAKW6yAnMwtdzUbgdks_Xf0
     components-funneltooltip--default--dark:
         hash: v1.k794b7964.fac49a0f8c78321f545ec7d1a04452b27dae1abdf10d656d9fb232e8dbf8516c.eIr9U0bTAzMpVFiGMywP_O7jTeocwV2xZ8P7vr5nGhc
     components-funneltooltip--default--light:
