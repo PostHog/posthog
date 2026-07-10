@@ -3,8 +3,13 @@
 ``pr_lifecycle`` and ``llm_spend`` both pull the newest matching PR row keyed on
 ``(number, repo_owner, repo_name)`` and differ only in the columns they select. Centralizing the
 WHERE/ORDER/LIMIT tail and the placeholders (same idea as ``_run_detail``'s column list) keeps the
-row-selection rule — the newest-first tie-break — defined once, so a future change can't drift
+row-selection rule — the newest-snapshot tie-break — defined once, so a future change can't drift
 between the two call sites.
+
+Duplicate snapshot rows of one PR share the same ``created_at`` (the PR's creation time), so ordering
+on it alone lets an arbitrary/stale row win. ``updated_at`` (the snapshot's last-write time) breaks the
+tie toward the freshest row; it can be NULL on a malformed snapshot, so ``created_at`` stays the
+secondary key.
 """
 
 from posthog.hogql import ast
@@ -14,7 +19,7 @@ from posthog.hogql import ast
 _TAIL = """
     FROM __PR_SOURCE__ AS pr
     WHERE number = {pr_number} AND repo_owner = {repo_owner} AND repo_name = {repo_name}
-    ORDER BY created_at DESC
+    ORDER BY updated_at DESC, created_at DESC
     LIMIT 1
 """
 

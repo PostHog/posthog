@@ -140,9 +140,21 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
         super().setUp()
         self._github_source: ExternalDataSource | None = None
 
-    def _create_table(self, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> None:
-        if self._github_source is None:
-            self._github_source = create_github_source(self.team)
+    def _create_table(
+        self,
+        base_name: str,
+        columns: dict,
+        rows: list[dict[str, Any]],
+        *,
+        source: ExternalDataSource | None = None,
+        prefix: str = GITHUB_SOURCE_PREFIX,
+    ) -> None:
+        # Defaults to the mixin's single shared source; pass source + prefix to seed a second
+        # source (e.g. one GitHub source per repository) under a distinct table prefix.
+        if source is None:
+            if self._github_source is None:
+                self._github_source = create_github_source(self.team)
+            source = self._github_source
         df = pd.DataFrame(rows, columns=list(columns.keys()))
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
         df.to_csv(tmp.name, index=False)
@@ -155,14 +167,14 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
                 table_columns=columns,
                 test_bucket=TEST_BUCKET,
                 team=self.team,
-                source=self._github_source,
-                source_prefix=GITHUB_SOURCE_PREFIX,
+                source=source,
+                source_prefix=prefix,
             )
         except PermissionError as err:
             self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
         # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix.
-        link_schema(self.team, self._github_source, name=base_name.removeprefix("github_"), table=table)
+        link_schema(self.team, source, name=base_name.removeprefix("github_"), table=table)
 
 
 class TestPRLifecycleMapping(BaseTest):
@@ -1576,3 +1588,81 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
 
         cost = api.get_pr_cost(team=self.team, pr_number=86, repo="PostHog/posthog")
         assert cost.llm_spend is None
+
+    def test_newest_snapshot_by_updated_at_drives_attribution(self) -> None:
+        # Two snapshot rows for the same PR share created_at (the PR's creation time); only updated_at
+        # separates the stale row from the fresh one. The header must pick the freshest so its head_ref
+        # — not the stale row's — drives the branch attribution. Ordering on created_at alone left the
+        # winner arbitrary and could credit the stale branch.
+        created = _ago(5)
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(90, "alice", "closed", 0, created, merged_at=_ago(3), head_sha="sha90a", head_ref="feat/stale"),
+                _pr_row(90, "alice", "closed", 0, created, merged_at=_ago(1), head_sha="sha90b", head_ref="feat/fresh"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9000, "CI", "sha90b", "completed", "success", _ago(4), _ago(4), pr_number=90)],
+        )
+        self._generation(branch="feat/fresh", days_ago=4, cost=3.0, input_tokens=30, output_tokens=10)
+        self._generation(branch="feat/stale", days_ago=4, cost=99.0)
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=90, repo="PostHog/posthog")
+        assert cost.llm_spend is not None
+        assert cost.llm_spend.generations == 1
+        assert cost.llm_spend.cost_usd == pytest.approx(3.0)
+
+
+class TestMultiSourceResolutionWarehouse(_WarehouseMixin, BaseTest):
+    """A team with one GitHub source per repository: a repo-scoped read must resolve the source
+    connected for that repo, not the oldest one. Skips when object storage is unreachable."""
+
+    def _connect_source(self, *, source_id: str, prefix: str, repository: str) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=source_id,
+            connection_id=source_id,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix=prefix,
+            job_inputs={"repository": repository},
+        )
+
+    def test_resolve_branch_targets_the_repo_scoped_source(self) -> None:
+        # Both sources are fully synced, so oldest-first would search repo A and miss the PR that only
+        # exists in the newer repo B. The repo hint routes resolution to B.
+        older = self._connect_source(source_id="src-a", prefix="repoa", repository="PostHog/posthog")
+        newer = self._connect_source(source_id="src-b", prefix="repob", repository="PostHog/posthog.com")
+        # Source A (older, other repo): synced but holds no PR on the branch.
+        self._create_table("github_pull_requests", _PULL_REQUESTS_COLUMNS, [], source=older, prefix="repoa")
+        self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [], source=older, prefix="repoa")
+        # Source B (newer, target repo): holds the feat/login PR.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(
+                    61,
+                    "alice",
+                    "open",
+                    0,
+                    _ago(2),
+                    head_sha="sha61",
+                    head_ref="feat/login",
+                    full_name="PostHog/posthog.com",
+                )
+            ],
+            source=newer,
+            prefix="repob",
+        )
+        self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [], source=newer, prefix="repob")
+
+        matches = api.resolve_branch(team=self.team, branch="feat/login", repo="PostHog/posthog.com")
+        assert [(m.repo, m.number) for m in matches] == [("PostHog/posthog.com", 61)]
+        # Without the repo hint the oldest source (A) is searched and the PR is missed.
+        assert api.resolve_branch(team=self.team, branch="feat/login") == []

@@ -56,11 +56,18 @@ class CuratedGitHubSource:
 
     @classmethod
     def for_team(
-        cls, team: Team, *, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None
+        cls,
+        team: Team,
+        *,
+        source_id: str | None = None,
+        repo: str | None = None,
+        user_access_control: "UserAccessControl | None" = None,
     ) -> "CuratedGitHubSource":
         return cls(
             team=team,
-            tables=resolve_github_tables(team=team, source_id=source_id, user_access_control=user_access_control),
+            tables=resolve_github_tables(
+                team=team, source_id=source_id, repo=repo, user_access_control=user_access_control
+            ),
             user_access_control=user_access_control,
         )
 

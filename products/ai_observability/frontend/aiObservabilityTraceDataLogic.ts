@@ -528,7 +528,7 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
             const gitMetadata = values.traceGitMetadata
             const previous = deriveTraceGitMetadata(oldTrace)
             if (gitMetadata?.branch !== previous?.branch || gitMetadata?.repo !== previous?.repo) {
-                aiObservabilityTraceLogic.actions.loadCommitPRMatches(gitMetadata)
+                aiObservabilityTraceLogic.actions.loadBranchPRMatches(gitMetadata)
             }
 
             actions.reportSingleTraceLoadIfReady()

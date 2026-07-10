@@ -52,14 +52,21 @@ if TYPE_CHECKING:
 
 
 def _authorized_source(
-    team: Team, source_id: str | None, user_access_control: "UserAccessControl | None"
+    team: Team,
+    source_id: str | None,
+    user_access_control: "UserAccessControl | None",
+    repo: str | None = None,
 ) -> "CuratedGitHubSource":
     """Resolve this caller's curated read handle — the single place source selection and per-source
     warehouse access control happen. ``user_access_control`` (None for system/Temporal/CLI contexts)
     filters out sources the requesting user can't access; ``source_id`` selects a specific source,
-    else the oldest connected. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
+    else the oldest connected. ``repo`` ('owner/name'), when the caller already scopes to one repo,
+    prefers the source connected for that repo — so a team with one source per repository reads the
+    right one. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
     """
-    return logic.CuratedGitHubSource.for_team(team, source_id=source_id, user_access_control=user_access_control)
+    return logic.CuratedGitHubSource.for_team(
+        team, source_id=source_id, repo=repo, user_access_control=user_access_control
+    )
 
 
 def get_pr_lifecycle(
@@ -71,7 +78,7 @@ def get_pr_lifecycle(
     user_access_control: "UserAccessControl | None" = None,
 ) -> PRLifecycle | None:
     return logic.build_pr_lifecycle(
-        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), pr_number=pr_number, repo=repo
     )
 
 
@@ -84,7 +91,7 @@ def get_pr_cost(
     user_access_control: "UserAccessControl | None" = None,
 ) -> PRCostSummary:
     return logic.build_pr_cost(
-        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), pr_number=pr_number, repo=repo
     )
 
 
@@ -107,7 +114,7 @@ def list_pr_runs(
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunDetail]:
     return logic.build_pr_runs(
-        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), pr_number=pr_number, repo=repo
     )
 
 
@@ -124,7 +131,7 @@ def resolve_branch(
     ('owner/name') optionally narrows to one repository.
     """
     return logic.build_resolve_branch(
-        curated=_authorized_source(team, source_id, user_access_control), branch=branch, repo=repo
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), branch=branch, repo=repo
     )
 
 
@@ -137,7 +144,7 @@ def get_ci_failure_logs(
     user_access_control: "UserAccessControl | None" = None,
 ) -> CIFailureLogs:
     return logic.build_ci_failure_logs(
-        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), pr_number=pr_number, repo=repo
     )
 
 
@@ -153,7 +160,7 @@ def list_workflow_runs(
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunDetail]:
     return logic.build_workflow_run_list(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         repo=repo,
         workflow_name=workflow_name,
         date_from=date_from,
@@ -174,7 +181,7 @@ def get_workflow_run_activity(
     user_access_control: "UserAccessControl | None" = None,
 ) -> WorkflowRunActivity:
     return logic.build_workflow_run_activity(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         repo=repo,
         workflow_name=workflow_name,
         date_from=date_from,
@@ -195,7 +202,7 @@ def get_workflow_runner_costs(
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunnerCost]:
     return logic.build_workflow_runner_costs(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         repo=repo,
         workflow_name=workflow_name,
         date_from=date_from,

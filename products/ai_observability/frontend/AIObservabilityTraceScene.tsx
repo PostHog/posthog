@@ -1001,18 +1001,19 @@ function TraceWorkflowPanel({ traceId }: { traceId: string }): JSX.Element {
 function TraceGitChip({
     branch,
     repo,
-    commitPRMatches,
+    branchPRMatches,
 }: {
     branch: string
     repo: string | null
-    commitPRMatches: BranchPRMatchApi[]
+    branchPRMatches: BranchPRMatchApi[]
 }): JSX.Element {
     // Repo lives in the tooltip only; the chip content is the branch name.
     const repoPrefix = repo ? `${repo} - ` : ''
 
     // The loader gates on the engineering-analytics flag, so a populated match already implies it's on.
-    // While the resolution request is in flight matches is empty, so this renders the plain chip.
-    const match = commitPRMatches[0]
+    // While the resolution request is in flight (or stale for this branch) matches is empty, so this
+    // renders the plain chip.
+    const match = branchPRMatches[0]
     if (match) {
         const [owner, name] = match.repo.split('/')
         const prTitle = match.title ? `: ${match.title}` : ''
@@ -1052,7 +1053,7 @@ function TraceMetadata({
 }): JSX.Element {
     const { personsCache } = useValues(llmPersonsLazyLoaderLogic)
     const { traceGitMetadata } = useValues(aiObservabilityTraceDataLogic)
-    const { commitPRMatches } = useValues(aiObservabilityTraceLogic)
+    const { branchPRMatches } = useValues(aiObservabilityTraceLogic)
     const sentimentResult = trace.sentiment
 
     const traceCostContext = costContextFromTrace(trace)
@@ -1083,7 +1084,7 @@ function TraceMetadata({
                 <TraceGitChip
                     branch={traceGitMetadata.branch}
                     repo={traceGitMetadata.repo}
-                    commitPRMatches={commitPRMatches}
+                    branchPRMatches={branchPRMatches}
                 />
             )}
             <UsageChip event={trace} />

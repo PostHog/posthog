@@ -87,6 +87,13 @@ export interface TraceGitMetadata {
     repo: string | null
 }
 
+/** A branch→PR resolution tagged with the branch it resolved for, so a result left over from a
+ * previously viewed trace can be ignored until the reload for the new branch finishes. */
+export interface BranchPRResolution {
+    branch: string | null
+    matches: BranchPRMatchApi[]
+}
+
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
@@ -131,6 +138,13 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
 
     reducers(() => ({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
+        // The branch the loader is currently resolving for. Updates synchronously when the load is
+        // dispatched (before the request resolves), so the branchPRMatches selector can drop a
+        // resolution still tagged with the previously viewed trace's branch.
+        resolvingBranch: [
+            null as string | null,
+            { loadBranchPRMatches: (_, gitMetadata: TraceGitMetadata | null) => gitMetadata?.branch ?? null },
+        ],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
         highlightMessageIndex: [
             null as number | null,
@@ -324,13 +338,17 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                 },
             },
         ],
-        commitPRMatches: [
-            [] as BranchPRMatchApi[],
+        branchPRResolution: [
+            { branch: null, matches: [] } as BranchPRResolution,
             {
-                loadCommitPRMatches: async (gitMetadata: TraceGitMetadata | null, breakpoint) => {
+                loadBranchPRMatches: async (gitMetadata: TraceGitMetadata | null, breakpoint) => {
+                    // Tag the result with the branch it resolved for, so a stale in-flight result from the
+                    // previously viewed trace can be discarded (see the branchPRMatches selector).
+                    const branch = gitMetadata?.branch ?? null
+
                     // Gated on engineering analytics: only that product can turn a git branch into a PR link.
-                    if (!gitMetadata?.branch || !values.featureFlags?.[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
-                        return []
+                    if (!branch || !values.featureFlags?.[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
+                        return { branch, matches: [] }
                     }
 
                     await breakpoint(100)
@@ -339,22 +357,31 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                     let matches: BranchPRMatchApi[]
                     try {
                         matches = await engineeringAnalyticsResolveBranch(projectId(), {
-                            branch: gitMetadata.branch,
-                            repo: gitMetadata.repo ?? undefined,
+                            branch,
+                            repo: gitMetadata?.repo ?? undefined,
                         })
                     } catch {
-                        return []
+                        return { branch, matches: [] }
                     }
 
                     breakpoint()
 
-                    return matches
+                    return { branch, matches }
                 },
             },
         ],
     })),
 
     selectors({
+        // Only surface matches once the stored resolution's branch matches the branch currently being
+        // resolved. On a trace switch traceGitMetadata (and resolvingBranch) update immediately while the
+        // loader still holds the previous branch's matches, so this drops them until the reload lands —
+        // the chip never links the new branch's text to the old branch's PR.
+        branchPRMatches: [
+            (s) => [s.branchPRResolution, s.resolvingBranch],
+            (resolution, resolvingBranch): BranchPRMatchApi[] =>
+                resolution.branch === resolvingBranch ? resolution.matches : [],
+        ],
         inputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.input],
         outputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.output],
         query: [
