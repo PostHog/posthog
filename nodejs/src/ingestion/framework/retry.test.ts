@@ -32,7 +32,7 @@ class NonRetriableError extends Error {
 /**
  * A `run` executes a step wrapped with retry through the public builder interface
  * and returns the flat list of results, so `withStepRetry` (single item) and
- * `withChunkRetry` (batch) can share the same behavioral assertions.
+ * `withChunkRetry` (chunk) can share the same behavioral assertions.
  *
  * `script` runs once per attempt and may throw to simulate failures.
  */
@@ -67,7 +67,7 @@ const stepVariant: Variant = {
     },
 }
 
-const batchVariant: Variant = {
+const chunkVariant: Variant = {
     label: 'withChunkRetry (via pipeChunk)',
     async run(script, retry, opts) {
         const inputs = opts?.inputs ?? [1]
@@ -96,7 +96,7 @@ describe('retry', () => {
         pipelineRetryAttemptsHistogram.reset()
     })
 
-    describe.each([stepVariant, batchVariant])('$label', (variant) => {
+    describe.each([stepVariant, chunkVariant])('$label', (variant) => {
         it('retries retriable errors and eventually succeeds', async () => {
             let attempts = 0
             const script = (): void => {
@@ -158,8 +158,8 @@ describe('retry', () => {
         })
     })
 
-    it('maps a non-retriable batch error to one DLQ result per input value', async () => {
-        const results = await batchVariant.run(
+    it('maps a non-retriable chunk error to one DLQ result per input value', async () => {
+        const results = await chunkVariant.run(
             () => {
                 throw new NonRetriableError('Validation failed')
             },
@@ -175,7 +175,7 @@ describe('retry', () => {
         const namedStep = function namedStep(): Promise<PipelineResult<string>> {
             return Promise.resolve(ok('x'))
         }
-        const namedBatchStep = function namedBatchStep(values: number[]): Promise<PipelineResult<string>[]> {
+        const namedChunkStep = function namedChunkStep(values: number[]): Promise<PipelineResult<string>[]> {
             return Promise.resolve(values.map((v) => ok(String(v))))
         }
 
@@ -184,7 +184,7 @@ describe('retry', () => {
         })
 
         it('for withChunkRetry', () => {
-            expect(withChunkRetry(namedBatchStep).name).toBe('namedBatchStep')
+            expect(withChunkRetry(namedChunkStep).name).toBe('namedChunkStep')
         })
     })
 })

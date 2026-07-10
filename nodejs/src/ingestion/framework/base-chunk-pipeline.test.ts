@@ -62,8 +62,8 @@ describe('BaseChunkPipeline', () => {
         })
     })
 
-    describe('batch operations', () => {
-        it('should execute batch step on all successful values', async () => {
+    describe('chunk operations', () => {
+        it('should execute chunk step on all successful values', async () => {
             const messages: Message[] = [
                 createTestMessage({ value: Buffer.from('1'), offset: 1 }),
                 createTestMessage({ value: Buffer.from('2'), offset: 2 }),
@@ -134,17 +134,17 @@ describe('BaseChunkPipeline', () => {
     })
 
     describe('error handling', () => {
-        it('should propagate errors from batch operations', async () => {
+        it('should propagate errors from chunk operations', async () => {
             const messages: Message[] = [createTestMessage({ value: Buffer.from('1'), offset: 1 })]
 
             const batch = createBatch(messages.map((message) => ({ message })))
             const rootPipeline = createNewChunkPipeline().build()
             const pipeline = new BaseChunkPipeline(() => {
-                return Promise.reject(new Error('Batch step failed'))
+                return Promise.reject(new Error('Chunk step failed'))
             }, rootPipeline)
 
             pipeline.feed(batch)
-            await expect(pipeline.next()).rejects.toThrow('Batch step failed')
+            await expect(pipeline.next()).rejects.toThrow('Chunk step failed')
         })
     })
 
@@ -158,11 +158,11 @@ describe('BaseChunkPipeline', () => {
             const batch = createBatch(messages.map((message) => ({ message })))
             const rootPipeline = createNewChunkPipeline().build()
 
-            function testBatchStep(items: any[]) {
+            function testChunkStep(items: any[]) {
                 return Promise.resolve(items.map((item: any) => ok({ processed: item.message.value?.toString() })))
             }
 
-            const pipeline = new BaseChunkPipeline(testBatchStep, rootPipeline)
+            const pipeline = new BaseChunkPipeline(testChunkStep, rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
@@ -170,11 +170,11 @@ describe('BaseChunkPipeline', () => {
             expect(results).toEqual([
                 createContext(ok({ processed: 'test1' }), {
                     message: messages[0],
-                    lastStep: 'testBatchStep',
+                    lastStep: 'testChunkStep',
                 }),
                 createContext(ok({ processed: 'test2' }), {
                     message: messages[1],
-                    lastStep: 'testBatchStep',
+                    lastStep: 'testChunkStep',
                 }),
             ])
         })
@@ -211,7 +211,7 @@ describe('BaseChunkPipeline', () => {
             const batch = createBatch(messages.map((message) => ({ message })))
             const rootPipeline = createNewChunkPipeline().build()
 
-            function testBatchStep(items: any[]) {
+            function testChunkStep(items: any[]) {
                 return Promise.resolve(
                     items.map((item: any) => {
                         const value = item.message.value?.toString() || ''
@@ -223,7 +223,7 @@ describe('BaseChunkPipeline', () => {
                 )
             }
 
-            const pipeline = new BaseChunkPipeline(testBatchStep, rootPipeline)
+            const pipeline = new BaseChunkPipeline(testChunkStep, rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
@@ -231,11 +231,11 @@ describe('BaseChunkPipeline', () => {
             expect(results).toEqual([
                 createContext(ok({ processed: 'test1' }), {
                     message: messages[0],
-                    lastStep: 'testBatchStep',
+                    lastStep: 'testChunkStep',
                 }),
                 createContext(drop('dropped item'), {
                     message: messages[1],
-                    lastStep: 'testBatchStep',
+                    lastStep: 'testChunkStep',
                 }),
             ])
         })

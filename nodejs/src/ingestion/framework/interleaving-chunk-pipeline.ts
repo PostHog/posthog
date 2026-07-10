@@ -87,7 +87,7 @@ export class InterleavingChunkPipeline<TInput, TOutput, CInput, COutput, R exten
             // Arm a fresh wake-up before pulling. A feed landing during the pull
             // is still seen by the race below (not lost), while a stale signal
             // from an already-consumed feed does NOT over-eagerly pull the next
-            // batch into an in-flight subpipeline (which would coalesce batches
+            // chunk into an in-flight subpipeline (which would coalesce chunks
             // that downstream stages like gather() expect to stay separate).
             this.newInputSignal.reset()
 

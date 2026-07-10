@@ -227,7 +227,7 @@ describe('FilterMapChunkPipeline', () => {
             await expect(pipeline.next()).rejects.toThrow('mapping failed')
         })
 
-        it('should return empty array for empty batch from previous pipeline', async () => {
+        it('should return empty array for empty chunk from previous pipeline', async () => {
             const subPipeline = createNewChunkPipeline<string>().build()
 
             const previousPipeline = {
@@ -238,16 +238,16 @@ describe('FilterMapChunkPipeline', () => {
             const pipeline = new FilterMapChunkPipeline(previousPipeline, identityMapping, subPipeline)
             pipeline.feed([])
 
-            // Empty batch should return [] (a valid empty batch), not null (end of stream)
+            // Empty chunk should return [] (a valid empty chunk), not null (end of stream)
             const result = await pipeline.next()
             expect(result).toEqual([])
 
-            // After the empty batch, next call gets null from previous → returns null
+            // After the empty chunk, next call gets null from previous → returns null
             const result2 = await pipeline.next()
             expect(result2).toBeNull()
         })
 
-        it('should process elements after multiple empty batches from previous pipeline', async () => {
+        it('should process elements after multiple empty chunks from previous pipeline', async () => {
             const subPipeline = createNewChunkPipeline<string>().build()
 
             const previousPipeline = {
@@ -277,20 +277,20 @@ describe('FilterMapChunkPipeline', () => {
         it('should drain subpipeline before fetching from previous pipeline', async () => {
             const previousPipeline = createNewChunkPipeline<string>().build()
             const subPipelineFeed = jest.fn()
-            const subBatches: ChunkPipelineResultWithContext<string, { message: Message }>[] = []
+            const subChunks: ChunkPipelineResultWithContext<string, { message: Message }>[] = []
             let subIndex = 0
             const subPipeline = {
                 feed(elements: ChunkPipelineResultWithContext<string, { message: Message }>) {
                     subPipelineFeed(elements)
                     for (const el of elements) {
-                        subBatches.push([el])
+                        subChunks.push([el])
                     }
                 },
                 next() {
-                    if (subIndex >= subBatches.length) {
+                    if (subIndex >= subChunks.length) {
                         return Promise.resolve(null)
                     }
-                    return Promise.resolve(subBatches[subIndex++])
+                    return Promise.resolve(subChunks[subIndex++])
                 },
             }
 

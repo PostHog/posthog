@@ -36,8 +36,8 @@ describe('ChunkPipelineUnwrapper', () => {
 
     describe('basic functionality', () => {
         it('should unwrap successful results and return values array', async () => {
-            const batchPipeline = createNewChunkPipeline<{ message: Message }>().build()
-            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
+            const chunkPipeline = createNewChunkPipeline<{ message: Message }>().build()
+            const unwrapper = new ChunkPipelineUnwrapper(chunkPipeline)
 
             const batchResults = [
                 createOkContext({ message, processed: 'test1' }, { message }),
@@ -54,9 +54,9 @@ describe('ChunkPipelineUnwrapper', () => {
             expect(mockLogger.warn).not.toHaveBeenCalled()
         })
 
-        it('should return null when batch pipeline returns null', async () => {
-            const batchPipeline = createNewChunkPipeline<{ message: Message }>().build()
-            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
+        it('should return null when chunk pipeline returns null', async () => {
+            const chunkPipeline = createNewChunkPipeline<{ message: Message }>().build()
+            const unwrapper = new ChunkPipelineUnwrapper(chunkPipeline)
 
             const results = await unwrapper.next()
 
@@ -117,8 +117,8 @@ describe('ChunkPipelineUnwrapper', () => {
         })
 
         it('should handle mixed result types correctly', async () => {
-            const batchPipeline = createNewChunkPipeline<{ message: Message }>().build()
-            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
+            const chunkPipeline = createNewChunkPipeline<{ message: Message }>().build()
+            const unwrapper = new ChunkPipelineUnwrapper(chunkPipeline)
 
             const batchResults = [
                 createOkContext({ message, value: 'string-value' }, { message }),
@@ -140,8 +140,8 @@ describe('ChunkPipelineUnwrapper', () => {
 
     describe('side effects warning', () => {
         it('should log warning when there are remaining side effects', async () => {
-            const batchPipeline = createNewChunkPipeline<{ message: Message }>().build()
-            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
+            const chunkPipeline = createNewChunkPipeline<{ message: Message }>().build()
+            const unwrapper = new ChunkPipelineUnwrapper(chunkPipeline)
 
             const sideEffect1 = Promise.resolve('effect1')
             const sideEffect2 = Promise.resolve('effect2')
@@ -189,8 +189,8 @@ describe('ChunkPipelineUnwrapper', () => {
         })
 
         it('should handle multiple side effects on single result', async () => {
-            const batchPipeline = createNewChunkPipeline<{ message: Message }>().build()
-            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
+            const chunkPipeline = createNewChunkPipeline<{ message: Message }>().build()
+            const unwrapper = new ChunkPipelineUnwrapper(chunkPipeline)
 
             const sideEffect1 = Promise.resolve('effect1')
             const sideEffect2 = Promise.resolve('effect2')
@@ -216,8 +216,8 @@ describe('ChunkPipelineUnwrapper', () => {
         })
 
         it('should not log warning when no side effects remain', async () => {
-            const batchPipeline = createNewChunkPipeline<{ message: Message }>().build()
-            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
+            const chunkPipeline = createNewChunkPipeline<{ message: Message }>().build()
+            const unwrapper = new ChunkPipelineUnwrapper(chunkPipeline)
 
             const batchResults = [
                 createOkContext({ message, processed: 'test1' }, { message }),
@@ -235,8 +235,8 @@ describe('ChunkPipelineUnwrapper', () => {
         })
 
         it('should handle empty side effects arrays correctly', async () => {
-            const batchPipeline = createNewChunkPipeline<{ message: Message }>().build()
-            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
+            const chunkPipeline = createNewChunkPipeline<{ message: Message }>().build()
+            const unwrapper = new ChunkPipelineUnwrapper(chunkPipeline)
 
             const batchResults = [createOkContext({ message, processed: 'test' }, { message, sideEffects: [] })]
 
@@ -249,10 +249,10 @@ describe('ChunkPipelineUnwrapper', () => {
     })
 
     describe('feed delegation', () => {
-        it('should delegate feed calls to the batch pipeline', () => {
-            const batchPipeline = createNewChunkPipeline<{ message: Message }>().build()
-            const feedSpy = jest.spyOn(batchPipeline, 'feed')
-            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
+        it('should delegate feed calls to the chunk pipeline', () => {
+            const chunkPipeline = createNewChunkPipeline<{ message: Message }>().build()
+            const feedSpy = jest.spyOn(chunkPipeline, 'feed')
+            const unwrapper = new ChunkPipelineUnwrapper(chunkPipeline)
 
             const batchResults = [createOkContext({ message, processed: 'test' }, { message })]
 
@@ -264,8 +264,8 @@ describe('ChunkPipelineUnwrapper', () => {
 
     describe('edge cases', () => {
         it('should handle empty batches', async () => {
-            const batchPipeline = createNewChunkPipeline<{ message: Message }>().build()
-            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
+            const chunkPipeline = createNewChunkPipeline<{ message: Message }>().build()
+            const unwrapper = new ChunkPipelineUnwrapper(chunkPipeline)
 
             unwrapper.feed([])
             const results = await unwrapper.next()
@@ -275,8 +275,8 @@ describe('ChunkPipelineUnwrapper', () => {
         })
 
         it('should handle complex nested object values', async () => {
-            const batchPipeline = createNewChunkPipeline<{ message: Message }>().build()
-            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
+            const chunkPipeline = createNewChunkPipeline<{ message: Message }>().build()
+            const unwrapper = new ChunkPipelineUnwrapper(chunkPipeline)
 
             const complexValue = {
                 message,

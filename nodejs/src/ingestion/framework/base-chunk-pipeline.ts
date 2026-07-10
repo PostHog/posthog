@@ -72,7 +72,7 @@ export class BaseChunkPipeline<
             }
             if (stepResults.length !== successfulValues.length) {
                 throw new Error(
-                    `Batch pipeline step ${this.stepName} returned different number of results than input values: ${stepResults.length} !== ${successfulValues.length}`
+                    `Chunk pipeline step ${this.stepName} returned different number of results than input values: ${stepResults.length} !== ${successfulValues.length}`
                 )
             }
         }

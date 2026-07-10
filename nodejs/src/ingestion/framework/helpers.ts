@@ -17,7 +17,7 @@ export function createNewPipeline<T = { message: Message }, C = DefaultContext>(
 }
 
 /**
- * Helper function to create a new batch processing pipeline starting with a root pipeline
+ * Helper function to create a new chunk processing pipeline starting with a root pipeline
  */
 export function createNewChunkPipeline<T = { message: Message }, C = DefaultContext>(): ChunkPipelineBuilder<T, T, C> {
     return newChunkPipelineBuilder<T, C>()
@@ -96,10 +96,10 @@ export function createOkContext<T, C extends Record<string, unknown> = Record<st
 }
 
 /**
- * Helper function to create a batch pipeline unwrapper
+ * Helper function to create a chunk pipeline unwrapper
  */
 export function createUnwrapper<TInput, TOutput, C, R extends string = never>(
-    batchPipeline: ChunkPipeline<TInput, TOutput, C, C, R>
+    chunkPipeline: ChunkPipeline<TInput, TOutput, C, C, R>
 ): ChunkPipelineUnwrapper<TInput, TOutput, C, R> {
-    return new ChunkPipelineUnwrapper(batchPipeline)
+    return new ChunkPipelineUnwrapper(chunkPipeline)
 }
