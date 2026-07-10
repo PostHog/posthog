@@ -75,7 +75,7 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
                         // Resolve retention up front (before parse), keyed on the (validated) session_id
                         // header; drop unresolvable sessions.
                         .gather()
-                        .pipeBatch(createResolveRetentionStep(retentionService, sessionBatchManager), {
+                        .pipeBatch(createResolveRetentionStep(retentionService), {
                             retry: { tries: 3, sleepMs: 100 },
                         })
                         // Track sessions and rate-limit new ones for the whole batch, tagging each with
