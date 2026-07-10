@@ -13,6 +13,7 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 
 from products.error_tracking.backend.models import (
@@ -161,10 +162,12 @@ class TestFingerprintEmbeddingResultActivity:
         assert execute_hogql_query.call_args_list[0].kwargs["query_type"] == (
             "ErrorTrackingFingerprintEmbeddingResultTargetEmbedding"
         )
+        assert execute_hogql_query.call_args_list[0].kwargs["ch_user"] == ClickHouseUser.ERROR_TRACKING
         assert execute_hogql_query.call_args_list[1].kwargs["team"] == team
         assert execute_hogql_query.call_args_list[1].kwargs["query_type"] == (
             "ErrorTrackingFingerprintEmbeddingResultClosestFingerprints"
         )
+        assert execute_hogql_query.call_args_list[1].kwargs["ch_user"] == ClickHouseUser.ERROR_TRACKING
 
     def test_query_closest_fingerprints_uses_input_embedding(self) -> None:
         closest_response = MagicMock(
@@ -187,6 +190,7 @@ class TestFingerprintEmbeddingResultActivity:
         assert execute_hogql_query.call_args.kwargs["query_type"] == (
             "ErrorTrackingFingerprintEmbeddingResultClosestFingerprints"
         )
+        assert execute_hogql_query.call_args.kwargs["ch_user"] == ClickHouseUser.ERROR_TRACKING
 
     def test_target_embedding_from_inputs_rejects_invalid_embedding(self) -> None:
         inputs = FingerprintEmbeddingResultInputs(
@@ -212,6 +216,7 @@ class TestFingerprintEmbeddingResultActivity:
                 _query_closest_fingerprints(team, _inputs(), "text-embedding-3-large-3072")
 
         execute_hogql_query.assert_called_once()
+        assert execute_hogql_query.call_args.kwargs["ch_user"] == ClickHouseUser.ERROR_TRACKING
 
     def test_query_closest_fingerprints_raises_with_invalid_target_embedding(self) -> None:
         team = MagicMock()

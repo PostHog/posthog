@@ -590,6 +590,11 @@ class ChartDisplayType(StrEnum):
     SLOPE_GRAPH = "SlopeGraph"
 
 
+class Curve(StrEnum):
+    LINEAR = "linear"
+    SMOOTH = "smooth"
+
+
 class ColorMode(StrEnum):
     LIGHT = "light"
     DARK = "dark"
@@ -2463,6 +2468,31 @@ class MetaAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
+class MetricsAggregation(StrEnum):
+    SUM = "sum"
+    AVG = "avg"
+    COUNT = "count"
+    MIN = "min"
+    MAX = "max"
+    QUANTILE = "quantile"
+    RATE = "rate"
+    INCREASE = "increase"
+    HISTOGRAM_QUANTILE = "histogram_quantile"
+
+
+class MetricsAttributeScope(StrEnum):
+    RESOURCE = "resource"
+    ATTRIBUTE = "attribute"
+    AUTO = "auto"
+
+
+class MetricsFilterOp(StrEnum):
+    EQ = "eq"
+    NEQ = "neq"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+
+
 class MultiQuestionFormFieldType(StrEnum):
     TEXT = "text"
     NUMBER = "number"
@@ -2531,6 +2561,7 @@ class NodeKind(StrEnum):
     LOGS_QUERY = "LogsQuery"
     LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"
     LOG_VALUES_QUERY = "LogValuesQuery"
+    METRICS_QUERY = "MetricsQuery"
     TRACE_SPANS_QUERY = "TraceSpansQuery"
     TRACE_SPANS_AGGREGATION_QUERY = "TraceSpansAggregationQuery"
     TRACE_SPANS_TREE_QUERY = "TraceSpansTreeQuery"
@@ -3060,8 +3091,10 @@ class SlackIntegrationScope(StrEnum):
 
 class SlackIntegrationScopeInReview(StrEnum):
     ASSISTANT_WRITE = "assistant:write"
+    CANVASES_WRITE = "canvases:write"
     CHANNELS_MANAGE = "channels:manage"
     COMMANDS = "commands"
+    FILES_WRITE = "files:write"
     IM_HISTORY = "im:history"
     MPIM_READ = "mpim:read"
 

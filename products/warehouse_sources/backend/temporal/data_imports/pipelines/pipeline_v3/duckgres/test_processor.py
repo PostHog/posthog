@@ -534,7 +534,7 @@ class TestBackfillProcessing:
         assert "Identifier('stripe_customers')" in executed
         assert "RENAME TO" in executed
         insert.assert_called_once()
-        primed.assert_called_once_with("schema-1", chunks_applied=3)
+        primed.assert_called_once_with("schema-1", run_uuid="duckgres-backfill-schema-1-v7", chunks_applied=3)
 
     def test_already_applied_chunk_is_a_noop(self) -> None:
         conn = _make_conn()

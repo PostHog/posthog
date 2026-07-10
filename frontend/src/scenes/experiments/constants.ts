@@ -103,12 +103,17 @@ export const NEW_EXPERIMENT: Experiment = {
     secondary_metrics_ordered_uuids: null,
     saved_metrics_ids: [] as any[],
     saved_metrics: [] as any[],
-    parameters: {
-        feature_flag_variants: [
-            { key: 'control', rollout_percentage: 50 },
-            { key: 'test', rollout_percentage: 50 },
-        ] as any[],
-        rollout_percentage: 100,
+    parameters: {},
+    feature_flag_config: {
+        filters: {
+            multivariate: {
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'test', rollout_percentage: 50 },
+                ],
+            },
+            groups: [{ properties: [], rollout_percentage: 100 }],
+        },
     },
     created_at: null,
     created_by: null,
