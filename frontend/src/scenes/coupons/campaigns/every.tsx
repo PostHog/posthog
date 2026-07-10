@@ -44,8 +44,8 @@ export const everyCampaign: CampaignConfig = {
             description: 'Get access to select new PostHog AI tools and features as they become available.',
         },
         {
-            title: '$2K core credits*',
-            description: `New PostHog customers are also eligible for $2K in credits for PostHog core tools, such as product analytics, session replay, error tracking, AI observability, and data warehouse.`,
+            title: '$2K core credits',
+            description: `Organizations with no non-$0 PostHog invoices before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF} are also eligible for $2K in credits for PostHog core tools, such as product analytics, session replay, error tracking, AI observability, and data warehouse.`,
         },
         {
             title: '12-month access',
@@ -55,12 +55,7 @@ export const everyCampaign: CampaignConfig = {
     eligibilityCriteria: [
         'Active EVERY Goodie Bag annual subscriber',
         'Active paid subscription to PostHog',
-        `Organizations with a paid PostHog invoice before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF} qualify only for credits toward PostHog's AI tools`,
+        `No non-$0 PostHog invoices before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF} to qualify for PostHog core credits`,
+        'PostHog Code and AI Gateway are currently excluded from this offer',
     ],
-    footerNote: (
-        <span className="text-xs">
-            *Credits toward PostHog's AI tools and PostHog core credits are separate. Both currently exclude PostHog
-            Code and AI Gateway.
-        </span>
-    ),
 }
