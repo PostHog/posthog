@@ -221,6 +221,27 @@ export const InstantPresetsWithRailFooter: Story = {
     },
 }
 
+export const PresetsFirstRailOnly: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<DateTimeValue>({
+            start: startOfMonth(new Date()),
+            end: new Date(),
+            range: calendarRanges[0],
+        })
+        return (
+            <DateTimePicker
+                value={value}
+                onApply={setValue}
+                ranges={calendarRanges}
+                applyOnRangeSelect
+                showCalendar={false}
+                rangesFooter={<span className="text-xs text-muted-foreground">Custom range…</span>}
+            />
+        )
+    },
+}
+
 export const WeekStartsThursday: Story = {
     args: baseArgs,
     render: () => {

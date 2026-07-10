@@ -65,6 +65,9 @@ export interface DateTimePickerProps {
     showHeader?: boolean
     /** Day-granular mode: hides the time segments and "Now", and drops time from the footer readout. */
     showTime?: boolean
+    /** Hide the calendar column: the picker renders as a narrow vertical quick-ranges list.
+     * For presets-first hosts that reveal the calendar on demand (e.g. behind a "Custom range" action). */
+    showCalendar?: boolean
     className?: string
 }
 
@@ -84,11 +87,14 @@ export function DateTimePicker({
     rangesFooter,
     showHeader = true,
     showTime = true,
+    showCalendar = true,
     className,
 }: DateTimePickerProps): React.ReactElement {
     const presetRanges = ranges.filter((r) => r.id !== CUSTOM_RANGE.id)
     const hasPresets = presetRanges.length > 0
     const hasRail = hasPresets || rangesFooter != null
+    // Rail-only mode: the rail is the whole component, so it lists vertically at every width.
+    const railOnly = !showCalendar
     const maxDate = maxDateProp ?? new Date()
     const hasExplicitMaxDate = maxDateProp !== undefined
     // The second calendar only renders at `lg`; below it (and in compact) there's
@@ -210,12 +216,17 @@ export function DateTimePicker({
         <div
             className={cn(
                 'bg-card text-foreground rounded-lg shadow-md ring-1 ring-foreground/10 overflow-hidden',
-                compact ? 'w-[15rem]' : 'w-[15rem] lg:w-full max-w-[42rem]',
+                compact || railOnly ? 'w-[15rem]' : 'w-[15rem] lg:w-full max-w-[42rem]',
                 className
             )}
         >
             {/* Headers */}
-            {!compact && showHeader && (
+            {railOnly && showHeader && hasRail && (
+                <div className="flex justify-start px-2 py-1 bg-muted/30 border-b border-border">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Quick ranges</span>
+                </div>
+            )}
+            {!compact && !railOnly && showHeader && (
                 <div className={hasRail ? 'hidden lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]' : 'hidden lg:grid'}>
                     <div className="flex items-center gap-2 px-2 py-1 bg-muted/30 border-b border-border rounded-tl-lg">
                         <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Choose date range</span>
@@ -236,11 +247,12 @@ export function DateTimePicker({
             )}
 
             {/* Body */}
-            <div className={compact || !hasRail
+            <div className={compact || railOnly || !hasRail
                 ? 'flex flex-col'
                 : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]'
             }>
                 {/* Calendars column */}
+                {!railOnly && (
                 <div className={compact ? 'order-1' : 'order-1 lg:order-none'}>
                     {/* Inputs */}
                     {!compact && (
@@ -310,29 +322,36 @@ export function DateTimePicker({
                         </div>
                     </div>
                 </div>
+                )}
 
                 {/* Quick ranges column */}
                 {hasRail && (
-                <div className={compact
+                <div className={compact && !railOnly
                     ? 'order-0 border-b border-border'
-                    : 'order-0 lg:order-none lg:flex lg:flex-col lg:border-l lg:border-border border-b border-border lg:border-b-0'
+                    : railOnly
+                      ? 'flex flex-col'
+                      : 'order-0 lg:order-none lg:flex lg:flex-col lg:border-l lg:border-border border-b border-border lg:border-b-0'
                 }>
                     {hasPresets && (
-                        <div className={compact ? undefined : 'lg:relative lg:flex-1 lg:min-h-0'}>
-                            <ScrollArea className={compact ? 'w-full' : 'w-full lg:absolute lg:inset-0'}>
-                                <ul className={compact
-                                    ? 'flex flex-row p-2 gap-px max-h-[320px]'
-                                    : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
+                        <div className={compact || railOnly ? undefined : 'lg:relative lg:flex-1 lg:min-h-0'}>
+                            <ScrollArea className={compact || railOnly ? 'w-full' : 'w-full lg:absolute lg:inset-0'}>
+                                <ul className={railOnly
+                                    ? 'flex flex-col p-2 gap-px max-h-[320px]'
+                                    : compact
+                                      ? 'flex flex-row p-2 gap-px max-h-[320px]'
+                                      : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
                                 }>
                                     {presetRanges.map((quick) => (
-                                        <li key={quick.id} className={compact ? undefined : 'lg:w-full'}>
+                                        <li key={quick.id} className={railOnly ? 'w-full' : compact ? undefined : 'lg:w-full'}>
                                             <Button
                                                 variant="default"
                                                 size="sm"
                                                 left
-                                                className={compact
-                                                    ? 'whitespace-nowrap'
-                                                    : 'whitespace-nowrap lg:w-full lg:justify-start'
+                                                className={railOnly
+                                                    ? 'whitespace-nowrap w-full justify-start'
+                                                    : compact
+                                                      ? 'whitespace-nowrap'
+                                                      : 'whitespace-nowrap lg:w-full lg:justify-start'
                                                 }
                                                 aria-selected={range.id === quick.id}
                                                 aria-label={`Choose ${quick.name.toLowerCase()}`}
@@ -355,6 +374,9 @@ export function DateTimePicker({
                 )}
             </div>
 
+            {/* Rail-only with instant presets has nothing to stage, so no footer chrome */}
+            {!(railOnly && applyOnRangeSelect) && (
+            <>
             <Separator />
 
             {/* Actions */}
@@ -378,6 +400,8 @@ export function DateTimePicker({
                     Apply
                 </Button>
             </div>
+            </>
+            )}
         </div>
     )
 }

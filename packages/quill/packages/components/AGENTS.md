@@ -63,6 +63,7 @@ Rules:
 - A `DateTimeRange` computes its start from "now" via `rangeSetter`; the end defaults to "now" unless `endSetter` is given (needed for closed periods like "Last month"). `name` is any string.
 - Changes are staged until `onApply` fires — don't treat intermediate calendar clicks as committed. `applyOnRangeSelect` opts quick-range clicks out of staging: picking a preset fires `onApply` immediately (calendar edits still stage).
 - `rangesFooter` pins host content below the quick-ranges list (e.g. a custom rolling-period input) and shows the rail even with `ranges={[]}`.
+- `showCalendar={false}` hides the calendar column entirely: the picker renders as a narrow vertical quick-ranges list, for presets-first hosts that reveal the calendar on demand (toggle it back on from a "Custom range" action in `rangesFooter`). Combined with `applyOnRangeSelect` the staging footer disappears too, since nothing is left to stage.
 - Dual-calendar layout appears at the `lg` breakpoint unless `compact` forces a single calendar.
 - `minDate`/`maxDate` are day-granular; time inputs are independent of those bounds.
 - `weekStartsOn` affects the calendar grid only, not quick-range math.

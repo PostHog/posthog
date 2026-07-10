@@ -96,6 +96,16 @@ describe('DateTimePicker', () => {
         expect(screen.queryByTitle('Last 7 days')).toBeNull()
     })
 
+    it('renders only the vertical quick-ranges list with showCalendar={false}', () => {
+        const ranges: DateTimeRange[] = [{ id: 1, name: 'This month', rangeSetter: (d) => d }]
+        render(
+            <DateTimePicker value={VALUE} maxDate={MAX} onApply={jest.fn()} ranges={ranges} showCalendar={false} />
+        )
+
+        expect(screen.getByTitle('This month')).toBeTruthy()
+        expect(screen.queryByLabelText('Select Jan 10, 2023')).toBeNull()
+    })
+
     it('applies both edges from a preset with an endSetter', async () => {
         const onApply = jest.fn()
         const lastMonth: DateTimeRange = {
