@@ -3,7 +3,11 @@ from posthog.test.base import BaseTest
 from posthog.schema import ProductItemCategory
 
 from posthog.models import User
-from posthog.models.file_system.user_product_list import UserProductList, get_user_product_list_count
+from posthog.models.file_system.user_product_list import (
+    DEFAULT_PRODUCT_PATHS,
+    UserProductList,
+    add_default_products_for_user,
+)
 from posthog.products import Products
 
 from products.growth.backend.cross_sell_candidate_selector import (
@@ -20,227 +24,45 @@ def _get_favored_product_paths() -> set[str]:
 
 
 class TestUserProductList(BaseTest):
-    def test_sync_filters_out_existing_products_with_precomputed_counts(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
+    def test_default_product_paths_are_valid_products(self):
+        valid_paths = set(Products.get_product_paths())
+        assert set(DEFAULT_PRODUCT_PATHS) <= valid_paths
+
+    def test_add_default_products_creates_the_default_set(self):
+        user = User.objects.create_user(email="user@posthog.com", password="password", first_name="User")
         user.join(organization=self.organization)
 
-        UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
-        UserProductList.objects.create(user=user, team=self.team, product_path="Feature flags", enabled=True)
+        created_items = add_default_products_for_user(user, self.team)
 
-        hardcoded_counts = [
-            {"product_path": "Product analytics", "colleague_count": 5},
-            {"product_path": "Session replay", "colleague_count": 4},
-            {"product_path": "Feature flags", "colleague_count": 3},
-            {"product_path": "Surveys", "colleague_count": 2},
-        ]
+        assert {item.product_path for item in created_items} == set(DEFAULT_PRODUCT_PATHS)
 
-        created_items = UserProductList.sync_from_team_colleagues(
-            user=user, team=self.team, count=2, colleague_product_counts=hardcoded_counts
-        )
+        rows = UserProductList.objects.filter(user=user, team=self.team)
+        assert {row.product_path for row in rows} == set(DEFAULT_PRODUCT_PATHS)
+        for row in rows:
+            assert row.enabled is True
+            assert row.reason == UserProductList.Reason.DEFAULT
 
-        assert len(created_items) == 2
-        product_paths = {item.product_path for item in created_items}
-        assert "Product analytics" not in product_paths
-        assert "Feature flags" not in product_paths
-        assert "Session replay" in product_paths
-        assert "Surveys" in product_paths
-
-        all_user_products = UserProductList.objects.filter(user=user, team=self.team, enabled=True)
-        assert all_user_products.filter(product_path="Session replay").exists()
-        assert all_user_products.filter(product_path="Surveys").exists()
-        assert all_user_products.filter(product_path="Product analytics").exists()
-        assert all_user_products.filter(product_path="Feature flags").exists()
-
-        for item in created_items:
-            assert item.reason == UserProductList.Reason.USED_BY_COLLEAGUES
-            assert item.enabled is True
-
-    def test_sync_ranks_by_precomputed_counts(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
+    def test_add_default_products_leaves_existing_rows_untouched(self):
+        user = User.objects.create_user(email="user@posthog.com", password="password", first_name="User")
         user.join(organization=self.organization)
 
-        hardcoded_counts = [
-            {"product_path": "Product analytics", "colleague_count": 10},
-            {"product_path": "Session replay", "colleague_count": 8},
-            {"product_path": "Feature flags", "colleague_count": 5},
-            {"product_path": "Surveys", "colleague_count": 3},
-            {"product_path": "Experiments", "colleague_count": 1},
-        ]
-
-        created_items = UserProductList.sync_from_team_colleagues(
-            user=user, team=self.team, count=3, colleague_product_counts=hardcoded_counts
+        UserProductList.objects.create(
+            user=user,
+            team=self.team,
+            product_path="Product analytics",
+            enabled=False,
+            reason=UserProductList.Reason.PRODUCT_INTENT,
         )
 
-        assert len(created_items) == 3
-        product_paths = [item.product_path for item in created_items]
-        assert set(product_paths) == {"Product analytics", "Session replay", "Feature flags"}
-        assert product_paths[0] == "Product analytics"
-        assert product_paths[1] == "Session replay"
-        assert product_paths[2] == "Feature flags"
+        created_items = add_default_products_for_user(user, self.team)
 
-    def test_sync_respects_count_limit(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-        user.join(organization=self.organization)
+        assert "Product analytics" not in {item.product_path for item in created_items}
+        existing = UserProductList.objects.get(user=user, team=self.team, product_path="Product analytics")
+        assert existing.enabled is False
+        assert existing.reason == UserProductList.Reason.PRODUCT_INTENT
 
-        hardcoded_counts = [
-            {"product_path": "Product analytics", "colleague_count": 10},
-            {"product_path": "Session replay", "colleague_count": 8},
-            {"product_path": "Feature flags", "colleague_count": 5},
-            {"product_path": "Surveys", "colleague_count": 3},
-        ]
-
-        created_items = UserProductList.sync_from_team_colleagues(
-            user=user, team=self.team, count=2, colleague_product_counts=hardcoded_counts
-        )
-
-        assert len(created_items) == 2
-        product_paths = {item.product_path for item in created_items}
-        assert product_paths == {"Product analytics", "Session replay"}
-
-    def test_sync_respects_allow_sidebar_suggestions_false(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=False
-        )
-        user.join(organization=self.organization)
-
-        hardcoded_counts = [
-            {"product_path": "Product analytics", "colleague_count": 10},
-            {"product_path": "Session replay", "colleague_count": 8},
-        ]
-
-        created_items = UserProductList.sync_from_team_colleagues(
-            user=user, team=self.team, colleague_product_counts=hardcoded_counts
-        )
-
-        assert len(created_items) == 0
-
-    def test_sync_computes_counts_when_not_provided(self):
-        colleague1 = User.objects.create_user(
-            email="colleague1@posthog.com", password="password", first_name="Colleague1", allow_sidebar_suggestions=True
-        )
-        colleague2 = User.objects.create_user(
-            email="colleague2@posthog.com", password="password", first_name="Colleague2", allow_sidebar_suggestions=True
-        )
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-
-        colleague1.join(organization=self.organization)
-        colleague2.join(organization=self.organization)
-        user.join(organization=self.organization)
-
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Product analytics", enabled=True)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Product analytics", enabled=True)
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Session replay", enabled=True)
-
-        created_items = UserProductList.sync_from_team_colleagues(user=user, team=self.team, count=2)
-
-        assert len(created_items) == 2
-        product_paths = {item.product_path for item in created_items}
-        assert "Product analytics" in product_paths
-        assert "Session replay" in product_paths
-
-    def test_sync_does_not_duplicate_existing_products(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-        user.join(organization=self.organization)
-
-        UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
-
-        hardcoded_counts = [
-            {"product_path": "Product analytics", "colleague_count": 10},
-            {"product_path": "Session replay", "colleague_count": 8},
-        ]
-
-        created_items = UserProductList.sync_from_team_colleagues(
-            user=user, team=self.team, colleague_product_counts=hardcoded_counts
-        )
-
-        assert len(created_items) == 1
-        assert created_items[0].product_path == "Session replay"
-
-        all_user_products = UserProductList.objects.filter(user=user, team=self.team, product_path="Product analytics")
-        assert all_user_products.count() == 1
-
-    def test_get_user_product_list_count(self):
-        colleague1 = User.objects.create_user(
-            email="colleague1@posthog.com", password="password", first_name="Colleague1", allow_sidebar_suggestions=True
-        )
-        colleague2 = User.objects.create_user(
-            email="colleague2@posthog.com", password="password", first_name="Colleague2", allow_sidebar_suggestions=True
-        )
-        colleague3 = User.objects.create_user(
-            email="colleague3@posthog.com", password="password", first_name="Colleague3", allow_sidebar_suggestions=True
-        )
-        colleague4 = User.objects.create_user(
-            email="colleague4@posthog.com", password="password", first_name="Colleague4", allow_sidebar_suggestions=True
-        )
-
-        colleague1.join(organization=self.organization)
-        colleague2.join(organization=self.organization)
-        colleague3.join(organization=self.organization)
-        colleague4.join(organization=self.organization)
-
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Product analytics", enabled=True)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Product analytics", enabled=True)
-        UserProductList.objects.create(user=colleague3, team=self.team, product_path="Product analytics", enabled=True)
-        UserProductList.objects.create(user=colleague4, team=self.team, product_path="Product analytics", enabled=True)
-
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Session replay", enabled=True)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Session replay", enabled=True)
-        UserProductList.objects.create(user=colleague3, team=self.team, product_path="Session replay", enabled=True)
-
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Feature flags", enabled=True)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Feature flags", enabled=True)
-
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Surveys", enabled=True)
-
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Experiments", enabled=False)
-
-        counts = get_user_product_list_count(self.team)
-
-        assert len(counts) == 4
-        assert counts[0]["product_path"] == "Product analytics"
-        assert counts[0]["colleague_count"] == 4
-        assert counts[1]["product_path"] == "Session replay"
-        assert counts[1]["colleague_count"] == 3
-        assert counts[2]["product_path"] == "Feature flags"
-        assert counts[2]["colleague_count"] == 2
-        assert counts[3]["product_path"] == "Surveys"
-        assert counts[3]["colleague_count"] == 1
-
-    def test_get_user_product_list_count_excludes_disabled_products(self):
-        colleague1 = User.objects.create_user(
-            email="colleague1@posthog.com", password="password", first_name="Colleague1", allow_sidebar_suggestions=True
-        )
-        colleague2 = User.objects.create_user(
-            email="colleague2@posthog.com", password="password", first_name="Colleague2", allow_sidebar_suggestions=True
-        )
-
-        colleague1.join(organization=self.organization)
-        colleague2.join(organization=self.organization)
-
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Product analytics", enabled=True)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Product analytics", enabled=True)
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Session replay", enabled=False)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Session replay", enabled=False)
-
-        counts = get_user_product_list_count(self.team)
-
-        assert len(counts) == 1
-        assert counts[0]["product_path"] == "Product analytics"
-        assert counts[0]["colleague_count"] == 2
-
-    def test_get_user_product_list_count_handles_empty_team(self):
-        counts = get_user_product_list_count(self.team)
-        assert len(counts) == 0
+        add_default_products_for_user(user, self.team)
+        assert UserProductList.objects.filter(user=user, team=self.team).count() == len(DEFAULT_PRODUCT_PATHS)
 
     def test_sync_cross_sell_products_suggests_same_category_or_favored(self):
         user = User.objects.create_user(
