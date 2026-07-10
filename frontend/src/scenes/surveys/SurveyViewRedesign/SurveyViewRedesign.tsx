@@ -83,8 +83,9 @@ export function SurveyViewRedesign(): JSX.Element {
     const { preferredEditor } = useValues(surveysLogic)
     const { editingSurvey, updateSurvey, archiveSurvey, setActiveTab } = useActions(surveyLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
+    const { sidePanelOpen, selectedTab: selectedSidePanelTab } = useValues(sidePanelStateLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { push } = useActions(router)
@@ -168,29 +169,47 @@ export function SurveyViewRedesign(): JSX.Element {
     }, [isRemovingSidePanel, openSidePanel, setPanelTab, setScenePanelOpen])
 
     useEffect(() => {
-        // Don't auto-open the global side panel: it fired on every survey load (the NEW_SURVEY
-        // placeholder makes isSurveyDraft briefly true even for launched surveys) and the side
-        // panel's fallback then flipped it to the Max/AI panel. Open only via openDraftDetails.
-        if (isRemovingSidePanel) {
+        // The NEW_SURVEY placeholder has no start_date, so isDraft is true while the real survey
+        // loads. Acting on it would auto-open the panel for launched surveys too, and race the
+        // side panel's Info tab registration (flipping it to the Max/AI panel). Wait it out.
+        if (survey.id === NEW_SURVEY.id) {
             return
         }
 
         if (!isDraft) {
             if (autoOpenedDraftPanelForSurveyIdRef.current) {
+                if (isRemovingSidePanel && sidePanelOpen && selectedSidePanelTab === SidePanelTab.Info) {
+                    closeSidePanel(SidePanelTab.Info)
+                }
                 setScenePanelOpen(false)
             }
             autoOpenedDraftPanelForSurveyIdRef.current = null
             return
         }
 
-        const surveyId = survey?.id ? String(survey.id) : null
-        if (!surveyId || autoOpenedDraftPanelForSurveyIdRef.current === surveyId) {
+        const surveyId = String(survey.id)
+        if (autoOpenedDraftPanelForSurveyIdRef.current === surveyId) {
             return
         }
 
         autoOpenedDraftPanelForSurveyIdRef.current = surveyId
-        setScenePanelOpen(true)
-    }, [isDraft, isRemovingSidePanel, setScenePanelOpen, survey?.id])
+
+        if (isRemovingSidePanel) {
+            openSidePanel(SidePanelTab.Info)
+            setScenePanelOpen(false)
+        } else {
+            setScenePanelOpen(true)
+        }
+    }, [
+        isDraft,
+        isRemovingSidePanel,
+        closeSidePanel,
+        openSidePanel,
+        selectedSidePanelTab,
+        setScenePanelOpen,
+        sidePanelOpen,
+        survey.id,
+    ])
 
     if (isInitialSurveyLoad) {
         return <LemonSkeleton />
