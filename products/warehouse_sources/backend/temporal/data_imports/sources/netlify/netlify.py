@@ -171,6 +171,36 @@ def _iter_pages(
         url = next_url
 
 
+def _redact_key(row: dict[str, Any], dotted_key: str) -> dict[str, Any]:
+    """Return `row` with a possibly-nested field removed. `"password"` drops a top-level field;
+    `"default_hooks_data.access_token"` walks into `default_hooks_data` and drops its `access_token`.
+    Only the nodes on the path are copied, so the upstream item is left unmodified; a missing or
+    non-dict node is a no-op."""
+    head, _, rest = dotted_key.partition(".")
+    if head not in row:
+        return row
+    if not rest:
+        return {key: value for key, value in row.items() if key != head}
+    nested = row[head]
+    if not isinstance(nested, dict):
+        return row
+    return {**row, head: _redact_key(nested, rest)}
+
+
+def _redact_rows(rows: list[dict[str, Any]], redact_keys: list[str]) -> list[dict[str, Any]]:
+    """Drop each configured (possibly-nested) credential field from every row before it's persisted,
+    so account secrets in the API response never land in a queryable warehouse table."""
+    if not redact_keys:
+        return rows
+    redacted: list[dict[str, Any]] = []
+    for row in rows:
+        if isinstance(row, dict):
+            for key in redact_keys:
+                row = _redact_key(row, key)
+        redacted.append(row)
+    return redacted
+
+
 def _make_parent_field_injector(
     parent: dict[str, Any], field_map: dict[str, str]
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
@@ -227,7 +257,8 @@ def _get_fan_out_rows(
                 max_pages=config.max_pages_per_parent,
                 page_cap_context={config.fan_out_path_param: parent_value},
             ):
-                yield [inject(item) for item in child_items] if inject else child_items
+                rows = [inject(item) for item in child_items] if inject else child_items
+                yield _redact_rows(rows, config.redact_keys)
         # Checkpoint after finishing a parent page so a crash re-fans this page rather than skipping
         # ahead. Save AFTER yielding this page's children; resume re-fans and merge dedupes.
         resumable_source_manager.save_state(NetlifyResumeConfig(next_url=parent_page_url))
@@ -263,7 +294,7 @@ def get_rows(
         if not isinstance(data, list) or not data:
             break
         next_url = _parse_next_url(response.headers.get("Link", ""), url)
-        yield data
+        yield _redact_rows(data, config.redact_keys)
         if not next_url:
             break
         # Save AFTER yielding so a crash re-yields the last page rather than skipping it (merge

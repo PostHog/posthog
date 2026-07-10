@@ -39,6 +39,10 @@ class NetlifyEndpointConfig:
     fan_out_include_parent_fields: Optional[dict[str, str]] = None
     # Hard cap on pages fetched per parent in a fan-out, bounding a runaway paginator. Logged on hit.
     max_pages_per_parent: int = 100
+    # Credential-bearing fields dropped from every row before it's persisted, so they never land in
+    # a queryable warehouse table. Dotted paths reach nested objects (e.g. `default_hooks_data.access_token`);
+    # a bare name targets a top-level field. A missing key is a no-op.
+    redact_keys: list[str] = field(default_factory=list)
 
 
 NETLIFY_ENDPOINTS: dict[str, NetlifyEndpointConfig] = {
@@ -46,6 +50,10 @@ NETLIFY_ENDPOINTS: dict[str, NetlifyEndpointConfig] = {
         name="sites",
         path="/sites",
         partition_key="created_at",
+        # A site object carries account credentials a warehouse user shouldn't read: the site's
+        # basic-auth `password`, the `default_hooks_data.access_token`, and the build-time
+        # environment variables under `build_settings.env` (which routinely hold API secrets).
+        redact_keys=["password", "default_hooks_data.access_token", "build_settings.env"],
     ),
     "deploys": NetlifyEndpointConfig(
         name="deploys",

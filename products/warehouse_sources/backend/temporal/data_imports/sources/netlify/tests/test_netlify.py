@@ -123,6 +123,32 @@ class TestGetRowsTopLevel:
         assert batches == [[{"id": "c"}]]
         assert session.get.call_args_list[0].args[0] == resume_url
 
+    def test_strips_credential_fields_from_sites(self) -> None:
+        # A site object carries account credentials that must never reach the queryable table.
+        manager = _manager()
+        session = mock.Mock()
+        site = {
+            "id": "s1",
+            "name": "acme",
+            "password": "hunter2",
+            "default_hooks_data": {"access_token": "secret-token", "type": "github"},
+            "build_settings": {"env": {"STRIPE_KEY": "sk_live_x"}, "cmd": "build"},
+        }
+        session.get.side_effect = [_resp([site], next_url=None)]
+        with mock.patch.object(netlify, "make_tracked_session", return_value=session):
+            batches = list(get_rows("tok", "sites", mock.Mock(), manager))
+
+        assert batches == [
+            [
+                {
+                    "id": "s1",
+                    "name": "acme",
+                    "default_hooks_data": {"type": "github"},
+                    "build_settings": {"cmd": "build"},
+                }
+            ]
+        ]
+
     def test_empty_first_page_yields_nothing(self) -> None:
         manager = _manager()
         session = mock.Mock()
