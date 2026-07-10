@@ -17,7 +17,7 @@ import { IngestionWarningHandlingBatchPipeline } from '~/ingestion/framework/ing
 import { Pipeline } from '~/ingestion/framework/pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
 import { RetryOptions, withChunkRetry } from '~/ingestion/framework/retry'
-import { SequentialBatchPipeline } from '~/ingestion/framework/sequential-batch-pipeline'
+import { SequentialChunkPipeline } from '~/ingestion/framework/sequential-chunk-pipeline'
 import { SideEffectHandlingPipeline } from '~/ingestion/framework/side-effect-handling-pipeline'
 
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
@@ -96,7 +96,7 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
         callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput, R2>
     ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
-        return new BatchPipelineBuilder(new SequentialBatchPipeline(processor, this.pipeline))
+        return new BatchPipelineBuilder(new SequentialChunkPipeline(processor, this.pipeline))
     }
 
     gather(): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {

@@ -2,7 +2,7 @@ import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } fr
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { isOkResult } from './results'
 
-export class SequentialBatchPipeline<
+export class SequentialChunkPipeline<
     TInput,
     TIntermediate,
     TOutput,
