@@ -107,9 +107,11 @@ services:
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
             # The logs product talks to ClickHouse over a dedicated cluster config
             # (separate from CLICKHOUSE_HOST) that otherwise defaults to
-            # https://localhost:9000. Point it at the stack's ClickHouse over HTTP.
+            # https://localhost:9000. Point it at the stack's ClickHouse over the
+            # native protocol (CLICKHOUSE_USE_HTTP is off, so the LOGS workload uses
+            # the clickhouse_driver native port, not the HTTP port).
             CLICKHOUSE_LOGS_CLUSTER_HOST: 'clickhouse'
-            CLICKHOUSE_LOGS_CLUSTER_PORT: '8123'
+            CLICKHOUSE_LOGS_CLUSTER_PORT: '9000'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'false'
             CLICKHOUSE_LOGS_CLUSTER_USER: 'default'
             CLICKHOUSE_LOGS_CLUSTER_PASSWORD: ''
@@ -167,9 +169,11 @@ services:
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
             # The logs product talks to ClickHouse over a dedicated cluster config
             # (separate from CLICKHOUSE_HOST) that otherwise defaults to
-            # https://localhost:9000. Point it at the stack's ClickHouse over HTTP.
+            # https://localhost:9000. Point it at the stack's ClickHouse over the
+            # native protocol (CLICKHOUSE_USE_HTTP is off, so the LOGS workload uses
+            # the clickhouse_driver native port, not the HTTP port).
             CLICKHOUSE_LOGS_CLUSTER_HOST: 'clickhouse'
-            CLICKHOUSE_LOGS_CLUSTER_PORT: '8123'
+            CLICKHOUSE_LOGS_CLUSTER_PORT: '9000'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'false'
             CLICKHOUSE_LOGS_CLUSTER_USER: 'default'
             CLICKHOUSE_LOGS_CLUSTER_PASSWORD: ''
