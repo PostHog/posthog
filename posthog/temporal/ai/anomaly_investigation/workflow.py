@@ -54,6 +54,11 @@ ANOMALY_INVESTIGATION_ACTIVITY_MAX_ATTEMPTS = 2
 
 MAX_SUMMARY_CHARS = 500
 
+# Cap for the embedded signal description. Kept well under the signals facade's ~8000-token limit
+# (a conservative margin even for token-dense text) so a long agent report can't get the signal
+# rejected and silently dropped.
+_MAX_DESCRIPTION_CHARS = 3000
+
 
 @dataclass
 class AnomalyInvestigationWorkflowInputs:
@@ -320,7 +325,13 @@ def _build_signal_description(
     if report.recommendations:
         lines.append("Recommendations:")
         lines.extend(f"- {rec}" for rec in report.recommendations)
-    return "\n".join(line for line in lines if line)
+    description = "\n".join(line for line in lines if line)
+    # Bound the agent-generated text so it can't blow the facade's description token limit — past it
+    # emit_signal raises and the best-effort caller would silently drop the signal. The full write-up
+    # lives in the linked notebook, so truncating the embedded description is safe.
+    if len(description) > _MAX_DESCRIPTION_CHARS:
+        description = description[: _MAX_DESCRIPTION_CHARS - 1].rstrip() + "…"
+    return description
 
 
 def _dispatch_gated_notification(
