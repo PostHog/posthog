@@ -1593,29 +1593,65 @@ class TestGithubWebhookSource:
         assert sorted(events) == ["pull_request_review", "workflow_job", "workflow_run"]
 
     def test_update_repo_webhook_merges_events_additively(self) -> None:
-        # The PATCH must send the union of current and desired events against the matching hook.
-        # Replacing instead of merging would drop events the user subscribed themselves (push).
+        # The PATCH must send the union of current and desired events against the matching hook,
+        # through the gated egress transport. Replacing instead of merging would drop events the
+        # user subscribed themselves (push).
         webhook_url = "https://app.posthog.com/webhook"
         session = mock.Mock()
         session.get.return_value = _make_response(
             status=200,
             body=[{"id": 42, "events": ["workflow_job", "workflow_run", "push"], "config": {"url": webhook_url}}],
         )
-        session.patch.return_value = _make_response(status=200, body={"id": 42})
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
-            return_value=session,
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
+                return_value=session,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.github_request",
+                return_value=_make_response(status=200, body={"id": 42}),
+            ) as patch_request,
         ):
             result = update_repo_webhook(
                 "tok", "owner/repo", webhook_url, ["workflow_job", "workflow_run", "pull_request_review"]
             )
 
         assert result.success is True
-        patch_url = session.patch.call_args.args[0]
+        method, patch_url = patch_request.call_args.args
+        assert method == "PATCH"
         assert "/repos/owner/repo/hooks/42" in patch_url
-        sent_events = session.patch.call_args.kwargs["json"]["events"]
+        sent_events = patch_request.call_args.kwargs["json"]["events"]
         assert sent_events == ["pull_request_review", "push", "workflow_job", "workflow_run"]
+
+    def test_update_repo_webhook_rate_limit_is_not_a_permission_error(self) -> None:
+        # A rate-limited 403 carries limit markers; misreading it as a missing admin:repo_hook
+        # grant would send the user off to rotate a token that is fine.
+        webhook_url = "https://app.posthog.com/webhook"
+        session = mock.Mock()
+        session.get.return_value = _make_response(
+            status=200, body=[{"id": 42, "events": ["workflow_job"], "config": {"url": webhook_url}}]
+        )
+        rate_limited = _make_response(status=403, body={"message": "API rate limit exceeded"})
+        rate_limited.headers = {"x-ratelimit-remaining": "0"}
+        rate_limited.text = "API rate limit exceeded"
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
+                return_value=session,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.github_request",
+                return_value=rate_limited,
+            ),
+        ):
+            result = update_repo_webhook("tok", "owner/repo", webhook_url, ["pull_request_review"])
+
+        assert result.success is False
+        assert result.error is not None
+        assert "rate limit" in result.error
+        assert "admin:repo_hook" not in result.error
 
     @parameterized.expand(
         [

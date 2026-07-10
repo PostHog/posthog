@@ -1109,11 +1109,25 @@ def update_repo_webhook(token: str, repo: str, webhook_url: str, events: list[st
 
     merged = sorted(current | set(events))
     try:
-        response = make_tracked_session().patch(
+        # Gated + recorded transport, like the data plane and the org permission probe. NORMAL, not
+        # BATCH: a single reconcile write on a schema-enable path is not deferrable bulk. A rate
+        # limit must be told apart from a permission 403 here, or a throttled reconcile would tell
+        # the user their token lacks webhook permissions.
+        response = github_request(
+            "PATCH",
             f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook['id']}",
+            source="warehouse",
             headers=_get_headers(token),
-            json={"events": merged},
+            priority=Priority.NORMAL,
             timeout=30,
+            session=make_tracked_session(),
+            json={"events": merged},
+        )
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        return WebhookSyncResult(
+            success=False,
+            error="GitHub rate limit reached while updating webhook events; it will be retried on the next schema update.",
         )
     except requests.exceptions.RequestException as e:
         return WebhookSyncResult(success=False, error=f"Failed to update webhook events: {e}")

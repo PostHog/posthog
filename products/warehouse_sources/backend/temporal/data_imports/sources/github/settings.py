@@ -136,9 +136,9 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         initial_lookback_days=0,
         # A review can emit several webhook events sharing an id (submitted, then edited or
         # dismissed) and the delta merge doesn't dedupe within a batch, so collapse each batch to
-        # one row per id. submitted_at is constant across those events, so ties pick arbitrarily;
-        # acceptable since same-drain-window duplicates are rare and terminal events usually land
-        # in a later drain.
+        # one row per id. submitted_at is constant across those events, so they always tie; the
+        # dedupe transformer breaks ties by keeping the later-arriving row (rows arrive in
+        # delivery order), so a submit followed by a dismissal in one drain keeps the dismissal.
         version_keys=["submitted_at"],
         # Reviews need only the repo Pull requests read grant the source already validates at
         # create, unlike the org-scoped teams tables, so leave the table selectable by default.
