@@ -4591,16 +4591,21 @@ def rebind_sandbox_identity_for_user(
     auth_token: str | None = None,
 ) -> None:
     """Rebind a run's live sandbox to ``user_id``: mint a PostHog MCP OAuth
-    token for them and push fresh MCP configs.
+    token for them and push fresh MCP configs, then swap the GitHub token and
+    git author identity when they have a personal install covering the task's
+    repository (otherwise the previous GitHub identity keeps authoring).
 
     Used by Slack follow-ups so a teammate taking over the conversation acts
-    as themselves — insights, dashboards, and other PostHog writes attribute
-    to the live actor rather than the task creator. Best-effort by contract:
-    failures are logged, never raised, so a rebind problem can't block the
-    message that triggered it.
+    as themselves — insights, dashboards, commits, and PRs attribute to the
+    live actor rather than the task creator. Best-effort by contract: each
+    credential kind is rebound independently and failures are logged, never
+    raised, so a rebind problem can't block the message that triggered it.
     """
     from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (  # noqa: PLC0415 — keep sandbox deps off the api import path
         refresh_sandbox_mcp_for_user,
+    )
+    from products.tasks.backend.temporal.process_task.sandbox_credentials import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        refresh_sandbox_github_for_user,
     )
 
     try:
@@ -4620,3 +4625,7 @@ def rebind_sandbox_identity_for_user(
         refresh_sandbox_mcp_for_user(run, user, scopes="full", auth_token=auth_token)
     except Exception:
         logger.exception("Sandbox MCP identity rebind failed", extra={"run_id": str(run_id), "user_id": user_id})
+    try:
+        refresh_sandbox_github_for_user(run, user)
+    except Exception:
+        logger.exception("Sandbox GitHub identity rebind failed", extra={"run_id": str(run_id), "user_id": user_id})

@@ -378,7 +378,7 @@ def should_refresh_mcp_token(scope: str, user_id: int) -> bool:
 # boot-time one (the task creator / the task's own integration).
 SANDBOX_IDENTITY_TTL_SECONDS = 7 * 24 * 60 * 60
 
-SandboxIdentityKind = Literal["mcp"]
+SandboxIdentityKind = Literal["mcp", "github", "github_user"]
 
 
 def _sandbox_identity_cache_key(scope: str, kind: SandboxIdentityKind) -> str:
@@ -388,11 +388,15 @@ def _sandbox_identity_cache_key(scope: str, kind: SandboxIdentityKind) -> str:
 def mark_sandbox_identity(scope: str, kind: SandboxIdentityKind, value: int | str) -> None:
     """Record which identity the sandbox currently holds for a credential kind.
 
-    ``mcp`` stores the user id the OAuth token was minted for. Written on
-    every successful rebind so identity transitions (a different Slack actor
-    taking over the thread) are detected and never silently skipped by the
-    per-credential freshness rate limits. ``scope`` comes from
-    ``sandbox_identity_scope``, so a replacement sandbox starts unmarked.
+    ``mcp`` stores the user id the OAuth token was minted for; ``github``
+    stores the UserIntegration id the token and git author belong to, and
+    ``github_user`` the user id behind it (so same-actor messages can skip
+    integration resolution). Written on every successful rebind so identity
+    transitions (a different Slack actor taking over the thread) are detected
+    and never silently skipped by the per-credential freshness rate limits;
+    read by the credential refresh loop and token-rotation propagation so
+    neither reverts a swap. ``scope`` comes from ``sandbox_identity_scope``,
+    so a replacement sandbox starts unmarked.
     """
     get_tasks_cache().set(_sandbox_identity_cache_key(scope, kind), value, timeout=SANDBOX_IDENTITY_TTL_SECONDS)
 
@@ -917,6 +921,11 @@ def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -
     if user is None:
         return {}
 
+    return git_identity_env_for_user(user)
+
+
+def git_identity_env_for_user(user: User) -> dict[str, str]:
+    """Git author/committer env vars attributing commits to ``user``."""
     name = user.get_full_name() or user.first_name or "PostHog User"
     email = user.email
 

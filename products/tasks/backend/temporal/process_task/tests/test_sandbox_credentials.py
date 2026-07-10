@@ -462,3 +462,162 @@ class TestLiveSandboxRegistry:
         result = _live_sandboxes_for_user_integration(integration.id)
 
         assert result == [(str(live_run.id), "sb-live", "org/live")]
+
+
+class TestRefreshSandboxGithubForUser:
+    """Per-message identity swap: a Slack actor with their own GitHub install
+    takes over a live sandbox's token and git author identity."""
+
+    _MODULE = "products.tasks.backend.temporal.process_task.sandbox_credentials"
+
+    def _task_run(self, github_user_integration_id="ui-creator", sandbox_id="sb-1", created_by_id=1):
+        task = MagicMock()
+        task.repository = "acme/repo"
+        task.github_user_integration_id = github_user_integration_id
+        task.created_by_id = created_by_id
+        task_run = MagicMock()
+        task_run.id = "run-gh-1"
+        task_run.task = task
+        task_run.state = {"sandbox_id": sandbox_id} if sandbox_id else {}
+        return task_run
+
+    def _actor(self, user_id=99, name="Bob Builder", email="bob@acme.com"):
+        user = MagicMock()
+        user.id = user_id
+        user.get_full_name.return_value = name
+        user.email = email
+        return user
+
+    def _integration(self, integration_id="ui-actor"):
+        wrapper = MagicMock()
+        wrapper.integration.id = integration_id
+        return wrapper
+
+    @pytest.fixture(autouse=True)
+    def _clear_identity_cache(self):
+        from django.core.cache import cache
+
+        from products.tasks.backend.temporal.process_task.utils import _sandbox_identity_cache_key
+
+        keys = [_sandbox_identity_cache_key("sb-1", kind) for kind in ("github", "github_user")]
+        for key in keys:
+            cache.delete(key)
+        yield
+        for key in keys:
+            cache.delete(key)
+
+    def test_swaps_token_and_git_author_and_marks_identity(self):
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import refresh_sandbox_github_for_user
+        from products.tasks.backend.temporal.process_task.utils import PrAuthorshipMode, get_last_sandbox_identity
+
+        sandbox = MagicMock()
+        sandbox.is_running.return_value = True
+        actor = self._actor()
+        with (
+            patch(f"{self._MODULE}.get_pr_authorship_mode", return_value=PrAuthorshipMode.USER),
+            patch(f"{self._MODULE}.is_caller_token_run", return_value=False),
+            patch(f"{self._MODULE}.get_user_github_integration", return_value=self._integration()),
+            patch(f"{self._MODULE}.resolve_coordinated_user_token", return_value="ghu_actor_token"),
+            patch(f"{self._MODULE}.apply_github_credentials_to_sandbox") as mock_apply,
+            patch("products.tasks.backend.logic.services.sandbox.Sandbox.get_by_id", return_value=sandbox),
+        ):
+            assert refresh_sandbox_github_for_user(self._task_run(), actor) is True
+
+        # Token and git author identity travel together through the shared
+        # apply helper (one env-file read-modify-write).
+        mock_apply.assert_called_once_with(
+            sandbox,
+            "acme/repo",
+            "ghu_actor_token",
+            extra_env={
+                "GIT_AUTHOR_NAME": "Bob Builder",
+                "GIT_AUTHOR_EMAIL": "bob@acme.com",
+                "GIT_COMMITTER_NAME": "Bob Builder",
+                "GIT_COMMITTER_EMAIL": "bob@acme.com",
+            },
+        )
+        assert get_last_sandbox_identity("sb-1", "github") == "ui-actor"
+        assert get_last_sandbox_identity("sb-1", "github_user") == 99
+
+    def test_skips_actor_without_covering_integration(self):
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import refresh_sandbox_github_for_user
+        from products.tasks.backend.temporal.process_task.utils import PrAuthorshipMode
+
+        with (
+            patch(f"{self._MODULE}.get_pr_authorship_mode", return_value=PrAuthorshipMode.USER),
+            patch(f"{self._MODULE}.is_caller_token_run", return_value=False),
+            patch(f"{self._MODULE}.get_user_github_integration", return_value=None),
+            patch(f"{self._MODULE}.apply_github_credentials_to_sandbox") as mock_apply,
+        ):
+            assert refresh_sandbox_github_for_user(self._task_run(), self._actor()) is False
+
+        mock_apply.assert_not_called()
+
+    def test_skips_bot_authored_runs(self):
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import refresh_sandbox_github_for_user
+        from products.tasks.backend.temporal.process_task.utils import PrAuthorshipMode
+
+        with (
+            patch(f"{self._MODULE}.get_pr_authorship_mode", return_value=PrAuthorshipMode.BOT),
+            patch(f"{self._MODULE}.get_user_github_integration") as mock_resolve,
+        ):
+            assert refresh_sandbox_github_for_user(self._task_run(), self._actor()) is False
+
+        mock_resolve.assert_not_called()
+
+    def test_skips_when_sandbox_already_holds_this_identity(self):
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import refresh_sandbox_github_for_user
+        from products.tasks.backend.temporal.process_task.utils import PrAuthorshipMode
+
+        with (
+            patch(f"{self._MODULE}.get_pr_authorship_mode", return_value=PrAuthorshipMode.USER),
+            patch(f"{self._MODULE}.is_caller_token_run", return_value=False),
+            patch(f"{self._MODULE}.get_user_github_integration", return_value=self._integration("ui-creator")),
+            patch(f"{self._MODULE}.resolve_coordinated_user_token") as mock_token,
+        ):
+            assert refresh_sandbox_github_for_user(self._task_run("ui-creator"), self._actor()) is False
+
+        mock_token.assert_not_called()
+
+    def test_switching_back_to_creator_reapplies_their_identity(self):
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import refresh_sandbox_github_for_user
+        from products.tasks.backend.temporal.process_task.utils import (
+            PrAuthorshipMode,
+            get_last_sandbox_identity,
+            mark_sandbox_identity,
+        )
+
+        mark_sandbox_identity("sb-1", "github", "ui-actor")
+        mark_sandbox_identity("sb-1", "github_user", 99)
+        sandbox = MagicMock()
+        sandbox.is_running.return_value = True
+        creator = self._actor(user_id=1, name="Alice A", email="alice@acme.com")
+        with (
+            patch(f"{self._MODULE}.get_pr_authorship_mode", return_value=PrAuthorshipMode.USER),
+            patch(f"{self._MODULE}.is_caller_token_run", return_value=False),
+            patch(f"{self._MODULE}.get_user_github_integration", return_value=self._integration("ui-creator")),
+            patch(f"{self._MODULE}.resolve_coordinated_user_token", return_value="ghu_creator_token"),
+            patch(f"{self._MODULE}.apply_github_credentials_to_sandbox") as mock_apply,
+            patch("products.tasks.backend.logic.services.sandbox.Sandbox.get_by_id", return_value=sandbox),
+        ):
+            assert refresh_sandbox_github_for_user(self._task_run("ui-creator"), creator) is True
+
+        assert mock_apply.call_args.args[2] == "ghu_creator_token"
+        assert get_last_sandbox_identity("sb-1", "github") == "ui-creator"
+        assert get_last_sandbox_identity("sb-1", "github_user") == 1
+
+    def test_creator_message_on_never_swapped_run_skips_resolution(self):
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import refresh_sandbox_github_for_user
+        from products.tasks.backend.temporal.process_task.utils import PrAuthorshipMode
+
+        creator = self._actor(user_id=1)
+        with (
+            patch(f"{self._MODULE}.get_pr_authorship_mode", return_value=PrAuthorshipMode.USER),
+            patch(f"{self._MODULE}.is_caller_token_run", return_value=False),
+            patch(f"{self._MODULE}.get_user_github_integration") as mock_resolve,
+        ):
+            assert refresh_sandbox_github_for_user(self._task_run(created_by_id=1), creator) is False
+
+        # The dominant case (creator messaging their own never-swapped thread)
+        # must not pay the integration resolution's DB query per message.
+        mock_resolve.assert_not_called()
