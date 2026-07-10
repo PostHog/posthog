@@ -57,6 +57,10 @@ export interface DateTimePickerProps {
     compact?: boolean
     /** Quick-range presets to offer. Defaults to `quickRanges`; `CUSTOM_RANGE` entries are filtered out. */
     ranges?: DateTimeRange[]
+    /** Apply a quick range as soon as it's clicked instead of staging it for the Apply button. */
+    applyOnRangeSelect?: boolean
+    /** Host content pinned below the quick-ranges list (e.g. a custom rolling-period input). Shows the rail even with `ranges={[]}`. */
+    rangesFooter?: React.ReactNode
     /** Hide the "Choose date range / Quick ranges" header band when embedding in a host surface. */
     showHeader?: boolean
     /** Day-granular mode: hides the time segments and "Now", and drops time from the footer readout. */
@@ -76,12 +80,15 @@ export function DateTimePicker({
     onDateTimeSettings,
     compact = false,
     ranges = quickRanges,
+    applyOnRangeSelect = false,
+    rangesFooter,
     showHeader = true,
     showTime = true,
     className,
 }: DateTimePickerProps): React.ReactElement {
     const presetRanges = ranges.filter((r) => r.id !== CUSTOM_RANGE.id)
     const hasPresets = presetRanges.length > 0
+    const hasRail = hasPresets || rangesFooter != null
     const maxDate = maxDateProp ?? new Date()
     const hasExplicitMaxDate = maxDateProp !== undefined
     // The second calendar only renders at `lg`; below it (and in compact) there's
@@ -190,6 +197,9 @@ export function DateTimePicker({
         setLastSet(null)
         setRightViewing(nextEnd)
         setLeftViewing(subMonths(nextEnd, 1))
+        if (applyOnRangeSelect) {
+            onApply({ start: nextStart, end: nextEnd, range: next })
+        }
     }
 
     const dateTimeFormat = showTime ? DATE_TIME_FORMATS[dateFormat] : DATE_FORMATS[dateFormat]
@@ -206,7 +216,7 @@ export function DateTimePicker({
         >
             {/* Headers */}
             {!compact && showHeader && (
-                <div className={hasPresets ? 'hidden lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]' : 'hidden lg:grid'}>
+                <div className={hasRail ? 'hidden lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]' : 'hidden lg:grid'}>
                     <div className="flex items-center gap-2 px-2 py-1 bg-muted/30 border-b border-border rounded-tl-lg">
                         <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Choose date range</span>
                         {(minDate || hasExplicitMaxDate) && (
@@ -217,7 +227,7 @@ export function DateTimePicker({
                             </div>
                         )}
                     </div>
-                    {hasPresets && (
+                    {hasRail && (
                         <div className="flex justify-start px-2 py-1 bg-muted/30 border-b border-l border-border rounded-tr-lg">
                             <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Quick ranges</span>
                         </div>
@@ -226,7 +236,7 @@ export function DateTimePicker({
             )}
 
             {/* Body */}
-            <div className={compact || !hasPresets
+            <div className={compact || !hasRail
                 ? 'flex flex-col'
                 : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]'
             }>
@@ -302,38 +312,45 @@ export function DateTimePicker({
                 </div>
 
                 {/* Quick ranges column */}
-                {hasPresets && (
+                {hasRail && (
                 <div className={compact
                     ? 'order-0 border-b border-border'
-                    : 'order-0 lg:order-none lg:relative lg:border-l lg:border-border border-b border-border lg:border-b-0'
+                    : 'order-0 lg:order-none lg:flex lg:flex-col lg:border-l lg:border-border border-b border-border lg:border-b-0'
                 }>
-                    <ScrollArea className={compact ? 'w-full' : 'w-full lg:absolute lg:inset-0'}>
-                        <ul className={compact
-                            ? 'flex flex-row p-2 gap-px max-h-[320px]'
-                            : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
-                        }>
-                            {presetRanges.map((quick) => (
-                                <li key={quick.id} className={compact ? undefined : 'lg:w-full'}>
-                                    <Button
-                                        variant="default"
-                                        size="sm"
-                                        left
-                                        className={compact
-                                            ? 'whitespace-nowrap'
-                                            : 'whitespace-nowrap lg:w-full lg:justify-start'
-                                        }
-                                        aria-selected={range.id === quick.id}
-                                        aria-label={`Choose ${quick.name.toLowerCase()}`}
-                                        title={quick.name}
-                                        onClick={() => handleQuickRange(quick)}
-                                        data-attr={`date-time-picker-quick-range-${quick.name.toLowerCase().replace(/\s+/g, '-')}`}
-                                    >
-                                        {quick.name}
-                                    </Button>
-                                </li>
-                            ))}
-                        </ul>
-                    </ScrollArea>
+                    {hasPresets && (
+                        <div className={compact ? undefined : 'lg:relative lg:flex-1 lg:min-h-0'}>
+                            <ScrollArea className={compact ? 'w-full' : 'w-full lg:absolute lg:inset-0'}>
+                                <ul className={compact
+                                    ? 'flex flex-row p-2 gap-px max-h-[320px]'
+                                    : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
+                                }>
+                                    {presetRanges.map((quick) => (
+                                        <li key={quick.id} className={compact ? undefined : 'lg:w-full'}>
+                                            <Button
+                                                variant="default"
+                                                size="sm"
+                                                left
+                                                className={compact
+                                                    ? 'whitespace-nowrap'
+                                                    : 'whitespace-nowrap lg:w-full lg:justify-start'
+                                                }
+                                                aria-selected={range.id === quick.id}
+                                                aria-label={`Choose ${quick.name.toLowerCase()}`}
+                                                title={quick.name}
+                                                onClick={() => handleQuickRange(quick)}
+                                                data-attr={`date-time-picker-quick-range-${quick.name.toLowerCase().replace(/\s+/g, '-')}`}
+                                            >
+                                                {quick.name}
+                                            </Button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </ScrollArea>
+                        </div>
+                    )}
+                    {rangesFooter != null && (
+                        <div className={hasPresets ? 'border-t border-border p-2' : 'p-2'}>{rangesFooter}</div>
+                    )}
                 </div>
                 )}
             </div>

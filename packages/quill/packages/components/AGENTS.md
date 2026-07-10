@@ -61,7 +61,8 @@ Rules:
 
 - `value.range` is one of the offered presets or `CUSTOM_RANGE` for manual selection. Presets default to `quickRanges` (15 presets, "Last 5 minutes" → "Last 1 year"); pass `ranges` to offer your own `DateTimeRange[]` (any `CUSTOM_RANGE` entry is filtered out of the list). `ranges={[]}` hides the quick-ranges column entirely — for hosts that render their own preset list.
 - A `DateTimeRange` computes its start from "now" via `rangeSetter`; the end defaults to "now" unless `endSetter` is given (needed for closed periods like "Last month"). `name` is any string.
-- Changes are staged until `onApply` fires — don't treat intermediate calendar clicks as committed.
+- Changes are staged until `onApply` fires — don't treat intermediate calendar clicks as committed. `applyOnRangeSelect` opts quick-range clicks out of staging: picking a preset fires `onApply` immediately (calendar edits still stage).
+- `rangesFooter` pins host content below the quick-ranges list (e.g. a custom rolling-period input) and shows the rail even with `ranges={[]}`.
 - Dual-calendar layout appears at the `lg` breakpoint unless `compact` forces a single calendar.
 - `minDate`/`maxDate` are day-granular; time inputs are independent of those bounds.
 - `weekStartsOn` affects the calendar grid only, not quick-range math.

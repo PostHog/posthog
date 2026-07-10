@@ -57,6 +57,45 @@ describe('DateTimePicker', () => {
         expect(screen.queryByTitle('Last 7 days')).toBeNull()
     })
 
+    it('applies a quick range immediately when applyOnRangeSelect is set', async () => {
+        const onApply = jest.fn()
+        const lastMonth: DateTimeRange = {
+            id: 1,
+            name: 'Last month',
+            rangeSetter: () => new Date(2022, 11, 1),
+            endSetter: () => new Date(2022, 11, 31, 23, 59, 59),
+        }
+        render(<DateTimePicker value={VALUE} maxDate={MAX} onApply={onApply} ranges={[lastMonth]} applyOnRangeSelect />)
+
+        await userEvent.click(screen.getByTitle('Last month'))
+
+        expect(onApply).toHaveBeenCalledTimes(1)
+        const applied = onApply.mock.calls[0][0]
+        expect(applied.start).toEqual(new Date(2022, 11, 1))
+        expect(applied.range).toBe(lastMonth)
+    })
+
+    it('renders the rangesFooter in the rail, even with no presets', () => {
+        const { unmount } = render(
+            <DateTimePicker value={VALUE} maxDate={MAX} onApply={jest.fn()} rangesFooter={<span>Rolling input</span>} />
+        )
+        expect(screen.getByText('Rolling input')).toBeTruthy()
+        unmount()
+
+        // ranges={[]} hides the presets list but a footer alone must still show the rail
+        render(
+            <DateTimePicker
+                value={VALUE}
+                maxDate={MAX}
+                onApply={jest.fn()}
+                ranges={[]}
+                rangesFooter={<span>Rolling input</span>}
+            />
+        )
+        expect(screen.getByText('Rolling input')).toBeTruthy()
+        expect(screen.queryByTitle('Last 7 days')).toBeNull()
+    })
+
     it('applies both edges from a preset with an endSetter', async () => {
         const onApply = jest.fn()
         const lastMonth: DateTimeRange = {
