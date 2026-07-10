@@ -3620,7 +3620,8 @@
          "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
-         "posthog_experiment"."conclusion_comment"
+         "posthog_experiment"."conclusion_comment",
+         "posthog_experiment"."flag_cleanup_task_id"
   FROM "posthog_experiment"
   WHERE ("posthog_experiment"."feature_flag_id" = 99999
          AND NOT "posthog_experiment"."deleted")
@@ -3660,7 +3661,8 @@
          "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
-         "posthog_experiment"."conclusion_comment"
+         "posthog_experiment"."conclusion_comment",
+         "posthog_experiment"."flag_cleanup_task_id"
   FROM "posthog_experiment"
   WHERE ("posthog_experiment"."feature_flag_id" = 99999
          AND NOT "posthog_experiment"."deleted")

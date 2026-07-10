@@ -210,6 +210,7 @@
     'exposure_criteria',
     'feature_flag_auto_archived',
     'filters',
+    'flag_cleanup_task_id',
     'metrics',
     'metrics_secondary',
     'name',

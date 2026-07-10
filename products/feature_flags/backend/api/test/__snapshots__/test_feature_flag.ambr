@@ -1348,7 +1348,8 @@
          "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
-         "posthog_experiment"."conclusion_comment"
+         "posthog_experiment"."conclusion_comment",
+         "posthog_experiment"."flag_cleanup_task_id"
   FROM "posthog_experiment"
   WHERE "posthog_experiment"."exposure_cohort_id" = 99999
   '''
@@ -1694,7 +1695,8 @@
          "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
-         "posthog_experiment"."conclusion_comment"
+         "posthog_experiment"."conclusion_comment",
+         "posthog_experiment"."flag_cleanup_task_id"
   FROM "posthog_experiment"
   WHERE (NOT "posthog_experiment"."deleted"
          AND "posthog_experiment"."feature_flag_id" IN (1,
