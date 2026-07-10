@@ -449,6 +449,7 @@ class TestClearPrecomputeOomPinsCommand(BaseTest):
         from io import StringIO
 
         from django.core.management import call_command
+        from django.core.management.base import CommandError
 
         pin_team_oom(901901)
         pin_team_oom(901902)
@@ -464,6 +465,13 @@ class TestClearPrecomputeOomPinsCommand(BaseTest):
         assert is_team_oom_pinned(901901) is False
         assert is_team_oom_pinned(901902) is True
 
+        with self.assertRaises(CommandError):
+            call_command("clear_precompute_oom_pins", "--all")
+        assert is_team_oom_pinned(901902) is True, "--all without --yes must not clear anything"
+
         out = StringIO()
-        call_command("clear_precompute_oom_pins", "--all", stdout=out)
+        call_command("clear_precompute_oom_pins", "--all", "--yes", stdout=out)
         assert is_team_oom_pinned(901902) is False
+
+        with self.assertRaises(CommandError):
+            call_command("clear_precompute_oom_pins", "--list", "--team-id", "901901")

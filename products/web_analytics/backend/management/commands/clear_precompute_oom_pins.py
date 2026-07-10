@@ -16,9 +16,15 @@ class Command(BaseCommand):
     )
 
     def add_arguments(self, parser):
-        parser.add_argument("--team-id", type=int, help="Clear the pin for this team only")
-        parser.add_argument("--all", action="store_true", help="Clear every pin")
-        parser.add_argument("--list", action="store_true", help="List pinned teams without clearing")
+        group = parser.add_mutually_exclusive_group(required=True)
+        group.add_argument("--team-id", type=int, help="Clear the pin for this team only")
+        group.add_argument("--all", action="store_true", help="Clear every pin (requires --yes)")
+        group.add_argument("--list", action="store_true", help="List pinned teams without clearing")
+        parser.add_argument(
+            "--yes",
+            action="store_true",
+            help="Confirm the global --all clear; without it the command only prints what it would remove",
+        )
 
     def handle(self, *args, **options):
         if options["list"]:
@@ -36,11 +42,14 @@ class Command(BaseCommand):
                 self.stdout.write(f"Team {options['team_id']} was not pinned.")
             return
 
-        if options["all"]:
-            pinned = list_oom_pinned_team_ids()
-            for team_id in pinned:
-                clear_team_oom_pin(team_id)
-            self.stdout.write(self.style.SUCCESS(f"Cleared {len(pinned)} OOM pin(s)."))
-            return
-
-        raise CommandError("Pass --list, --team-id <id>, or --all.")
+        pinned = list_oom_pinned_team_ids()
+        if not options["yes"]:
+            # Pins exist because those teams recently OOMed a full-width insert; a global
+            # clear re-exposes all of them at once, so it needs explicit confirmation.
+            teams = ", ".join(str(t) for t in pinned) or "none"
+            raise CommandError(
+                f"--all would clear {len(pinned)} pin(s) (teams: {teams}). Re-run with --yes to confirm."
+            )
+        for team_id in pinned:
+            clear_team_oom_pin(team_id)
+        self.stdout.write(self.style.SUCCESS(f"Cleared {len(pinned)} OOM pin(s)."))
