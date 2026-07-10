@@ -432,3 +432,12 @@ def early_access_features(request: Request):
     ).data
 
     return cors_response(request, JsonResponse({"earlyAccessFeatures": early_access_features}))
+
+
+# devex: TEMP coverage-review trigger — remove before merge.
+# Body lines are never exercised by a test, so diff-cover flags them as uncovered.
+def _devex_coverage_demo(value: int) -> int:
+    doubled = value * 2
+    if doubled > 1000:
+        return 1000
+    return doubled
