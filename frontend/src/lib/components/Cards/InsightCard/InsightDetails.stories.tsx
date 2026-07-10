@@ -22,7 +22,7 @@ import { InsightDetails as InsightDetailsComponent } from './InsightDetails'
 
 interface StoryArgs {
     insight: QueryBasedInsightModel
-    filtersOverride?: DashboardFilter | null
+    filtersOverride?: DashboardFilter
     tileFiltersOverride?: TileFilters | null
 }
 
