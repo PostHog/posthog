@@ -606,10 +606,6 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
             get_s3_key_from_inputs(inputs),
         )
 
-        # NOTE: we don't support resuming from heartbeats for this activity for 2 reasons:
-        # - resuming from old heartbeats doesn't play nicely with S3 multipart uploads
-        # - we don't order the events in the query to ClickHouse
-
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = ProducerFromInternalStage()
         assert inputs.batch_export_id is not None
