@@ -2,11 +2,11 @@ import { Message } from 'node-rdkafka'
 
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
-import { ConcurrentBatchProcessingPipeline } from './concurrent-batch-pipeline'
+import { ConcurrentChunkProcessingPipeline } from './concurrent-chunk-pipeline'
 import { createContext, createNewBatchPipeline, createNewPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok } from './results'
 
-describe('ConcurrentBatchProcessingPipeline', () => {
+describe('ConcurrentChunkProcessingPipeline', () => {
     let message1: Message
     let message2: Message
     let message3: Message
@@ -55,9 +55,9 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             )
             const previousPipeline = createNewBatchPipeline<string>().build()
 
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
-            expect(pipeline).toBeInstanceOf(ConcurrentBatchProcessingPipeline)
+            expect(pipeline).toBeInstanceOf(ConcurrentChunkProcessingPipeline)
         })
     })
 
@@ -67,7 +67,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             const previousPipeline = createNewBatchPipeline<string>().build()
             const spy = jest.spyOn(previousPipeline, 'feed')
 
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
             const testBatch = [createOkContext('test', context1)]
 
             pipeline.feed(testBatch)
@@ -81,7 +81,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             const processor = createNewPipeline<string>().pipe((input: string) => Promise.resolve(ok(input)))
             const previousPipeline = createNewBatchPipeline<string>().build()
 
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
             const result = await pipeline.next()
             expect(result).toBeNull()
@@ -97,7 +97,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             const testBatch = [createOkContext('hello', context1), createOkContext('world', context2)]
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
             const result1 = await pipeline.next()
             const result2 = await pipeline.next()
@@ -116,7 +116,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             const testBatch = [createContext(dropResult, context1), createContext(dlqResult, context2)]
             const previousPipeline = createMockPipeline<string>(testBatch)
 
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
             const result1 = await pipeline.next()
             const result2 = await pipeline.next()
@@ -140,7 +140,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             ]
             const previousPipeline = createMockPipeline<string>(testBatch)
 
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
             const result1 = await pipeline.next()
             const result2 = await pipeline.next()
@@ -164,7 +164,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             const testBatch = [createOkContext('fast', context1), createOkContext('slow', context2)]
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
             const startTime = Date.now()
             const result1 = await pipeline.next()
@@ -186,7 +186,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             const testBatch = [createOkContext('test', context1)]
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
             await expect(pipeline.next()).rejects.toThrow('Processor error')
         })
@@ -200,7 +200,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             const batch1 = [createOkContext('batch1', context1)]
             const batch2 = [createOkContext('batch2', context2)]
 
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
             // First batch: feed then next
             previousPipeline.feed(batch1)
@@ -230,7 +230,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             ]
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
             // First call should process first item
             const result1 = await pipeline.next()
@@ -270,7 +270,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             ]
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
             // Process the batch
             const result1 = await pipeline.next()
@@ -310,7 +310,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             const testBatch = Array.from({ length: itemCount }, (_, i) => createOkContext(`item-${i}`, context1))
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline, maxConcurrency)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline, maxConcurrency)
 
             const results = []
             let result = await pipeline.next()
@@ -339,7 +339,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             const testBatch = delaysByIndex.map((_, i) => createOkContext(`item-${i}`, context1))
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline, 2)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline, 2)
 
             const emitted = []
             let result = await pipeline.next()
@@ -359,7 +359,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
                 feed: jest.fn(),
                 next: jest.fn().mockRejectedValueOnce(new Error('source boom')).mockResolvedValue(null),
             }
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
             await expect(pipeline.next()).rejects.toThrow('source boom')
             await expect(pipeline.next()).rejects.toThrow('source boom')
@@ -370,7 +370,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
                 input.fail ? Promise.reject(new Error('item boom')) : Promise.resolve(ok(input))
             )
             const previousPipeline = createNewBatchPipeline<{ value: string; fail?: boolean }>().build()
-            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+            const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
             // FIFO: the failing head surfaces first, the already in-flight item
             // drains next, then the stage rejects permanently.

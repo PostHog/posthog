@@ -6,7 +6,7 @@ import { Pipeline, PipelineContext, PipelineResultWithContext } from './pipeline
 import { isOkResult } from './results'
 
 /**
- * Processes each item of a batch concurrently, emitting results in input (FIFO)
+ * Processes each item of a chunk concurrently, emitting results in input (FIFO)
  * order. Items start processing as soon as they're pulled from upstream; results
  * are emitted one at a time by awaiting the head of the queue.
  *
@@ -19,7 +19,7 @@ import { isOkResult } from './results'
  * already in flight still drain in FIFO order, then next() rejects with that
  * error permanently.
  */
-export class ConcurrentBatchProcessingPipeline<
+export class ConcurrentChunkProcessingPipeline<
     TInput,
     TIntermediate,
     TOutput,
@@ -56,7 +56,7 @@ export class ConcurrentBatchProcessingPipeline<
         return this.inner.next()
     }
 
-    /** Pull one upstream batch and start processing every item concurrently. */
+    /** Pull one upstream chunk and start processing every item concurrently. */
     private async enqueueFromPrevious(): Promise<PullOutcome<TOutput, COutput, RPrev | RStep>> {
         const previousResults = await this.previousPipeline.next()
         if (previousResults === null) {

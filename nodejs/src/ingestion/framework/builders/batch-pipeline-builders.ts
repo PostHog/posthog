@@ -6,7 +6,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { BaseChunkPipeline, ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { BufferingChunkPipeline } from '~/ingestion/framework/buffering-chunk-pipeline'
 import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
-import { ConcurrentBatchProcessingPipeline } from '~/ingestion/framework/concurrent-batch-pipeline'
+import { ConcurrentChunkProcessingPipeline } from '~/ingestion/framework/concurrent-chunk-pipeline'
 import {
     ConcurrentlyGroupingBatchPipeline,
     GroupingFunction,
@@ -88,7 +88,7 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
     ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
         return new BatchPipelineBuilder(
-            new ConcurrentBatchProcessingPipeline(processor, this.pipeline, options?.maxConcurrency)
+            new ConcurrentChunkProcessingPipeline(processor, this.pipeline, options?.maxConcurrency)
         )
     }
 
