@@ -4,7 +4,7 @@ import { uuid } from 'lib/utils/dom'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 
-import { LogsColumnConfig, normalizeColumns } from './columns'
+import { LogsColumnConfig, LogsColumnType, normalizeColumns } from './columns'
 import type { logsColumnConfiguratorLogicType } from './logsColumnConfiguratorLogicType'
 
 export interface LogsColumnConfiguratorLogicProps {
@@ -31,6 +31,12 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
         setDraft: (draft: LogsColumnConfig[]) => ({ draft }),
         updateDraftColumn: (id: string, patch: Partial<Omit<LogsColumnConfig, 'id'>>) => ({ id, patch }),
         addDraftColumn: (column: Omit<LogsColumnConfig, 'id'>) => ({ column }),
+
+        // The "Add a column" form (type + name + expression for custom)
+        setNewColumnType: (columnType: LogsColumnType) => ({ columnType }),
+        setNewColumnName: (name: string) => ({ name }),
+        setNewColumnExpression: (expression: string) => ({ expression }),
+        submitNewColumn: true,
         setEditingColumnId: (id: string | null) => ({ id }),
         removeDraftColumn: (id: string) => ({ id }),
         moveDraftColumn: (fromIndex: number, toIndex: number) => ({ fromIndex, toIndex }),
@@ -55,6 +61,22 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
                 removeDraftColumn: () => null,
             },
         ],
+        newColumn: [
+            { type: 'custom', name: '', expression: '' } as {
+                type: LogsColumnType
+                name: string
+                expression: string
+            },
+            {
+                setNewColumnType: (state, { columnType }) => ({ ...state, type: columnType }),
+                setNewColumnName: (state, { name }) => ({ ...state, name }),
+                setNewColumnExpression: (state, { expression }) => ({ ...state, expression }),
+                // Reset on the add itself, not on submitNewColumn — reducers run before the
+                // submit listener, which still needs to read the form values
+                addDraftColumn: () => ({ type: 'custom' as const, name: '', expression: '' }),
+                openConfigurator: () => ({ type: 'custom' as const, name: '', expression: '' }),
+            },
+        ],
         draft: [
             [] as LogsColumnConfig[],
             {
@@ -77,6 +99,13 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
     }),
 
     selectors({
+        newColumnError: [
+            (s) => [s.newColumn],
+            (newColumn: { type: LogsColumnType; expression: string }): string | null =>
+                newColumn.type === 'custom' && !newColumn.expression.trim()
+                    ? 'Custom columns need an expression'
+                    : null,
+        ],
         draftErrors: [
             (s) => [s.draft],
             (draft: LogsColumnConfig[]): string | null => {
@@ -94,6 +123,17 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
     listeners(({ actions, values }) => ({
         openConfigurator: () => {
             actions.setDraft(values.columns)
+        },
+        submitNewColumn: () => {
+            const { type, name, expression } = values.newColumn
+            if (values.newColumnError) {
+                return
+            }
+            actions.addDraftColumn({
+                type,
+                ...(name.trim() ? { name: name.trim() } : {}),
+                ...(type === 'custom' ? { expression: expression.trim() } : {}),
+            })
         },
         applyDraft: () => {
             if (!values.draftErrors) {

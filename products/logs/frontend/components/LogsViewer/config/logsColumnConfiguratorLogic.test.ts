@@ -82,4 +82,25 @@ describe('logsColumnConfiguratorLogic', () => {
         logic.actions.moveDraftColumn(0, 2)
         expect(logic.values.draft.at(-1)?.type).toBe('message')
     })
+
+    it('submitNewColumn appends from the form and resets it; invalid custom is blocked', () => {
+        // Custom without expression: blocked, nothing added
+        const before = logic.values.draft.length
+        logic.actions.submitNewColumn()
+        expect(logic.values.newColumnError).toBe('Custom columns need an expression')
+        expect(logic.values.draft).toHaveLength(before)
+
+        // Built-in type with a name override — reducers reset the form only after the add lands
+        logic.actions.setNewColumnType('level')
+        logic.actions.setNewColumnName('Severity')
+        logic.actions.submitNewColumn()
+        const added = logic.values.draft.find((c) => c.type === 'level')
+        expect(added?.name).toBe('Severity')
+        expect(logic.values.newColumn).toEqual({ type: 'custom', name: '', expression: '' })
+
+        // Custom with expression round-trips through the same path
+        logic.actions.setNewColumnExpression('attributes.http.url')
+        logic.actions.submitNewColumn()
+        expect(logic.values.draft.find((c) => c.expression === 'attributes.http.url')).toBeTruthy()
+    })
 })
