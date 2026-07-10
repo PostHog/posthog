@@ -2338,6 +2338,11 @@ export type QueryStatus = {
     complete: boolean
     /**  @default null */
     error_message: string | null
+    /**
+     * Stable machine-readable code for the error (the DRF exception code), when known.
+     * @default null
+     */
+    error_code: string | null
     results?: any
     /**
      * When was the query execution task picked up by a worker.
@@ -7477,6 +7482,7 @@ export const externalDataSources = [
     'Vultr',
     'Windmill',
     'Zep',
+    'Hex',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

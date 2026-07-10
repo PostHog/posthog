@@ -594,6 +594,8 @@ export namespace Schemas {
       end_time?: string | null;
       /** If the query failed, this will be set to true. More information can be found in the error_message field. */
       error?: boolean | null;
+      /** Stable machine-readable code for the error (the DRF exception code), when known. */
+      error_code?: string | null;
       error_message?: string | null;
       expiration_time?: string | null;
       id: string;
@@ -13438,6 +13440,7 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `plan` - plan
      * * `auto` - auto
      * * `read-only` - read-only
      * * `full-access` - full-access
@@ -13446,6 +13449,7 @@ export namespace Schemas {
 
 
     export const CodexTaskRunCreateSchemaInitialPermissionModeEnum = {
+      Plan: 'plan',
       Auto: 'auto',
       ReadOnly: 'read-only',
       FullAccess: 'full-access',
@@ -13514,6 +13518,7 @@ export namespace Schemas {
       github_user_token?: string;
       /** Initial permission mode for Codex runtimes.
        *
+       * * `plan` - plan
        * * `auto` - auto
        * * `read-only` - read-only
        * * `full-access` - full-access */
@@ -16905,6 +16910,7 @@ export namespace Schemas {
      * * `Vultr` - Vultr
      * * `Windmill` - Windmill
      * * `Zep` - Zep
+     * * `Hex` - Hex
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -17663,6 +17669,7 @@ export namespace Schemas {
       Vultr: 'Vultr',
       Windmill: 'Windmill',
       Zep: 'Zep',
+      Hex: 'Hex',
     } as const;
 
     /**
@@ -18434,7 +18441,8 @@ export namespace Schemas {
        * * `Vellum` - Vellum
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
-       * * `Zep` - Zep */
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -23494,11 +23502,6 @@ export namespace Schemas {
       /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
       readonly results: readonly MetricRecalculationResult[];
       /**
-         * Count of metric queries currently running in ClickHouse (bounded by worker-pool concurrency)
-         * @nullable
-         */
-      running_metrics?: number | null;
-      /**
          * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
          * @nullable
          */
@@ -23508,16 +23511,6 @@ export namespace Schemas {
          * @nullable
          */
       estimated_rows_total?: number | null;
-      /**
-         * Bytes read by the run's metric queries so far, both finished and currently running
-         * @nullable
-         */
-      bytes_read?: number | null;
-      /**
-         * Active CPU time (microseconds) consumed by the run's metric queries so far, both finished and currently running
-         * @nullable
-         */
-      active_cpu_time?: number | null;
     }
 
     export type ExperimentResultsWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType];
@@ -24850,7 +24843,8 @@ export namespace Schemas {
        * * `Vellum` - Vellum
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
-       * * `Zep` - Zep */
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -36367,6 +36361,8 @@ export namespace Schemas {
          * @nullable
          */
       invite_message?: string | null;
+      /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+      send_test_now?: boolean;
       /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
       summary_enabled?: boolean;
       /**
@@ -43560,6 +43556,8 @@ export namespace Schemas {
          * @nullable
          */
       invite_message?: string | null;
+      /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+      send_test_now?: boolean;
       /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
       summary_enabled?: boolean;
       /**
@@ -52908,7 +52906,8 @@ export namespace Schemas {
        * * `Vellum` - Vellum
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
-       * * `Zep` - Zep */
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -53706,7 +53705,8 @@ export namespace Schemas {
        * * `Vellum` - Vellum
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
-       * * `Zep` - Zep */
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -54496,7 +54496,8 @@ export namespace Schemas {
        * * `Vellum` - Vellum
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
-       * * `Zep` - Zep */
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -55891,7 +55892,7 @@ export namespace Schemas {
       reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
       github_user_token?: string;
-      /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.
+      /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
        *
        * * `default` - default
        * * `acceptEdits` - acceptEdits
@@ -63794,9 +63795,17 @@ export namespace Schemas {
      */
     dashboard?: number;
     /**
+     * Filter to subscriptions on insights that are tiles of the given dashboard ID.
+     */
+    dashboard_tiles?: number;
+    /**
      * Filter by insight ID.
      */
     insight?: number;
+    /**
+     * Filter by a comma-separated list of insight IDs.
+     */
+    insights?: string;
     /**
      * Number of results to return per page.
      */
@@ -71657,9 +71666,17 @@ export namespace Schemas {
      */
     dashboard?: number;
     /**
+     * Filter to subscriptions on insights that are tiles of the given dashboard ID.
+     */
+    dashboard_tiles?: number;
+    /**
      * Filter by insight ID.
      */
     insight?: number;
+    /**
+     * Filter by a comma-separated list of insight IDs.
+     */
+    insights?: string;
     /**
      * Number of results to return per page.
      */

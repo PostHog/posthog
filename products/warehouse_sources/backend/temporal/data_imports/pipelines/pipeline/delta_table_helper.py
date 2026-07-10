@@ -178,19 +178,23 @@ class DeltaTableHelper:
                 settings.OBJECT_STORAGE_ENDPOINT,
             )
 
-            return {
+            options = {
                 "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
                 "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
                 "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
                 "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
                 "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
                 "AWS_ALLOW_HTTP": "true",
-                "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
             }
+        else:
+            options = {}
 
-        return {
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
+        # Conditional puts make a clashing concurrent commit fail loudly instead of
+        # clobbering _delta_log; set explicitly so a library default change can't undo it.
+        options["conditional_put"] = "etag"
+        if settings.DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME:
+            options["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"
+        return options
 
     async def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention.normalize_identifier(self._resource_name)
@@ -236,9 +240,14 @@ class DeltaTableHelper:
                     deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options
                 )
             except Exception as e:
-                # Temp fix for bugged tables
                 capture_exception(e)
-                if "parse decimal overflow" in "".join(e.args):
+                error_text = "".join(str(arg) for arg in e.args)
+                # Unrecoverable tables (bugged decimals, or an orphaned _delta_log missing its
+                # metadata action — impossible on a healthy table): wipe so the sync starts fresh.
+                if "parse decimal overflow" in error_text or "No table metadata or protocol found" in error_text:
+                    await self._logger.aerror(
+                        f"get_delta_table: deleting unrecoverable delta table for a fresh sync: {error_text}"
+                    )
                     async with aget_s3_client() as s3:
                         await s3._rm(delta_uri, recursive=True)
                 else:
