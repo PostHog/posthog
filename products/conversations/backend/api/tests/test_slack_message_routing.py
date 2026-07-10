@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
+from django.test import override_settings
 
 from celery.exceptions import MaxRetriesExceededError
 from parameterized import parameterized
@@ -645,6 +646,103 @@ class TestSlackNudge(BaseTest):
 
         # First message nudges and sets a cooldown; the second is suppressed.
         mock_get_client.return_value.chat_postMessage.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("classifier_says_yes", "yes", True),
+            ("classifier_says_yes_with_punctuation", "Yes.", True),
+            ("classifier_says_no", "no", False),
+            ("classifier_call_fails_degrades_to_heuristics", None, True),
+        ]
+    )
+    @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
+    @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
+    @patch(f"{MODULE}.get_llm_client")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_llm_gates_nudge_when_ai_processing_approved(
+        self,
+        _name,
+        llm_answer,
+        expect_prompt,
+        mock_create_or_update,
+        mock_get_client,
+        mock_get_llm_client,
+        _mock_flag_enabled,
+    ):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        if llm_answer is None:
+            # A gateway failure must be swallowed (no Celery retry storm) and fall back to
+            # the heuristics-only nudge instead of silently disabling the feature.
+            mock_get_llm_client.return_value.chat.completions.create.side_effect = RuntimeError("gateway down")
+        else:
+            completion = Mock()
+            completion.choices = [Mock(message=Mock(content=llm_answer))]
+            mock_get_llm_client.return_value.chat.completions.create.return_value = completion
+
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_OTHER",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "my data export keeps failing",
+            },
+            self.team,
+            "T123",
+        )
+
+        if expect_prompt:
+            mock_get_client.return_value.chat_postMessage.assert_called_once()
+        else:
+            mock_get_client.return_value.chat_postMessage.assert_not_called()
+        mock_create_or_update.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("ai_processing_off", False, True),
+            ("rollout_flag_off", True, False),
+        ]
+    )
+    @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
+    @patch(f"{MODULE}.posthoganalytics.feature_enabled")
+    @patch(f"{MODULE}.get_llm_client")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_nudge_never_calls_llm_when_gated_off(
+        self,
+        _name,
+        ai_approved,
+        flag_enabled,
+        mock_create_or_update,
+        mock_get_client,
+        mock_get_llm_client,
+        mock_flag_enabled,
+    ):
+        # Opted-out orgs must not have customer messages sent to the LLM gateway, and the
+        # rollout flag must be able to hold the classifier off; both keep the heuristics-only
+        # nudge working.
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save()
+        mock_flag_enabled.return_value = flag_enabled
+
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_OTHER",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "my data export keeps failing",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_get_llm_client.assert_not_called()
+        mock_get_client.return_value.chat_postMessage.assert_called_once()
+        mock_create_or_update.assert_not_called()
 
     @patch(f"{MODULE}._backfill_thread_replies")
     @patch(f"{MODULE}.get_slack_client")
