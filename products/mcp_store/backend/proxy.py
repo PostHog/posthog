@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Iterator
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -14,8 +15,9 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
+from .analytics import MCP_CONSUMER_HEADER, base_server_slug, report_mcp_tool_call
 from .models import MCPServerInstallation, MCPServerInstallationTool
-from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
+from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token_single_flight
 
 logger = structlog.get_logger(__name__)
 
@@ -131,7 +133,7 @@ def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str
 def ensure_valid_token(installation: MCPServerInstallation) -> None:
     if not is_token_expiring(installation.sensitive_configuration or {}):
         return
-    refresh_installation_token(installation)
+    refresh_installation_token_single_flight(installation)
 
 
 def validate_installation_auth(
@@ -317,6 +319,47 @@ def enforce_tool_approval(
     return HttpResponse(json.dumps(blocked), content_type="application/json", status=200)
 
 
+def _tool_call_names(data: dict[str, Any] | list[Any]) -> list[str]:
+    items = data if isinstance(data, list) else [data]
+    names: list[str] = []
+    for item in items:
+        if not _is_tools_call(item):
+            continue
+        params = item.get("params")
+        name = params.get("name") if isinstance(params, dict) else None
+        if isinstance(name, str) and name:
+            names.append(name)
+    return names
+
+
+def _report_proxy_tool_calls(
+    request: Any,
+    installation: MCPServerInstallation,
+    tool_names: list[str],
+    *,
+    duration_ms: int,
+    is_error: bool,
+    error_type: str | None = None,
+) -> None:
+    if not tool_names:
+        return
+    slug = base_server_slug(installation)
+    consumer = request.headers.get(MCP_CONSUMER_HEADER)
+    for name in tool_names:
+        report_mcp_tool_call(
+            request.user,
+            installation.team,
+            tool_name=f"{slug}/{name}",
+            source="store_proxy",
+            server_slug=slug,
+            installation=installation,
+            duration_ms=duration_ms,
+            is_error=is_error,
+            error_type=error_type,
+            consumer=consumer,
+        )
+
+
 def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> HttpResponse | StreamingHttpResponse:
     allowed, error = is_url_allowed(installation.url)
     if not allowed:
@@ -336,7 +379,12 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
             status=400,
         )
 
+    tool_names = _tool_call_names(data)
+
     if enforcement_response := enforce_tool_approval(installation, data):
+        _report_proxy_tool_calls(
+            request, installation, tool_names, duration_ms=0, is_error=True, error_type="approval_blocked"
+        )
         return enforcement_response
 
     body = json.dumps(data).encode()
@@ -372,6 +420,7 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
         headers["Mcp-Session-Id"] = mcp_session_id
 
     client = httpx.Client(timeout=UPSTREAM_TIMEOUT)
+    started_at = time.monotonic()
     try:
         upstream_response, upstream_url = send_mcp_request_with_same_origin_redirect(
             client,
@@ -384,6 +433,14 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     except httpx.ConnectError:
         client.close()
         logger.warning("Upstream MCP server unreachable", url=installation.url)
+        _report_proxy_tool_calls(
+            request,
+            installation,
+            tool_names,
+            duration_ms=int((time.monotonic() - started_at) * 1000),
+            is_error=True,
+            error_type="unreachable",
+        )
         return HttpResponse(
             '{"error": "Upstream MCP server unreachable"}',
             content_type="application/json",
@@ -392,6 +449,14 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     except httpx.TimeoutException:
         client.close()
         logger.warning("Upstream MCP server timed out", url=installation.url)
+        _report_proxy_tool_calls(
+            request,
+            installation,
+            tool_names,
+            duration_ms=int((time.monotonic() - started_at) * 1000),
+            is_error=True,
+            error_type="timeout",
+        )
         return HttpResponse(
             '{"error": "Upstream MCP server timed out"}',
             content_type="application/json",
@@ -404,6 +469,14 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     content_type = upstream_response.headers.get("content-type", "")
 
     if "text/event-stream" in content_type:
+        # Duration covers time-to-headers only; the stream body is still in flight.
+        _report_proxy_tool_calls(
+            request,
+            installation,
+            tool_names,
+            duration_ms=int((time.monotonic() - started_at) * 1000),
+            is_error=upstream_response.status_code >= 400,
+        )
         return _build_sse_response(upstream_response, client)
 
     # Read body then close to avoid memory leaks from buffered responses
@@ -411,6 +484,15 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
         upstream_response.read()
     finally:
         client.close()
+
+    _report_proxy_tool_calls(
+        request,
+        installation,
+        tool_names,
+        duration_ms=int((time.monotonic() - started_at) * 1000),
+        is_error=upstream_response.status_code >= 400,
+        error_type="upstream_status" if upstream_response.status_code >= 400 else None,
+    )
 
     if upstream_response.status_code >= 400:
         logger.warning(

@@ -16,7 +16,7 @@ import structlog
 from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServerInstallation, MCPServerInstallationTool
-from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
+from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token_single_flight
 from .proxy import build_upstream_auth_headers, validated_same_origin_redirect_url
 
 logger = structlog.get_logger(__name__)
@@ -49,7 +49,7 @@ def _ensure_valid_token_for_fetch(installation: MCPServerInstallation) -> None:
     if not is_token_expiring(sensitive):
         return
     try:
-        refresh_installation_token(installation)
+        refresh_installation_token_single_flight(installation)
     except TokenRefreshError as exc:
         raise ToolsFetchError(f"Token refresh failed: {exc}") from exc
 

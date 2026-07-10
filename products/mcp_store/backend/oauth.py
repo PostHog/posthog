@@ -3,12 +3,15 @@ import base64
 import hashlib
 import secrets
 from collections.abc import Callable
+from contextlib import suppress
 from urllib.parse import urlparse
 
 import requests
 import structlog
 import tldextract
+from redis.exceptions import LockError
 
+from posthog.redis import get_client
 from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServerInstallation
@@ -545,6 +548,46 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
 
     logger.info("OAuth token refreshed successfully", installation_id=str(installation.id))
     return updated
+
+
+# Refresh should finish in well under TIMEOUT (10s); the TTL only bounds a crashed holder.
+TOKEN_REFRESH_LOCK_TTL_SECONDS = 30
+TOKEN_REFRESH_LOCK_WAIT_SECONDS = 15
+
+
+def _token_refresh_lock_key(installation_id: str) -> str:
+    return f"mcp_store:token_refresh:{installation_id}"
+
+
+def refresh_installation_token_single_flight(installation: MCPServerInstallation) -> dict:
+    """Refresh with a per-installation Redis lock so concurrent callers mint once.
+
+    Providers commonly rotate the refresh token on use, so parallel refreshes
+    would revoke each other's tokens. Waiters re-read the row after the holder
+    finishes; if it's fresh they skip the mint entirely.
+    """
+    lock = get_client().lock(
+        _token_refresh_lock_key(str(installation.id)),
+        timeout=TOKEN_REFRESH_LOCK_TTL_SECONDS,
+        blocking_timeout=TOKEN_REFRESH_LOCK_WAIT_SECONDS,
+    )
+    if not lock.acquire():
+        # Waited out the budget — trust the holder's result if it landed.
+        installation.refresh_from_db(fields=["sensitive_configuration"])
+        if is_token_expiring(installation.sensitive_configuration or {}):
+            raise TokenRefreshError("Timed out waiting for a concurrent token refresh")
+        return installation.sensitive_configuration
+
+    try:
+        # Another holder may have refreshed while we waited for the lock.
+        installation.refresh_from_db(fields=["sensitive_configuration"])
+        if not is_token_expiring(installation.sensitive_configuration or {}):
+            return installation.sensitive_configuration
+        return refresh_installation_token(installation)
+    finally:
+        # The lock may have expired mid-refresh; releasing someone else's lock raises.
+        with suppress(LockError):
+            lock.release()
 
 
 def exchange_oauth_token(
