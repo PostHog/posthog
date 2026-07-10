@@ -237,6 +237,7 @@ def _build_investigation_signal_extra(
         "alert_id": str(alert.id),
         "alert_name": alert.name or "Unnamed alert",
         "alert_check_id": str(alert_check.id),
+        "insight_id": str(insight.id),
         "detector_type": detector_type,
         "verdict": report.verdict,
         "summary": report.summary,
@@ -279,6 +280,8 @@ async def _emit_investigation_signal(
         description=_build_signal_description(
             alert_name=alert.name or "Unnamed alert",
             insight_name=insight.name or None,
+            insight_id=str(insight.id),
+            insight_short_id=getattr(insight, "short_id", None),
             report=report,
         ),
         weight=_VERDICT_WEIGHTS.get(report.verdict, 0.6),
@@ -293,13 +296,22 @@ async def _emit_investigation_signal(
     )
 
 
-def _build_signal_description(*, alert_name: str, insight_name: str | None, report: InvestigationReport) -> str:
-    """Human-readable description embedded for grouping. Leads with the verdict, then the agent's
-    summary, hypotheses, and recommendations."""
+def _build_signal_description(
+    *,
+    alert_name: str,
+    insight_name: str | None,
+    insight_id: str,
+    insight_short_id: str | None,
+    report: InvestigationReport,
+) -> str:
+    """Human-readable description embedded for grouping. Leads with the verdict, names the insight
+    (with its id, handy for lookups), then the agent's summary, hypotheses, and recommendations."""
     verdict_label = report.verdict.replace("_", " ")
     metric = f" on {insight_name}" if insight_name else ""
+    insight_ref = f"{insight_short_id} / id {insight_id}" if insight_short_id else f"id {insight_id}"
     lines: list[str] = [
         f"Anomaly investigation for alert '{alert_name}'{metric} (verdict: {verdict_label}).",
+        f"Insight: {insight_ref}.",
         report.summary,
     ]
     if report.hypotheses:

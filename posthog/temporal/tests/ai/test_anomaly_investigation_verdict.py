@@ -141,3 +141,4 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         assert kwargs["source_type"] == "anomaly_investigation"
         assert kwargs["source_id"] == str(self.alert_check.id)
         assert kwargs["extra"]["verdict"] == "true_positive"
+        assert kwargs["extra"]["insight_id"] == str(self.insight.id)
