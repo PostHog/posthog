@@ -14,4 +14,4 @@
 ### Type wideness
 
 - `tophog.ts` — `TopHogMetric.start` callback uses `PipelineResult<TOutput, string>`. Metrics are consumers so `string` is semantically correct, but inconsistent with `never` defaults elsewhere.
-- `gathering-batch-pipeline.test.ts` — mock class uses `any` types. Should be properly typed.
+- `gathering-chunk-pipeline.test.ts` — mock class uses `any` types. Should be properly typed.

@@ -12,7 +12,7 @@ import {
     GroupingFunction,
 } from '~/ingestion/framework/concurrently-grouping-batch-pipeline'
 import { FilterMapBatchPipeline, FilterMapMappingFunction } from '~/ingestion/framework/filter-map-batch-pipeline'
-import { GatheringBatchPipeline } from '~/ingestion/framework/gathering-batch-pipeline'
+import { GatheringChunkPipeline } from '~/ingestion/framework/gathering-chunk-pipeline'
 import { IngestionWarningHandlingBatchPipeline } from '~/ingestion/framework/ingestion-warning-handling-batch-pipeline'
 import { Pipeline } from '~/ingestion/framework/pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
@@ -100,7 +100,7 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
     }
 
     gather(): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
-        return new BatchPipelineBuilder(new GatheringBatchPipeline(this.pipeline))
+        return new BatchPipelineBuilder(new GatheringChunkPipeline(this.pipeline))
     }
 
     /**

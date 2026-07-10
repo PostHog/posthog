@@ -1,6 +1,6 @@
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 
-export class GatheringBatchPipeline<TInput, TOutput, CInput, COutput = CInput, R extends string = never>
+export class GatheringChunkPipeline<TInput, TOutput, CInput, COutput = CInput, R extends string = never>
     implements ChunkPipeline<TInput, TOutput, CInput, COutput, R>
 {
     constructor(private subPipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>) {}
