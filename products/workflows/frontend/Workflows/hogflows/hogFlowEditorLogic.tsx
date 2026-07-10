@@ -22,6 +22,7 @@ import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/Ap
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { uuid } from 'lib/utils/dom'
 import { objectsEqual, reconcileById } from 'lib/utils/objects'
+import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { urls } from 'scenes/urls'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
@@ -666,6 +667,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         const dynamicInputs = (partialNewAction as CreateActionType).getDefaultInputs?.()
                         if (dynamicInputs && 'inputs' in config) {
                             config = { ...config, inputs: { ...config.inputs, ...dynamicInputs } }
+                        }
+                    }
+                    // Seed the step's inputs with the template defaults at creation time. The input renderer
+                    // snapshots its values on mount, so applying defaults after mount leaves the fields blank.
+                    if ('template_id' in config && config.template_id) {
+                        const template = values.hogFunctionTemplatesById[config.template_id]
+                        if (template) {
+                            const defaults = templateToConfiguration(template).inputs ?? {}
+                            config = {
+                                ...config,
+                                inputs: { ...defaults, ...('inputs' in config ? config.inputs : {}) },
+                            }
                         }
                     }
 
