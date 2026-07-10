@@ -105,33 +105,23 @@ def backfill_api_version(apps, schema_editor):
 
     # One bounded UPDATE per source type present. The isnull guard makes this idempotent and
     # ensures rows pinned after this migration was written are never overwritten.
-    source_types = ExternalDataSource.objects.values_list(
-        "source_type", flat=True
-    ).distinct()
+    source_types = ExternalDataSource.objects.values_list("source_type", flat=True).distinct()
     for source_type in source_types:
         version = API_VERSION_BY_SOURCE_TYPE.get(source_type, DEFAULT_API_VERSION)
-        ExternalDataSource.objects.filter(
-            source_type=source_type, api_version__isnull=True
-        ).update(api_version=version)
+        ExternalDataSource.objects.filter(source_type=source_type, api_version__isnull=True).update(api_version=version)
 
 
 def reverse_backfill_api_version(apps, schema_editor):
     ExternalDataSource = apps.get_model("warehouse_sources", "ExternalDataSource")
 
-    source_types = ExternalDataSource.objects.values_list(
-        "source_type", flat=True
-    ).distinct()
+    source_types = ExternalDataSource.objects.values_list("source_type", flat=True).distinct()
     for source_type in source_types:
         version = API_VERSION_BY_SOURCE_TYPE.get(source_type, DEFAULT_API_VERSION)
-        ExternalDataSource.objects.filter(
-            source_type=source_type, api_version=version
-        ).update(api_version=None)
+        ExternalDataSource.objects.filter(source_type=source_type, api_version=version).update(api_version=None)
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("warehouse_sources", "0062_externaldatasource_api_version")
-    ]
+    dependencies = [("warehouse_sources", "0062_externaldatasource_api_version")]
 
     operations = [
         migrations.RunPython(backfill_api_version, reverse_backfill_api_version),
