@@ -10,7 +10,7 @@ import json
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 from django.db import transaction
@@ -26,6 +26,7 @@ from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
+from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.runner import run_investigation
 from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
 from posthog.temporal.common.base import PostHogWorkflow
@@ -34,6 +35,11 @@ from posthog.utils import absolute_uri
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.notebooks.backend.facade import api as notebooks
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.signals.backend.facade import api as signals
+
+if TYPE_CHECKING:
+    from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -180,6 +186,125 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         summary=summary_for_list or "",
         notebook_short_id=notebook.short_id,
     )
+
+    # Surface the completed investigation to the Signals inbox. Best-effort: the investigation
+    # itself has already succeeded and been persisted, so a failure to emit must not fail the
+    # activity (and trigger a re-run of the whole agent).
+    try:
+        await _emit_investigation_signal(
+            team=team,
+            alert=alert,
+            alert_check=alert_check,
+            insight=insight,
+            detector_type=detector_type,
+            report=result.report,
+            notebook_short_id=notebook.short_id,
+        )
+    except Exception:
+        logger.exception(
+            "anomaly_investigation.signal_emission_failed",
+            alert_id=str(alert.id),
+            alert_check_id=str(alert_check.id),
+        )
+
+
+# Inbox weight per investigation verdict — true positives are the actionable ones and should be
+# prioritized; false positives are low-signal noise the agent already dismissed.
+_VERDICT_WEIGHTS: dict[str, float] = {
+    "true_positive": 0.9,
+    "inconclusive": 0.6,
+    "false_positive": 0.3,
+}
+
+
+def _build_investigation_signal_extra(
+    *,
+    alert: AlertConfiguration,
+    alert_check: AlertCheck,
+    insight: Insight,
+    detector_type: str,
+    report: InvestigationReport,
+    notebook_short_id: str | None,
+) -> dict:
+    """The `extra` payload for an anomaly-investigation signal — a plain dict validated against
+    `AnomalyInvestigationSignalExtra` inside `emit_signal`."""
+    notebook_url = absolute_uri(f"/notebooks/{notebook_short_id}") if notebook_short_id else absolute_uri("/alerts")
+    extra: dict = {
+        "alert_id": str(alert.id),
+        "alert_name": alert.name or "Unnamed alert",
+        "alert_check_id": str(alert_check.id),
+        "detector_type": detector_type,
+        "verdict": report.verdict,
+        "summary": report.summary,
+        "hypotheses": [
+            {"title": h.title, "rationale": h.rationale, "evidence": list(h.evidence)} for h in report.hypotheses
+        ],
+        "recommendations": list(report.recommendations),
+        "tool_calls_used": report.tool_calls_used,
+        "url": notebook_url,
+    }
+    # Optional fields — omit when absent so the schema's None defaults apply.
+    if insight.name:
+        extra["insight_name"] = insight.name
+    insight_short_id = getattr(insight, "short_id", None)
+    if insight_short_id:
+        extra["insight_short_id"] = insight_short_id
+    if alert_check.triggered_dates:
+        extra["triggered_dates"] = list(alert_check.triggered_dates)
+    if notebook_short_id:
+        extra["notebook_short_id"] = notebook_short_id
+    return extra
+
+
+async def _emit_investigation_signal(
+    *,
+    team: Team,
+    alert: AlertConfiguration,
+    alert_check: AlertCheck,
+    insight: Insight,
+    detector_type: str,
+    report: InvestigationReport,
+    notebook_short_id: str | None,
+) -> None:
+    """Emit an `alerts/anomaly_investigation` signal carrying the agent's verdict and findings."""
+    await signals.emit_signal(
+        team=team,
+        source_product=SignalSourceProduct.ALERTS,
+        source_type=SignalSourceType.ANOMALY_INVESTIGATION,
+        source_id=str(alert_check.id),
+        description=_build_signal_description(
+            alert_name=alert.name or "Unnamed alert",
+            insight_name=insight.name or None,
+            report=report,
+        ),
+        weight=_VERDICT_WEIGHTS.get(report.verdict, 0.6),
+        extra=_build_investigation_signal_extra(
+            alert=alert,
+            alert_check=alert_check,
+            insight=insight,
+            detector_type=detector_type,
+            report=report,
+            notebook_short_id=notebook_short_id,
+        ),
+    )
+
+
+def _build_signal_description(*, alert_name: str, insight_name: str | None, report: InvestigationReport) -> str:
+    """Human-readable description embedded for grouping. Leads with the verdict, then the agent's
+    summary, hypotheses, and recommendations."""
+    verdict_label = report.verdict.replace("_", " ")
+    metric = f" on {insight_name}" if insight_name else ""
+    lines: list[str] = [
+        f"Anomaly investigation for alert '{alert_name}'{metric} (verdict: {verdict_label}).",
+        report.summary,
+    ]
+    if report.hypotheses:
+        lines.append("Hypotheses:")
+        lines.extend(f"- {h.title}: {h.rationale}" for h in report.hypotheses)
+    if report.recommendations:
+        lines.append("Recommendations:")
+        lines.extend(f"- {rec}" for rec in report.recommendations)
+    return "\n".join(line for line in lines if line)
 
 
 def _dispatch_gated_notification(

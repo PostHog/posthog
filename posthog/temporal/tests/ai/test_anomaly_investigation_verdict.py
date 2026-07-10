@@ -107,3 +107,37 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
 
         await sync_to_async(self.alert_check.refresh_from_db)()
         assert self.alert_check.investigation_verdict == InvestigationVerdict.FALSE_POSITIVE
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.signals.emit_signal")
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
+    @patch("temporalio.activity.heartbeat")
+    @patch("temporalio.activity.info")
+    async def test_completed_investigation_emits_signal(self, mock_info, _heartbeat, mock_run, mock_emit) -> None:
+        mock_info.return_value.heartbeat_timeout = None
+        mock_run.return_value = InvestigationRunResult(
+            report=InvestigationReport(
+                verdict="true_positive",
+                summary="Confirmed spike caused by campaign launch.",
+                hypotheses=[],
+                recommendations=[],
+            ),
+            tool_calls_used=0,
+            model="test-model",
+        )
+
+        await investigate_anomaly_activity(
+            AnomalyInvestigationWorkflowInputs(
+                team_id=self.team.id,
+                alert_id=self.alert.id,
+                alert_check_id=self.alert_check.id,
+                user_id=self.user.id,
+            )
+        )
+
+        mock_emit.assert_awaited_once()
+        kwargs = mock_emit.await_args.kwargs
+        assert kwargs["source_product"] == "alerts"
+        assert kwargs["source_type"] == "anomaly_investigation"
+        assert kwargs["source_id"] == str(self.alert_check.id)
+        assert kwargs["extra"]["verdict"] == "true_positive"

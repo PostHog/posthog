@@ -1,0 +1,57 @@
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ("signals", "0054_alter_signalsourceconfig_source_type"),
+    ]
+
+    operations = [
+        migrations.AlterField(
+            model_name="signalsourceconfig",
+            name="source_product",
+            field=models.CharField(
+                choices=[
+                    ("session_replay", "Session replay"),
+                    ("llm_analytics", "LLM analytics"),
+                    ("github", "GitHub"),
+                    ("linear", "Linear"),
+                    ("zendesk", "Zendesk"),
+                    ("conversations", "Conversations"),
+                    ("error_tracking", "Error tracking"),
+                    ("pganalyze", "pganalyze"),
+                    ("signals_scout", "Signals scout"),
+                    ("logs", "Logs"),
+                    ("health_checks", "Health checks"),
+                    ("endpoints", "Endpoints"),
+                    ("replay_vision", "Replay Vision"),
+                    ("alerts", "Alerts"),
+                ],
+                max_length=100,
+            ),
+        ),
+        migrations.AlterField(
+            model_name="signalsourceconfig",
+            name="source_type",
+            field=models.CharField(
+                choices=[
+                    ("session_analysis_cluster", "Session analysis cluster"),
+                    ("evaluation", "Evaluation"),
+                    ("evaluation_report", "Evaluation report"),
+                    ("issue", "Issue"),
+                    ("ticket", "Ticket"),
+                    ("issue_created", "Issue created"),
+                    ("issue_reopened", "Issue reopened"),
+                    ("issue_spiking", "Issue spiking"),
+                    ("cross_source_issue", "Cross source issue"),
+                    ("alert_state_change", "Alert state change"),
+                    ("health_issue", "Health issue"),
+                    ("endpoint_execution_failed", "Endpoint execution failed"),
+                    ("endpoint_breakdown_limit_exceeded", "Endpoint breakdown limit exceeded"),
+                    ("scanner_finding", "Scanner finding"),
+                    ("anomaly_investigation", "Anomaly investigation"),
+                ],
+                max_length=100,
+            ),
+        ),
+    ]

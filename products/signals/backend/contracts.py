@@ -361,6 +361,38 @@ class HealthCheckSignalInput(SignalInputBase):
     extra: HealthCheckSignalExtra
 
 
+# ── Alerts ──────────────────────────────────────────────────────────────────────
+
+
+class AnomalyInvestigationHypothesis(ContractModel):
+    title: str
+    rationale: str
+    evidence: list[str] = Field(default_factory=list)
+
+
+class AnomalyInvestigationSignalExtra(SignalExtraBase):
+    alert_id: str
+    alert_name: str
+    alert_check_id: str
+    insight_short_id: str | None = None
+    insight_name: str | None = None
+    detector_type: str
+    verdict: Literal["true_positive", "false_positive", "inconclusive"]
+    summary: str
+    hypotheses: list[AnomalyInvestigationHypothesis] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    triggered_dates: list[str] | None = None
+    notebook_short_id: str | None = None
+    tool_calls_used: int | None = None
+    url: str
+
+
+class AnomalyInvestigationSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ANOMALY_INVESTIGATION]
+    source_product: Literal[SignalSourceProduct.ALERTS]
+    extra: AnomalyInvestigationSignalExtra
+
+
 # ── Report reviewer types ───────────────────────────────────────────────────────
 
 
@@ -406,7 +438,8 @@ SignalInput = Annotated[
     | SignalsScoutSignalInput
     | LogsAlertStateChangeSignalInput
     | HealthCheckSignalInput
-    | ReplayVisionScannerFindingSignalInput,
+    | ReplayVisionScannerFindingSignalInput
+    | AnomalyInvestigationSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -426,6 +459,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     LogsAlertStateChangeSignalInput,
     HealthCheckSignalInput,
     ReplayVisionScannerFindingSignalInput,
+    AnomalyInvestigationSignalInput,
 )
 
 

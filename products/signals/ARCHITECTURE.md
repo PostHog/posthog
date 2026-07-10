@@ -487,8 +487,8 @@ Per-team configuration for which signal sources are enabled.
 | Field            | Type      | Description                                                                                                                                                                            |
 | ---------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `team`           | FK → Team | Owning team (`related_name="signal_source_configs"`)                                                                                                                                   |
-| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)                                    |
-| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation`, `evaluation_report`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum) |
+| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `pganalyze`, `signals_scout`, `logs`, `health_checks`, `replay_vision`, `endpoints`, `alerts` (`SourceProduct` enum) |
+| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation`, `evaluation_report`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue`, `alert_state_change`, `health_issue`, `endpoint_execution_failed`, `endpoint_breakdown_limit_exceeded`, `scanner_finding`, `anomaly_investigation` (`SourceType` enum) |
 | `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                                         |
 | `config`         | JSONField | Source-specific configuration                                                                                                                                                          |
 | `created_by`     | FK → User | User who created the config (nullable)                                                                                                                                                 |
@@ -501,6 +501,7 @@ Per-team configuration for which signal sources are enabled.
   - `session_analysis_cluster` derives status from the Temporal clustering workflow
   - data-import-backed sources (`github`, `linear`, `zendesk`) derive status from `ExternalDataSchema`
 - The `signals_scout` source variant pairs with `source_type=cross_source_issue` and is the emission channel used by the headless Signals agent's `emit_signal_*` tools. It is the only `(source_product, source_type)` pair the agent emits today.
+- The `(alerts, anomaly_investigation)` source is fail-open like `signals_scout`: an anomaly alert's investigation agent (`posthog/temporal/ai/anomaly_investigation/`) emits its verdict/summary/hypotheses to the inbox by default once it completes, gated only by the per-alert `investigation_agent_enabled` toggle. Write an `enabled=false` row to opt out.
 
 **Constraints:** Unique on `(team, source_product, source_type)`
 

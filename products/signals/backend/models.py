@@ -59,6 +59,7 @@ class SignalSourceConfig(UUIDModel):
         ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed", "Endpoint execution failed"
         ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded", "Endpoint breakdown limit exceeded"
         SCANNER_FINDING = "scanner_finding", "Scanner finding"
+        ANOMALY_INVESTIGATION = "anomaly_investigation", "Anomaly investigation"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SIGNAL_SOURCE_PRODUCT_CHOICES)
@@ -82,6 +83,18 @@ class SignalSourceConfig(UUIDModel):
         # per-source config, so there's no separate SignalSourceConfig row to gate against.
         if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
             return True
+
+        # Anomaly investigation signals are already gated per-alert by `investigation_agent_enabled`:
+        # once an investigation runs and returns a verdict, we surface it to the inbox by default. Like
+        # scout findings, this is fail-open — absence of a row means on; a team opts out by writing an
+        # explicit disabled row.
+        if source_product == cls.SourceProduct.ALERTS and source_type == cls.SourceType.ANOMALY_INVESTIGATION:
+            return not cls.objects.filter(
+                team_id=team_id,
+                source_product=source_product,
+                source_type=source_type,
+                enabled=False,
+            ).exists()
 
         # Scout findings surface to the inbox by default — the team-level toggle was retired from the
         # UI, so this gate is fail-open: absence of a row means on. A team can still opt out via the
