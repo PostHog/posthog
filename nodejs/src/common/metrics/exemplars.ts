@@ -57,6 +57,21 @@ export function drainExemplars(): Map<string, BufferedExemplar> {
     return drained
 }
 
+/**
+ * Puts drained exemplars back after a failed export so the next (cumulative)
+ * export can still carry them. Entries recorded since the drain are newer and win.
+ */
+export function restoreExemplars(drained: Map<string, BufferedExemplar>): void {
+    for (const [key, exemplar] of drained) {
+        if (buffer.size >= MAX_BUFFERED_EXEMPLARS) {
+            return
+        }
+        if (!buffer.has(key)) {
+            buffer.set(key, exemplar)
+        }
+    }
+}
+
 /** Same interface as the wrapped counter, so call sites don't change. */
 export function counterWithExemplars(instrumentName: string, counter: Counter): Counter {
     return {

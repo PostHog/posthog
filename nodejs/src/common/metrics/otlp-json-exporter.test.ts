@@ -128,6 +128,32 @@ describe('OtlpJsonMetricExporter', () => {
         expect(point.exemplars).toBeUndefined()
     })
 
+    it.each([
+        ['a rejected request', () => fetchMock.mockRejectedValueOnce(new Error('connect ECONNREFUSED'))],
+        [
+            'a non-2xx response',
+            () => fetchMock.mockResolvedValueOnce({ status: 503, dump: () => Promise.resolve() } as any),
+        ],
+    ])('re-buffers exemplars after %s so the next export still carries them', async (_name, primeFailure) => {
+        primeFailure()
+        const meter = provider.getMeter('test-meter')
+        const counter = counterWithExemplars('records_dropped_total', meter.createCounter('records_dropped_total'))
+
+        let traceIdHex = ''
+        trace.getTracer('test').startActiveSpan('batch', (span) => {
+            traceIdHex = span.spanContext().traceId
+            counter.add(5, { team_id: '42' })
+            span.end()
+        })
+
+        await reader.forceFlush().catch(() => {}) // failed export
+        await reader.forceFlush() // retried export succeeds
+
+        const metrics = metricsByName(exportedBody())
+        const point = metrics['records_dropped_total'].sum.dataPoints[0]
+        expect(point.exemplars).toEqual([expect.objectContaining({ asDouble: 5, traceId: traceIdHex })])
+    })
+
     it('an exemplar matches only the data point series it was recorded against', async () => {
         const meter = provider.getMeter('test-meter')
         const counter = counterWithExemplars('records_dropped_total', meter.createCounter('records_dropped_total'))

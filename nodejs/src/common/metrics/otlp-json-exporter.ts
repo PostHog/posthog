@@ -12,7 +12,7 @@ import {
 import { logger } from '~/common/utils/logger'
 import { internalFetch } from '~/common/utils/request'
 
-import { BufferedExemplar, drainExemplars, exemplarKey } from './exemplars'
+import { BufferedExemplar, drainExemplars, exemplarKey, restoreExemplars } from './exemplars'
 
 /**
  * OTLP/JSON metrics exporter that serializes exemplars.
@@ -86,7 +86,10 @@ export class OtlpJsonMetricExporter implements PushMetricExporter {
     }
 
     export(metrics: ResourceMetrics, resultCallback: (result: ExportResult) => void): void {
-        const body = JSON.stringify(this.serialize(metrics))
+        // Drained here (not in serialize) so a failed export can put them back;
+        // the metrics themselves are cumulative and survive a failed interval anyway.
+        const exemplars = drainExemplars()
+        const body = JSON.stringify(this.serialize(metrics, exemplars))
         internalFetch(this.options.url, {
             method: 'POST',
             headers: { ...this.options.headers, 'Content-Type': 'application/json' },
@@ -98,11 +101,13 @@ export class OtlpJsonMetricExporter implements PushMetricExporter {
                     resultCallback({ code: EXPORT_SUCCESS })
                 } else {
                     logger.warn('OTLP JSON metrics export rejected', { status: response.status })
+                    restoreExemplars(exemplars)
                     resultCallback({ code: EXPORT_FAILED })
                 }
             })
             .catch((error) => {
                 logger.warn('OTLP JSON metrics export failed', { error: String(error) })
+                restoreExemplars(exemplars)
                 resultCallback({ code: EXPORT_FAILED, error })
             })
     }
@@ -115,8 +120,7 @@ export class OtlpJsonMetricExporter implements PushMetricExporter {
         return Promise.resolve()
     }
 
-    private serialize(metrics: ResourceMetrics): Record<string, unknown> {
-        const exemplars = drainExemplars()
+    private serialize(metrics: ResourceMetrics, exemplars: Map<string, BufferedExemplar>): Record<string, unknown> {
         return {
             resourceMetrics: [
                 {
