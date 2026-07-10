@@ -1,17 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonBanner, LemonLabel, LemonCalendarSelectInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCalendarSelectInput, LemonLabel, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertiesTable } from 'lib/components/PropertiesTable/PropertiesTable'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import type { Dayjs } from 'lib/dayjs'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import type { FeatureFlagType, PersonType } from '~/types'
 import { PropertyDefinitionType } from '~/types'
 
-import type { ConditionAnalysis } from './featureFlagTestingLogic'
+import type { ConditionAnalysis, TestResult } from './featureFlagTestingLogic'
 import { featureFlagTestingLogic } from './featureFlagTestingLogic'
 
 const CONDITION_DISPLAY_STYLES = {
@@ -33,16 +34,43 @@ const CONDITION_DISPLAY_STYLES = {
     },
 } as const
 
+function formatFlagResult(value: TestResult['result']): string {
+    if (typeof value === 'boolean') {
+        return value ? 'true' : 'false'
+    }
+    return String(value)
+}
+
+// A flag outcome as a colored pill: success when the flag is on / a variant was
+// assigned, danger when it evaluated falsy. Used in both the per-ID results table
+// and the single-result detail view so the two read consistently.
+function FlagResultValue({ value }: { value: TestResult['result'] }): JSX.Element {
+    const isEnabled = value !== false && value != null && value !== ''
+    return (
+        <span
+            className={`px-2 py-1 rounded text-sm font-mono ${
+                isEnabled ? 'bg-success-highlight text-success' : 'bg-danger-highlight text-danger'
+            }`}
+        >
+            {formatFlagResult(value)}
+        </span>
+    )
+}
+
 export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const logic = featureFlagTestingLogic({ flagId: featureFlag.id! })
 
     const {
         testFormData: formData,
         includeTime,
-        testResult: result,
+        activeResult: result,
         datePickerOpen,
         datePickerValue,
-        testEvaluationLoading: isLoading,
+        testEvaluationLoading,
+        allEvaluations,
+        allEvaluationsLoading,
+        resultsDiverge,
+        selectedResultDistinctId,
         selectedPerson,
         usedProperties,
         enrichedConditions,
@@ -59,15 +87,28 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         setDatePickerValue,
         setSelectedPerson,
         setIncludeTime,
+        setSelectedResultDistinctId,
         clearTestForm,
         testFlagEvaluation,
+        testAllDistinctIds,
     } = useActions(logic)
 
+    const isLoading = testEvaluationLoading || allEvaluationsLoading
+
     const handleSubmit = (): void => {
-        testFlagEvaluation({ flagId: featureFlag.id!, formData })
+        if (hasMultipleDistinctIds) {
+            // Evaluate every merged distinct ID in one go so their variants can be
+            // compared side by side, rather than re-running the tool per ID.
+            testAllDistinctIds({ flagId: featureFlag.id!, distinctIds: personDistinctIds, formData })
+        } else {
+            testFlagEvaluation({ flagId: featureFlag.id!, formData })
+        }
     }
 
     const hasConditions = !!result?.conditions?.length
+    // The batch row whose detail is currently expanded — the explicit selection, or
+    // the first row when nothing has been clicked yet (matches the activeResult selector).
+    const activeDistinctId = selectedResultDistinctId ?? allEvaluations?.[0]?.distinctId ?? null
 
     return (
         <div className="space-y-6">
@@ -127,34 +168,15 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
 
                         {formData.distinct_id &&
                             (hasMultipleDistinctIds ? (
-                                <div className="space-y-2">
-                                    <LemonLabel>Distinct ID for bucketing</LemonLabel>
-                                    <LemonSelect
-                                        fullWidth
-                                        aria-label="Distinct ID for bucketing"
-                                        truncateText={{ maxWidthClass: 'max-w-full' }}
-                                        value={formData.distinct_id}
-                                        onChange={(distinctId) => {
-                                            if (distinctId) {
-                                                setTestFormData({ distinct_id: distinctId })
-                                            }
-                                        }}
-                                        options={personDistinctIds.map((id) => ({
-                                            value: id,
-                                            label: id,
-                                            tooltip: id,
-                                        }))}
-                                    />
-                                    <LemonBanner type="warning">
-                                        <div className="text-sm">
-                                            This person has {personDistinctIds.length} merged distinct IDs. Rollout and
-                                            variant assignment are computed by hashing the distinct ID, so the result
-                                            can differ depending on which one you pick. At runtime PostHog buckets using
-                                            the distinct ID from the incoming request, which may not be the one selected
-                                            here.
-                                        </div>
-                                    </LemonBanner>
-                                </div>
+                                <LemonBanner type="warning">
+                                    <div className="text-sm">
+                                        This person has {personDistinctIds.length} merged distinct IDs. Rollout and
+                                        variant assignment are computed by hashing the distinct ID, so the result can
+                                        differ depending on which one is used. Testing evaluates all{' '}
+                                        {personDistinctIds.length} at once so you can compare them side by side. At
+                                        runtime PostHog buckets using the distinct ID from the incoming request.
+                                    </div>
+                                </LemonBanner>
                             ) : (
                                 <div className="text-xs text-muted space-y-1 p-2 bg-bg-3000 rounded">
                                     <div>
@@ -236,7 +258,9 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                             onClick={handleSubmit}
                             disabledReason={!hasValidPerson ? 'Please select a person' : undefined}
                         >
-                            Test evaluation
+                            {hasMultipleDistinctIds
+                                ? `Test all ${personDistinctIds.length} distinct IDs`
+                                : 'Test evaluation'}
                         </LemonButton>
                         <LemonButton onClick={clearTestForm} disabled={isLoading}>
                             Clear
@@ -265,24 +289,74 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                 >
                     {result ? (
                         <div className="space-y-6 flex-1 flex flex-col min-h-0">
+                            {/* Per-ID results table — shown when a person's merged distinct IDs were
+                                evaluated as a batch. Every ID's outcome is visible at once, so
+                                divergence between them is obvious without cycling one at a time. */}
+                            {allEvaluations && (
+                                <div className="space-y-3">
+                                    <h5 className="font-semibold">Results by distinct ID</h5>
+                                    {resultsDiverge && (
+                                        <LemonBanner type="warning">
+                                            <div className="text-sm">
+                                                These merged distinct IDs bucket to <strong>different results</strong>.
+                                                At runtime PostHog buckets using the distinct ID from the incoming
+                                                request, so which one is used determines the outcome — front-end and
+                                                back-end calls can land on different variants for the same person.
+                                            </div>
+                                        </LemonBanner>
+                                    )}
+                                    <LemonTable
+                                        dataSource={allEvaluations}
+                                        rowKey="distinctId"
+                                        size="small"
+                                        onRow={(record) => ({
+                                            onClick: () => setSelectedResultDistinctId(record.distinctId),
+                                            className: 'cursor-pointer',
+                                        })}
+                                        rowClassName={(record) =>
+                                            record.distinctId === activeDistinctId
+                                                ? 'bg-accent-highlight-secondary'
+                                                : null
+                                        }
+                                        columns={[
+                                            {
+                                                title: 'Distinct ID',
+                                                key: 'distinctId',
+                                                render: (_, record) => (
+                                                    <span className="font-mono text-xs break-all">
+                                                        {record.distinctId}
+                                                    </span>
+                                                ),
+                                            },
+                                            {
+                                                title: 'Flag result',
+                                                key: 'result',
+                                                render: (_, record) =>
+                                                    record.error ? (
+                                                        <Tooltip title={record.error}>
+                                                            <span className="text-danger text-xs">
+                                                                Evaluation failed
+                                                            </span>
+                                                        </Tooltip>
+                                                    ) : (
+                                                        <FlagResultValue value={record.result!.result} />
+                                                    ),
+                                            },
+                                        ]}
+                                    />
+                                </div>
+                            )}
+
                             {/* Evaluation Result */}
                             <div className="space-y-3">
-                                <h5 className="font-semibold">Evaluation result</h5>
+                                <h5 className="font-semibold">
+                                    {allEvaluations ? 'Details for selected distinct ID' : 'Evaluation result'}
+                                </h5>
 
                                 <div className="space-y-2">
                                     <LemonLabel>Flag result</LemonLabel>
-                                    <div
-                                        className={`px-3 py-2 rounded text-sm font-mono ${
-                                            result.result
-                                                ? 'bg-success-highlight text-success'
-                                                : 'bg-danger-highlight text-danger'
-                                        }`}
-                                    >
-                                        {typeof result.result === 'boolean'
-                                            ? result.result
-                                                ? 'true'
-                                                : 'false'
-                                            : String(result.result)}
+                                    <div>
+                                        <FlagResultValue value={result.result} />
                                     </div>
                                 </div>
 

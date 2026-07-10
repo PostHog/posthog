@@ -477,4 +477,104 @@ describe('featureFlagTestingLogic', () => {
             expect(logic.values.testError).toBe(expectedError)
         })
     })
+
+    describe('batch evaluation across merged distinct IDs', () => {
+        const resultRow = (distinctId: string, result: unknown): FeatureFlagTestEvaluationResponseApi => ({
+            flag_key: 'test-flag',
+            result,
+            reason: 'condition_match',
+            condition_index: 0,
+            payload: null,
+            person_properties: {},
+            evaluation_distinct_id: distinctId,
+            conditions: [],
+        })
+
+        it('evaluates every distinct ID as its own row and isolates a single failing ID', async () => {
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/1/test_evaluation': async ({ request }) => {
+                        const body = (await request.json()) as { distinct_id: string }
+                        if (body.distinct_id === 'user-bad') {
+                            return [404, { detail: 'Person not found for distinct_id: user-bad' }]
+                        }
+                        return [200, resultRow(body.distinct_id, body.distinct_id === 'user-123' ? 'control' : 'test')]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.testAllDistinctIds({
+                    flagId: 1,
+                    distinctIds: ['user-123', 'user-456', 'user-bad'],
+                    formData: { distinct_id: 'user-123', timestamp: '', groups: '' },
+                })
+            }).toDispatchActions(['testAllDistinctIdsSuccess'])
+
+            const rows = logic.values.allEvaluations!
+            expect(rows.map((r) => r.distinctId)).toEqual(['user-123', 'user-456', 'user-bad'])
+            expect(rows[0].result?.result).toBe('control')
+            expect(rows[1].result?.result).toBe('test')
+            // A per-ID API error is captured on its own row rather than failing the whole batch.
+            expect(rows[2].result).toBeNull()
+            expect(rows[2].error).toBeTruthy()
+            expect(logic.values.testError).toBeNull()
+        })
+
+        describe('resultsDiverge selector', () => {
+            it.each([
+                {
+                    description: 'true when merged IDs bucket to different results',
+                    rows: [resultRow('user-1', 'control'), resultRow('user-2', 'test')],
+                    expected: true,
+                },
+                {
+                    description: 'false when every ID agrees',
+                    rows: [resultRow('user-1', 'control'), resultRow('user-2', 'control')],
+                    expected: false,
+                },
+            ])('$description', async ({ rows, expected }) => {
+                await expectLogic(logic, () => {
+                    logic.actions.testAllDistinctIdsSuccess(
+                        rows.map((result) => ({ distinctId: result.evaluation_distinct_id!, result, error: null }))
+                    )
+                }).toMatchValues({ resultsDiverge: expected })
+            })
+
+            it('ignores errored rows so a single failure does not read as divergence', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.testAllDistinctIdsSuccess([
+                        { distinctId: 'user-1', result: resultRow('user-1', 'control'), error: null },
+                        { distinctId: 'user-2', result: null, error: 'Person not found' },
+                    ])
+                }).toMatchValues({ resultsDiverge: false })
+            })
+        })
+
+        describe('activeResult selector', () => {
+            const batchRows = [
+                { distinctId: 'user-1', result: resultRow('user-1', 'control'), error: null },
+                { distinctId: 'user-2', result: resultRow('user-2', 'test'), error: null },
+            ]
+
+            it('falls back to the first batch row before any row is selected', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.testAllDistinctIdsSuccess(batchRows)
+                }).toMatchValues({ activeResult: expect.objectContaining({ result: 'control' }) })
+            })
+
+            it('returns the selected batch row once one is picked', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.testAllDistinctIdsSuccess(batchRows)
+                    logic.actions.setSelectedResultDistinctId('user-2')
+                }).toMatchValues({ activeResult: expect.objectContaining({ result: 'test' }) })
+            })
+
+            it('uses the single-ID result when no batch has run', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.testFlagEvaluationSuccess(resultRow('user-1', 'control'))
+                }).toMatchValues({ activeResult: expect.objectContaining({ result: 'control' }) })
+            })
+        })
+    })
 })

@@ -25,7 +25,73 @@ export interface TestFormData {
     groups: string
 }
 
+// One row of a batch evaluation — how the flag bucketed for a single one of the
+// person's merged distinct IDs. `error` is set (and `result` null) when that ID's
+// individual evaluation failed, so one bad ID doesn't blank the whole table.
+export interface PerDistinctIdEvaluation {
+    distinctId: string
+    result: TestResult | null
+    error: string | null
+}
+
 const EMPTY_FORM: TestFormData = { distinct_id: '', timestamp: '', groups: '' }
+
+// Build the request body for a single evaluation. Shared by the single-ID and
+// batch paths so groups/timestamp are parsed and validated identically. Throws on
+// invalid groups or timestamp — callers let that fail the loader so the error
+// surfaces once via testError rather than per distinct ID.
+function buildEvaluationRequest(formData: TestFormData, distinctId: string): FeatureFlagTestEvaluationRequestApi {
+    const data: FeatureFlagTestEvaluationRequestApi = {}
+
+    const trimmedDistinctId = distinctId.trim()
+    if (trimmedDistinctId) {
+        data.distinct_id = trimmedDistinctId
+    }
+
+    data.groups = validateAndParseGroups(formData.groups || '')
+
+    if (formData.timestamp?.trim()) {
+        data.timestamp = formData.timestamp.trim()
+
+        // Validate ISO string format with strict parsing
+        const parsedTimestamp = dayjs(data.timestamp, 'YYYY-MM-DDTHH:mm:ss.SSS[Z]', true)
+        if (!parsedTimestamp.isValid()) {
+            throw new Error('Invalid timestamp format')
+        }
+    }
+
+    return data
+}
+
+// Map an evaluation failure to the user-facing message. Shared by the single-ID
+// and batch failure handlers so both surface the same friendly rewrites.
+function evaluationErrorMessage(error: string, errorObject?: unknown): string {
+    const apiError = errorObject as ApiError
+    if (apiError?.detail) {
+        const errorDetail = apiError.detail
+
+        if (errorDetail.includes('Failed to build person properties at specified timestamp')) {
+            return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
+        }
+
+        if (errorDetail.includes('person') && errorDetail.includes('not found')) {
+            return 'Person not found. This person may not have existed at the selected timestamp.'
+        }
+
+        if (errorDetail.includes('timestamp') || errorDetail.toLowerCase() === 'invalid timestamp') {
+            return 'Invalid timestamp. Please select a valid date and time.'
+        }
+
+        return errorDetail
+    }
+
+    const errorMessage = apiError?.message || error || ''
+    if (errorMessage.includes('Failed to build person properties at specified timestamp')) {
+        return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
+    }
+
+    return errorMessage || 'An unexpected error occurred while testing the feature flag'
+}
 
 function validateAndParseGroups(groups: string): Record<string, any> {
     const trimmed = groups.trim()
@@ -62,6 +128,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         setDatePickerValue: (value: Dayjs | null) => ({ value }),
         setSelectedPerson: (person: Partial<PersonType> | null, distinctId?: string) => ({ person, distinctId }),
         setIncludeTime: (includeTime: boolean) => ({ includeTime }),
+        setSelectedResultDistinctId: (distinctId: string | null) => ({ distinctId }),
         clearTestForm: true,
     }),
     loaders(({ values }) => ({
@@ -80,26 +147,56 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
             null as TestResult | null,
             {
                 testFlagEvaluation: async ({ flagId, formData }: { flagId: number; formData: TestFormData }) => {
-                    const data: FeatureFlagTestEvaluationRequestApi = {}
-
-                    if (formData.distinct_id?.trim()) {
-                        data.distinct_id = formData.distinct_id.trim()
-                    }
-
-                    data.groups = validateAndParseGroups(formData.groups || '')
-
-                    if (formData.timestamp?.trim()) {
-                        data.timestamp = formData.timestamp.trim()
-
-                        // Validate ISO string format with strict parsing
-                        const parsedTimestamp = dayjs(data.timestamp, 'YYYY-MM-DDTHH:mm:ss.SSS[Z]', true)
-                        if (!parsedTimestamp.isValid()) {
-                            throw new Error('Invalid timestamp format')
-                        }
-                    }
-
+                    const data = buildEvaluationRequest(formData, formData.distinct_id || '')
                     return await featureFlagsTestEvaluationCreate(String(values.currentProjectId), flagId, data)
                 },
+            },
+        ],
+        // Batch counterpart to testEvaluation: evaluate every one of a person's merged
+        // distinct IDs in one action so their variants can be shown side by side, instead
+        // of forcing the user to re-run the single-ID path once per ID.
+        allEvaluations: [
+            null as PerDistinctIdEvaluation[] | null,
+            {
+                testAllDistinctIds: async ({
+                    flagId,
+                    distinctIds,
+                    formData,
+                }: {
+                    flagId: number
+                    distinctIds: string[]
+                    formData: TestFormData
+                }) => {
+                    // Parse groups/timestamp once up front. A malformed form throws here and
+                    // fails the whole batch loudly (one testError) rather than N identical times.
+                    const baseData = buildEvaluationRequest(formData, '')
+
+                    return await Promise.all(
+                        distinctIds.map(async (distinctId): Promise<PerDistinctIdEvaluation> => {
+                            try {
+                                const result = await featureFlagsTestEvaluationCreate(
+                                    String(values.currentProjectId),
+                                    flagId,
+                                    { ...baseData, distinct_id: distinctId }
+                                )
+                                return { distinctId, result, error: null }
+                            } catch (e) {
+                                const apiError = e as ApiError
+                                return {
+                                    distinctId,
+                                    result: null,
+                                    error: apiError?.detail || apiError?.message || 'Evaluation failed',
+                                }
+                            }
+                        })
+                    )
+                },
+                // Reset when the single-ID path runs or the person/form changes, so a stale
+                // batch table never lingers next to an unrelated single result.
+                testFlagEvaluation: () => null,
+                setTestFormData: () => null,
+                setSelectedPerson: () => null,
+                clearTestForm: () => null,
             },
         ],
     })),
@@ -116,42 +213,36 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
             {
                 setTestError: (_, { error }: { error: string | null }) => error,
                 testFlagEvaluation: () => null,
+                testAllDistinctIds: () => null,
                 clearTestForm: () => null,
-                testFlagEvaluationFailure: (_, { error, errorObject }: { error: string; errorObject?: unknown }) => {
-                    const apiError = errorObject as ApiError
-                    if (apiError?.detail) {
-                        const errorDetail = apiError.detail
-
-                        if (errorDetail.includes('Failed to build person properties at specified timestamp')) {
-                            return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
-                        }
-
-                        if (errorDetail.includes('person') && errorDetail.includes('not found')) {
-                            return 'Person not found. This person may not have existed at the selected timestamp.'
-                        }
-
-                        if (errorDetail.includes('timestamp') || errorDetail.toLowerCase() === 'invalid timestamp') {
-                            return 'Invalid timestamp. Please select a valid date and time.'
-                        }
-
-                        return errorDetail
-                    }
-
-                    const errorMessage = apiError?.message || error || ''
-                    if (errorMessage.includes('Failed to build person properties at specified timestamp')) {
-                        return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
-                    }
-
-                    return errorMessage || 'An unexpected error occurred while testing the feature flag'
-                },
+                testFlagEvaluationFailure: (_, { error, errorObject }: { error: string; errorObject?: unknown }) =>
+                    evaluationErrorMessage(error, errorObject),
+                // A batch failure means the shared form (groups/timestamp) was invalid — the
+                // per-ID API errors are caught inside the loader and shown in the table.
+                testAllDistinctIdsFailure: (_, { error, errorObject }: { error: string; errorObject?: unknown }) =>
+                    evaluationErrorMessage(error, errorObject),
             },
         ],
         testResult: [
             null as TestResult | null,
             {
                 testFlagEvaluationSuccess: (_, { testEvaluation }) => testEvaluation,
+                testAllDistinctIds: () => null,
                 clearTestForm: () => null,
                 setTestFormData: () => null,
+            },
+        ],
+        // Which batch row's detailed condition analysis is expanded in the right panel.
+        // Null falls back to the first row so a batch run always shows some detail.
+        selectedResultDistinctId: [
+            null as string | null,
+            {
+                setSelectedResultDistinctId: (_, { distinctId }) => distinctId,
+                testAllDistinctIds: () => null,
+                testFlagEvaluation: () => null,
+                setTestFormData: () => null,
+                clearTestForm: () => null,
+                setSelectedPerson: () => null,
             },
         ],
         datePickerOpen: [
@@ -194,9 +285,41 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         },
     })),
     selectors({
+        // The result currently driving the detail panel (condition analysis + person
+        // properties). In batch mode it's the selected row (or the first, if none picked);
+        // otherwise it's the single-ID evaluation.
+        activeResult: [
+            (s) => [s.testResult, s.allEvaluations, s.selectedResultDistinctId],
+            (
+                single: TestResult | null,
+                all: PerDistinctIdEvaluation[] | null,
+                selectedId: string | null
+            ): TestResult | null => {
+                if (all?.length) {
+                    const selected = selectedId ? all.find((e) => e.distinctId === selectedId) : undefined
+                    return (selected ?? all[0]).result
+                }
+                return single
+            },
+        ],
+        // True when the person's merged distinct IDs don't all bucket to the same result —
+        // the exact divergence that makes runtime evaluation ambiguous. Errored rows are
+        // ignored so a single failed ID doesn't read as a disagreement.
+        resultsDiverge: [
+            (s) => [s.allEvaluations],
+            (all: PerDistinctIdEvaluation[] | null): boolean => {
+                if (!all?.length) {
+                    return false
+                }
+                const outcomes = new Set(
+                    all.filter((e) => e.result).map((e) => JSON.stringify(e.result?.result ?? null))
+                )
+                return outcomes.size > 1
+            },
+        ],
         // Get the set of properties used in any condition
         usedProperties: [
-            (s) => [s.testResult],
+            (s) => [s.activeResult],
             (result: TestResult | null): Set<string> => {
                 const used = new Set<string>()
                 if (result?.conditions) {
@@ -211,7 +334,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         ],
         // Get enriched conditions with derived flags for UI rendering
         enrichedConditions: [
-            (s) => [s.testResult],
+            (s) => [s.activeResult],
             (result: TestResult | null) => {
                 if (!result?.conditions) {
                     return []
@@ -278,7 +401,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         // withholds it to avoid leaking distinct IDs to feature_flag:read-only tokens —
         // we must not fall back to the requested ID, which would mislabel the result.
         bucketingDistinctId: [
-            (s) => [s.testResult],
+            (s) => [s.activeResult],
             (result: TestResult | null): string | null => result?.evaluation_distinct_id ?? null,
         ],
         // Get formatted error display information
