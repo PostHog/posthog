@@ -795,6 +795,12 @@ jobs:
                       --reuse-db
                       --durations-path ../../.test_durations
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
+                      ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=xml:coverage.xml' || '' }}
+                  # turbo runs each product's backend:test with the product dir as CWD, so --cov=backend
+                  # scopes coverage to that product and writes products/<name>/coverage.xml — works for
+                  # bin-packed buckets (each product writes its own file) and split products (unioned later).
+                  # sysmon: Python 3.12+'s low-overhead coverage backend, ~a few % vs ~20% for the C tracer.
+                  COVERAGE_CORE: sysmon
               run: |
                   set +e
                   pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
@@ -1548,10 +1554,18 @@ jobs:
                   MODE: ${{ needs.select-tests.outputs.mode }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
                   POE_FILES: ${{ needs.select-tests.outputs.poe_files }}
+                  # devex: measure core (posthog/ee) coverage on PRs to size the gap vs products. sysmon = low overhead.
+                  COVERAGE_CORE: sysmon
+                  COV_ARGS: ${{ github.event_name == 'pull_request' && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=xml:coverage-core.xml' || '' }}
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
+                  # Unrebased branches predate .github/coverage-core.cfg; an explicit --cov-config
+                  # pointing at a missing file is a hard error, so drop coverage rather than fail.
+                  if [[ -n "$COV_ARGS" && ! -f .github/coverage-core.cfg ]]; then
+                      COV_ARGS=""
+                  fi
                   # Pick the split algorithm and granularity at runtime: optimal_chunks + file
                   # granularity only when the installed pytest-split offers them, else
                   # duration_based_chunks / item. A workflow edit runs merged with master, so an
@@ -1582,6 +1596,7 @@ jobs:
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
                           -r fEsxX \
                           --junitxml=junit-core.xml \
+                          $COV_ARGS \
                           $PYTEST_ARGS
                   else
                     pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
@@ -1606,6 +1621,7 @@ jobs:
                         --reruns 1 --reruns-delay 1 \
                         -r fEsxX \
                         --junitxml=junit-core.xml \
+                        $COV_ARGS \
                         $PYTEST_ARGS
                   fi
                   exit_code=$?
