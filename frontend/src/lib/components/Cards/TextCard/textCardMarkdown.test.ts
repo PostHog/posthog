@@ -138,15 +138,15 @@ describe('textCardMarkdown', () => {
             ],
         }
 
-        const markdown = textCardDocToMarkdown(doc)
-        const reparsedSnippet = markdownToTextCardDoc(markdown).content?.[0]?.content?.find((node) =>
+        const markdown = textCardConverter.docToMarkdown(doc)
+        const reparsedSnippet = textCardConverter.markdownToDoc(markdown).content?.[0]?.content?.find((node) =>
             node.marks?.some((m) => m.type === 'code')
         )
 
         expect(markdown).toContain('`snippet`')
         expect(reparsedSnippet?.text).toBe('snippet')
         expect(reparsedSnippet?.marks?.map((m) => m.type).sort()).toEqual(['code', mark].sort())
-        expect(isTextCardMarkdownRoundTripSafe(markdown)).toBe(true)
+        expect(textCardConverter.isRoundTripSafe(markdown)).toBe(true)
     })
 
     it('supports underline markdown round-trip', () => {
