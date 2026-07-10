@@ -27,6 +27,8 @@ Add a **learning** (`learnings.json`) when:
 
 Do **not** add: one-off fixes, anything the repo already records (CLAUDE.md, docs, code comments), or restatements of an existing learning — extend that learning instead.
 
+**What we did is not what we learned.** A concept describes the system as it is (write in the present tense: "events appear as their own group type", not "we separated the events"). A learning is a memory the work strengthened — often a tension or a worry, not an accomplishment: "adding group types surfaces new data to users *but* spends the taxonomic filter's complexity budget, and we add more often than we consolidate". If your draft reads like a changelog or a brag, it belongs in the PR description, not the graph.
+
 ## How to add a concept
 
 Concepts are the map's skeleton — write the markdown as you'd explain the thing to a teammate: what it is, how data flows through it, which constraints bite.
