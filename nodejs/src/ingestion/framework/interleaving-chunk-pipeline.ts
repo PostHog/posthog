@@ -3,40 +3,40 @@ import { ResettableSignal } from './resettable-signal'
 
 /**
  * What {@link InterleavingCallbacks.onSourcePull} reports after pulling one
- * batch from the upstream pipeline:
- * - `emit`: return this batch to the caller now (e.g. passthrough / non-OK results)
+ * chunk from the upstream pipeline:
+ * - `emit`: return this chunk to the caller now (e.g. passthrough / non-OK results)
  * - `drain`: input was routed into the subpipeline; drain it for results
  * - `drained`: the upstream pipeline is currently empty
  */
 export type PullOutcome<TOutput, COutput, R extends string> =
-    | { kind: 'emit'; batch: ChunkPipelineResultWithContext<TOutput, COutput, R> }
+    | { kind: 'emit'; chunk: ChunkPipelineResultWithContext<TOutput, COutput, R> }
     | { kind: 'drain' }
     | { kind: 'drained' }
 
 /**
- * The stage-specific behavior injected into an {@link InterleavingBatchPipeline},
+ * The stage-specific behavior injected into an {@link InterleavingChunkPipeline},
  * leaving the pipeline itself to own only the synchronization.
  */
 export interface InterleavingCallbacks<TInput, TOutput, CInput, COutput, R extends string> {
     /** Deliver feed() elements into the source pipeline (the wake-up is added on top). */
     onFeed: (elements: OkResultWithContext<TInput, CInput>[]) => void
     /**
-     * Pull one batch from the source pipeline, route OK results into the
+     * Pull one chunk from the source pipeline, route OK results into the
      * processing subpipeline, and report whether to emit immediately, drain the
      * sub, or that the source is empty. Pulled fresh every iteration (no
      * "drained" flag) so a feed that lands after an earlier empty read is always
      * picked up on the next loop.
      */
     onSourcePull: () => Promise<PullOutcome<TOutput, COutput, R>>
-    /** Pull the next batch from the processing subpipeline — raced against feeds. */
+    /** Pull the next chunk from the processing subpipeline — raced against feeds. */
     onProcessPull: () => Promise<ChunkPipelineResultWithContext<TOutput, COutput, R> | null>
 }
 
 /**
- * Generic synchronization for a batch pipeline stage that pulls from an upstream
+ * Generic synchronization for a chunk pipeline stage that pulls from an upstream
  * pipeline and feeds a downstream subpipeline which may park on slow in-flight
  * work. `next()` interleaves "pull upstream + route into sub" with "drain sub",
- * racing the drain against a `feed()` wake-up so a later-fed batch is never
+ * racing the drain against a `feed()` wake-up so a later-fed chunk is never
  * stranded upstream while the sub is parked (head-of-line avoidance).
  *
  * The stage-specific behavior is injected via {@link InterleavingCallbacks}.
@@ -55,7 +55,7 @@ export interface InterleavingCallbacks<TInput, TOutput, CInput, COutput, R exten
  * pulls and tear it. Callers serialize externally (e.g. `BatchingPipeline`'s
  * pump mutex); `feed()` is safe to call concurrently with `next()`.
  */
-export class InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, R extends string = never>
+export class InterleavingChunkPipeline<TInput, TOutput, CInput, COutput, R extends string = never>
     implements ChunkPipeline<TInput, TOutput, CInput, COutput, R>
 {
     private newInputSignal = new ResettableSignal()
@@ -101,7 +101,7 @@ export class InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, R exten
                 return this.drainThenReject()
             }
             if (pulled.kind === 'emit') {
-                return pulled.batch
+                return pulled.chunk
             }
 
             // Drain the subpipeline, racing against a concurrent feed: if the sub

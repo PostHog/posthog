@@ -1,5 +1,5 @@
 import { ChunkPipeline, ChunkPipelineResultWithContext } from './chunk-pipeline.interface'
-import { InterleavingBatchPipeline, PullOutcome } from './interleaving-batch-pipeline'
+import { InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
 import { OkResultWithContext, PipelineResultWithContext } from './pipeline.interface'
 import { isOkResult } from './results'
 
@@ -23,7 +23,7 @@ export type FilterMapMappingFunction<TInput, TOutput, CInput, COutput> = (
  *
  * Synchronization (pulling upstream, feeding the subpipeline, draining it, and
  * staying responsive to concurrent feeds so a parked subpipeline can't strand
- * newly fed input) is handled by {@link InterleavingBatchPipeline}. This class
+ * newly fed input) is handled by {@link InterleavingChunkPipeline}. This class
  * only supplies the filter/map/route policy via the onSourcePull callback.
  */
 export class FilterMapBatchPipeline<
@@ -39,14 +39,14 @@ export class FilterMapBatchPipeline<
     RSub extends string = never,
 > implements ChunkPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>
 {
-    private inner: InterleavingBatchPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>
+    private inner: InterleavingChunkPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>
 
     constructor(
         private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, CIntermediate, RPrev>,
         private mappingFn: FilterMapMappingFunction<TIntermediate, TMapped, CIntermediate, CMapped>,
         private subPipeline: ChunkPipeline<TMapped, TOutput, CMapped, COutput, RSub>
     ) {
-        this.inner = new InterleavingBatchPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>({
+        this.inner = new InterleavingChunkPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>({
             onFeed: (elements) => this.previousPipeline.feed(elements),
             onSourcePull: () => this.pullAndRoute(),
             onProcessPull: () => this.subPipeline.next(),
@@ -89,13 +89,13 @@ export class FilterMapBatchPipeline<
         }
 
         if (nonOkResults.length > 0) {
-            return { kind: 'emit', batch: nonOkResults }
+            return { kind: 'emit', chunk: nonOkResults }
         }
 
         // A non-null empty batch surfaces as [] (a valid empty batch, distinct
         // from null = end of stream), matching the previous pipeline 1:1.
         if (okResults.length === 0) {
-            return { kind: 'emit', batch: [] }
+            return { kind: 'emit', chunk: [] }
         }
 
         return { kind: 'drain' }

@@ -1,6 +1,6 @@
 import { ChunkPipelineResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
-import { InterleavingBatchPipeline, InterleavingCallbacks, PullOutcome } from './interleaving-batch-pipeline'
+import { InterleavingCallbacks, InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
 
 type Ctx = Record<string, never>
 type Batch = ChunkPipelineResultWithContext<string, Ctx>
@@ -19,13 +19,13 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reje
     return { promise, resolve, reject }
 }
 
-describe('InterleavingBatchPipeline', () => {
+describe('InterleavingChunkPipeline', () => {
     const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
     function build(
         callbacks: Partial<InterleavingCallbacks<string, string, Ctx, Ctx, never>>
-    ): InterleavingBatchPipeline<string, string, Ctx, Ctx, never> {
-        return new InterleavingBatchPipeline<string, string, Ctx, Ctx, never>({
+    ): InterleavingChunkPipeline<string, string, Ctx, Ctx, never> {
+        return new InterleavingChunkPipeline<string, string, Ctx, Ctx, never>({
             onFeed: callbacks.onFeed ?? jest.fn(),
             onSourcePull:
                 callbacks.onSourcePull ??
@@ -38,7 +38,7 @@ describe('InterleavingBatchPipeline', () => {
         const passthrough = batch('passthrough')
         const onProcessPull = jest.fn()
         const pipeline = build({
-            onSourcePull: jest.fn().mockResolvedValue({ kind: 'emit', batch: passthrough }),
+            onSourcePull: jest.fn().mockResolvedValue({ kind: 'emit', chunk: passthrough }),
             onProcessPull,
         })
 
@@ -94,7 +94,7 @@ describe('InterleavingBatchPipeline', () => {
         const onSourcePull = jest
             .fn()
             .mockResolvedValueOnce({ kind: 'drain' })
-            .mockResolvedValueOnce({ kind: 'emit', batch: afterFeed })
+            .mockResolvedValueOnce({ kind: 'emit', chunk: afterFeed })
         const onFeed = jest.fn()
         const pipeline = build({ onFeed, onSourcePull, onProcessPull })
 
@@ -176,7 +176,7 @@ describe('InterleavingBatchPipeline', () => {
         const onSourcePull = jest
             .fn()
             .mockResolvedValueOnce({ kind: 'drain' })
-            .mockResolvedValueOnce({ kind: 'emit', batch: afterFeed })
+            .mockResolvedValueOnce({ kind: 'emit', chunk: afterFeed })
             .mockResolvedValue({ kind: 'drain' })
         const pipeline = build({ onSourcePull, onProcessPull })
 

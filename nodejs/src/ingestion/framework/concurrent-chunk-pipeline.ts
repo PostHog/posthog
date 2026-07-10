@@ -1,7 +1,7 @@
 import pLimit from 'p-limit'
 
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
-import { InterleavingBatchPipeline, PullOutcome } from './interleaving-batch-pipeline'
+import { InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
 import { Pipeline, PipelineContext, PipelineResultWithContext } from './pipeline.interface'
 import { isOkResult } from './results'
 
@@ -11,7 +11,7 @@ import { isOkResult } from './results'
  * are emitted one at a time by awaiting the head of the queue.
  *
  * Pulling/enqueueing more upstream input is interleaved with awaiting the head
- * via {@link InterleavingBatchPipeline}, so a slow head no longer blocks newly
+ * via {@link InterleavingChunkPipeline}, so a slow head no longer blocks newly
  * fed items from starting to process (it only delays their *emission*, which
  * stays FIFO by design).
  *
@@ -30,7 +30,7 @@ export class ConcurrentChunkProcessingPipeline<
 > implements ChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 {
     private promiseQueue: Promise<PipelineResultWithContext<TOutput, COutput, RPrev | RStep>>[] = []
-    private inner: InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
+    private inner: InterleavingChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 
     // Caps how many items process at once. Null means unbounded (start every item as it's pulled).
     private readonly limit: ReturnType<typeof pLimit> | null
@@ -41,7 +41,7 @@ export class ConcurrentChunkProcessingPipeline<
         maxConcurrency?: number
     ) {
         this.limit = maxConcurrency !== undefined ? pLimit(maxConcurrency) : null
-        this.inner = new InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>({
+        this.inner = new InterleavingChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>({
             onFeed: (elements) => this.previousPipeline.feed(elements),
             onSourcePull: () => this.enqueueFromPrevious(),
             onProcessPull: () => this.dequeueProcessed(),

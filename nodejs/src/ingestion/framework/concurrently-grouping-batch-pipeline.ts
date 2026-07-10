@@ -1,7 +1,7 @@
 import pLimit from 'p-limit'
 
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
-import { InterleavingBatchPipeline, PullOutcome } from './interleaving-batch-pipeline'
+import { InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { ResettableSignal } from './resettable-signal'
 import { isOkResult } from './results'
@@ -25,7 +25,7 @@ export type GroupingFunction<TInput, TKey> = (input: TInput) => TKey
  *
  * Synchronization (pulling upstream, draining completed groups, and staying
  * responsive to concurrent feeds so a parked drain isn't stranded) is handled by
- * {@link InterleavingBatchPipeline}. This class supplies the grouping policy:
+ * {@link InterleavingChunkPipeline}. This class supplies the grouping policy:
  * routing into per-key queues, starting groups concurrently, and a per-group
  * completion signal so a parked drain wakes when ANY group finishes — including
  * a group that was started after the drain parked.
@@ -61,7 +61,7 @@ export class ConcurrentlyGroupingBatchPipeline<
     // behavior where a failed group's rejected promise re-rejected each drain).
     private failure: unknown = undefined
 
-    private inner: InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
+    private inner: InterleavingChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 
     // Caps how many groups process at once. Null means unbounded (start every ready group).
     private readonly limit: ReturnType<typeof pLimit> | null
@@ -73,7 +73,7 @@ export class ConcurrentlyGroupingBatchPipeline<
         maxConcurrency?: number
     ) {
         this.limit = maxConcurrency !== undefined ? pLimit(maxConcurrency) : null
-        this.inner = new InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>({
+        this.inner = new InterleavingChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>({
             onFeed: (elements) => this.previousPipeline.feed(elements),
             onSourcePull: () => this.routeFromPrevious(),
             onProcessPull: () => this.pullProcessed(),
