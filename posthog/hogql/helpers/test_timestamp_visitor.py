@@ -625,8 +625,7 @@ class TestParseZonedDatetimeString(unittest.TestCase):
             ("iso_no_zone", "2026-06-30T09:59:12", None),
             ("date_only", "2026-06-30", None),
             ("with_micros_no_zone", "2026-06-30 09:59:12.988000", None),
-            # Shaped like a zoned datetime but not a real instant -> None keeps the strict path's clear error
-            # instead of a silently-empty or silently-shifted result.
+            # Shaped like a zoned datetime but not a real instant -> None keeps the strict path's clear error.
             ("month_out_of_range", "2026-13-45T99:99:99Z", None),
             ("day_month_swapped", "2026-30-06T00:00:00Z", None),
             ("impossible_offset", "2026-06-30T09:59:12+99:00", None),

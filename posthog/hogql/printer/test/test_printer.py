@@ -2252,18 +2252,14 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand([("=",), ("!=",), (">",), ("<",), (">=",), ("<=",)])
     def test_zoned_datetime_string_compared_to_timestamp_is_inlined_as_datetime(self, op: str):
-        # ClickHouse's strict DateTime64 reader throws on a trailing 'Z'/offset (the Python isoformat +
-        # orjson OPT_UTC_Z round-trip form), so a zoned ISO string compared against the DateTime
-        # timestamp column is parsed in Python and inlined as a strict datetime literal, leaving
-        # nothing to parse at query time. Equality is inlined by the printer; range comparisons get
-        # their constant rewritten by PropertySwapper. Both must produce the same literal.
+        # ClickHouse's strict DateTime64 reader rejects 'Z'/offset suffixes, so zoned ISO strings are
+        # parsed in Python and inlined (equality via the printer, range ops via PropertySwapper).
         printed = self._select(f"SELECT count() FROM events WHERE timestamp {op} '2026-06-30T09:59:12.988000Z'")
         assert "toDateTime64('2026-06-30 09:59:12.988000', 6, 'UTC')" in printed, printed
         assert "BestEffort" not in printed, printed
 
     def test_zoned_datetime_string_instant_converted_to_team_timezone(self):
-        # The zone designator fixes the instant; the inlined literal must express that same instant
-        # in the team timezone, not echo the string's wall-clock digits.
+        # The literal must express the string's instant in the team timezone, not echo its digits.
         self.team.timezone = "US/Pacific"
         self.team.save()
         printed = self._select("SELECT count() FROM events WHERE timestamp > '2026-06-30T09:59:12.988000Z'")
@@ -2279,9 +2275,8 @@ class TestPrinter(BaseTest):
         ]
     )
     def test_datetime_string_comparison_stays_bare(self, table: str, where: str):
-        # Guard against over-broad coercion: only valid zoned strings against a DateTime-typed field
-        # get inlined. Everything else keeps its parameterized string constant so naive literals stay
-        # interpreted in the field timezone and shaped-but-invalid values keep the loud strict error.
+        # Only valid zoned strings against a DateTime-typed field get inlined; everything else keeps
+        # its parameterized constant (field-timezone interpretation, loud errors on invalid input).
         printed = self._select(f"SELECT count() FROM {table} WHERE {where}")
         assert "2026" not in printed, printed
         assert "BestEffort" not in printed, printed
