@@ -1539,9 +1539,9 @@ export interface TaskRunBootstrapCreateRequestApi {
  * * `failed` - failed
  * * `cancelled` - cancelled
  */
-export type TaskRunUpdateStatusEnumApi = (typeof TaskRunUpdateStatusEnumApi)[keyof typeof TaskRunUpdateStatusEnumApi]
+export type RunStatusEnumApi = (typeof RunStatusEnumApi)[keyof typeof RunStatusEnumApi]
 
-export const TaskRunUpdateStatusEnumApi = {
+export const RunStatusEnumApi = {
     NotStarted: 'not_started',
     Queued: 'queued',
     InProgress: 'in_progress',
@@ -1569,7 +1569,7 @@ export interface PatchedTaskRunUpdateApi {
      * * `completed` - completed
      * * `failed` - failed
      * * `cancelled` - cancelled */
-    status?: TaskRunUpdateStatusEnumApi
+    status?: RunStatusEnumApi
     /**
      * Git branch name to associate with the task
      * @nullable

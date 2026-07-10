@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
+from uuid import uuid4
 
 import unittest
 from freezegun import freeze_time
@@ -5745,6 +5746,49 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 format="json",
             )
             self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+    def test_flag_cleanup_task_endpoint(self):
+        exp_id = self._create_running_experiment(name="Cleanup Status", flag_key="cleanup-status-flag")["id"]
+
+        # No cleanup task opened yet.
+        resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+        task_id = uuid4()
+        Experiment.objects.filter(id=exp_id).update(flag_cleanup_task_id=task_id)
+
+        run = SimpleNamespace(
+            status="completed",
+            is_terminal=True,
+            pr_url="https://github.com/PostHog/posthog/pull/123",
+            error_message=None,
+        )
+        with patch(
+            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            return_value={str(task_id): run},
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(
+            resp.json(),
+            {
+                "task_id": str(task_id),
+                "run_status": "completed",
+                "is_terminal": True,
+                "pr_url": "https://github.com/PostHog/posthog/pull/123",
+                "error_message": None,
+            },
+        )
+
+        # Task recorded but no run row yet: reported as queued, non-terminal.
+        with patch(
+            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            return_value={},
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()["run_status"], "queued")
+        self.assertFalse(resp.json()["is_terminal"])
 
     def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")

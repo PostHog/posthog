@@ -362,6 +362,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         ),
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    flag_cleanup_task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "ID of the Code task opened to remove the experiment's feature-flag code, when one was "
+            "requested via open_cleanup_pr on end/ship_variant. Read its status via the "
+            "flag_cleanup_task action."
+        ),
+    )
 
     class Meta:
         model = Experiment
@@ -398,6 +407,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "_create_in_folder",
             "conclusion",
             "conclusion_comment",
+            "flag_cleanup_task_id",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "only_count_matured_users",
@@ -1007,6 +1017,25 @@ class EndExperimentSerializer(serializers.Serializer):
             "from the linked repository. Requires the requesting user to have access to PostHog Code "
             "(403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
+    )
+
+
+class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Code task.")
+    run_status = serializers.ChoiceField(
+        choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
+        help_text="Status of the task's latest run.",
+    )
+    is_terminal = serializers.BooleanField(
+        help_text="Whether the run has finished (successfully or not). Stop polling once true."
+    )
+    pr_url = serializers.CharField(
+        allow_null=True,
+        help_text="URL of the pull request the task opened, when it opened one.",
+    )
+    error_message = serializers.CharField(
+        allow_null=True,
+        help_text="Failure reason when the run failed.",
     )
 
 

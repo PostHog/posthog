@@ -14,6 +14,7 @@ import type {
     CreateFromPromptInputApi,
     EndExperimentApi,
     ExperimentApi,
+    ExperimentFlagCleanupTaskApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
     ExperimentMetricsRecalculationApi,
@@ -537,6 +538,29 @@ export const experimentsEndCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(endExperimentApi),
+    })
+}
+
+export const getExperimentsFlagCleanupTaskRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/flag_cleanup_task/`
+}
+
+/**
+ * Status of the flag-cleanup Code task opened for this experiment.
+ *
+ * When an experiment was ended or shipped with open_cleanup_pr=true, a Code task
+ * removes the experiment's feature-flag code and opens a draft pull request. This
+ * returns that task's latest run status and the PR URL once one is opened. Poll
+ * until is_terminal is true. Returns 404 when no cleanup task was opened.
+ */
+export const experimentsFlagCleanupTaskRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentFlagCleanupTaskApi> => {
+    return apiMutator<ExperimentFlagCleanupTaskApi>(getExperimentsFlagCleanupTaskRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

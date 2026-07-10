@@ -19,7 +19,7 @@ from django.utils.text import slugify
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from opentelemetry import trace
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -56,6 +56,7 @@ from products.experiments.backend.presentation.serializers import (
     CreateFromPromptInputSerializer,
     EndExperimentSerializer,
     ExperimentBasicSerializer,
+    ExperimentFlagCleanupTaskSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
     ExperimentWriteSerializer,
@@ -88,6 +89,7 @@ from products.feature_flags.backend.models.evaluation_context import FeatureFlag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import has_tasks_access
 
 tracer = trace.get_tracer(__name__)
@@ -563,6 +565,39 @@ class EnterpriseExperimentsViewSet(
             request=request,
         )
         return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentFlagCleanupTaskSerializer,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
+    def flag_cleanup_task(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Status of the flag-cleanup Code task opened for this experiment.
+
+        When an experiment was ended or shipped with open_cleanup_pr=true, a Code task
+        removes the experiment's feature-flag code and opens a draft pull request. This
+        returns that task's latest run status and the PR URL once one is opened. Poll
+        until is_terminal is true. Returns 404 when no cleanup task was opened.
+        """
+        experiment: Experiment = self.get_object()
+        if not experiment.flag_cleanup_task_id:
+            raise NotFound("No flag cleanup task was opened for this experiment.")
+        # Read through the facade rather than the tasks API: cleanup tasks are creator-visible
+        # there, but their status should be visible to everyone who can see the experiment.
+        run = tasks_facade.get_latest_run_by_task([experiment.flag_cleanup_task_id]).get(
+            str(experiment.flag_cleanup_task_id)
+        )
+        response_serializer = ExperimentFlagCleanupTaskSerializer(
+            {
+                "task_id": experiment.flag_cleanup_task_id,
+                "run_status": run.status if run else "queued",
+                "is_terminal": run.is_terminal if run else False,
+                "pr_url": run.pr_url if run else None,
+                "error_message": run.error_message if run else None,
+            }
+        )
+        return Response(response_serializer.data)
 
     @extend_schema(
         request=None,
