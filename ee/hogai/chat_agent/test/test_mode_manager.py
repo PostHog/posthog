@@ -1,5 +1,4 @@
 import datetime
-from contextlib import contextmanager
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -46,19 +45,9 @@ from ee.hogai.core.agent_modes.presets.product_analytics import ReadOnlyProductA
 from ee.hogai.core.agent_modes.presets.survey import ReadOnlySurveyAgentToolkit
 from ee.hogai.tools import CreateInsightTool, UpsertDashboardTool
 from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
-from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
+from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI, mock_contextual_tool
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName, NodePath
-
-
-@contextmanager
-def mock_contextual_tool(mock_tool):
-    """Helper to mock a contextual tool class with create_tool_class"""
-    mock_tool_class = MagicMock()
-    mock_tool_class.create_tool_class = AsyncMock(return_value=mock_tool)
-
-    with patch("ee.hogai.registry.get_contextual_tool_class", return_value=mock_tool_class):
-        yield
 
 
 def _create_agent_node(
@@ -113,10 +102,16 @@ def _create_agent_tools_node(
 class TestAgentToolkit(BaseTest):
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     @patch("ee.hogai.registry.get_contextual_tool_class")
-    async def test_get_tools_ignores_unknown_contextual_tools(self, mock_get_tool_class, mock_model):
+    # toolkit.py imports get_contextual_tool_class by value at module level, so the
+    # registry patch alone never reaches it and the real import-scanning path runs
+    @patch("ee.hogai.chat_agent.toolkit.get_contextual_tool_class")
+    async def test_get_tools_ignores_unknown_contextual_tools(
+        self, mock_toolkit_get_tool_class, mock_get_tool_class, mock_model
+    ):
         """Test that unknown contextual tools (None from get_contextual_tool_class) are ignored"""
         mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
         mock_get_tool_class.return_value = None  # Simulates unknown tool
+        mock_toolkit_get_tool_class.return_value = None
 
         state = AssistantState(messages=[HumanMessage(content="Test")])
         config = RunnableConfig(configurable={"contextual_tools": {"unknown_tool": {"some": "config"}}})
@@ -694,7 +689,7 @@ class TestRootNodeTools(BaseTest):
             root_tool_call_id="tool-123",
         )
 
-        with patch("ee.hogai.registry.get_contextual_tool_class", return_value=None):
+        with patch("ee.hogai.chat_agent.toolkit.get_contextual_tool_class", return_value=None):
             result = await node.arun(state, {})
 
             self.assertIsInstance(result, PartialAssistantState)

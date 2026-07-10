@@ -88,6 +88,7 @@ import {
     isLaunched,
     isSingleVariantShipped,
 } from './experimentsLogic'
+import { featureFlagVariantProperty } from './exposureContract'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
     legacyExpectedRunningTime,
@@ -1919,7 +1920,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             date_to: values.experiment.end_date,
                             properties: [],
                             breakdown_filter: {
-                                breakdown: '$feature/' + values.experiment.feature_flag_key,
+                                breakdown: featureFlagVariantProperty(values.experiment.feature_flag_key),
                                 breakdown_type: 'event' as BreakdownType,
                             },
                         },
