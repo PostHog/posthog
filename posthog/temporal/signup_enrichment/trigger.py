@@ -1,8 +1,10 @@
 """Fire-and-forget dispatch of the signup enrichment workflow from the request path.
 
 Every guard lives here so the signup serializer stays a one-line call. Dispatch is
-gated by the kill switch, US-only for v0, and a configured Harmonic key, skips personal
-domains, and never raises — a Temporal outage degrades to "enrichment did not run".
+gated by the kill switch, US-only for v0, and a configured Harmonic key, and never
+raises — a Temporal outage degrades to "enrichment did not run". Personal-domain
+signups get no provider lookup, but the work-vs-personal email signal is recorded
+for every signup so consumers can read it either way.
 """
 
 import asyncio
@@ -18,6 +20,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
 from posthog.utils import GenericEmails, get_instance_region
+
+from products.growth.backend.enrichment.writer import record_signup_work_email
 
 logger = structlog.get_logger(__name__)
 
@@ -40,13 +44,26 @@ def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str, 
         return
 
     domain = _domain_from_email(email)
-    if not domain or _generic_emails.is_generic(f"@{domain}"):
+    if not domain:
+        return
+
+    work_email = not _generic_emails.is_generic(email)
+    _record_work_email(organization_id=str(organization_id), work_email=work_email)
+    if not work_email:
         return
 
     inputs = SignupEnrichmentInputs(organization_id=str(organization_id), distinct_id=str(distinct_id), domain=domain)
     # on_commit so the worker never reads the org/enrichment rows before they are committed;
     # fires inline when no transaction is open.
     transaction.on_commit(lambda: _dispatch(inputs))
+
+
+def _record_work_email(*, organization_id: str, work_email: bool) -> None:
+    # The write runs in its own savepoint; a failure here must never surface to signup.
+    try:
+        record_signup_work_email(organization_id=organization_id, work_email=work_email)
+    except Exception as e:
+        capture_exception(e)
 
 
 def _dispatch(inputs: SignupEnrichmentInputs) -> None:
