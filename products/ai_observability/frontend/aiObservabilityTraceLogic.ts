@@ -368,9 +368,11 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                             repo: gitMetadata?.repo ?? undefined,
                         })
                     } catch {
-                        return { key, matches: [] }
+                        matches = []
                     }
 
+                    // Also on the failure path: a stale request failing after a newer load resolved must not
+                    // overwrite the newer resolution.
                     breakpoint()
 
                     return { key, matches }
