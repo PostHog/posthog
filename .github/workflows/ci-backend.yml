@@ -72,7 +72,7 @@ permissions:
 
 jobs:
     # Job to decide if we should run backend ci
-    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    # See .github/actions/paths-filter/README.md for filter semantics
     changes:
         runs-on: depot-ubuntu-latest
         timeout-minutes: 5
@@ -1018,7 +1018,7 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   CHANGED_FILES: ${{ needs.changes.outputs.product_yamls_files }}
               run: |
-                  # CHANGED_FILES is space-separated (dorny list-files: escape).
+                  # CHANGED_FILES is space-separated (paths-filter list-files: escape).
                   # Each entry is products/<name>/product.yaml — strip to <name>.
                   names=$(echo "$CHANGED_FILES" | tr ' ' '\n' | sed -n 's|^products/\([^/]*\)/product.yaml$|\1|p' | xargs)
                   # Drop products whose product.yaml was deleted in this PR (e.g. the
