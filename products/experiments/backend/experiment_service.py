@@ -2866,15 +2866,9 @@ class ExperimentService:
                     for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all()
                 }
 
-                for link in existing_links.values():
-                    if link.saved_metric.query:
-                        uuid = link.saved_metric.query.get("uuid")
-                        if uuid:
-                            metric_type = (link.metadata or {}).get("type", "primary")
-                            if metric_type == "primary":
-                                old_saved_metric_uuids["primary"].add(uuid)
-                            else:
-                                old_saved_metric_uuids["secondary"].add(uuid)
+                old_saved_metric_uuids = self._saved_metric_uuids_by_type(
+                    (link.saved_metric.query, link.metadata) for link in existing_links.values()
+                )
 
                 new_saved_metric_ids = {sm["id"] for sm in saved_metrics_data}
                 existing_saved_metric_ids = set(existing_links.keys())
@@ -4039,17 +4033,15 @@ class ExperimentService:
                 sm.id: sm
                 for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids_list, team_id=self.team.id)
             }
-
-            for sm_data in saved_metrics_data:
-                saved_metric = saved_metrics.get(sm_data["id"])
-                if saved_metric and saved_metric.query:
-                    uuid = saved_metric.query.get("uuid")
-                    if uuid:
-                        metric_type = (sm_data.get("metadata") or {}).get("type", "primary")
-                        if metric_type == "primary":
-                            new_primary_uuids.add(uuid)
-                        else:
-                            new_secondary_uuids.add(uuid)
+            new_uuids = self._saved_metric_uuids_by_type(
+                (
+                    saved_metric.query if (saved_metric := saved_metrics.get(sm_data["id"])) else None,
+                    sm_data.get("metadata"),
+                )
+                for sm_data in saved_metrics_data
+            )
+            new_primary_uuids = new_uuids["primary"]
+            new_secondary_uuids = new_uuids["secondary"]
 
         added_primary = new_primary_uuids - old_saved_metric_uuids["primary"]
         removed_primary = old_saved_metric_uuids["primary"] - new_primary_uuids
