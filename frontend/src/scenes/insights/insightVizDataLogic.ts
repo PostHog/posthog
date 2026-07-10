@@ -106,6 +106,7 @@ import {
     ChartDisplayType,
     FunnelVizType,
     InsightLogicProps,
+    IntervalType,
     LabelGroupType,
     SlowQueryPossibilities,
 } from '~/types'
@@ -155,7 +156,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateQuerySource: (querySource: QuerySourceUpdate) => ({ querySource }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange, ignoreDebounce: boolean = false) => ({ dateRange, ignoreDebounce }),
-        /** Apply a drag-to-zoom date range to the insight's query. */
+        /** Apply a drag-to-zoom date range to the insight's query. Both dates are bucket starts;
+         *  the end is widened to its bucket's end using the query's interval. */
         zoomDateRange: (dateFrom: string, dateTo: string) => ({ dateFrom, dateTo }),
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
@@ -676,10 +678,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
 
         zoomDateRange: ({ dateFrom, dateTo }) => {
+            eventUsageLogic.actions.reportInsightDragToZoomed(values.querySource?.kind)
+            // Charts emit bucket starts — widen the end to the last selected bucket's end, so
+            // e.g. dragging over the "May" bar of a monthly chart zooms to all of May.
             // Sub-day buckets carry a time component; explicitDate stops the backend from
             // rounding them back out to whole days.
             actions.updateDateRange(
-                { date_from: dateFrom, date_to: dateTo, explicitDate: hasTimeComponent(dateFrom) },
+                {
+                    date_from: dateFrom,
+                    date_to: dateRangeZoomEnd(dateTo, values.interval),
+                    explicitDate: hasTimeComponent(dateFrom),
+                },
                 true
             )
         },
@@ -843,6 +852,25 @@ export function hasTimeComponent(date: string): boolean {
     return /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(date)
 }
 
+/** Last moment of the bucket starting at `bucketStart`, so a zoom keeps all the data the user
+ *  selected. Drag-to-zoom emits bucket *starts*, so without widening only the last bucket's first
+ *  day/instant survives — e.g. selecting the "May" bar of a monthly chart must zoom to
+ *  `2026-05-01..2026-05-31`, not `..2026-05-01`. Day buckets need no widening (a bare date
+ *  already means the whole day), and without a known interval the start is returned as-is. */
+export function dateRangeZoomEnd(bucketStart: string, interval: IntervalType | null | undefined): string {
+    if (!interval || interval === 'day') {
+        return bucketStart
+    }
+    const start = dayjs(bucketStart)
+    if (!start.isValid()) {
+        return bucketStart
+    }
+    if (interval === 'second' || interval === 'minute' || interval === 'hour') {
+        return start.add(1, interval).subtract(1, 'second').format('YYYY-MM-DD HH:mm:ss')
+    }
+    return start.add(1, interval).subtract(1, 'day').format('YYYY-MM-DD')
+}
+
 const handleQuerySourceUpdateSideEffects = (
     update: QuerySourceUpdate,
     currentState: InsightQueryNode,
@@ -892,20 +920,29 @@ const handleQuerySourceUpdateSideEffects = (
         }
     }
 
-    // clamp the funnel steps
-    if (
-        maybeChangedSeries &&
-        isFunnelsQuery(currentState) &&
-        ((insightFilter as FunnelsFilter)?.funnelFromStep != null ||
-            (insightFilter as FunnelsFilter)?.funnelToStep != null)
-    ) {
-        // Filter out GroupNode types as funnels only use AnyEntityNode
-        const funnelSeries: AnyEntityNode<FunnelsDataWarehouseNode>[] = maybeChangedSeries.filter(
-            (node): node is AnyEntityNode<FunnelsDataWarehouseNode> => node.kind !== NodeKind.GroupNode
-        )
-        ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
-            ...(insightFilter as FunnelsFilter),
-            ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, funnelSeries),
+    // clamp the funnel conversion window and per-exclusion step ranges against the new series
+    if (maybeChangedSeries && isFunnelsQuery(currentState)) {
+        const funnelsFilter = insightFilter as FunnelsFilter | undefined
+        const hasConversionWindow = funnelsFilter?.funnelFromStep != null || funnelsFilter?.funnelToStep != null
+        const hasExclusions = (funnelsFilter?.exclusions?.length ?? 0) > 0
+
+        if (hasConversionWindow || hasExclusions) {
+            // Filter out GroupNode types as funnels only use AnyEntityNode
+            const funnelSeries: AnyEntityNode<FunnelsDataWarehouseNode>[] = maybeChangedSeries.filter(
+                (node): node is AnyEntityNode<FunnelsDataWarehouseNode> => node.kind !== NodeKind.GroupNode
+            )
+            ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
+                ...funnelsFilter,
+                ...getClampedFunnelStepRange(funnelsFilter ?? {}, funnelSeries),
+                ...(hasExclusions
+                    ? {
+                          exclusions: funnelsFilter?.exclusions?.map((exclusion) => ({
+                              ...exclusion,
+                              ...getClampedFunnelStepRange(exclusion, funnelSeries),
+                          })),
+                      }
+                    : {}),
+            }
         }
     }
 

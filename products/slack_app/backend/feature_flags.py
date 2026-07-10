@@ -33,6 +33,7 @@ SLACK_APP_HOME_FLAG = "slack-app-home"
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_ASSISTANT_FLAG = "slack-app-assistant"
 SLACK_APP_BOT_PRS_FLAG = "slack-app-bot-prs"
+SLACK_APP_CANVAS_FILE_ARTIFACTS_FLAG = "slack-app-canvas-file-artifacts"
 UNTAGGED_THREAD_FOLLOWUPS_FLAG = "posthog-slack-app-untagged-thread-followups"
 
 
@@ -107,6 +108,30 @@ def is_slack_app_agent_design_enabled(integration: Integration) -> bool:
     except Exception:
         logger.exception(
             "slack_app_agent_design_feature_flag_check_failed",
+            integration_id=integration.id,
+        )
+        return False
+
+
+def is_slack_app_canvas_file_artifacts_enabled(integration: Integration) -> bool:
+    """Gate for living-artifact delivery that depends on the in-review Slack scopes
+    (``canvases:write`` for the canvas adapter, ``files:write`` for the file adapter).
+    Stays off until Slack approves those scopes for the public app; the adapters also
+    verify the granted scopes at point of use. Keyed on the Slack workspace + PostHog org."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SLACK_APP_CANVAS_FILE_ARTIFACTS_FLAG,
+                f"slack_workspace:{integration.integration_id}",
+                groups={"organization": str(integration.team.organization_id)},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception(
+            "slack_app_canvas_file_artifacts_feature_flag_check_failed",
             integration_id=integration.id,
         )
         return False

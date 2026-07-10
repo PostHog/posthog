@@ -11,7 +11,6 @@ import {
 } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { McpMode } from '@/lib/utils'
-import { SQL_SCHEMA_DISCOVERY_FEATURE_FLAG } from '@/tools/posthogAiTools/readDataWarehouseSchema'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
 
@@ -106,12 +105,7 @@ export class RequestStateResolver {
             cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
-        const toolFlagKeys = getRequiredFeatureFlags()
-        // `mcp-sql-schema-discovery` now gates the read-data-warehouse-schema tool, so
-        // it already arrives via `getRequiredFeatureFlags()`; keep it listed (and dedupe)
-        // since the instructions layer also reads it for SQL discovery steering — neither
-        // concern should depend on the other's wiring.
-        const allFlagKeys = [...new Set([...toolFlagKeys, SQL_SCHEMA_DISCOVERY_FEATURE_FLAG])]
+        const allFlagKeys = [...new Set(getRequiredFeatureFlags())]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined

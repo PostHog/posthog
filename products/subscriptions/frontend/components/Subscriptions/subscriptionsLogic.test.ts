@@ -54,9 +54,11 @@ describe('subscriptionsLogic', () => {
     let logic: ReturnType<typeof subscriptionsLogic.build>
     let subscriptions: SubscriptionType[] = []
     let aiSubscriptions: SubscriptionType[] = []
+    let tileSubscriptions: SubscriptionType[] = []
     beforeEach(async () => {
         subscriptions = [fixtureSubscriptionResponse(1), fixtureSubscriptionResponse(2)]
         aiSubscriptions = [fixtureSubscriptionResponse(10, { resource_type: 'ai_prompt', prompt: 'Weekly report' })]
+        tileSubscriptions = [fixtureSubscriptionResponse(20)]
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/1': fixtureInsightResponse(1),
@@ -69,13 +71,16 @@ describe('subscriptionsLogic', () => {
 
                 '/api/environments/:team_id/subscriptions': ({ request }) => {
                     const url = new URL(request.url)
-                    const insightId = url.searchParams.get('insight')
+                    const insightIds = url.searchParams.get('insights')?.split(',') ?? []
+                    const dashboardTiles = url.searchParams.get('dashboard_tiles')
                     const resourceType = url.searchParams.get('resource_type')
                     let results: SubscriptionType[] = []
 
                     if (resourceType === 'ai_prompt') {
                         results = aiSubscriptions
-                    } else if (insightId === Insight2) {
+                    } else if (dashboardTiles === '9') {
+                        results = tileSubscriptions
+                    } else if (insightIds.includes(Insight2)) {
                         results = subscriptions
                     }
 
@@ -110,6 +115,23 @@ describe('subscriptionsLogic', () => {
         await expectLogic(logic).toFinishListeners().toMatchValues({
             subscriptions: subscriptions,
             subscriptionsLoading: false,
+        })
+    })
+
+    it('loads subscriptions on dashboard tiles via the server-side dashboard_tiles filter', async () => {
+        logic = subscriptionsLogic({ dashboardId: 9 })
+        logic.mount()
+
+        await expectLogic(logic).toFinishListeners().toMatchValues({
+            insightSubscriptions: tileSubscriptions,
+            insightSubscriptionsLoading: false,
+        })
+    })
+
+    it('does not load tile subscriptions outside a dashboard context', async () => {
+        await expectLogic(logic).toFinishListeners().toMatchValues({
+            insightSubscriptions: [],
+            insightSubscriptionsLoading: false,
         })
     })
 

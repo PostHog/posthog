@@ -1,9 +1,11 @@
-// Headline-metric tile: label · value (+suffix) · delta vs the previous window · caption.
-// Every entity page builds its stat strip from this tile.
+// Headline-metric tile: label · value · delta pill vs the previous window · caption, rendered
+// with quill's MetricCard inside the product's card chrome. Every entity page builds its stat
+// strip from this tile.
 
 import { ReactNode } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
+import { MetricCard, type MetricChange } from '@posthog/quill-charts'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
@@ -24,6 +26,7 @@ export function pointChange(current: number | null | undefined, previous: number
     return (current - previous) * 100
 }
 
+/** Compact inline delta for table cells — tiles use `MetricTile`'s `delta` prop instead. */
 export function DeltaBadge({
     value,
     unit = '%',
@@ -64,11 +67,36 @@ export function DeltaBadge({
     )
 }
 
+export interface TileDelta {
+    /** The delta to show; null (no baseline) and ±0 both hide the pill. */
+    value: number | null
+    unit?: string
+    /** For costs, durations, failures — a drop is the good direction. */
+    goodWhenDown?: boolean
+    precision?: number
+    /** What the delta compares against, shown on pill hover. */
+    vs?: string
+}
+
+/** DeltaBadge's display rules (rounding, ±0 suppression, >999 clamp) as a MetricCard change pill. */
+function deltaToChange(delta: TileDelta | undefined): MetricChange | null {
+    if (!delta || delta.value == null) {
+        return null
+    }
+    const precision = delta.precision ?? 0
+    const rounded = Number(delta.value.toFixed(precision))
+    if (rounded === 0) {
+        return null
+    }
+    // A near-zero baseline turns growth into a meaningless five-digit percentage — clamp the display.
+    const display = Math.abs(rounded) > 999 ? '>999' : Math.abs(rounded).toFixed(precision)
+    return { value: rounded, label: `${display}${delta.unit ?? '%'}` }
+}
+
 export function MetricTile({
     label,
     tooltip,
     value,
-    valueSuffix,
     delta,
     sub,
     className,
@@ -78,31 +106,34 @@ export function MetricTile({
     tooltip?: ReactNode
     /** Pre-formatted headline value; '—' for no data. */
     value: string
-    valueSuffix?: string
-    delta?: ReactNode
+    delta?: TileDelta
     /** Visible caption — only for an answer worth a glance (what's failing, why there's no value). */
     sub?: ReactNode
     className?: string
 }): JSX.Element {
-    const labelSpan = <span className="text-xs text-secondary">{label}</span>
+    const labelNode = tooltip ? (
+        <Tooltip title={tooltip}>
+            <span className="cursor-default">{label}</span>
+        </Tooltip>
+    ) : (
+        label
+    )
     return (
         <LemonCard
             hoverEffect={false}
-            className={cn('flex min-w-44 flex-1 flex-col justify-center gap-1 px-5 py-4', className)}
+            className={cn('flex min-w-44 flex-1 flex-col justify-center px-5 py-4', className)}
         >
-            {tooltip ? (
-                <Tooltip title={tooltip}>
-                    <span className="self-start cursor-default">{labelSpan}</span>
-                </Tooltip>
-            ) : (
-                labelSpan
-            )}
-            <span className="flex items-baseline gap-2">
-                <span className="text-2xl font-semibold leading-none tabular-nums">{value}</span>
-                {valueSuffix && <span className="text-xs font-medium text-tertiary">{valueSuffix}</span>}
-                {delta}
-            </span>
-            {sub && <span className="text-xs text-tertiary">{sub}</span>}
+            <MetricCard
+                title={labelNode}
+                // These tiles have no series data and often a non-numeric headline ("3 / 5", "2h 10m"),
+                // so the pre-formatted display string rides through MetricCard's formatter.
+                value={0}
+                formatValue={() => value}
+                change={deltaToChange(delta)}
+                goodDirection={delta?.goodWhenDown ? 'down' : 'up'}
+                changeTooltip={delta ? (delta.vs ?? 'vs the previous window') : undefined}
+                subtitle={sub}
+            />
         </LemonCard>
     )
 }

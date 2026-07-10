@@ -1539,7 +1539,7 @@
         }
     },
     "characterize-metric-anomaly": {
-        "description": "Characterize how a metric behaves in a suspicious window compared to a healthy baseline. This is the FIRST call to make when investigating \"metric X is rising/dropping — why?\": one call answers how big the change is, exactly when it started, and which label values moved.\n\nRequired: `metricName` (exact — discover via `metric-names-list` first) and `anomalyFrom` (when things started looking wrong; the alert fire time works). `anomalyTo` defaults to now. The baseline defaults to the equal-length window immediately before `anomalyFrom`; pass `baselineFrom`/`baselineTo` to compare against a known-good period instead (e.g. same time yesterday).\n\nThe aggregation is auto-picked from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> p95); override with `aggregation` if you need a different lens. Use `filters` to scope to a service or region. `candidateKeys` controls which label keys are drilled into for the movers analysis — omit it to auto-discover.\n\nRead the report in this order:\n\n1. `direction` + `change_ratio` + `anomaly_peak`: how bad is it? (`flat` means the windows don't meaningfully differ — widen the anomaly window or check you have the right metric.)\n2. `onset_time`: when it started. Use this exact timestamp as the pivot for cross-signal correlation.\n3. `top_movers`: which label values changed. One label value moving alone (e.g. a single pod or shard) points at a localized culprit; everything moving together points at a shared cause upstream.\n4. `series`: the full baseline+anomaly time series if you need to eyeball the shape.\n\nThen correlate: query logs (`query-logs` with the same service and a window around `onset_time`, severity error first) and traces (APM span tools, same service/window) to find what broke and its blast radius. All parameters are nested inside a `query` object.",
+        "description": "Characterize how a metric behaves in a suspicious window compared to a healthy baseline. This is the FIRST call to make when investigating \"metric X is rising/dropping — why?\": one call answers how big the change is, exactly when it started, and which label values moved.\n\nRequired: `metricName` (exact — discover via `metric-names-list` first) and `anomalyFrom` (when things started looking wrong; the alert fire time works). `anomalyTo` defaults to now. The baseline defaults to the equal-length window immediately before `anomalyFrom`; pass `baselineFrom`/`baselineTo` to compare against a known-good period instead (e.g. same time yesterday).\n\nThe aggregation is auto-picked from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95); override with `aggregation` if you need a different lens. Use `filters` to scope to a service or region. `candidateKeys` controls which label keys are drilled into for the movers analysis — omit it to auto-discover.\n\nRead the report in this order:\n\n1. `direction` + `change_ratio` + `anomaly_peak`: how bad is it? (`flat` means the windows don't meaningfully differ — widen the anomaly window or check you have the right metric.)\n2. `onset_time`: when it started. Use this exact timestamp as the pivot for cross-signal correlation.\n3. `top_movers`: which label values changed. One label value moving alone (e.g. a single pod or shard) points at a localized culprit; everything moving together points at a shared cause upstream.\n4. `series`: the full baseline+anomaly time series if you need to eyeball the shape.\n\nThen correlate: query logs (`query-logs` with the same service and a window around `onset_time`, severity error first) and traces (APM span tools, same service/window) to find what broke and its blast radius. All parameters are nested inside a `query` object.",
         "category": "Metrics",
         "feature": "metrics",
         "summary": "Characterize metric anomaly",
@@ -5933,6 +5933,21 @@
         },
         "feature_flag": "logs-patterns-view"
     },
+    "logs-patterns-diff": {
+        "description": "Compare the log patterns of two time windows and return what changed: templates that are **new**, templates whose rate **shifted** (with magnitude, e.g. 4x), and templates that are **gone**. This is the single most useful call for incident triage — \"what is different about now vs. before it broke\" in one round trip, instead of mining two windows yourself and hand-matching templates.\n\nAll parameters must be nested inside a `query` object, with an optional sibling `baselineDateRange`.\n\n# When to use\n\n- **Incident triage (the primary loop):** set `query.dateRange` to the incident window. Omit `baselineDateRange` (defaults to the same window one week earlier) or set it to a known-good window just before the incident. The `new` and biggest `rate_shift` entries are your suspects; pivot to their raw lines with `query-logs`.\n- **Post-deploy check:** current window = since the deploy; `baselineDateRange` = the same-length window just before it. New error-severity templates right after a deploy are the classic regression signature.\n- **\"What changed this week?\"** — current = `-1d`, baseline auto. Good periodic sweep for a service you own.\n\n## Pick the right tool\n\n- Just summarize one window's content → `logs-patterns`.\n- Explain a _count_ change without needing message content → `logs-count-ranges` (cheaper).\n- Use **this** tool when you need to know _which messages_ are new or behaving differently between two periods.\n\n# Reading the response\n\nEntries come sorted most-interesting-first: `new` (by volume), then `rate_shift` (by magnitude), then `gone`, then `unchanged`.\n\n- `classification` — trust the labels; the thresholds already handle sampling honesty:\n  - `new` requires clearing a novelty floor (~1% volume share, or any error/fatal lines). Below the floor, absence from the baseline sample is not evidence of novelty.\n  - `rate_shift` requires ≥2x change in per-second rate (windows of different lengths are normalized) _and_ enough raw samples on both sides.\n  - `unchanged` means \"no confident claim\", not \"provably identical\".\n- `rate_ratio` — current rate / baseline rate. 4.0 = 4x faster now, 0.25 = quartered.\n- `pattern` — full pattern stats including `match_regex` / `match_literal`, so you can pivot straight to the matching lines (same recipe as `logs-patterns`: message regex filter + the pattern's services/severities).\n- **Check `baseline.total_count` before trusting a wall of `new` entries** — an empty or tiny baseline (logging only started recently, service didn't exist last week) makes everything look new.\n- Both windows are mined from samples (`sampled: true`), so counts are estimates and templates rarer than ~1 in 10,000 rows may be invisible in either window.\n\nTemplate identity across the two windows is fingerprint-based (literal content), so the miner rendering `User <*> not found` in one window and `User <num> not found` in the other still compares as one pattern rather than a false new+gone pair.\n\n# Parameters\n\n## query.dateRange\n\nThe current (foreground) window — the period you are investigating. Same format as `logs-patterns`.\n\n## baselineDateRange\n\nOptional, sibling of `query` (not inside it). The comparison window. Omit for the default: the current window shifted back exactly one week, which absorbs daily/weekly volume cycles. Provide explicitly to compare against a pre-deploy or pre-incident period. It does not need to be the same length as the current window — rates are normalized per second.\n\n## query.severityLevels / query.serviceNames / query.searchTerm / query.filterGroup\n\nSame as `logs-patterns`; applied to **both** windows. Scoping by service is recommended — it prunes both scans and focuses the sample budget.\n\n# Examples\n\n## What changed during the incident vs. just before it\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"2026-07-07T09:30:00Z\", \"date_to\": \"2026-07-07T10:30:00Z\" },\n    \"serviceNames\": [\"checkout\"]\n  },\n  \"baselineDateRange\": { \"date_from\": \"2026-07-07T08:00:00Z\", \"date_to\": \"2026-07-07T09:00:00Z\" }\n}\n```\n\n## What is new or different today vs. the same time last week\n\n```json\n{ \"query\": { \"dateRange\": { \"date_from\": \"-1d\" } } }\n```\n\n## Did the deploy change what the service logs?\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"2026-07-07T14:00:00Z\" },\n    \"serviceNames\": [\"api\"]\n  },\n  \"baselineDateRange\": { \"date_from\": \"2026-07-07T10:00:00Z\", \"date_to\": \"2026-07-07T14:00:00Z\" }\n}\n```",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Diff log patterns between two windows",
+        "title": "Diff log patterns between two windows",
+        "required_scopes": ["logs:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "logs-patterns-view"
+    },
     "logs-services-create": {
         "description": "Return the top-25 services by log volume in the window, each with log_count, error_count, and error_rate, plus a per-service sparkline. Use this as the entry point when triaging which services are worth alerting on — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking attribute-values + per-service counts.",
         "category": "Logs",
@@ -6908,7 +6923,7 @@
         "system_prompt_hint": "One MCP tool's top callers — calls, error rate, harnesses, person email/name"
     },
     "query-metrics": {
-        "description": "Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series. The response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.\n\nAll parameters are nested inside a `query` object. Two request forms:\n\n- **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).\n- **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `\"(a - b) / a\"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.\n\n# Workflow — follow this order every time\n\n1. **Discover names first.** Call `metric-names-list` with a substring (`value`) before querying — metric names must match exactly, and the returned `metric_type` tells you the right aggregation.\n2. **Pick the aggregation by metric type:**\n   - `sum` counters (usually `_total`): use `rate` (per-second) or `increase` — both are counter-reset safe and temporality-aware. Do NOT use `sum`/`avg` on cumulative counters; absolute counter values are meaningless.\n   - `gauge`: `avg` (typical), `p95`, `sum`.\n   - `histogram`: `histogram_quantile` with `quantile` (e.g. 0.95). All selected series must share one bucket layout — narrow with `filters` if you get a bounds-mismatch error.\n3. **Narrow with filters.** `filters: [{key, op, value, scope?}]`, ANDed. Ops: `eq`, `neq`, `regex`, `not_regex` (RE2). Leave `scope` at its default `auto` unless you know whether the attribute is per-target (`resource`) or per-datapoint (`attribute`). Negative ops also match rows lacking the key, like Prometheus negative matchers.\n4. **Split with groupBy.** `groupBy: [{key}]` returns one series per label value (capped at the 100 largest). `service_name` is always available; discover other keys from a sample query's labels or ask the user.\n5. **Control the grid with `interval`.** One of `second, minute, minute_5, minute_15, hour, hour_6, day, week`. Omit to auto-pick (~60 buckets across the range). Use the same interval when comparing windows.\n\n# Investigating an anomaly (\"metric X is rising — why?\")\n\n1. Query the metric over a window that includes the anomaly AND an equal-length healthy baseline before it (one call, auto interval).\n2. Find the onset: the first bucket where the value clearly departs from the baseline range.\n3. Re-query grouped by `service_name` (then by other candidate keys) over the same window to see WHICH series moved — a single label value moving points at the culprit; all moving together points at something shared (upstream dependency, infra).\n4. Use `formula` for normalized comparisons, e.g. error ratio `errors / requests` instead of raw error counts.\n5. Correlate the onset window across signals: query logs (`query-logs`, filtered to the same `service.name` and time window, severity error) and traces (APM span tools, same service/window) to find the cause and its blast radius.\n\nCRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` is required, ISO 8601; `dateTo` defaults to now.",
+        "description": "Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series. The response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.\n\nAll parameters are nested inside a `query` object. Two request forms:\n\n- **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).\n- **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `\"(a - b) / a\"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.\n\n# Workflow — follow this order every time\n\n1. **Discover names first.** Call `metric-names-list` with a substring (`value`) before querying — metric names must match exactly, and the returned `metric_type` tells you the right aggregation.\n2. **Pick the aggregation by metric type:**\n   - `sum` counters (usually `_total`): use `rate` (per-second) or `increase` — both are counter-reset safe and temporality-aware. Do NOT use `sum`/`avg` on cumulative counters; absolute counter values are meaningless.\n   - `gauge`: `avg` (typical), `p95`, `sum`.\n   - `histogram`: `histogram_quantile` with `quantile` (e.g. 0.95). All selected series must share one bucket layout — narrow with `filters` if you get a bounds-mismatch error.\n3. **Narrow with filters.** `filters: [{key, op, value, scope?}]`, ANDed. Ops: `eq`, `neq`, `regex`, `not_regex` (RE2). Leave `scope` at its default `auto` unless you know whether the attribute is per-target (`resource`) or per-datapoint (`attribute`). Negative ops also match rows lacking the key, like Prometheus negative matchers.\n4. **Split with groupBy.** `groupBy: [{key}]` returns one series per label value (capped at the 100 largest). The service name is always available — `service_name` and `service.name` both resolve to it in metrics (logs only accept the dotted `service.name`); discover other keys from a sample query's labels or ask the user.\n5. **Control the grid with `interval`.** One of `second, minute, minute_5, minute_15, hour, hour_6, day, week`. Omit to auto-pick (~60 buckets across the range). Use the same interval when comparing windows.\n\n# Investigating an anomaly (\"metric X is rising — why?\")\n\n1. Query the metric over a window that includes the anomaly AND an equal-length healthy baseline before it (one call, auto interval).\n2. Find the onset: the first bucket where the value clearly departs from the baseline range.\n3. Re-query grouped by `service_name` (then by other candidate keys) over the same window to see WHICH series moved — a single label value moving points at the culprit; all moving together points at something shared (upstream dependency, infra).\n4. Use `formula` for normalized comparisons, e.g. error ratio `errors / requests` instead of raw error counts.\n5. Correlate the onset window across signals: query logs (`query-logs`, filtered to the same `service.name` and time window, severity error) and traces (APM span tools, same service/window) to find the cause and its blast radius.\n\nCRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` is required, ISO 8601; `dateTo` defaults to now.",
         "category": "Metrics",
         "feature": "metrics",
         "summary": "Query metrics",
@@ -7095,22 +7110,6 @@
         "summary": "Explore the user's events, actions, properties, and property values.",
         "title": "Read data schema",
         "required_scopes": ["event_definition:read", "property_definition:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "read-data-warehouse-schema": {
-        "description": "Use this tool to retrieve the core data warehouse schemas for PostHog tables (events, groups, persons, sessions) and the available data warehouse tables, views, and system tables. Use this to understand the data model before writing HogQL queries.",
-        "category": "Data schema",
-        "feature": "data_schema",
-        "summary": "Read core data warehouse schemas and table lists.",
-        "title": "Read data warehouse schema",
-        "required_scopes": ["warehouse_table:read", "warehouse_view:read"],
-        "feature_flag": "mcp-sql-schema-discovery",
-        "feature_flag_behavior": "disable",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -8852,6 +8851,36 @@
             "readOnlyHint": false
         }
     },
+    "vision-observations-label-create": {
+        "description": "Set or update the shared thumbs up/down rating on a replay scanner observation: `is_correct` true means the scanner got the session right (thumbs up), false means it got it wrong (thumbs down), plus optional written `feedback` explaining why (applies to both directions). One shared rating per observation, team-wide, last write wins; re-posting updates it in place. These ratings power the scanner's Quality tab: the quality-over-time chart and the AI prompt recommendations (see `vision-scanners-prompt-suggestions-generate`). Find observation IDs via `vision-scanners-observations-list` (filter `labeled=false` for unrated ones) or `vision-observations-list` for a session.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Rate a scanner observation",
+        "title": "Rate a scanner observation",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-observations-label-destroy": {
+        "description": "Remove the shared thumbs up/down rating (and its feedback) from a replay scanner observation, returning it to unrated. Team-wide: this clears the rating for everyone.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Remove a scanner observation rating",
+        "title": "Remove a scanner observation rating",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
     "vision-observations-list": {
         "description": "List every replay vision observation recorded for a single session, across all scanners the caller can read. This is the \"what has Replay Vision found about this session?\" lookup — pair it with the session-recording MCP tools or the investigating-replay skill while investigating a recording. The `session_id` query parameter is REQUIRED; without it the request is rejected. Each result includes the scanner that produced it, the observation `status` (pending/running/succeeded/failed/ineligible), the `error_reason` for terminal non-success statuses, and the `scanner_result` (LLM output) on success. To list observations for one specific scanner over time instead, use `vision-scanners-observations-list`.",
         "category": "Replay vision",
@@ -8883,7 +8912,7 @@
         "feature_flag": "replay-vision"
     },
     "vision-quota-retrieve": {
-        "description": "Get the organization's monthly Replay Vision observation budget. Returns `monthly_quota`, `usage_this_month` (in-flight + succeeded observations counted against it), `remaining`, `exhausted`, and the `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before creating a scanner or calling `vision-scanners-scan-session` — observations requested over quota are silently skipped until the next period. Pair with `vision-scanners-estimate-create` to size a new scanner against the remaining budget.",
+        "description": "Get the organization's monthly Replay vision credit budget (1 credit = $0.01; observations cost credits by model). Returns `credit_limit` (null when uncapped), `credits_used` (in-flight + succeeded observations counted against it), `remaining`, `exhausted`, `projected_monthly_credits`, and the `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before creating a scanner or calling `vision-scanners-scan-session` — observations requested over budget are silently skipped until the next period. Pair with `vision-scanners-estimate-create` to size a new scanner against the remaining budget.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Get replay vision quota",
@@ -9001,6 +9030,82 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-observations-stats": {
+        "description": "Aggregate statistics over one scanner's observations. Accepts the same filters as `vision-scanners-observations-list` plus `recent_days` (default 14, clamped 1..365) for the windowed series. Returns `status_counts` (totals and success rate), `coverage` (distinct sessions scanned), `labels` (thumbs up/down rating totals, a per-day accuracy series bucketed by scan day, per-day rating activity, and `version_markers`: each prompt version's first day, prompt text, and rating counts), plus per-type distributions (`monitor` verdict counts, `classifier` tag rankings, `scorer` score summary and histogram). Use it to judge scanner quality and rating coverage, e.g. before generating a prompt suggestion with `vision-scanners-prompt-suggestions-generate`.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get scanner observation stats",
+        "title": "Get scanner observation stats",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-prompt-suggestions-apply": {
+        "description": "Apply a prompt suggestion to its scanner: writes the `suggested_prompt` into the scanner's config (bumping `scanner_version`) and marks the suggestion applied. Only the current (pending or dismissed) suggestion can be applied, and only while the scanner's prompt is unchanged since it was generated. Otherwise the call is rejected and you should generate a fresh one. This is a team-wide change: the scanner scans with the new prompt from its next sweep onward.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Apply prompt suggestion",
+        "title": "Apply prompt suggestion",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-prompt-suggestions-current": {
+        "description": "Get a scanner's newest AI prompt-rewrite suggestion, generated from the team's thumbs up/down ratings. Returns `suggestion` (null when none has been generated yet) with its `suggested_prompt`, the `base_prompt` it rewrote (for diffing), the `rationale`, and `status` (pending/applied/dismissed/superseded). Also returns `stale` (true when ratings changed since it was generated, so regenerating may give a better rewrite) and `rated_count` (rated observations available to generate from).",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get current prompt suggestion",
+        "title": "Get current prompt suggestion",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-prompt-suggestions-dismiss": {
+        "description": "Dismiss a prompt suggestion without applying it. The scanner's prompt is unchanged and the suggestion stays in history. A dismissed suggestion can still be applied later with `vision-scanners-prompt-suggestions-apply` as long as the scanner's prompt hasn't changed since it was generated.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Dismiss prompt suggestion",
+        "title": "Dismiss prompt suggestion",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-prompt-suggestions-generate": {
+        "description": "Generate a fresh AI prompt-rewrite suggestion for a scanner from the team's current thumbs up/down ratings and their written feedback. Requires at least one rated observation (check `rated_count` on `vision-scanners-prompt-suggestions-current`; create ratings with `vision-observations-label-create`). The previous pending suggestion becomes superseded. The LLM call runs inline, so expect the request to take a while. Review the returned suggestion, then apply it with `vision-scanners-prompt-suggestions-apply` or dismiss it with `vision-scanners-prompt-suggestions-dismiss`.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Generate prompt suggestion from ratings",
+        "title": "Generate prompt suggestion from ratings",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
         "feature_flag": "replay-vision"
     },
     "vision-scanners-scan-session": {

@@ -11,7 +11,7 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.exceptions import TaskInvalidStateError
+from products.tasks.backend.exceptions import ProcessTaskTransientError
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.activities import TaskProcessingContext
@@ -111,7 +111,11 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
                 return None
             fingerprint = compute_pr_fingerprint(pull_request)
         except Exception as e:
-            raise TaskInvalidStateError(
+            # A failed snapshot fetch is almost always a transient GitHub hiccup (a network
+            # blip, a rate limit, or a 200-with-`errors` GraphQL server error). Raise it as
+            # transient so the activity's retry policy retries it, rather than a fatal
+            # non-retryable error that permanently kills the in-flight follow-up run.
+            raise ProcessTaskTransientError(
                 f"Failed to fetch PR details from GitHub for URL {pr_url}",
                 context={
                     "pr_url": pr_url,
