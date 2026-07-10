@@ -17,6 +17,80 @@ import { CyclotronJobInputType, HogFunctionMappingType } from '~/types'
 import { workflowLogic } from '../../../workflowLogic'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
 
+// Builds the sample globals the input editor uses for autocomplete and unknown-global warnings.
+// The available globals depend on the trigger type: batch runs have no external triggering event,
+// but the worker backfills a real event.distinct_id at dequeue, so batch must expose `event` too or
+// the editor wrongly flags {event.distinct_id} as unknown.
+export function buildSampleGlobals(
+    triggerType: string | undefined,
+    variables: Array<Record<string, any>> | undefined | null
+): Record<string, any> {
+    const workflowVariables: Record<string, any> = {}
+    variables?.forEach((variable) => {
+        // Use placeholder values based on variable type
+        if (variable.type === 'string') {
+            workflowVariables[variable.key] = 'example_value'
+        } else if (variable.type === 'number') {
+            workflowVariables[variable.key] = 123
+        } else if (variable.type === 'boolean') {
+            workflowVariables[variable.key] = true
+        } else if (variable.type === 'dictionary' || variable.type === 'json') {
+            workflowVariables[variable.key] = {}
+        } else {
+            workflowVariables[variable.key] = null
+        }
+    })
+
+    const sampleGlobals: Record<string, any> = {
+        variables: workflowVariables,
+    }
+
+    if (triggerType === 'webhook') {
+        sampleGlobals.request = {
+            method: 'POST',
+            headers: {},
+            body: {},
+            params: {},
+        }
+    } else if (triggerType === 'event') {
+        sampleGlobals.event = {
+            event: 'example_event',
+            distinct_id: 'user123',
+            properties: {
+                $current_url: 'https://example.com',
+            },
+            timestamp: '2024-01-01T12:00:00Z',
+        }
+        sampleGlobals.person = {
+            id: 'person123',
+            properties: {
+                email: 'user@example.com',
+                name: 'John Doe',
+            },
+        }
+        sampleGlobals.groups = {}
+    } else if (triggerType === 'batch') {
+        // Batch runs carry a synthesized event whose distinct_id the worker backfills from the
+        // person, so {event.distinct_id} resolves at runtime. Expose it here so the editor
+        // doesn't flag it as an unknown global.
+        sampleGlobals.event = {
+            event: '$batch_hog_flow_invocation',
+            distinct_id: 'user123',
+            properties: {},
+            timestamp: '2024-01-01T12:00:00Z',
+        }
+        sampleGlobals.person = {
+            id: 'person123',
+            properties: {
+                email: 'user@example.com',
+                name: 'John Doe',
+            },
+        }
+    }
+
+    return sampleGlobals
+}
+
 export function HogFlowFunctionConfiguration({
     templateId,
     inputs,
@@ -68,73 +142,7 @@ export function HogFlowFunctionConfiguration({
     }
 
     const triggerType = workflow?.trigger?.type
-
-    // Build workflow variables object for autocomplete
-    const workflowVariables: Record<string, any> = {}
-    if (workflow?.variables) {
-        workflow.variables.forEach((variable) => {
-            // Use placeholder values based on variable type
-            if (variable.type === 'string') {
-                workflowVariables[variable.key] = 'example_value'
-            } else if (variable.type === 'number') {
-                workflowVariables[variable.key] = 123
-            } else if (variable.type === 'boolean') {
-                workflowVariables[variable.key] = true
-            } else if (variable.type === 'dictionary' || variable.type === 'json') {
-                workflowVariables[variable.key] = {}
-            } else {
-                workflowVariables[variable.key] = null
-            }
-        })
-    }
-
-    const sampleGlobals: Record<string, any> = {
-        variables: workflowVariables,
-    }
-
-    if (triggerType === 'webhook') {
-        sampleGlobals.request = {
-            method: 'POST',
-            headers: {},
-            body: {},
-            params: {},
-        }
-    } else if (triggerType === 'event') {
-        // Event-based triggers
-        sampleGlobals.event = {
-            event: 'example_event',
-            distinct_id: 'user123',
-            properties: {
-                $current_url: 'https://example.com',
-            },
-            timestamp: '2024-01-01T12:00:00Z',
-        }
-        sampleGlobals.person = {
-            id: 'person123',
-            properties: {
-                email: 'user@example.com',
-                name: 'John Doe',
-            },
-        }
-        sampleGlobals.groups = {}
-    } else if (triggerType === 'batch') {
-        // Batch runs carry a synthesized event whose distinct_id the worker backfills from the
-        // person, so {event.distinct_id} resolves at runtime — expose it here so the editor
-        // doesn't flag it as an unknown global.
-        sampleGlobals.event = {
-            event: '$batch_hog_flow_invocation',
-            distinct_id: 'user123',
-            properties: {},
-            timestamp: '2024-01-01T12:00:00Z',
-        }
-        sampleGlobals.person = {
-            id: 'person123',
-            properties: {
-                email: 'user@example.com',
-                name: 'John Doe',
-            },
-        }
-    }
+    const sampleGlobals = buildSampleGlobals(triggerType, workflow?.variables)
 
     return (
         <>
