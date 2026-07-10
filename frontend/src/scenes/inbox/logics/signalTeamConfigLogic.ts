@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -10,16 +10,20 @@ import type { signalTeamConfigLogicType } from './signalTeamConfigLogicType'
 
 /**
  * Team-level Self-driving config (singleton per team). Wraps the
- * `signals/team_config` endpoint via `api.signalTeamConfig`. The field surfaced
- * here is the team-wide default PR auto-start threshold, which seeds every
- * user's effective threshold until they set a personal override
- * (`userAutonomyLogic`). The backend field is non-nullable (P0–P4), so unlike
- * the per-user override there is no "Never" option here.
+ * `signals/team_config` endpoint via `api.signalTeamConfig`. Surfaces the
+ * team-wide default PR auto-start threshold (which seeds every user's effective
+ * threshold until they set a personal override in `userAutonomyLogic`) and the
+ * team-wide default Slack notification channel, where every actionable report is
+ * posted regardless of whether a suggested reviewer resolves. The auto-start
+ * field is non-nullable (P0–P4), so unlike the per-user override there is no
+ * "Never" option; the channel is nullable and `null` disables the team default.
  */
 export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
     path(['scenes', 'inbox', 'logics', 'signalTeamConfigLogic']),
     actions({
         setDefaultAutostartPriority: (priority: SignalReportPriority) => ({ priority }),
+        // `channel` is the "<id>|#name" target the backend stores; `null` clears the team default.
+        setDefaultSlackNotificationChannel: (channel: string | null) => ({ channel }),
     }),
     loaders({
         teamConfig: [
@@ -32,12 +36,16 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         ],
     }),
     reducers({
-        // Optimistically reflect the chosen priority so the select doesn't flicker
-        // back to the stale value while the request is in flight.
+        // Optimistically reflect the chosen value so the control doesn't flicker
+        // back to the stale one while the request is in flight.
         teamConfig: {
             setDefaultAutostartPriority: (state, { priority }) => ({
                 ...(state ?? { default_autostart_priority: null }),
                 default_autostart_priority: priority,
+            }),
+            setDefaultSlackNotificationChannel: (state, { channel }) => ({
+                ...(state ?? { default_autostart_priority: null }),
+                default_slack_notification_channel: channel,
             }),
         },
     }),
@@ -53,5 +61,17 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 actions.loadTeamConfig()
             }
         },
+        setDefaultSlackNotificationChannel: async ({ channel }) => {
+            try {
+                await api.signalTeamConfig.update({ default_slack_notification_channel: channel })
+            } catch (error: any) {
+                lemonToast.error(error?.detail ?? error?.message ?? 'Failed to update team Slack channel')
+            } finally {
+                actions.loadTeamConfig()
+            }
+        },
     })),
+    afterMount(({ actions }) => {
+        actions.loadTeamConfig()
+    }),
 ])
