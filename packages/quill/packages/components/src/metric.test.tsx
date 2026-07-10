@@ -20,11 +20,7 @@ function renderDelta(change: number, goodDirection: 'up' | 'down'): HTMLElement 
             <MetricDelta />
         </Metric>
     )
-    const pill = container.querySelector<HTMLElement>('[data-attr="metric-change-pill"]')
-    if (pill == null) {
-        throw new Error('change pill did not render')
-    }
-    return pill
+    return container.querySelector<HTMLElement>('[data-attr="metric-change-pill"]')!
 }
 
 describe('Metric', () => {
