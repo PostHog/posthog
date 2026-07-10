@@ -122,16 +122,57 @@ def collect(covered: LineMap, valid: LineMap) -> list[ProductCoverage]:
     return results
 
 
+def resolve_core_path(filename: str, sources: list[str], cache: dict[str, str]) -> str:
+    """Reconstruct a repo-relative path from a source-stripped core coverage filename.
+
+    Coverage stores core filenames relative to a <source> root (e.g. ``auth.py`` under source
+    ``posthog``), not repo-relative — even with relative_files. Pick the source whose joined
+    path exists in the checkout; posthog wins ties since it's the bulk of core.
+    """
+    if filename in cache:
+        return cache[filename]
+    stripped = filename.lstrip("/")
+    resolved = stripped
+    if not stripped.startswith(("posthog/", "ee/")):
+        for src in sorted(sources, key=lambda s: 0 if s == "posthog" else 1):
+            if src and Path(src, stripped).exists():
+                resolved = f"{src}/{stripped}"
+                break
+        else:
+            resolved = f"{sources[0]}/{stripped}" if sources else stripped
+    cache[filename] = resolved
+    return resolved
+
+
 def aggregate_core(artifacts_dir: Path) -> tuple[dict[str, set[int]], dict[str, set[int]]]:
     """Union covered / valid line numbers per file across the core (posthog/ee) coverage XMLs.
 
-    Core coverage is collected with relative_files=True, so the stored filenames are already
-    repo-relative (e.g. ``posthog/api/foo.py``) — unlike products, no prefix is needed.
+    Filenames are stored relative to their <source> root (posthog or ee); each is resolved
+    back to a repo-relative path so diff-cover can match it against git diff paths.
     """
     covered: dict[str, set[int]] = defaultdict(set)
     valid: dict[str, set[int]] = defaultdict(set)
+    cache: dict[str, str] = {}
     for xml_path in sorted(artifacts_dir.rglob("*.xml")):
-        parse_xml(xml_path, covered, valid)
+        try:
+            root = ElementTree.parse(xml_path).getroot()
+        except ElementTree.ParseError as exc:
+            sys.stderr.write(f"::warning::skipping unparseable {xml_path}: {exc}\n")
+            continue
+        sources = [s.text.strip() for s in root.iter("source") if s.text and s.text.strip() not in (".", "")]
+        for cls in root.iter("class"):
+            filename = cls.get("filename")
+            if not filename:
+                continue
+            repo_path = resolve_core_path(filename, sources, cache)
+            for line in cls.iter("line"):
+                number_attr = line.get("number")
+                if number_attr is None:
+                    continue
+                number = int(number_attr)
+                valid[repo_path].add(number)
+                if int(line.get("hits", "0")) > 0:
+                    covered[repo_path].add(number)
     return covered, valid
 
 
