@@ -100,8 +100,8 @@ function assertNever(value: never): never {
 
 type OverrideSource = 'dashboard' | 'tile'
 
-// A tile-level override replaces the dashboard-level override wholesale when present — it does not merge
-// with it (matches the backend `apply_dashboard_filters`). So there is only ever one active override source.
+// A tile override replaces the dashboard override wholesale (matches backend `apply_dashboard_filters`) —
+// never both at once.
 function getEffectiveFilterOverride(
     filtersOverride: DashboardFilter | null | undefined,
     tileFiltersOverride: TileFilters | null | undefined
@@ -115,17 +115,11 @@ function getEffectiveFilterOverride(
     return null
 }
 
-function overrideSourceLabel(source: OverrideSource): string {
-    return source === 'tile' ? 'Tile' : 'Dashboard'
-}
-
-// The insight's own filters stay the primary list; overrides are called out separately so it's clear
-// they're additional (properties AND onto the insight's) or replacing (breakdown/date), not duplicates.
 function OverrideNote({ source, children }: { source: OverrideSource; children: React.ReactNode }): JSX.Element {
     return (
         <div className="mt-1.5 flex items-center gap-1">
             <LemonTag type="highlight" size="small">
-                {overrideSourceLabel(source)}
+                {source === 'tile' ? 'Tile' : 'Dashboard'}
             </LemonTag>
             <span className="text-muted-alt">{children}</span>
         </div>
@@ -170,7 +164,6 @@ function splitOutOverrideProperties(
     const last = values[values.length - 1]
     if (last && 'values' in last && Array.isArray(last.values) && propertyListsMatch(last.values, overrideProperties)) {
         const remaining = values.slice(0, -1)
-        // Unwrap the single remaining subgroup so the insight's own filters render flat again
         return {
             base: remaining.length === 1 ? (remaining[0] as PropertyGroupFilter) : { ...properties, values: remaining },
             overrideFound: true,
@@ -454,11 +447,14 @@ export function PropertiesSummary({
     override?: { properties: AnyPropertyFilter[]; source: OverrideSource } | null
 }): JSX.Element {
     const hasOverride = !!override && override.properties.length > 0
-    const { base } = hasOverride ? splitOutOverrideProperties(properties, override!.properties) : { base: properties }
+    const { base, overrideFound } = hasOverride
+        ? splitOutOverrideProperties(properties, override!.properties)
+        : { base: properties, overrideFound: false }
     return (
         <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
             <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(base)} />
-            {hasOverride && (
+            {/* Guards against showing the override twice when the split above fails to match. */}
+            {hasOverride && overrideFound && (
                 <>
                     <OverrideNote source={override!.source}>filters added on top:</OverrideNote>
                     <CompactUniversalFiltersDisplay

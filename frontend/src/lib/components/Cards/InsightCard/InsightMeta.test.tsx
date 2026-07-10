@@ -5,9 +5,6 @@ import { render } from '@testing-library/react'
 import { getEffectiveDateOverride, InsightMetaContent } from './InsightMeta'
 
 describe('InsightMeta', () => {
-    // A non-empty tile override replaces the dashboard override wholesale on the backend
-    // (apply_dashboard_filters), so the header must not fall back to the dashboard's dates
-    // when the tile override sets none — regression coverage for that all-or-nothing rule.
     describe('getEffectiveDateOverride', () => {
         it.each([
             {
