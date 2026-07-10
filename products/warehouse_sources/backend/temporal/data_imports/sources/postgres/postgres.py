@@ -3150,10 +3150,16 @@ def postgres_source(
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)
                 # kills the fetch before rows come back.
+                #
+                # Also pin DateStyle to ISO so text-mode date/timestamp values always
+                # arrive as YYYY-MM-DD regardless of the server's configured DateStyle.
+                # A non-ISO source (e.g. German/SQL/Postgres styles) would otherwise send
+                # "04/01/2022" or "15.01.2024", which the Safe*Loaders can't parse.
                 try:
                     # Use psycopg.Cursor directly to bypass cursor_factory (which may be
                     # ServerCursor and requires a `name` arg, breaking an unnamed cursor()).
                     with psycopg.Cursor(connection) as setup_cursor:
+                        setup_cursor.execute(sql.SQL("SET DateStyle TO 'ISO, MDY'"))
                         setup_cursor.execute(
                             sql.SQL("SET statement_timeout = {timeout}").format(
                                 timeout=sql.Literal(SYNC_STATEMENT_TIMEOUT_MS)
