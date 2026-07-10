@@ -968,6 +968,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "end_time": None,
                         "error": False,
                         "error_message": None,
+                        "error_code": None,
                         "expiration_time": mock.ANY,
                         "id": mock.ANY,
                         "query_async": True,

@@ -140,8 +140,7 @@ export function createExecInnerToolCallResolver(
 // guidance. A redirect only fires when the tool is absent, so an entry for a
 // conditionally-gated tool is inert whenever that tool is registered.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
-    // Disabled while `mcp-sql-schema-discovery` is on; the SQL information_schema
-    // path replaces it. See readDataWarehouseSchema.ts for the flag/TODO.
+    // Removed in favor of SQL-based schema discovery via `system.information_schema.*`.
     'read-data-warehouse-schema': () =>
         'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill for patterns.',
     'entity-search': () =>

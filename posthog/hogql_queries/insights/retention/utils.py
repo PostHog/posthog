@@ -29,11 +29,14 @@ def breakdown_extract_expr(property_name: str, breakdown_type: str, group_type_i
         elif breakdown_type == "data_warehouse_person_property":
             properties_chain = ["person", *property_name.split(".")]
         elif breakdown_type == "group":
+            if group_type_index is None:
+                raise ValueError("group_type_index is required for group breakdowns")
+            group_index = int(group_type_index)
             if property_name.startswith("$virt_"):
                 # Virtual properties exist as expression fields on the groups table
-                properties_chain = [f"groups_{group_type_index}", property_name]
+                properties_chain = [f"group_{group_index}", property_name]
             else:
-                properties_chain = [f"groups_{group_type_index}", "properties", property_name]
+                properties_chain = [f"group_{group_index}", "properties", property_name]
         else:
             # Default to event properties
             properties_chain = ["events", "properties", property_name]

@@ -126,6 +126,55 @@ describe('insightVizDataLogic', () => {
             })
         })
 
+        it('clamps exclusion step ranges when a funnel step is removed', () => {
+            const querySource = {
+                ...funnelsQueryDefault,
+                series: [funnelsQueryDefault.series[0], funnelsQueryDefault.series[0], funnelsQueryDefault.series[0]],
+                funnelsFilter: {
+                    funnelVizType: 'steps',
+                    exclusions: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$autocapture',
+                            event: '$autocapture',
+                            funnelFromStep: 0,
+                            funnelToStep: 2,
+                        },
+                    ],
+                },
+            } as FunnelsQuery
+            builtInsightVizDataLogic.actions.updateQuerySource(querySource)
+
+            expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    ...querySource,
+                    series: querySource.series.slice(0, 2),
+                } as FunnelsQuery)
+            }).toMatchValues({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        ...querySource,
+                        series: querySource.series.slice(0, 2),
+                        funnelsFilter: {
+                            funnelVizType: 'steps',
+                            exclusions: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    name: '$autocapture',
+                                    event: '$autocapture',
+                                    funnelFromStep: 0,
+                                    funnelToStep: 1,
+                                },
+                            ],
+                        },
+                        trendsFilter: {},
+                        version: 2,
+                    },
+                },
+            })
+        })
+
         it('clears a custom lifecycle aggregation target when switching away from a data warehouse series', () => {
             const lifecycleQuery: LifecycleQuery = {
                 kind: NodeKind.LifecycleQuery,
@@ -410,6 +459,46 @@ describe('insightVizDataLogic', () => {
                         }),
                     },
                 })
+        })
+
+        it.each([
+            ['2024-06-10 08:00:00', '2024-06-10 14:00:00', 'minute'],
+            // A bare same-day pair means "that whole day" and must stay hourly, not 1440 minute buckets
+            ['2024-06-10', '2024-06-10', 'hour'],
+            // A time-carrying range over 12 hours must not go sub-hour
+            ['2024-06-10 08:00:00', '2024-06-11 20:00:00', 'hour'],
+            ['2024-06-01', '2024-07-15', 'day'],
+        ])('auto-adjusts interval for absolute range %s..%s to %s', async (dateFrom, dateTo, expectedInterval) => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateDateRange({ date_from: dateFrom, date_to: dateTo }, true)
+            }).toFinishAllListeners()
+
+            expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).interval).toBe(expectedInterval)
+        })
+    })
+
+    describe('zoomDateRange', () => {
+        it.each([
+            // [interval, dateFrom, dateTo (bucket start), expected date_to, explicitDate]
+            ['day', '2024-06-10', '2024-06-12', '2024-06-12', false],
+            // Coarser-than-day buckets: the end widens to the bucket's last day, so a
+            // single-bucket drag (e.g. over one monthly bar) zooms into the whole bucket.
+            ['week', '2024-06-09', '2024-06-09', '2024-06-15', false],
+            ['month', '2024-04-01', '2024-04-01', '2024-04-30', false],
+            // Sub-day buckets widen to the bucket's last second and pin explicitDate.
+            ['hour', '2024-06-10 08:00:00', '2024-06-10 14:00:00', '2024-06-10 14:59:59', true],
+        ])('zooms %s buckets %s..%s', async (interval, dateFrom, dateTo, expectedDateTo, explicitDate) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({ interval } as Partial<TrendsQuery>)
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.zoomDateRange(dateFrom, dateTo)
+            }).toFinishAllListeners()
+
+            expect(builtInsightVizDataLogic.values.dateRange).toEqual({
+                date_from: dateFrom,
+                date_to: expectedDateTo,
+                explicitDate,
+            })
         })
     })
 

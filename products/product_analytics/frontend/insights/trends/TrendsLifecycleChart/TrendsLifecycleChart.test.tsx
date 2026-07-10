@@ -2,10 +2,19 @@ import '@testing-library/jest-dom'
 
 import { cleanup, screen, waitFor } from '@testing-library/react'
 
-import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { dragSelection, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { LifecycleQuery, LifecycleQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { chart, type InsightQuery, type MockResponse, personsModal, renderInsight } from '~/test/insight-testing'
+import {
+    chart,
+    getQuerySource,
+    type InsightQuery,
+    type MockResponse,
+    personsModal,
+    renderInsight,
+} from '~/test/insight-testing'
 
 let cleanupJsdom: () => void
 let cleanupRaf: () => void
@@ -152,5 +161,43 @@ describe('TrendsLifecycleChart', () => {
         } else {
             expect(screen.queryByTestId('hog-chart-timeseries-bar-legend')).not.toBeInTheDocument()
         }
+    })
+
+    describe('drag-to-zoom', () => {
+        const zoomFlag = { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: true }
+
+        it('reports the dragged range as day strings to context.onDateRangeZoom', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({
+                query: buildLifecycleQuery() as unknown as InsightQuery,
+                mocks: { additionalMockResponses: lifecycleMocks },
+                context: { onDateRangeZoom },
+                featureFlags: zoomFlag,
+            })
+
+            const canvas = await screen.findByLabelText(/chart with/i)
+            dragSelection(canvas.parentElement!, 1, 3, LIFECYCLE_LABELS.length)
+
+            await waitFor(() => {
+                expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-13')
+            })
+        })
+
+        it('ignores drags when the drag-to-zoom flag is off', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({
+                query: buildLifecycleQuery() as unknown as InsightQuery,
+                mocks: { additionalMockResponses: lifecycleMocks },
+                context: { onDateRangeZoom },
+                featureFlags: { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: false },
+            })
+
+            const canvas = await screen.findByLabelText(/chart with/i)
+            dragSelection(canvas.parentElement!, 1, 3, LIFECYCLE_LABELS.length)
+
+            // A regression dropping the flag gate would ship zoom to everyone.
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+            expect(getQuerySource().dateRange).toBeUndefined()
+        })
     })
 })

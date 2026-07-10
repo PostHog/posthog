@@ -250,7 +250,7 @@ describe('ml-mirror-pipeline', () => {
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
 
-        await runSessionReplayPipeline(buildPipeline(), [message('sess-1')])
+        await runSessionReplayPipeline(buildPipeline(), [message('sess-1')], promiseScheduler)
 
         expect(recordMock).toHaveBeenCalledTimes(1)
         const [windowId, event] = recordedEvents()[0]
@@ -265,7 +265,7 @@ describe('ml-mirror-pipeline', () => {
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
 
-        await runSessionReplayPipeline(buildPipeline(), [message('sess-2')])
+        await runSessionReplayPipeline(buildPipeline(), [message('sess-2')], promiseScheduler)
 
         expect(recordMock).not.toHaveBeenCalled()
     })
@@ -276,7 +276,7 @@ describe('ml-mirror-pipeline', () => {
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
 
-        await runSessionReplayPipeline(buildPipeline(), [fullSnapshotMessage('sess-3')])
+        await runSessionReplayPipeline(buildPipeline(), [fullSnapshotMessage('sess-3')], promiseScheduler)
 
         expect(recordMock).toHaveBeenCalledTimes(1)
         const node = recordedEvents()[0][1].data.node.childNodes[0]

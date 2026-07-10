@@ -11,8 +11,6 @@ import {
 } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { McpMode } from '@/lib/utils'
-import { SQL_SCHEMA_DISCOVERY_FEATURE_FLAG } from '@/tools/posthogAiTools/readDataWarehouseSchema'
-import { RENDER_UI_FEATURE_FLAG } from '@/tools/render-ui'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
 
@@ -107,15 +105,7 @@ export class RequestStateResolver {
             cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
-        const toolFlagKeys = getRequiredFeatureFlags()
-        // `mcp-render-ui` isn't a catalog tool flag, but it rides the same batched
-        // evaluation and lives in the same map so the instructions layer can gate
-        // the rendering prompt section on it (like `mcp-feedback-tool`).
-        // `mcp-sql-schema-discovery` now gates the read-data-warehouse-schema tool, so
-        // it already arrives via `getRequiredFeatureFlags()`; keep it listed (and dedupe)
-        // since the instructions layer also reads it for SQL discovery steering — neither
-        // concern should depend on the other's wiring.
-        const allFlagKeys = [...new Set([...toolFlagKeys, RENDER_UI_FEATURE_FLAG, SQL_SCHEMA_DISCOVERY_FEATURE_FLAG])]
+        const allFlagKeys = [...new Set(getRequiredFeatureFlags())]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
@@ -135,7 +125,6 @@ export class RequestStateResolver {
         // even when no catalog tool referenced it.
         const flagKeysForState = [...new Set([...allFlagKeys, ...Object.keys(overrides)])]
         const toolFeatureFlags = Object.fromEntries(flagKeysForState.map((k) => [k, mergedFlags[k]]))
-        const renderUiFlagEnabled = mergedFlags[RENDER_UI_FEATURE_FLAG] === true
 
         const oauthClientName = (await reqCtx.tokenCache.get('clientName')) || undefined
 
@@ -149,11 +138,9 @@ export class RequestStateResolver {
         })
 
         // `render-ui` is only meaningful for MCP Apps hosts (Claude web/desktop) that can
-        // mount its iframe. The flag is necessary but not sufficient: Claude Code and other
-        // single-exec CLI clients pool the same flag value, so the tool's advertisement and
-        // execution must also require the UI-host check — otherwise rolling the flag out to
-        // everyone leaks `render-ui` into Claude Code.
-        const renderUiEnabled = renderUiFlagEnabled && clientProfile.isClaudeUiHost()
+        // mount its iframe. Single-exec CLI clients like Claude Code can't mount it, so the
+        // tool's advertisement and execution stay gated on the UI-host check.
+        const renderUiEnabled = clientProfile.isClaudeUiHost()
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({
             mode: requestContext.mode,
