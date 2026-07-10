@@ -657,13 +657,20 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // Network/CORS and timeout failures are the expected outcome when the toolbar
+            // runs on a site that CORS-rejects the reachability probe. The analytics event
+            // below already records these, so don't also route them to error tracking where
+            // they land in PostHog's own project as false-positive issues.
+            if (errorType !== 'network_or_cors' && errorType !== 'timeout') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 

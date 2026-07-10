@@ -4,6 +4,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar logger mirrors intentional error/auth paths to the console (its job on
@@ -371,6 +372,55 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+
+        // Guards against re-introducing exception capture for the expected CORS/timeout failures
+        // that recur on any self-hosted / reverse-proxied host behind strict CORS, which would
+        // spam PostHog's own error tracking with false-positive issues. The analytics event must
+        // still fire in every case so the observability signal is preserved.
+        it.each([
+            {
+                name: 'expected CORS/network failure is not reported to error tracking',
+                mockHead: (): Promise<any> => Promise.reject(new TypeError('Failed to fetch')),
+                expectedErrorType: 'network_or_cors',
+                expectException: false,
+            },
+            {
+                name: 'unexpected HTTP failure is reported to error tracking',
+                mockHead: (): Promise<any> => Promise.resolve({ ok: false, status: 500 }),
+                expectedErrorType: 'http_error',
+                expectException: true,
+            },
+        ])('reachability failure: $name', async ({ mockHead, expectedErrorType, expectException }) => {
+            const captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation()
+            const captureSpy = jest.spyOn(toolbarPosthogJS, 'capture').mockImplementation()
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    return mockHead()
+                }
+                return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            })
+
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'toolbar ui host check',
+                expect.objectContaining({ status: 'error', error_type: expectedErrorType })
+            )
+
+            if (expectException) {
+                expect(captureExceptionSpy).toHaveBeenCalledWith(
+                    expect.anything(),
+                    expect.objectContaining({ toolbar_context: 'ui_host_check', error_type: expectedErrorType })
+                )
+            } else {
+                expect(captureExceptionSpy).not.toHaveBeenCalled()
+            }
+
+            captureExceptionSpy.mockRestore()
+            captureSpy.mockRestore()
         })
     })
 
