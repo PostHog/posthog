@@ -33167,6 +33167,7 @@
                 "experiment analyzed",
                 "feature flag created",
                 "session_replay_set_filters",
+                "session_replay_experiment_link_clicked",
                 "error_tracking_exception_autocapture_enabled",
                 "error_tracking_issue_sorting",
                 "error_tracking_docs_viewed",
