@@ -182,10 +182,9 @@ tools:
             idempotent: true
         title: Get evaluation config
         description: >
-            Retrieve the team's evaluation configuration, including the active LLM provider key used to run llm_judge
-            evaluations and remaining trial credits. Call this before creating an llm_judge evaluation to verify the
-            team has either trial credits available or an active provider key configured — without one, llm_judge runs
-            will fail. Returns trial limits, the active provider key (or null if on trial credits), and timestamps.
+            Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to
+            confirm a provider key is configured — evals should run on the team's own key. Returns the active key and
+            timestamps.
     llma-evaluation-config-set-active-key:
         operation: llm_analytics_evaluation_config_set_active_key_create
         enabled: true
@@ -212,11 +211,11 @@ tools:
             idempotent: false
         title: Create evaluation
         description: >
-            Create a new AI observability evaluation. For 'llm_judge' type, provide evaluation_config.prompt and
-            model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning
-            a boolean). For 'sentiment' type, use output_type='sentiment', omit model_configuration, and optionally set
-            evaluation_config.source='user_messages'. When enabled, the evaluation runs automatically on new
-            $ai_generation events. Results appear as '$ai_evaluation' events.
+            Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration (provider + model +
+            provider_key_id from llma-provider-key-list, preferring a provider the team already has a key for). 'hog':
+            evaluation_config.source (Hog returning a boolean). 'sentiment': output_type='sentiment', omit
+            model_configuration, optional evaluation_config.source='user_messages'. When enabled, runs on new
+            $ai_generation events; results are '$ai_evaluation' events.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true
@@ -255,12 +254,10 @@ tools:
             idempotent: true
         title: List supported llm_judge models
         description: >
-            List the provider+model combinations supported for llm_judge evaluations. Pass a `provider` query parameter
-            (one of openai, anthropic, gemini, openrouter, fireworks, azure_openai) and optionally `key_id` to scope the
-            list to deployments reachable with a specific provider key (mainly relevant for azure_openai). Each entry
-            returns the model id and whether it is available on PostHog trial credits. Call this before creating an
-            llm_judge evaluation when the user has not specified a model, so a valid provider+model combination is
-            chosen.
+            List provider+model combinations supported for llm_judge. Pass `provider` (openai, anthropic, gemini,
+            openrouter, fireworks, azure_openai, together_ai, minimax, zeabur); optional `key_id` scopes to a key's
+            reachable deployments (mainly azure_openai). Call before creating an llm_judge eval to pick a valid combo —
+            prefer a provider the team already has a key for (see llma-provider-key-list).
     llma-evaluation-list:
         operation: evaluations_list
         enabled: true
@@ -285,7 +282,7 @@ tools:
         annotations:
             readOnly: false
             destructive: false
-            idempotent: false
+            idempotent: true
         title: Create evaluation report config
         description: |
             Create an evaluation report configuration. Reports summarize recent evaluation runs (using AI)
@@ -294,12 +291,11 @@ tools:
 
             - 'every_n' (count-based): a report fires once `trigger_threshold` new evaluation results have
             accumulated, but no more often than `cooldown_minutes` apart and capped by `daily_run_cap` per
-            UTC day. `trigger_threshold` is required in this mode (10–10000); `cooldown_minutes` (60–1440)
+            UTC day. `trigger_threshold` is required in this mode (100–10000); `cooldown_minutes` (60–1440)
             and `daily_run_cap` are optional.
-            - 'scheduled' (time-based): reports fire on the cadence defined by `rrule` (RFC 5545, e.g.
-            'FREQ=WEEKLY;BYDAY=MO') anchored at `starts_at` and expanded in `timezone_name` so local clock
-            times survive DST transitions. `rrule` and `starts_at` are required in this mode;
-            `timezone_name` defaults to 'UTC'.
+            - 'scheduled' (time-based): reports fire on the daily or weekly cadence defined by `rrule`. Use
+            'FREQ=DAILY' for daily reports or 'FREQ=WEEKLY;BYDAY=MO,FR' for weekly reports on selected days.
+            The server sets the schedule anchor and timezone automatically.
 
             `delivery_targets` is a list of {type: 'email', value: '<addr>'} or {type: 'slack',
             integration_id: <int>, channel: '<channel>'} entries. Slack integrations must belong to the
@@ -313,26 +309,11 @@ tools:
             - cooldown_minutes
             - daily_run_cap
             - rrule
-            - starts_at
-            - timezone_name
             - max_sample_size
             - report_prompt_guidance
     llma-evaluation-report-delete:
         operation: llm_analytics_evaluation_reports_destroy
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete evaluation report config
-        description: >
-            Soft-delete an evaluation report configuration. The report stops firing and is hidden from list views;
-            historical report runs are preserved. Equivalent to calling llma-evaluation-report-update with deleted=true
-            — that update path is the canonical way to soft-delete and is the only option when you also want to change
-            other fields in the same call.
-        soft_delete: true
+        enabled: false
     llma-evaluation-report-generate:
         operation: llm_analytics_evaluation_reports_generate_create
         enabled: true
@@ -402,8 +383,9 @@ tools:
         description: >
             Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email
             or Slack), or switch frequency between 'every_n' and 'scheduled'. For 'every_n' mode set trigger_threshold
-            (10–10000) and optionally cooldown_minutes (60–1440); for 'scheduled' mode set rrule and starts_at. Set
-            deleted=true to soft-delete the config.
+            (100–10000) and optionally cooldown_minutes (60–1440); for 'scheduled' mode set rrule to a daily or weekly
+            cadence such as 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Disable delivery with enabled=false; report
+            configs are deleted only when their evaluation is deleted.
     llma-evaluation-report-update-full:
         operation: llm_analytics_evaluation_reports_update
         enabled: false
@@ -483,10 +465,10 @@ tools:
         title: Get my LLM spend analysis
         description: >
             Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days
-            (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. The
-            `product` query param is required and scopes the tool / model / trace breakdowns to a single product;
-            currently only `posthog_code` is supported. `by_product` always returns the cross-product view. Pass
-            `refresh=true` to bypass the 5-minute cache.
+            (default 30, max 90). Returns a summary plus breakdowns by product, tool, model and UTC day. The `product`
+            query param is required and scopes the tool / model / day breakdowns to a single product; currently only
+            `posthog_code` is supported. `by_product` always returns the cross-product view, and `by_day` is a
+            day-ascending series for spend-over-time questions. Pass `refresh=true` to bypass the 5-minute cache.
     llma-prompt-archive:
         operation: llm_prompts_name_archive_create
         enabled: false
@@ -506,6 +488,7 @@ tools:
         include_params:
             - name
             - prompt
+            - version_description
     llma-prompt-duplicate:
         operation: llm_prompts_name_duplicate_create
         enabled: true
@@ -573,11 +556,13 @@ tools:
             You can either provide the full prompt content via 'prompt', or use 'edits' for incremental
             find/replace updates. Each edit must have 'old' (text to find, must match exactly once) and
             'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'
-            may be provided.
+            may be provided. Pass 'version_description' with a short note on what changed and why —
+            it is shown in the prompt's version history.
         include_params:
             - prompt
             - edits
             - base_version
+            - version_description
     llma-provider-key-assign:
         operation: llm_analytics_provider_keys_assign_create
         enabled: false
@@ -592,10 +577,33 @@ tools:
         enabled: false
     llma-provider-key-get:
         operation: llm_analytics_provider_keys_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_provider_key:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get LLM provider key
+        description: >
+            Fetch one LLM provider key by ID — its provider, name, and validation state, with a masked preview (never
+            the secret). Use when you have a key ID to resolve, e.g. the key an evaluation references.
     llma-provider-key-list:
         operation: llm_analytics_provider_keys_list
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_provider_key:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List LLM provider keys
+        description: >
+            List the team's configured LLM provider keys (OpenAI, Anthropic, Azure, etc.). Returns each key's provider,
+            name, validation state, and a masked preview — never the secret itself. Call this before creating an
+            llm_judge evaluation to discover which providers have a usable ('ok' state) key available. Creating,
+            updating, and deleting keys are intentionally UI-only.
     llma-provider-key-trial-evaluations-get:
         operation: llm_analytics_provider_keys_trial_evaluations_retrieve
         enabled: false

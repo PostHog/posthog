@@ -485,6 +485,9 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // (/memory/team/:t/agent/:a/...) read + write through this store and
         // the runner's `@posthog/memory-*` tools hit the same files.
         memoryStore,
+        // Reuse the same in-process sandbox pool the worker uses so dry-run
+        // e2e cases exercise the same dispatch path as production sessions.
+        sandboxes,
     })
 
     return {
@@ -541,8 +544,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 description: input.description ?? '',
             })
             const rawSpec: Record<string, unknown> = {
-                // Default model is "faux/<name>"; tests can override via spec.model.
-                model: 'faux/faux',
+                // Default model is "faux/<name>"; tests can override via spec.models.
+                models: { mode: 'manual', models: [{ model: 'faux/faux' }] },
                 triggers: [
                     { type: 'chat', config: {} },
                     // Default to "*" for tests — individual cases override

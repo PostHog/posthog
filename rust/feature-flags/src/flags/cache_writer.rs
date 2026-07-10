@@ -42,25 +42,33 @@ pub fn make_cache_config(
     config
 }
 
+/// Outcome of a successful persist, for callers that want to log it.
+pub struct PersistOutcome {
+    pub etag: String,
+    pub size_bytes: usize,
+}
+
 /// Persist a freshly built flags cache for `team_id` with the given TTL.
 ///
 /// Uses `set_with_etag` (not `set`): `set()` unconditionally DELs the `:etag` key
 /// via `delete_etag`, and `FlagDefinitionsCache` keys on `(team_id, etag)`, so a
 /// missing etag forces the in-memory cache bypass on every `/flags` request.
 ///
-/// Returns the typed `HyperCacheError` so callers can attribute a failure to the
-/// Redis vs S3 vs serialization tier (the flags-cache-builder uses this to label
-/// its build-failure metric and DLQ headers for triage).
+/// On success, returns the etag and serialized size so callers can log what was
+/// written. On failure, returns the typed `HyperCacheError` so callers can
+/// attribute it to the Redis vs S3 vs serialization tier (the flags-cache-builder
+/// uses this to label its build-failure metric and DLQ headers for triage).
 pub async fn persist_flags_cache(
     writer: &HyperCacheWriter,
     team_id: TeamId,
     cache: &HypercacheFlagsWrapper,
     ttl_seconds: u64,
-) -> Result<(), HyperCacheError> {
+) -> Result<PersistOutcome, HyperCacheError> {
     let key = KeyType::int(team_id);
     let json = serde_json::to_string(cache)?;
-    writer.set_with_etag(&key, &json, ttl_seconds).await?;
-    Ok(())
+    let size_bytes = json.len();
+    let etag = writer.set_with_etag(&key, &json, ttl_seconds).await?;
+    Ok(PersistOutcome { etag, size_bytes })
 }
 
 /// Assemble the hypercache writer the flags binaries use: an S3 client plus the

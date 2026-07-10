@@ -17,19 +17,29 @@ const baseProps = (visualizationType: ChartDisplayType): LineGraphProps => ({
 describe('sqlPieGraphAdapter', () => {
     describe('formatPieSliceCount', () => {
         it.each([
-            ['appends share of total', 25, 100, undefined, '25 (25%)'],
-            ['rounds share to one decimal place', 1, 3, undefined, '1 (33.3%)'],
-            ['omits share when total is zero', 5, 0, undefined, '5'],
-            ['omits share for percent-styled values', 25, 100, { formatting: { style: 'percent' as const } }, '25%'],
+            ['appends share of total', 25, 100, undefined, false, '25 (25%)'],
+            ['rounds share to one decimal place', 1, 3, undefined, false, '1 (33.3%)'],
+            ['omits share when total is zero', 5, 0, undefined, false, '5'],
+            [
+                'omits share for percent-styled values',
+                25,
+                100,
+                { formatting: { style: 'percent' as const } },
+                false,
+                '25%',
+            ],
             [
                 'formats value with settings before appending share',
                 1234.5,
                 2469,
                 { formatting: { style: 'number' as const, decimalPlaces: 0 } },
+                false,
                 '1,235 (50%)',
             ],
-        ])('%s', (_name, value, total, settings, expected) => {
-            expect(formatPieSliceCount(value, total, settings)).toEqual(expected)
+            ['leads with share when displaying as percentage', 25, 100, undefined, true, '25% (25)'],
+            ['falls back to the value when total is zero in percentage mode', 5, 0, undefined, true, '5'],
+        ])('%s', (_name, value, total, settings, asPercent, expected) => {
+            expect(formatPieSliceCount(value, total, settings, asPercent)).toEqual(expected)
         })
     })
 

@@ -3,10 +3,107 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 29 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const AccountRelationshipDefinitionsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountRelationshipDefinitionsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const AccountRelationshipDefinitionsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const accountRelationshipDefinitionsCreateBodyNameMax = 400
+
+export const accountRelationshipDefinitionsCreateBodyIsSingleHolderDefault = true
+
+export const AccountRelationshipDefinitionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountRelationshipDefinitionsCreateBodyNameMax)
+            .describe('Human-readable name of the relationship. Unique within the team.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe(
+                "What this relationship means, e.g. 'The customer success manager responsible for this account'."
+            ),
+        is_single_holder: zod
+            .boolean()
+            .default(accountRelationshipDefinitionsCreateBodyIsSingleHolderDefault)
+            .describe(
+                'Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.'
+            ),
+    })
+    .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
+
+export const AccountRelationshipDefinitionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountRelationshipDefinitionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const accountRelationshipDefinitionsPartialUpdateBodyNameMax = 400
+
+export const AccountRelationshipDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountRelationshipDefinitionsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name of the relationship. Unique within the team.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe(
+                "What this relationship means, e.g. 'The customer success manager responsible for this account'."
+            ),
+        is_single_holder: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.'
+            ),
+    })
+    .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
+
+export const AccountRelationshipDefinitionsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 export const AccountsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -103,6 +200,33 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
+export const AccountsCustomPropertyValuesListParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountsCustomPropertyValuesCreateParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object({
+    definition: zod.string().describe('UUID of the custom property definition whose value to set for this account.'),
+    value: zod
+        .union([zod.string(), zod.number(), zod.boolean()])
+        .describe(
+            "Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties."
+        ),
+})
+
 export const AccountsNotebooksListParams = /* @__PURE__ */ zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),
     project_id: zod
@@ -158,6 +282,48 @@ export const AccountsNotebooksDestroyParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
     short_id: zod.string(),
+})
+
+export const AccountsRelationshipsListParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountsRelationshipsListQueryParams = /* @__PURE__ */ zod.object({
+    include_history: zod
+        .boolean()
+        .optional()
+        .describe('Include ended assignments (the full timeline), not just active ones.'),
+})
+
+export const AccountsRelationshipsCreateParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountsRelationshipsCreateBody = /* @__PURE__ */ zod
+    .object({
+        definition: zod.string().describe('Id of the relationship definition to assign.'),
+        user: zod.number().describe("PostHog user id of the assignee. Must be a member of the account's organization."),
+    })
+    .describe('Input for assigning a user to an account relationship.')
+
+export const AccountsRelationshipsEndCreateParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
 })
 
 export const AccountsRetrieveParams = /* @__PURE__ */ zod.object({
@@ -237,6 +403,193 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
 
 export const AccountsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomPropertyDefinitionsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomPropertyDefinitionsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const CustomPropertyDefinitionsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const customPropertyDefinitionsCreateBodyNameMax = 400
+
+export const customPropertyDefinitionsCreateBodyIsBigNumberDefault = false
+export const customPropertyDefinitionsCreateBodyOptionsItemLabelMax = 400
+
+export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(customPropertyDefinitionsCreateBodyNameMax)
+            .describe('Human-readable name of the custom property. Unique within the team.'),
+        description: zod.string().nullish().describe('Optional description of what the property represents.'),
+        display_type: zod
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
+            .describe(
+                '* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean\n* `select` - select'
+            )
+            .describe(
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean\n* `select` - select"
+            ),
+        is_big_number: zod
+            .boolean()
+            .default(customPropertyDefinitionsCreateBodyIsBigNumberDefault)
+            .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+        options: zod
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Server-assigned stable id of the option. Omit for new options; send it back unchanged when editing so renames and removals can be told apart.'
+                            ),
+                        label: zod
+                            .string()
+                            .max(customPropertyDefinitionsCreateBodyOptionsItemLabelMax)
+                            .describe("Display label of the option. Stored as the account's value when picked."),
+                        color: zod
+                            .enum([
+                                'preset-1',
+                                'preset-2',
+                                'preset-3',
+                                'preset-4',
+                                'preset-5',
+                                'preset-6',
+                                'preset-7',
+                                'preset-8',
+                                'preset-9',
+                                'preset-10',
+                            ])
+                            .describe(
+                                '* `preset-1` - preset-1\n* `preset-2` - preset-2\n* `preset-3` - preset-3\n* `preset-4` - preset-4\n* `preset-5` - preset-5\n* `preset-6` - preset-6\n* `preset-7` - preset-7\n* `preset-8` - preset-8\n* `preset-9` - preset-9\n* `preset-10` - preset-10'
+                            )
+                            .describe(
+                                "Preset color token used to render the option ('preset-1' through 'preset-10').\n\n* `preset-1` - preset-1\n* `preset-2` - preset-2\n* `preset-3` - preset-3\n* `preset-4` - preset-4\n* `preset-5` - preset-5\n* `preset-6` - preset-6\n* `preset-7` - preset-7\n* `preset-8` - preset-8\n* `preset-9` - preset-9\n* `preset-10` - preset-10"
+                            ),
+                    })
+                    .describe('An allowed value of a select custom property.')
+            )
+            .nullish()
+            .describe(
+                "For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types."
+            ),
+    })
+    .describe(
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
+    )
+
+export const CustomPropertyDefinitionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomPropertyDefinitionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const customPropertyDefinitionsPartialUpdateBodyNameMax = 400
+
+export const customPropertyDefinitionsPartialUpdateBodyOptionsItemLabelMax = 400
+
+export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(customPropertyDefinitionsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name of the custom property. Unique within the team.'),
+        description: zod.string().nullish().describe('Optional description of what the property represents.'),
+        display_type: zod
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
+            .describe(
+                '* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean\n* `select` - select'
+            )
+            .optional()
+            .describe(
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean\n* `select` - select"
+            ),
+        is_big_number: zod
+            .boolean()
+            .optional()
+            .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+        options: zod
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Server-assigned stable id of the option. Omit for new options; send it back unchanged when editing so renames and removals can be told apart.'
+                            ),
+                        label: zod
+                            .string()
+                            .max(customPropertyDefinitionsPartialUpdateBodyOptionsItemLabelMax)
+                            .describe("Display label of the option. Stored as the account's value when picked."),
+                        color: zod
+                            .enum([
+                                'preset-1',
+                                'preset-2',
+                                'preset-3',
+                                'preset-4',
+                                'preset-5',
+                                'preset-6',
+                                'preset-7',
+                                'preset-8',
+                                'preset-9',
+                                'preset-10',
+                            ])
+                            .describe(
+                                '* `preset-1` - preset-1\n* `preset-2` - preset-2\n* `preset-3` - preset-3\n* `preset-4` - preset-4\n* `preset-5` - preset-5\n* `preset-6` - preset-6\n* `preset-7` - preset-7\n* `preset-8` - preset-8\n* `preset-9` - preset-9\n* `preset-10` - preset-10'
+                            )
+                            .describe(
+                                "Preset color token used to render the option ('preset-1' through 'preset-10').\n\n* `preset-1` - preset-1\n* `preset-2` - preset-2\n* `preset-3` - preset-3\n* `preset-4` - preset-4\n* `preset-5` - preset-5\n* `preset-6` - preset-6\n* `preset-7` - preset-7\n* `preset-8` - preset-8\n* `preset-9` - preset-9\n* `preset-10` - preset-10"
+                            ),
+                    })
+                    .describe('An allowed value of a select custom property.')
+            )
+            .nullish()
+            .describe(
+                "For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types."
+            ),
+    })
+    .describe(
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
+    )
+
+export const CustomPropertyDefinitionsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

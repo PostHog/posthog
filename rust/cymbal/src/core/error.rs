@@ -228,6 +228,10 @@ pub enum EventError {
     Suppressed(Uuid),
     #[error("Suppressed by rule: {0}")]
     SuppressedByRule(Uuid),
+    #[error("Rate limited (per-issue): {0}")]
+    RateLimitedPerIssue(Uuid),
+    #[error("Rate limited (project): team {0}")]
+    RateLimitedProject(i32),
 }
 
 impl JsResolveErr {

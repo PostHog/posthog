@@ -1,6 +1,7 @@
 import '../Nodes/NotebookNodeBacklink'
 import '../Nodes/NotebookNodeCohort'
 import '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
+import '../Nodes/NotebookNodeSQLV2'
 import '../Nodes/NotebookNodeDuckSQL'
 import '../Nodes/NotebookNodeEarlyAccessFeature'
 import '../Nodes/NotebookNodeEmbed'
@@ -31,11 +32,12 @@ import '../Nodes/NotebookNodeUsageMetrics'
 import '../Nodes/NotebookNodeZendeskTickets'
 
 import clsx from 'clsx'
-import { BindLogic, useMountedLogic } from 'kea'
+import { BindLogic, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { type CSSProperties, type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef } from 'react'
 
-import { IconComment } from '@posthog/icons'
-import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { IconComment, IconImage } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
 import { createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
@@ -49,6 +51,13 @@ import {
     NotebookPropValue,
 } from 'lib/components/MarkdownNotebook/types'
 import { isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
@@ -104,6 +113,7 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     Python: NotebookNodeType.Python,
     DuckSQL: NotebookNodeType.DuckSQL,
     HogQLSQL: NotebookNodeType.HogQLSQL,
+    SQLV2: NotebookNodeType.SQLV2,
     Recording: NotebookNodeType.Recording,
     RecordingPlaylist: NotebookNodeType.RecordingPlaylist,
     FeatureFlag: NotebookNodeType.FeatureFlag,
@@ -145,6 +155,20 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     { tagName: 'Python', category: 'Code' },
     { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
     { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
+    // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
+    // getMarkdownRegistryForFeatureFlags strips it when revamped-py-notebooks is off.
+    {
+        tagName: 'SQLV2',
+        category: 'SQL',
+        label: 'SQL (v2)',
+        insertCommand: {
+            aliases: ['data', 'sql'],
+            // New cells get a durable nodeId up front: parsed markdown block ids are content
+            // fingerprints, so without a persisted id every prop change (running the cell
+            // writes runId/result) would orphan the cell's run history and cross-cell refs.
+            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2), nodeId: uuid() }),
+        },
+    },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
     { tagName: 'Experiment', category: 'Experiment' },
     { tagName: 'Image', category: 'Media', EditComponent: ImageEdit },
@@ -222,6 +246,30 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
     },
 ])
 
+// Node tags that only appear in the markdown insert menu when their feature flag is on.
+// Only insertion is gated — rendering of already-inserted nodes is never gated.
+export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet): NotebookComponentRegistry {
+    const hiddenTags: string[] = []
+    if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
+        hiddenTags.push('SQLV2')
+    }
+
+    if (hiddenTags.length === 0) {
+        return NOTEBOOK_MARKDOWN_REGISTRY
+    }
+
+    // Dropping insertCommand hides the node from the insert menu (it filters falsy
+    // insertCommand), while the ViewComponent stays so existing nodes still render.
+    const components = { ...NOTEBOOK_MARKDOWN_REGISTRY.components }
+    for (const tagName of hiddenTags) {
+        const definition = components[tagName]
+        if (definition) {
+            components[tagName] = { ...definition, insertCommand: undefined }
+        }
+    }
+    return { components }
+}
+
 export function getMarkdownNotebookNodeTitle(
     node: NotebookComponentBlockNode,
     nodeType: NotebookNodeType | undefined,
@@ -236,7 +284,8 @@ export function getMarkdownNotebookNodeTitle(
     }
 
     if (nodeType === NotebookNodeType.Query) {
-        return getQueryTitle(attributes.query) ?? fallback
+        // No fallback label: an unnamed/SQL query stays empty so the title field reads as "Add a title"
+        return getQueryTitle(attributes.query)
     }
     if (nodeType === NotebookNodeType.Embed) {
         return getUnknownStringProp(attributes.src) ?? fallback
@@ -254,7 +303,8 @@ export function getMarkdownNotebookNodeTitle(
         nodeType === NotebookNodeType.DuckSQL ||
         nodeType === NotebookNodeType.HogQLSQL
     ) {
-        return summarizeTitle(getUnknownStringProp(attributes.code)) ?? fallback
+        // Never suggest the code/SQL body itself as a title — fall back to the language label
+        return fallback
     }
 
     return (
@@ -291,7 +341,8 @@ export function getQueryTitle(queryValue: unknown): string | null {
         return getNotebookStringProp(query.name) ?? getNotebookStringProp(query.shortId) ?? 'Saved insight'
     }
     if (sourceKind === 'HogQLQuery') {
-        return summarizeTitle(getNotebookStringProp(source?.query)) ?? 'SQL query'
+        // Leave SQL queries untitled initially — never suggest the SQL body or a generic label
+        return null
     }
     if (sourceKind === 'TrendsQuery') {
         return source ? (getSeriesTitle(source) ?? 'Trend') : 'Trend'
@@ -302,8 +353,12 @@ export function getQueryTitle(queryValue: unknown): string | null {
     if (sourceKind === 'EventsQuery') {
         return 'Events'
     }
+    if (sourceKind === 'ActorsQuery') {
+        return 'People'
+    }
 
-    return queryKind ?? sourceKind
+    // Don't suggest raw schema kinds (e.g. "DataTableNode") as a title
+    return null
 }
 
 export function getSeriesTitle(query: Record<string, NotebookPropValue>): string | null {
@@ -482,6 +537,14 @@ export function MountedRealNotebookNodeComponent({
         isResizeable || attributes.height
             ? { height: attributes.height ?? options.heightEstimate, minHeight: options.minHeight }
             : undefined
+    // Nodes that declare their own minHeight (e.g. LaTeX) size to their content instead of the 8rem default
+    const nodeStyle: CSSProperties | undefined =
+        options.minHeight !== undefined
+            ? ({
+                  '--markdown-notebook-real-node-min-height':
+                      typeof options.minHeight === 'number' ? `${options.minHeight}px` : options.minHeight,
+              } as CSSProperties)
+            : undefined
 
     // Native CSS resize writes to style.height; the new height is persisted on mouseup so the
     // table or visualization keeps its size after reloads.
@@ -537,7 +600,7 @@ export function MountedRealNotebookNodeComponent({
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
-                <div className="MarkdownNotebook__real-node">
+                <div className="MarkdownNotebook__real-node" style={nodeStyle}>
                     {showSettings ? (
                         <div className="MarkdownNotebook__real-node-settings">
                             <Settings attributes={attributes} updateAttributes={updateAttributes} />
@@ -572,9 +635,41 @@ export function MountedRealNotebookNodeComponent({
 export function ImageEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
     const src = typeof node.props.src === 'string' ? node.props.src : ''
     const alt = typeof node.props.alt === 'string' ? node.props.alt : ''
+    const formRef = useRef<HTMLDivElement | null>(null)
+    const { objectStorageAvailable } = useValues(preflightLogic)
+    const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
+        onUpload: (url, fileName) => {
+            updateProps({ src: url, ...(alt ? {} : { alt: fileName }) })
+            posthog.capture('notebook image uploaded', { name: fileName })
+        },
+        onError: (detail) => {
+            posthog.capture('notebook image upload failed', { error: detail })
+            lemonToast.error(`Error uploading image: ${detail}`)
+        },
+    })
 
     return (
-        <div className="MarkdownNotebook__component-form">
+        <div className="MarkdownNotebook__component-form" ref={formRef}>
+            <LemonFileInput
+                accept="image/*"
+                multiple={false}
+                value={filesToUpload}
+                onChange={setFilesToUpload}
+                loading={uploading}
+                showUploadedFiles={false}
+                alternativeDropTargetRef={formRef}
+                callToAction={
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={uploading ? <Spinner className="text-lg" textColored /> : <IconImage />}
+                        disabledReason={objectStorageAvailable ? undefined : 'Enable object storage to upload images'}
+                        tooltip={objectStorageAvailable ? 'Click here or drag and drop to upload an image' : null}
+                    >
+                        Upload image
+                    </LemonButton>
+                }
+            />
             <LemonInput
                 value={src}
                 onChange={(value) => updateProps({ src: value })}

@@ -202,11 +202,14 @@ def validate_credentials(
             return True, None
         return False, "Metabase credentials lack the required permissions"
 
-    try:
-        body = response.json()
-        return False, body.get("message", response.text)
-    except Exception:
-        return False, response.text
+    # Any other status: the host responded but not in a way we recognise — often it isn't a
+    # Metabase instance at all (e.g. a proxy or hosting-provider error page). Surface the status
+    # only; never echo the raw response body, which can carry arbitrary upstream content.
+    return (
+        False,
+        f"Metabase returned an unexpected response (HTTP {response.status_code}). "
+        "Check that the Instance URL points to your Metabase instance.",
+    )
 
 
 def get_rows(

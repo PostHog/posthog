@@ -26,11 +26,13 @@ class CDCErrorCategory(enum.StrEnum):
     AUTH_FAILED = "auth_failed"
     SSL_REQUIRED = "ssl_required"
     CONNECTION_FAILED = "connection_failed"
+    HOST_UNREACHABLE = "host_unreachable"
     SLOT_MISSING = "slot_missing"
     PUBLICATION_MISSING = "publication_missing"
     SLOT_IN_USE = "slot_in_use"
     WAL_DECODE_ERROR = "wal_decode_error"
     TRANSACTION_TOO_LARGE = "transaction_too_large"
+    SCHEMA_MERGE_INCOMPATIBLE = "schema_merge_incompatible"
     UNKNOWN = "unknown"
 
 
@@ -47,6 +49,16 @@ class CDCTransactionTooLargeError(Exception):
     Non-retryable: re-decoding replays the same oversized transaction. The decoder guard
     that raises this lives in the source-specific decoder; the type is defined here so the
     shared classifier owns the mapping to ``TRANSACTION_TOO_LARGE``.
+    """
+
+
+class CDCSchemaMergeError(Exception):
+    """A column's values can't be reconciled into one Parquet type across micro-batches.
+
+    Non-retryable: the conflicting batches replay identically, so re-running re-fails. The
+    activity raises this when an Arrow schema merge rejects the data (e.g. a source column
+    that genuinely changed type mid-stream — int in one batch, text in another). Defined
+    here so the shared classifier owns the mapping to ``SCHEMA_MERGE_INCOMPATIBLE``.
     """
 
 
@@ -68,14 +80,21 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "check that the database is reachable and accepting connections.",
         True,
     ),
+    CDCErrorCategory.HOST_UNREACHABLE: (
+        "PostHog has no network route to the source database host, so it can't be reached. Check "
+        "that the host and port are correct and reachable from the public internet (PostHog's IP "
+        "addresses allowed through, and the host not resolving to a private or unreachable "
+        "address), then re-enable change data capture.",
+        False,
+    ),
     CDCErrorCategory.SLOT_MISSING: (
         "The replication slot no longer exists on the source database, so changes can no longer be "
-        "read. Disable and re-enable change data capture to recreate it and re-sync.",
+        "read. Use Repair CDC to recreate it and re-sync.",
         False,
     ),
     CDCErrorCategory.PUBLICATION_MISSING: (
         "The publication used for change data capture no longer exists on the source database. "
-        "Recreate it, or disable and re-enable change data capture, then re-sync.",
+        "Recreate it (self-managed), or use Repair CDC (PostHog-managed) to recreate it and re-sync.",
         False,
     ),
     CDCErrorCategory.SLOT_IN_USE: (
@@ -90,6 +109,12 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
     CDCErrorCategory.TRANSACTION_TOO_LARGE: (
         "A single database transaction contained more changes than change data capture can process at "
         "once. Reduce the size of bulk operations on the source, then re-sync.",
+        False,
+    ),
+    CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE: (
+        "A source column changed type partway through the change stream (for example, numbers and text "
+        "in the same column), so the changes can no longer be combined into one table. Disable and "
+        "re-enable change data capture to re-sync from a fresh snapshot.",
         False,
     ),
     CDCErrorCategory.UNKNOWN: (
@@ -126,6 +151,8 @@ def classify_cdc_error(exc: BaseException, adapter: CDCSourceAdapter | None) -> 
     for err in _iter_cause_chain(exc):
         if isinstance(err, CDCTransactionTooLargeError):
             return cdc_error_info(CDCErrorCategory.TRANSACTION_TOO_LARGE)
+        if isinstance(err, CDCSchemaMergeError):
+            return cdc_error_info(CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE)
         if adapter is not None:
             info = adapter.classify_error(err)
             if info is not None:

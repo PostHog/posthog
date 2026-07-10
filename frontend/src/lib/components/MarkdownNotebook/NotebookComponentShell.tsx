@@ -6,6 +6,7 @@ import {
     ReactNode,
     memo,
     useMemo,
+    useRef,
     useState,
 } from 'react'
 
@@ -90,7 +91,13 @@ export function NotebookComponentShell({
     const hasOpenComponentPanel = componentPanels.filters || componentPanels.results
     const titleDisplay = getComponentTitleDisplay(node, definition)
     const toolbarTitle = getComponentToolbarTitle(node, definition, titleDisplay.label)
-    const showToolbarTitle = !!toolbarTitle && (mode === 'view' || !componentPanels.filters || !showModeActions)
+    // The user-set title (props.title) wins; the computed contextual title is the watermark/fallback.
+    // A title equal to the component's own label (e.g. code blocks default to "Python") is treated
+    // as "no user title" so the field reads as empty by default.
+    const rawTitle = (getNotebookStringProp(node.props.title) ?? '').trim()
+    const userTitle = rawTitle && rawTitle !== titleDisplay.label ? rawTitle : ''
+    const titlePlaceholder = toolbarTitle ?? 'Add a title'
+    const resolvedTitle = userTitle || toolbarTitle || null
     const filtersLabel = componentPanels.filters ? 'Hide filters' : 'Show filters'
     const resultsLabel = componentPanels.results ? 'Hide results' : 'Show results'
     const titleClassName = clsx(
@@ -105,6 +112,11 @@ export function NotebookComponentShell({
         }),
         [componentPanels, showEditPanel, showViewPanel]
     )
+    const [titleDraft, setTitleDraft] = useState<string | null>(null)
+    // Escape blurs the input, which fires commitTitle synchronously before the titleDraft
+    // state update lands — this ref lets commitTitle see the cancel intent in that same tick
+    const cancellingTitleRef = useRef(false)
+    const titleInputValue = titleDraft ?? userTitle
     const titleContent = (
         <>
             {titleDisplay.icon ? (
@@ -176,6 +188,31 @@ export function NotebookComponentShell({
             }
         })
     }
+    const commitTitle = (): void => {
+        if (cancellingTitleRef.current) {
+            cancellingTitleRef.current = false
+            return
+        }
+        if (titleDraft === null) {
+            return
+        }
+        const nextTitle = titleDraft.trim()
+        setTitleDraft(null)
+        if (nextTitle !== userTitle) {
+            updateProps({ title: nextTitle || undefined })
+        }
+    }
+    const handleTitleKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+        if (event.key === 'Enter') {
+            event.preventDefault()
+            event.currentTarget.blur()
+        } else if (event.key === 'Escape') {
+            event.preventDefault()
+            cancellingTitleRef.current = true
+            setTitleDraft(null)
+            event.currentTarget.blur()
+        }
+    }
     const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
         if (mode !== 'edit' || event.target !== event.currentTarget) {
             return
@@ -206,14 +243,14 @@ export function NotebookComponentShell({
         }
     }
     const handleToolbarPointerDownCapture = (event: ReactPointerEvent<HTMLDivElement>): void => {
-        if (event.button !== 0) {
+        if (event.button !== 0 || isTitleInputTarget(event.target)) {
             return
         }
 
         event.stopPropagation()
     }
     const handleToolbarMouseDownCapture = (event: ReactMouseEvent<HTMLDivElement>): void => {
-        if (event.button !== 0) {
+        if (event.button !== 0 || isTitleInputTarget(event.target)) {
             return
         }
 
@@ -272,9 +309,20 @@ export function NotebookComponentShell({
                         </div>
                     ) : null}
                 </div>
-                {showToolbarTitle ? (
-                    <div className="MarkdownNotebook__component-toolbar-title" title={toolbarTitle}>
-                        {toolbarTitle}
+                {mode === 'edit' ? (
+                    <input
+                        className="MarkdownNotebook__component-toolbar-title MarkdownNotebook__component-toolbar-title--input"
+                        value={titleInputValue}
+                        placeholder={titlePlaceholder}
+                        aria-label="Component title"
+                        spellCheck={false}
+                        onChange={(event) => setTitleDraft(event.target.value)}
+                        onBlur={commitTitle}
+                        onKeyDown={handleTitleKeyDown}
+                    />
+                ) : resolvedTitle ? (
+                    <div className="MarkdownNotebook__component-toolbar-title" title={resolvedTitle}>
+                        {resolvedTitle}
                     </div>
                 ) : null}
                 {mode === 'edit' ? (
@@ -331,6 +379,10 @@ export function NotebookComponentShell({
             </ComponentPanelContext.Provider>
         </div>
     )
+}
+
+function isTitleInputTarget(target: EventTarget | null): boolean {
+    return target instanceof HTMLElement && !!target.closest('.MarkdownNotebook__component-toolbar-title--input')
 }
 
 export function NotebookComponentPanelErrorBoundary({

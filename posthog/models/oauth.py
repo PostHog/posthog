@@ -416,6 +416,10 @@ class OAuthAccessToken(AbstractAccessToken):
                 opclasses=["gin_trgm_ops"],
                 condition=Q(application__isnull=False),
             ),
+            # B-tree on the plaintext `token` so equality lookups by token value resolve
+            # via an index scan instead of a sequential scan. These lookups account for a
+            # large share of the server's CPU time; the index removes that hot-path scan.
+            models.Index(fields=["token"], name="oauthaccesstoken_token_idx"),
         ]
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)

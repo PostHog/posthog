@@ -1,13 +1,12 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
-import { hasScope } from '@/lib/api'
 import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
-import type { RequestProperties } from '@/lib/request-properties'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
+import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -29,27 +28,13 @@ export class InstructionsBuilder {
         this.formatter = formatter ?? new InstructionsFormatter()
     }
 
-    async build(props: RequestProperties, state: ResolvedState): Promise<string> {
+    build(state: ResolvedState): string {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
         if (!supportsInstructions) {
             return ''
         }
 
-        const { projectId } = props
-        const resolvedProjectId = projectId || (await state.reqCtx.cache.get('projectId'))
-        const [groupTypes, metadata] = await Promise.all([
-            resolvedProjectId && hasScope(state.apiKeyScopes, 'group:read')
-                ? state.context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
-                : undefined,
-            state.context.stateManager.getEnvironmentPrompt(),
-        ])
-
-        const ctx: InstructionsContext = {
-            ...this.buildContext(state),
-            groupTypes,
-            metadata,
-        }
-
+        const ctx = this.buildContext(state)
         if (state.useSingleExec) {
             return this.formatter.buildExecInstructions(ctx)
         }
@@ -75,15 +60,13 @@ export class InstructionsBuilder {
                 }),
             featureFlags: state.toolFeatureFlags,
             renderUiEnabled: state.renderUiEnabled,
+            metadata: state.metadata,
+            groupTypes: state.groupTypes,
         }
     }
 
     buildExecToolEntry(state: ResolvedState): McpTool {
-        const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
-        const ctx = this.buildContext(state)
-        const commandReference = this.formatter.buildExecCommandReference(ctx, {
-            stripEnvContext: supportsInstructions,
-        })
+        const commandReference = this.buildExecCommandReference(state)
         const ExecSchema = { command: { type: 'string', description: commandReference } }
 
         return {
@@ -118,9 +101,18 @@ export class InstructionsBuilder {
 
     buildExecCommandReference(state: ResolvedState): string {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
+        // Claude web/desktop report `supportsInstructions` but never surface the
+        // `instructions` payload to the model, so its env-context (tool domains,
+        // project metadata, group types) would be lost. Keep it on the exec command
+        // description for those chat hosts only — Cowork surfaces instructions
+        // normally and gets env-context through them. (Codex, which reports
+        // `supportsInstructions: false`, already gets the full env-context via the
+        // un-stripped path.)
+        const keepEnvContext = state.clientProfile.isClaudeChatHost()
         const ctx = this.buildContext(state)
         return this.formatter.buildExecCommandReference(ctx, {
             stripEnvContext: supportsInstructions,
+            keepEnvContext,
         })
     }
 
@@ -133,6 +125,9 @@ export class InstructionsBuilder {
     }
 
     formatExecuteSqlDescription(): string {
-        return formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: this.guidelines.trim() })
+        return formatPrompt(EXECUTE_SQL_PROMPT, {
+            guidelines: this.guidelines.trim(),
+            schema_discovery: SCHEMA_DISCOVERY.trim(),
+        })
     }
 }

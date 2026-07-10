@@ -33,11 +33,28 @@ class TestKillStaleQueuedTaskRuns(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
 
-    def _make_run(self, status: str, age: datetime.timedelta) -> "TaskRun":
+    def _make_run(
+        self,
+        status: str,
+        age: datetime.timedelta,
+        updated_age: datetime.timedelta | None = None,
+        *,
+        prewarmed: bool = False,
+        environment: str | None = None,
+    ) -> "TaskRun":
         TaskRun = apps.get_model("tasks", "TaskRun")
-        run = TaskRun.objects.create(task=self.task, team=self.team, status=status)
-        past = timezone.now() - age
-        TaskRun.objects.filter(pk=run.pk).update(created_at=past, updated_at=past)
+        state = {"prewarmed": True, "await_user_message": True} if prewarmed else {}
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=status,
+            state=state,
+            **({"environment": environment} if environment else {}),
+        )
+        now = timezone.now()
+        TaskRun.objects.filter(pk=run.pk).update(
+            created_at=now - age, updated_at=now - (updated_age if updated_age is not None else age)
+        )
         run.refresh_from_db()
         return run
 
@@ -45,12 +62,16 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         TaskRun = apps.get_model("tasks", "TaskRun")
         run = self._make_run(TaskRun.Status.QUEUED, datetime.timedelta(hours=25))
 
-        kill_stale_queued_task_runs()
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            kill_stale_queued_task_runs()
 
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.FAILED)
         self.assertIn("stuck in QUEUED", run.error_message or "")
         self.assertIsNotNone(run.completed_at)
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0].kwargs["properties"]["error_type"], "stale_queued_cleanup")
 
     def test_leaves_recently_queued_run_alone(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -62,6 +83,37 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
         self.assertIsNone(run.completed_at)
         self.assertIsNone(run.error_message)
+
+    def test_completes_stale_local_run_quietly_instead_of_failing(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        stale_local = self._make_run(
+            TaskRun.Status.QUEUED, datetime.timedelta(hours=25), environment=TaskRun.Environment.LOCAL
+        )
+        fresh_local = self._make_run(
+            TaskRun.Status.QUEUED, datetime.timedelta(hours=23, minutes=59), environment=TaskRun.Environment.LOCAL
+        )
+        # A local run whose updated_at keeps advancing is a live desktop session (the desktop
+        # PATCHes output/branch as it works) — the created_at hard cap must never reap it.
+        live_local = self._make_run(
+            TaskRun.Status.QUEUED,
+            datetime.timedelta(hours=50),
+            updated_age=datetime.timedelta(hours=2),
+            environment=TaskRun.Environment.LOCAL,
+        )
+
+        with patch("products.tasks.backend.push_dispatcher.notify_task_run_completed") as mock_notify:
+            kill_stale_queued_task_runs()
+
+        stale_local.refresh_from_db()
+        self.assertEqual(stale_local.status, TaskRun.Status.COMPLETED)
+        self.assertIsNone(stale_local.error_message)
+        self.assertIsNotNone(stale_local.completed_at)
+        mock_notify.assert_not_called()
+
+        fresh_local.refresh_from_db()
+        live_local.refresh_from_db()
+        self.assertEqual(fresh_local.status, TaskRun.Status.QUEUED)
+        self.assertEqual(live_local.status, TaskRun.Status.QUEUED)
 
     def test_leaves_re_queued_run_with_old_created_at_alone(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -76,6 +128,59 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
         self.assertIsNone(run.completed_at)
+        self.assertIsNone(run.error_message)
+
+    def test_reaps_orphaned_prewarmed_run_well_before_24h(self) -> None:
+        # A prewarmed run whose workflow never started has no in-workflow timer to finalize it,
+        # so it must be reaped on the short prewarmed window rather than riding QUEUED to 24h.
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = self._make_run(TaskRun.Status.QUEUED, datetime.timedelta(minutes=31), prewarmed=True)
+
+        kill_stale_queued_task_runs()
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.FAILED)
+        self.assertIn("orphaned in QUEUED", run.error_message or "")
+        self.assertIsNotNone(run.completed_at)
+
+    def test_spares_prewarmed_run_still_inside_idle_window(self) -> None:
+        # A live warm run idles in QUEUED awaiting its first message; it must not be killed before
+        # the in-workflow WARM_IDLE_TIMEOUT (10m) has had a chance to finalize an abandoned one.
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = self._make_run(TaskRun.Status.QUEUED, datetime.timedelta(minutes=10), prewarmed=True)
+
+        kill_stale_queued_task_runs()
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        self.assertIsNone(run.error_message)
+
+    def test_hard_cap_reaps_ancient_run_with_bumped_updated_at(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = self._make_run(
+            TaskRun.Status.QUEUED,
+            datetime.timedelta(hours=50),
+            updated_age=datetime.timedelta(hours=2),
+        )
+
+        kill_stale_queued_task_runs()
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.FAILED)
+        self.assertIsNotNone(run.completed_at)
+
+    def test_hard_cap_spares_ancient_run_touched_within_grace(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = self._make_run(
+            TaskRun.Status.QUEUED,
+            datetime.timedelta(hours=50),
+            updated_age=datetime.timedelta(minutes=10),
+        )
+
+        kill_stale_queued_task_runs()
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
         self.assertIsNone(run.error_message)
 
     @parameterized.expand(
@@ -115,11 +220,11 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         original_mark_failed = TaskRun.mark_failed
         call_count = {"n": 0}
 
-        def flaky_mark_failed(self: Any, error: str) -> None:
+        def flaky_mark_failed(self: Any, error: str, error_type: str | None = None) -> None:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise RuntimeError("synthetic failure")
-            return original_mark_failed(self, error)
+            return original_mark_failed(self, error, error_type=error_type)
 
         with (
             patch.object(TaskRun, "mark_failed", flaky_mark_failed),

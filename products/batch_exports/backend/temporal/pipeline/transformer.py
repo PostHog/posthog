@@ -722,6 +722,77 @@ class CSVStreamTransformer:
         return buffer.getvalue()
 
 
+def serialize(record_batch: pa.RecordBatch, column_names: list[str]) -> bytes:
+    return record_batch.select(column_names).serialize().to_pybytes()
+
+
+class SerializedStreamTransformer:
+    """A transformer to serialize record batches into Arrow IPC format."""
+
+    def __init__(
+        self,
+        pool: concurrent.futures.ProcessPoolExecutor,
+        include_inserted_at: bool = False,
+        max_file_size_bytes: int = 0,
+    ):
+        self.pool = pool
+        self.include_inserted_at = include_inserted_at
+        self.max_file_size_bytes = max_file_size_bytes
+
+        self._schema: pa.Schema | None = None
+
+    async def iter(
+        self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch]
+    ) -> collections.abc.AsyncIterator[Chunk]:
+        """Iterate over record batches transforming them into chunks."""
+        current_file_size = 0
+        loop = asyncio.get_running_loop()
+
+        async for record_batch in record_batches:
+            self.schema = record_batch.schema
+
+            with ExecutionTimeRecorder(
+                "serialized_transformer_record_batch_transform_duration",
+                description="Duration to serialize a record batch.",
+                log_message=(
+                    "Serialized record batch with %(num_records)d records."
+                    " Record batch size: %(mb_processed).2f MB, process time:"
+                    " %(duration_seconds)d seconds, speed: %(mb_per_second).2f MB/s"
+                ),
+                log_attributes={"num_records": record_batch.num_rows},
+            ) as recorder:
+                recorder.add_bytes_processed(record_batch.nbytes)
+
+                chunk = await loop.run_in_executor(self.pool, serialize, record_batch, self.schema.names)
+                yield Chunk(chunk, False)
+
+                if self.max_file_size_bytes and current_file_size + len(chunk) > self.max_file_size_bytes:
+                    yield Chunk(b"", True)
+                    current_file_size = 0
+
+                else:
+                    current_file_size += len(chunk)
+
+        yield Chunk(b"", True)
+
+    @property
+    def schema(self) -> pa.Schema:
+        if not self._schema:
+            raise ValueError("Schema not set, is the transformer running?")
+        return self._schema
+
+    @schema.setter
+    def schema(self, schema: pa.Schema) -> None:
+        if self._schema is not None:
+            return
+
+        if not self.include_inserted_at:
+            if (index := schema.get_field_index("_inserted_at")) >= 0:
+                schema = schema.remove(index)
+
+        self._schema = schema
+
+
 class IncompatibleTypesError(TypeError):
     """Exception for incompatible types between source and destination.
 

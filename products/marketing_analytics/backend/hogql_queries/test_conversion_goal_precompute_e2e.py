@@ -12,9 +12,6 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.preaggregation.conversion_goal_attributed_sql import (
-    TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
-)
 from posthog.clickhouse.preaggregation.marketing_conversions_sql import TRUNCATE_MARKETING_CONVERSIONS_TABLE_SQL
 from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL
 
@@ -34,7 +31,6 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
         super().tearDown()
 
     def _clean_preaggregation_data(self):
-        sync_execute(TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
         sync_execute(TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL())
         sync_execute(TRUNCATE_MARKETING_CONVERSIONS_TABLE_SQL())
         PreaggregationJob.objects.all().delete()
@@ -248,6 +244,45 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
 
         assert preagg_rows, f"{attribution_mode}: precompute returned no rows for a non-UTC team"
         assert _round_rows(direct_rows) == _round_rows(preagg_rows)
+
+    def test_reused_wide_job_excludes_out_of_range_conversions(self):
+        _create_person(distinct_ids=["user_dec"], team=self.team)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_dec",
+            timestamp=datetime(2024, 12, 10, 10, 0, tzinfo=UTC),
+            properties={"utm_campaign": "december", "utm_source": "google", "utm_medium": "cpc"},
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_dec",
+            timestamp=datetime(2024, 12, 12, 10, 0, tzinfo=UTC),
+            properties={"value": 99},
+        )
+        self._seed_events()
+
+        processor = self._make_processor(precompute=True)
+        # Materialize a job spanning December — a wider prior request the lazy framework reuses for the
+        # narrow one below (find_existing_jobs matches the overlapping wider job).
+        processor.generate_cte_query(
+            additional_conditions=[],
+            date_from=datetime(2024, 12, 1, tzinfo=UTC),
+            date_to=datetime(2025, 1, 31, tzinfo=UTC),
+        )
+        narrow_rows = self._execute(
+            processor.generate_cte_query(
+                additional_conditions=[],
+                date_from=datetime(2025, 1, 1, tzinfo=UTC),
+                date_to=datetime(2025, 1, 31, tzinfo=UTC),
+            )
+        )
+
+        assert narrow_rows, "expected in-range conversions in the narrow window"
+        assert all("december" not in row for row in narrow_rows), (
+            f"out-of-range December conversion leaked from the reused wider job: {narrow_rows}"
+        )
 
 
 def _round_rows(rows: list[tuple]) -> list[tuple]:

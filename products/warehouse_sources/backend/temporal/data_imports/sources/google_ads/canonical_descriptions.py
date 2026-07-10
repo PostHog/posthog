@@ -60,6 +60,12 @@ def _stats_columns(**overrides: str) -> dict[str, str]:
     return {**_IDS, **_METRICS, **_SEGMENTS, **overrides}
 
 
+def _overview_stats_columns(**overrides: str) -> dict[str, str]:
+    """Like _stats_columns but without segments_click_type — overview tables don't segment by click type."""
+    segments = {k: v for k, v in _SEGMENTS.items() if k != "segments_click_type"}
+    return {**_IDS, **_METRICS, **segments, **overrides}
+
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "ad": {
         "description": "An ad within an ad group (ad_group_ad), including its creative content and status.",
@@ -84,6 +90,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             metrics_active_view_measurability="Share of impressions that were measurable by Active View.",
         ),
     },
+    "ad_overview_stats": {
+        "description": "Daily ad (ad_group_ad) performance without click-type segmentation, so cost totals reconcile to the Google Ads UI. Segmented by date, device, and network.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v17/ad_group_ad",
+        "columns": _overview_stats_columns(
+            ad_group_ad_ad_id="Unique ID of the ad the metrics belong to.",
+            metrics_active_view_measurability="Share of impressions that were measurable by Active View.",
+        ),
+    },
     "ad_group": {
         "description": "An ad group — a set of ads and keywords sharing bids and targeting within a campaign.",
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/ad_group",
@@ -102,6 +116,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Daily performance metrics for ad groups, segmented by date, device, and network.",
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/ad_group",
         "columns": _stats_columns(),
+    },
+    "ad_group_overview_stats": {
+        "description": "Daily ad group performance without click-type segmentation, so cost totals reconcile to the Google Ads UI. Segmented by date, device, and network.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v17/ad_group",
+        "columns": _overview_stats_columns(),
     },
     "campaign": {
         "description": "A Google Ads campaign — a budgeted set of ad groups sharing settings and goals.",
@@ -131,7 +150,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "campaign_overview_stats": {
         "description": "Daily campaign performance overview including video metrics, segmented by date and device.",
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/campaign",
-        "columns": _stats_columns(
+        "columns": _overview_stats_columns(
             campaign_name="Name of the campaign.",
             campaign_advertising_channel_type="Primary serving target of the campaign.",
             metrics_video_views="Number of views of a video ad.",

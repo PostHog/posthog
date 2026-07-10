@@ -16,7 +16,14 @@
 
 import cronParser from 'cron-parser'
 
-import { AgentRevision, AgentSpec, BundleStore, getSecretAllowedHosts } from '@posthog/agent-shared'
+import {
+    AgentRevision,
+    AgentSpec,
+    BundleStore,
+    type CatalogModel,
+    getSecretAllowedHosts,
+    validateModelPolicy,
+} from '@posthog/agent-shared'
 import { hasNativeTool } from '@posthog/agent-tools'
 
 export type ValidationCode =
@@ -29,6 +36,8 @@ export type ValidationCode =
     | 'duplicate_cron_name'
     | 'unknown_cron_placeholder'
     | 'secret_no_host_binding'
+    | 'invalid_model'
+    | 'required_client_tool_with_non_chat_trigger'
 
 /**
  * Non-blocking soft signals — surface to the author before freeze, but the
@@ -97,7 +106,11 @@ export interface ValidationReport {
     resolved_natives: string[]
 }
 
-export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleStore): Promise<ValidationReport> {
+export async function validateRevisionBundle(
+    rev: AgentRevision,
+    bundle: BundleStore,
+    catalogModels: CatalogModel[] = []
+): Promise<ValidationReport> {
     const errors: ValidationError[] = []
     const warnings: ValidationWarning[] = []
     const resolvedNatives: string[] = []
@@ -113,12 +126,22 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
         })
     }
 
-    const entrypoint = rev.spec.entrypoint || 'agent.md'
-    if (!(await bundle.exists(rev.id, entrypoint))) {
+    if (!(await bundle.exists(rev.id, 'agent.md'))) {
         errors.push({
             code: 'missing_entrypoint',
-            message: `entrypoint "${entrypoint}" is not present in the bundle`,
-            pointer: 'spec.entrypoint',
+            message: 'agent.md is not present in the bundle',
+            pointer: 'agent.md',
+        })
+    }
+
+    // models must reference models the gateway serves — catch it at freeze,
+    // not as a runtime 400 in a user's session. Fails open on an empty
+    // (unreachable) catalog; see gateway-catalog.ts.
+    for (const issue of validateModelPolicy(rev.spec.models, catalogModels)) {
+        errors.push({
+            code: 'invalid_model',
+            message: `models: "${issue.model}" ${issue.reason}`,
+            pointer: issue.pointer,
         })
     }
 
@@ -144,6 +167,30 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
             }
         }
         // kind:'custom' / kind:'client' need no presence check — see above.
+    }
+
+    // `kind:'client'` `required:true` tools need a chat trigger: only the chat
+    // /run body carries `supported_client_tools`. Webhook/slack/cron/mcp
+    // sessions have no client to declare support, so the runner hides every
+    // client tool there (see build-agent-tools.ts). A `required` client tool
+    // combined with any non-chat trigger would fail every non-chat session,
+    // so reject the combination at freeze.
+    const nonChatTriggers = rev.spec.triggers.filter((t) => t.type !== 'chat')
+    if (nonChatTriggers.length > 0) {
+        for (const [i, tool] of rev.spec.tools.entries()) {
+            if (tool.kind === 'client' && tool.required) {
+                const kinds = [...new Set(nonChatTriggers.map((t) => t.type))].join(', ')
+                errors.push({
+                    code: 'required_client_tool_with_non_chat_trigger',
+                    message:
+                        `client tool "${tool.id}" is required:true but spec.triggers includes non-chat trigger(s) ` +
+                        `(${kinds}). Non-chat triggers have no connecting client to declare support, so every ` +
+                        `non-chat session would fail session open. Either mark the tool required:false or ` +
+                        `remove the non-chat trigger(s).`,
+                    pointer: `spec.tools[${i}].required`,
+                })
+            }
+        }
     }
 
     // Cron-specific freeze-time checks. Zod has already validated the field
@@ -238,13 +285,13 @@ const SECRET_REF = /\$\{([A-Z][A-Z0-9_]*)\}/g
 
 interface ScanTarget {
     path: string
-    /** Where the error attaches — `spec.entrypoint` or `spec.skills[i].path`. */
+    /** Where the error attaches — `agent.md` or `spec.skills[i].path`. */
     pointer: string
 }
 
 /**
- * Cross-check spec.secrets[] against `${NAME}` references in the agent.md
- * entrypoint and each declared skill body. A reference to a bare-string
+ * Cross-check spec.secrets[] against `${NAME}` references in agent.md
+ * and each declared skill body. A reference to a bare-string
  * `spec.secrets[]` entry is `secret_no_host_binding` at session start (the
  * runtime refuses substitution into model-controlled URL/headers/body), so
  * catch it here instead of letting it surface as a tool error on first call.
@@ -258,7 +305,7 @@ async function checkSecretHostBindings(
     bundle: BundleStore,
     errors: ValidationError[]
 ): Promise<void> {
-    const targets: ScanTarget[] = [{ path: rev.spec.entrypoint || 'agent.md', pointer: 'spec.entrypoint' }]
+    const targets: ScanTarget[] = [{ path: 'agent.md', pointer: 'agent.md' }]
     for (const [i, skill] of rev.spec.skills.entries()) {
         targets.push({ path: skill.path, pointer: `spec.skills[${i}].path` })
     }

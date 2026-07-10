@@ -28,7 +28,7 @@ from typing import Any, Union, cast
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -43,14 +43,13 @@ from posthog.models.group_type_mapping import (
     project_has_group_types_authoritatively,
 )
 from posthog.models.team import Team
-from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.storage.hypercache import HYPERCACHE_REBUILD_SKIPPED_COUNTER, HyperCache, KeyType, emit_cache_sync_metrics
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.utils import capture_exception_throttled, get_safe_cache
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, is_cohort_recalculation_only_save
 from products.cohorts.backend.models.util import get_nested_cohort_ids
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
     get_team_ids_with_recently_updated_flags,
@@ -383,9 +382,6 @@ DATABASE_FOR_LOCAL_EVALUATION = (
     else "replica"
 )
 
-# Use centralized database routing constant
-READ_ONLY_DATABASE_FOR_PERSONS = PERSONS_DB_FOR_READ
-
 flag_definitions_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_with_cohorts.json",
@@ -523,8 +519,13 @@ def update_flag_caches(team: Team):
         # two variants can't drift out of sync.
         without_cohorts = _get_flags_response_for_local_evaluation(team, include_cohorts=False)
 
-        size_with_cohorts = flag_definitions_hypercache.set_cache_value(team, with_cohorts)
-        size_without_cohorts = flag_definitions_without_cohorts_hypercache.set_cache_value(team, without_cohorts)
+        # Signal-driven rebuilds skip the write when the payload is unchanged: most
+        # saves that trigger this (notably the nightly cohort recalculation) don't alter
+        # flag definitions, so the ETag is identical and a rewrite would only add load.
+        size_with_cohorts = flag_definitions_hypercache.set_cache_value(team, with_cohorts, skip_if_unchanged=True)
+        size_without_cohorts = flag_definitions_without_cohorts_hypercache.set_cache_value(
+            team, without_cohorts, skip_if_unchanged=True
+        )
 
         success = True
     except GroupTypesUnavailable as e:
@@ -550,7 +551,7 @@ def update_flag_caches(team: Team):
         emit_cache_sync_metrics(result, "feature_flags", "flags_without_cohorts.json", size=size_without_cohorts)
 
 
-def clear_flag_definition_caches(team: Team, kinds: list[str] | None = None):
+def clear_flag_definition_caches(team: Team | int, kinds: list[str] | None = None):
     """
     Clear the flag definitions cache for a team.
 
@@ -613,7 +614,7 @@ def _get_flags_response_for_local_evaluation_batch(
                 filter=Q(flag_evaluation_contexts__isnull=False),
                 distinct=True,
             ),
-            has_experiment_agg=Exists(Experiment.objects.filter(feature_flag_id=OuterRef("pk"), deleted=False)),
+            has_experiment_agg=live_experiment_exists(),
         )
         .order_by("team_id", "key")
     )
@@ -781,6 +782,12 @@ FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     cache_name="flag_definitions",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
     get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
+    # The Rust /flags/definitions reader has no DB fallback, so a miss must be
+    # repaired even during the grace period rather than 503 until the next sweep.
+    repair_miss_during_grace_period=True,
+    # Guard the verifier's direct db_data write against caching an emptied
+    # group_type_mapping (personhog lag), same as the signal-driven write path.
+    should_skip_write=_skip_write_if_group_mapping_emptied,
 )
 
 FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
@@ -789,6 +796,8 @@ FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementC
     cache_name="flag_definitions_no_cohorts",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
     get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
+    repair_miss_during_grace_period=True,
+    should_skip_write=_skip_write_if_group_mapping_emptied,
 )
 
 

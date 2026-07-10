@@ -22,6 +22,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 
@@ -32,12 +33,17 @@ import {
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { CDC_SOURCE_TYPES } from '../../cdc'
+import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
+import { customSourceManifestBuilderLogic } from './customSourceManifestBuilderLogic'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
-import { GoogleSearchConsoleSiteSelector } from './GoogleSearchConsoleSiteSelector'
+import { IntegrationAccountSelector } from './IntegrationAccountSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
 import { supportsDirectQuery } from './schemaGroupingUtils'
+
+// Stable no-op for the rare misconfigured custom-source case where the form provides no value setter.
+const NO_OP_SET_VALUE = (): void => undefined
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
@@ -273,6 +279,24 @@ export const sourceFieldToElement = (
         )
     }
 
+    // Ad/analytics sources whose account/property field is backed by the shared IntegrationAccount
+    // contract: once the OAuth integration is picked, the text input becomes a dropdown of the
+    // accounts the integration can access (one component, one logic, one endpoint shape for all).
+    if (field.type === 'oauth-account-select') {
+        return (
+            <IntegrationAccountSelector
+                key={field.name}
+                fieldName={field.name}
+                fieldLabel={field.label}
+                integrationField={field.integrationField}
+                integrationKind={field.integrationKind}
+                sourceType={sourceConfig.name}
+                placeholder={field.placeholder}
+                caption={field.caption}
+            />
+        )
+    }
+
     if (field.type === 'file-upload') {
         return (
             <LemonField key={field.name} name={field.name} label={field.label}>
@@ -304,13 +328,6 @@ export const sourceFieldToElement = (
     if (field.type === 'text' && field.name === 'repository' && sourceConfig.name === 'Github') {
         // Special case, this is the GitHub repository field
         return <GitHubRepositorySelector key={field.name} />
-    }
-
-    if (field.type === 'text' && field.name === 'site_url' && sourceConfig.name === 'GoogleSearchConsole') {
-        // Special case — once the user picks an OAuth integration the selector swaps the
-        // text input for a dropdown populated from the Search Console API. Avoids the
-        // `sc-domain:` vs trailing-slash typos that bounce off `validate_credentials`.
-        return <GoogleSearchConsoleSiteSelector key={field.name} />
     }
 
     return (
@@ -695,11 +712,30 @@ export function SourceFormComponent({
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const setSourceConnectionDetailsValue =
         setSourceConnectionDetailsValueOverride ??
         (sourceWizardLogicProps
             ? sourceWizardLogic(sourceWizardLogicProps).actions.setSourceConnectionDetailsValue
             : undefined)
+
+    // The Custom REST source can open on an AI "draft from docs" intro screen (rendered by
+    // CustomSourceManifestBuilder, gated on the AI builder flag). While that intro is up, the rest of
+    // the source form — description, table prefix — is just noise, so hide it until the user moves on
+    // to the builder. `showBuilder` lives on the (singleton) builder logic; mount it here with the
+    // same props the child uses so the single instance initializes consistently regardless of mount
+    // order (notably: an existing source opens straight in the builder, not the intro).
+    const customManifestSetValue = setSourceConfigValue ?? setSourceConnectionDetailsValue
+    const { showBuilder: customManifestShowBuilder } = useValues(
+        customSourceManifestBuilderLogic({
+            initialManifestJson: jobInputs?.manifest_json,
+            setValue: customManifestSetValue ?? NO_OP_SET_VALUE,
+        })
+    )
+    const customAiIntroActive =
+        sourceConfig.name === 'Custom' &&
+        isCustomSourceAiBuilderEnabled(featureFlags, currentOrganization) &&
+        !customManifestShowBuilder
 
     // Default showDescription to same as showPrefix for backward compatibility
     const shouldShowDescription = showDescription ?? showPrefix
@@ -778,7 +814,7 @@ export function SourceFormComponent({
                     }}
                 </LemonField>
             )}
-            {shouldShowDescription && (
+            {shouldShowDescription && !customAiIntroActive && (
                 <LemonField
                     name="description"
                     label="Description (optional)"
@@ -833,7 +869,7 @@ export function SourceFormComponent({
                 CDC_SOURCE_TYPES.includes(sourceConfig.name) &&
                 featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
                 selectedAccessMethod === 'warehouse' && <CDCConfigSection sourceName={sourceConfig.name} />}
-            {showPrefix && !isDirectQuerySource && (
+            {showPrefix && !isDirectQuerySource && !customAiIntroActive && (
                 <LemonField
                     name="prefix"
                     label="Table prefix (optional)"

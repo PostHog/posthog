@@ -408,6 +408,52 @@ class TestTask(TestCase):
         self.assertTrue(task.internal)
 
 
+class TestTaskSlackPrNotification(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+
+    def _task(self) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.SLACK,
+        )
+
+    def test_mark_slack_pr_notified_records_overrides_and_persists(self):
+        # Records the announced PR, overrides on a new one, and survives a reload.
+        task = self._task()
+        self.assertIsNone(task.slack_notified_pr_url)
+
+        pr_1 = "https://github.com/org/repo/pull/1"
+        pr_2 = "https://github.com/org/repo/pull/2"
+        task.mark_slack_pr_notified(pr_1)
+        self.assertEqual(task.slack_notified_pr_url, pr_1)
+
+        task.mark_slack_pr_notified(pr_2)
+        self.assertEqual(task.slack_notified_pr_url, pr_2)
+
+        task.refresh_from_db()
+        self.assertEqual(task.slack_notified_pr_url, pr_2)
+
+    def test_mark_slack_pr_notified_preserves_other_state_keys(self):
+        # It's a merge into the shared state bag, not a wholesale write.
+        task = self._task()
+        task.state = {"unrelated": "keep-me"}
+        task.save(update_fields=["state"])
+
+        task.mark_slack_pr_notified("https://github.com/org/repo/pull/1")
+
+        task.refresh_from_db()
+        self.assertEqual(task.state["unrelated"], "keep-me")
+        self.assertEqual(task.slack_notified_pr_url, "https://github.com/org/repo/pull/1")
+
+
 class TestTaskSlug(TestCase):
     organization: ClassVar[Organization]
     team: ClassVar[Team]
@@ -735,13 +781,20 @@ class TestTaskRun(TestCase):
             status=TaskRun.Status.IN_PROGRESS,
         )
 
-        error_msg = "Something went wrong"
-        run.mark_failed(error_msg)
+        error_msg = "x" * 1400 + "Error: the root cause sits at the tail"
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            run.mark_failed(error_msg, error_type="stale_queued_cleanup")
 
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.FAILED)
         self.assertEqual(run.error_message, error_msg)
         self.assertIsNotNone(run.completed_at)
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
+        self.assertEqual(len(captured), 1)
+        props = captured[0].kwargs["properties"]
+        self.assertEqual(props["error_type"], "stale_queued_cleanup")
+        self.assertEqual(len(props["error_message"]), 500)
+        self.assertTrue(props["error_message"].endswith("Error: the root cause sits at the tail"))
 
     def test_output_jsonfield(self):
         run = TaskRun.objects.create(
@@ -1360,6 +1413,43 @@ class TestSandboxEnvironment(TestCase):
     )
     def test_is_valid_env_var_key(self, key, expected_valid):
         self.assertEqual(SandboxEnvironment.is_valid_env_var_key(key), expected_valid)
+
+    @parameterized.expand(
+        [
+            ("NODE_OPTIONS", True),
+            ("NODE_REPL_EXTERNAL_MODULE", True),
+            ("LD_PRELOAD", True),
+            ("LD_LIBRARY_PATH", True),
+            ("DYLD_INSERT_LIBRARIES", True),
+            ("BASH_ENV", True),
+            ("GIT_SSH_COMMAND", True),
+            ("GIT_CONFIG_KEY_0", True),
+            ("GIT_CONFIG_VALUE_0", True),
+            ("NODE_ENV", False),
+            ("node_options", False),
+            ("MY_API_KEY", False),
+            ("LDAP_URL", False),
+            ("GITHUB_ACTOR", False),
+        ]
+    )
+    def test_is_blocked_sandbox_env_key(self, key, expected_blocked):
+        from products.tasks.backend.constants import is_blocked_sandbox_env_key
+
+        self.assertEqual(is_blocked_sandbox_env_key(key), expected_blocked)
+
+    def test_filter_user_sandbox_env_vars_drops_reserved_and_blocked(self):
+        from products.tasks.backend.constants import filter_user_sandbox_env_vars
+
+        safe, skipped = filter_user_sandbox_env_vars(
+            {
+                "SAFE_VAR": "ok",
+                "NODE_OPTIONS": "--import=evil",
+                "LD_PRELOAD": "/tmp/evil.so",
+                "GITHUB_TOKEN": "stolen",
+            }
+        )
+        self.assertEqual(safe, {"SAFE_VAR": "ok"})
+        self.assertEqual(sorted(skipped), ["GITHUB_TOKEN", "LD_PRELOAD", "NODE_OPTIONS"])
 
     @parameterized.expand(
         [

@@ -6,6 +6,8 @@ import { beforeUnload, router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
@@ -17,9 +19,21 @@ import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { CommentType, PersonType } from '~/types'
 import { PropertyFilterType, PropertyOperator, Region } from '~/types'
 
+import {
+    businessKnowledgeGapSuggestionsDismissCreate,
+    businessKnowledgeGapSuggestionsList,
+} from 'products/business_knowledge/frontend/generated/api'
+
 import type { TicketAssignee } from '../../components/Assignee'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
-import type { ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
+import type {
+    AiReplyFeedbackRating,
+    ChatMessage,
+    KnowledgeGapSuggestion,
+    Ticket,
+    TicketPriority,
+    TicketStatus,
+} from '../../types'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
@@ -107,12 +121,39 @@ function createExceptionsQuery(sessionId?: string, ticketCreatedAt?: string): Da
     }
 }
 
+/** Why a customer-facing email reply on this ticket can never be delivered. */
+export type EmailReplyBlockedReason = 'email_disabled' | 'no_recipient' | 'no_channel'
+
+/**
+ * Mirrors the backend gates in send_email_reply_on_team_message / _process_outbox_row:
+ * a reply that fails any of these is saved as a comment but never delivered.
+ */
+export function getEmailReplyBlockedReason(
+    ticket: Pick<Ticket, 'channel_source' | 'email_from' | 'email_to'> | null,
+    conversationsSettings: { email_enabled?: boolean } | null | undefined
+): EmailReplyBlockedReason | null {
+    if (ticket?.channel_source !== 'email') {
+        return null
+    }
+    if (!conversationsSettings?.email_enabled) {
+        return 'email_disabled'
+    }
+    if (!ticket.email_from) {
+        return 'no_recipient'
+    }
+    if (!ticket.email_to) {
+        return 'no_channel'
+    }
+    return null
+}
+
 export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'ticket', 'supportTicketSceneLogic']),
     props({ id: 'new' as string | number }),
     key((props) => props.id),
     connect(() => ({
         actions: [supportTicketsSceneLogic, ['loadTickets']],
+        values: [teamLogic, ['currentTeam']],
     })),
     actions({
         loadTicket: true,
@@ -153,9 +194,23 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadPerson: true,
         loadPreviousTickets: true,
 
+        // Knowledge gap suggestions
+        loadKnowledgeGaps: true,
+        dismissKnowledgeGap: (suggestionId: string) => ({ suggestionId }),
+
         // Draft message state (persists across tab switches)
         setDraftContent: (content: JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
+
+        submitAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => ({
+            messageId,
+            rating,
+            feedbackText,
+        }),
+        recordAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating) => ({
+            messageId,
+            rating,
+        }),
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -211,6 +266,26 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         )
                     } catch (error) {
                         console.error('Failed to load previous tickets:', error)
+                        return []
+                    }
+                },
+            },
+        ],
+        knowledgeGaps: [
+            [] as KnowledgeGapSuggestion[],
+            {
+                loadKnowledgeGaps: async (): Promise<KnowledgeGapSuggestion[]> => {
+                    const ticket = values.ticket
+                    if (!ticket) {
+                        return []
+                    }
+                    try {
+                        const response = await businessKnowledgeGapSuggestionsList(String(getCurrentTeamId()), {
+                            ticket_id: ticket.id,
+                        })
+                        const data = Array.isArray(response) ? response : (response.results ?? [])
+                        return data as unknown as KnowledgeGapSuggestion[]
+                    } catch {
                         return []
                     }
                 },
@@ -318,8 +393,23 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setDraftIsPrivate: (_, { isPrivate }) => isPrivate,
             },
         ],
+        feedbackByMessageId: [
+            {} as Record<string, AiReplyFeedbackRating>,
+            { persist: true, storageKey: 'conversations_ai_reply_feedback' },
+            {
+                recordAiReplyFeedback: (state, { messageId, rating }) => ({
+                    ...state,
+                    [messageId]: rating,
+                }),
+            },
+        ],
     }),
     selectors({
+        emailReplyBlockedReason: [
+            (s) => [s.ticket, s.currentTeam],
+            (ticket, currentTeam): EmailReplyBlockedReason | null =>
+                getEmailReplyBlockedReason(ticket, currentTeam?.conversations_settings),
+        ],
         hasUnsavedChanges: [
             (s) => [s.status, s.priority, s.assignee, s.tags, s.snoozedUntil, s.ticket],
             (status, priority, assignee, tags, snoozedUntil, ticket): boolean => {
@@ -362,20 +452,27 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             'Support'
                     } else if (authorType === 'AI') {
                         displayName = 'PostHog Assistant'
-                    } else if (authorType === 'customer') {
-                        const slackAuthorName = message.item_context?.slack_author_name
-                        const emailAuthorName = message.item_context?.email_from_name
-                        if (slackAuthorName) {
-                            displayName = slackAuthorName
-                        } else if (emailAuthorName) {
-                            displayName = emailAuthorName
-                        } else {
+                    } else {
+                        // Per-message author identity (e.g. Zendesk import stores each comment's own
+                        // author) takes precedence over the ticket-level requester, so a reply from a
+                        // second requester or an agent shows the real name instead of the ticket owner.
+                        const messageAuthorName =
+                            message.item_context?.author_name ||
+                            message.item_context?.author_email ||
+                            message.item_context?.slack_author_name ||
+                            message.item_context?.email_from_name
+                        if (messageAuthorName) {
+                            displayName = messageAuthorName
+                        } else if (authorType === 'customer') {
                             displayName =
                                 ticket?.person?.properties?.name ||
                                 ticket?.person?.properties?.email ||
                                 ticket?.anonymous_traits?.name ||
                                 ticket?.anonymous_traits?.email ||
                                 'Anonymous user'
+                        } else {
+                            // Staff message with no resolvable author (e.g. deleted ex-agent).
+                            displayName = 'Support'
                         }
                     }
 
@@ -389,6 +486,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         createdAt: message.created_at,
                         isPrivate: message.item_context?.is_private || false,
                         emailDeliveryStatus: message.item_context?.email_delivery_status,
+                        fromZendesk: message.item_context?.from_zendesk === true,
                     }
                 }),
         ],
@@ -409,6 +507,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     return null
                 }
                 return createExceptionsQuery(ticket.session_id, ticket.created_at)
+            },
+        ],
+        latestAiMessage: [
+            (s) => [s.chatMessages],
+            (chatMessages: ChatMessage[]): ChatMessage | null => {
+                for (let i = chatMessages.length - 1; i >= 0; i--) {
+                    if (chatMessages[i].authorType === 'AI') {
+                        return chatMessages[i]
+                    }
+                }
+                return null
             },
         ],
     }),
@@ -439,6 +548,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 // Load session context data
                 actions.loadPerson()
+                actions.loadKnowledgeGaps()
 
                 // Refresh the unread count since viewing a ticket marks it as read
                 supportTicketCounterLogic.findMounted()?.actions.refreshCount()
@@ -555,7 +665,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     },
                     {}
                 )
-                lemonToast.success(isPrivate ? 'Private message sent' : 'Message sent')
+                // "Added", not "sent": email delivery is async (outbox + Celery) and can still fail
+                // after this API call succeeds; the per-message delivery status is the send signal.
+                lemonToast.success(isPrivate ? 'Private note added' : 'Reply added')
                 actions.setMessageSending(false)
                 onSuccess?.()
                 if (!isPrivate) {
@@ -570,6 +682,43 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setMessageSending(false)
             }
         },
+        dismissKnowledgeGap: async ({ suggestionId }) => {
+            try {
+                await businessKnowledgeGapSuggestionsDismissCreate(String(getCurrentTeamId()), suggestionId)
+                actions.loadKnowledgeGaps()
+            } catch {
+                lemonToast.error('Failed to dismiss suggestion')
+            }
+        },
+        submitAiReplyFeedback: async ({ messageId, rating, feedbackText }) => {
+            const ticket = values.ticket
+            if (!ticket) {
+                return
+            }
+            try {
+                if (feedbackText) {
+                    if (rating !== 'bad') {
+                        return
+                    }
+                    await api.conversationsTickets.submitAiFeedback(ticket.id, {
+                        message_id: messageId,
+                        rating,
+                        feedback_text: feedbackText,
+                    })
+                    return
+                }
+                if (values.feedbackByMessageId[messageId]) {
+                    return
+                }
+                await api.conversationsTickets.submitAiFeedback(ticket.id, {
+                    message_id: messageId,
+                    rating,
+                })
+                actions.recordAiReplyFeedback(messageId, rating)
+            } catch {
+                lemonToast.error('Failed to submit feedback')
+            }
+        },
     })),
     afterMount(({ actions, props }) => {
         if (props.id !== 'new') {
@@ -580,8 +729,24 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         cache.disposables.disposeAll()
         impersonationNoticeLogic.findMounted()?.actions.setTicketContext(null)
     }),
-    beforeUnload(({ values }) => ({
-        enabled: () => values.hasPendingWork,
+    beforeUnload(({ values, actions }) => ({
+        enabled: (newLocation) => {
+            if (!values.hasPendingWork) {
+                return false
+            }
+            // Ignore in-page navigations (e.g. opening a side panel) that keep the same path
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+            return true
+        },
         message: 'You have unsaved changes. Are you sure you want to leave?',
+        onConfirm: () => {
+            // Re-sync local form reducers to the last-known server ticket so hasUnsavedChanges
+            // recomputes to false and the prompt does not re-fire on the next navigation.
+            if (values.ticket) {
+                actions.setTicket(values.ticket)
+            }
+        },
     })),
 ])

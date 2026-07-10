@@ -63,7 +63,7 @@ class TestBuildInitialParams:
                 "payments",
                 True,
                 datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-                {"begin_time": "2026-03-04T02:58:14.000Z", "sort_order": "ASC", "limit": "100"},
+                {"begin_time": "2026-03-04T02:58:14.000Z", "sort_order": "ASC", "limit": "50"},
                 [],
             ),
             # incremental endpoint, full refresh -> no begin_time
@@ -285,6 +285,27 @@ class TestGetRowsPagination:
 
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [SquareResumeConfig(cursor="")]
+
+    def test_invalid_cursor_resumes_incremental_endpoint_from_last_seen(self) -> None:
+        # An endpoint with a server-side time filter (payments has begin_time) must not
+        # re-scan from zero when a cursor expires mid-stream — it should re-issue the
+        # query seeded with the last created_at it saw, bounding the re-scan to the tail.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        responses = [
+            _make_response({"payments": [{"id": "p1", "created_at": "2026-03-04T02:58:14Z"}], "cursor": "cur-1"}),
+            _make_response({"errors": [{"code": "INVALID_CURSOR"}]}, status_code=400),
+            _make_response({"payments": [{"id": "p2", "created_at": "2026-03-05T00:00:00Z"}]}),
+        ]
+        sent_params = self._drive("payments", manager, responses)
+
+        assert "cursor" not in sent_params[0]
+        assert sent_params[1] == {"cursor": "cur-1"}
+        # The restart drops the cursor and seeds begin_time from the last seen created_at
+        # rather than issuing a bare full restart.
+        assert "cursor" not in sent_params[2]
+        assert sent_params[2]["begin_time"] == "2026-03-04T02:58:14Z"
 
     def test_invalid_cursor_restarts_again_when_re_scan_also_expires(self) -> None:
         # A cursor can expire more than once on a slow full-refresh stream: the first

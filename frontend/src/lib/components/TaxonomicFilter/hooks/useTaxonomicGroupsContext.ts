@@ -40,6 +40,8 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
  */
 export interface UseTaxonomicGroupsContextInput {
     eventNames?: string[]
+    /** Requested group types — read by group definitions that adapt to which tabs are present. */
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     schemaColumns?: DatabaseSchemaField[]
     schemaColumnsLoading?: boolean
     metadataSource?: AnyDataNode
@@ -71,7 +73,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
     // does it.
     useValues(dataWarehouseSettingsSceneLogic)
     useValues(joinsLogic)
-    const { eventMetadataPropertyDefinitions } = useValues(propertyDefinitionsModel)
+    const { eventMetadataPropertyDefinitions, personMetadataPropertyDefinitions } = useValues(propertyDefinitionsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return useMemo<BuildTaxonomicGroupsContext>(() => {
@@ -106,12 +108,14 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
                 aggregationLabel
             ),
             eventNames: input.eventNames ?? (EMPTY_ARRAY as unknown as string[]),
+            taxonomicGroupTypes: input.taxonomicGroupTypes,
             schemaColumns: input.schemaColumns ?? (EMPTY_ARRAY as unknown as DatabaseSchemaField[]),
             schemaColumnsLoading: input.schemaColumnsLoading,
             metadataSource: input.metadataSource ?? DEFAULT_METADATA_SOURCE,
             suggestedFiltersLabel: input.suggestedFiltersLabel,
             propertyFilters,
             eventMetadataPropertyDefinitions,
+            personMetadataPropertyDefinitions,
             maxContextOptions: input.maxContextOptions ?? (EMPTY_ARRAY as unknown as MaxContextTaxonomicFilterOption[]),
             hideBehavioralCohorts: input.hideBehavioralCohorts ?? false,
             endpointFilters: input.endpointFilters,
@@ -128,8 +132,15 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
         groupTypes,
         aggregationLabel,
         eventMetadataPropertyDefinitions,
+        personMetadataPropertyDefinitions,
         featureFlags,
-        input.eventNames,
+        // Content-keyed: consumers pass fresh array literals per render. The legacy logic
+        // stabilizes the same props differently — reference-equality inputs with objectsEqual
+        // on the selector result (see eventNamesWithPrimaryProperties) — same end effect.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        JSON.stringify(input.eventNames),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        JSON.stringify(input.taxonomicGroupTypes),
         input.schemaColumns,
         input.schemaColumnsLoading,
         input.metadataSource,

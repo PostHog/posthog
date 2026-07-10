@@ -26,6 +26,7 @@ lifecycle = { path = "../common/lifecycle" }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 common-alloc = { path = "../common/alloc" }
+common-compression = { path = "../common/compression" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
@@ -61,6 +62,7 @@ lz4 = { workspace = true }
 multer = "3.0"
 futures = { workspace = true }
 sha2 = { workspace = true }
+hmac = { workspace = true }
 
 [dev-dependencies]
 capture = { path = ".", features = ["test-utils"] }

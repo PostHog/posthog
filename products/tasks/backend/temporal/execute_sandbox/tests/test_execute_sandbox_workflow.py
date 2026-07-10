@@ -427,12 +427,42 @@ class TestHandleFollowup:
         assert workflow._task_completed is True
         assert workflow._completion_status == "failed"
         assert workflow._completion_error == "Follow-up delivery failed: sandbox is dead"
+        assert workflow._completion_error_type == "followup_delivery_failed"
         ack = workflow._pending_outbound[-1]
         assert ack.target_signal == PARENT_ACK_SIGNAL
         assert ack.args[0] == "send_followup_message"
         assert ack.args[1] == "ack-fail"
         assert ack.args[2] is False
         assert "sandbox is dead" in (ack.args[3] or "")
+
+    async def test_dispatch_failure_unwraps_activity_error_cause(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        workflow._parent_workflow_id = "parent-wf"
+
+        activity_error = ActivityError(
+            "Activity task failed",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="worker-1",
+            activity_type="send_followup_to_sandbox",
+            activity_id="activity-1",
+            retry_state=RetryState.MAXIMUM_ATTEMPTS_REACHED,
+        )
+        activity_error.__cause__ = RuntimeError("send_followup failed: sandbox unreachable")
+
+        send_mock = AsyncMock(side_effect=activity_error)
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", send_mock)
+        monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
+
+        await workflow._handle_followup(PendingFollowup(message="msg", artifact_ids=[], ack_id="ack-fail"))
+
+        assert workflow._task_completed is True
+        assert workflow._completion_status == "failed"
+        assert workflow._completion_error == "Follow-up delivery failed: send_followup failed: sandbox unreachable"
+        assert workflow._completion_error_type == "followup_delivery_failed"
+        ack = workflow._pending_outbound[-1]
+        assert ack.args[3] == "send_followup failed: sandbox unreachable"
 
 
 class TestReapOrphanedSandbox:
@@ -541,11 +571,42 @@ class TestRun:
             sandbox_id="sandbox-123",
         )
 
-    async def test_run_ends_session_without_failing_when_sandbox_gone(self, monkeypatch, silent_workflow_logger):
+    async def test_credential_refresh_credentials_unavailable_does_not_mark_sandbox_gone(
+        self, monkeypatch, silent_workflow_logger
+    ):
         workflow = ExecuteSandboxWorkflow()
-        context = _build_context(state={"mode": "interactive"}, use_modal_resume_snapshots=False)
+        workflow._context = _build_context()
+        refresh_loop_mock = AsyncMock(return_value=CredentialRefreshExitReason.CREDENTIALS_UNAVAILABLE)
+
+        monkeypatch.setattr(execute_sandbox_workflow_module, "run_credential_refresh_loop", refresh_loop_mock)
+
+        await workflow._run_credential_refresh_until_sandbox_gone("sandbox-123")
+
+        assert workflow._sandbox_gone is False
+        silent_workflow_logger.warning.assert_called_once_with(
+            "execute_sandbox_credential_refresh_stopped_credentials_unavailable",
+            run_id="run-id",
+            sandbox_id="sandbox-123",
+        )
+
+    @pytest.mark.parametrize(
+        "use_modal_resume_snapshots, expect_resume_snapshot_call",
+        [
+            (True, True),
+            (False, False),
+        ],
+    )
+    async def test_run_ends_session_without_failing_when_sandbox_gone(
+        self, monkeypatch, silent_workflow_logger, use_modal_resume_snapshots, expect_resume_snapshot_call
+    ):
+        workflow = ExecuteSandboxWorkflow()
+        context = _build_context(
+            state={"mode": "interactive"},
+            use_modal_resume_snapshots=use_modal_resume_snapshots,
+        )
         update_status_mock = AsyncMock()
         cleanup_sandbox_mock = AsyncMock()
+        create_resume_snapshot_mock = AsyncMock()
 
         monkeypatch.setattr(workflow, "_reap_orphaned_sandbox", AsyncMock())
         monkeypatch.setattr(workflow, "_get_task_processing_context", AsyncMock(return_value=context))
@@ -555,6 +616,7 @@ class TestRun:
         monkeypatch.setattr(workflow, "_persist_sandbox_id", AsyncMock())
         monkeypatch.setattr(workflow, "_read_sandbox_logs", AsyncMock())
         monkeypatch.setattr(workflow, "_cleanup_sandbox", cleanup_sandbox_mock)
+        monkeypatch.setattr(workflow, "_create_resume_snapshot", create_resume_snapshot_mock)
         monkeypatch.setattr(workflow, "_clear_persisted_sandbox_id", AsyncMock())
         monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
         monkeypatch.setattr(workflow, "_relay_sandbox_events", AsyncMock())
@@ -600,6 +662,10 @@ class TestRun:
         payload = completed_signals[0].args[0]
         assert isinstance(payload, ChildCompletionPayload)
         assert payload.success is True
+        if expect_resume_snapshot_call:
+            create_resume_snapshot_mock.assert_awaited_once_with("sandbox-123")
+        else:
+            create_resume_snapshot_mock.assert_not_awaited()
 
     async def test_context_load_failure_marks_run_failed(self, monkeypatch, silent_workflow_logger):
         workflow = ExecuteSandboxWorkflow()
@@ -624,6 +690,7 @@ class TestRun:
             "failed",
             error_message="database connection closed",
             run_id="run-id",
+            error_type="RuntimeError",
         )
         # A terminal completion signal is enqueued even on failure paths so
         # the orchestrator never waits indefinitely on a silent child.
@@ -870,7 +937,7 @@ class TestRunStatusTransitions:
             update_status_mock.assert_not_awaited()
         else:
             status, message = expected_call
-            update_status_mock.assert_awaited_once_with(status, error_message=message)
+            update_status_mock.assert_awaited_once_with(status, error_message=message, error_type=None)
 
 
 class TestCompletionStatusOnExceptionPaths:

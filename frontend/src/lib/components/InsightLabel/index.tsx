@@ -50,6 +50,9 @@ interface InsightsLabelProps {
     pillMidEllipsis?: boolean // Whether to use mid ellipsis if pill text needs to be truncated
     pillMaxWidth?: number // Max width of each pill in px
     showPathCleaningHighlight?: boolean // Whether to show path cleaning highlights on the breakdown value
+    /** When true, hides the HogQL/SQL math tag when the series has a custom name set.
+     *  Pass only in legend rows — not in tooltips — to prevent long SQL expressions eating label space. */
+    hideHogQLTagWhenCustomName?: boolean
 }
 
 interface MathTagProps {
@@ -121,6 +124,7 @@ export function InsightLabel({
     pillMaxWidth,
     showSingleName = false,
     showPathCleaningHighlight = false,
+    hideHogQLTagWhenCustomName = false,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = _showEventName || !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
 
@@ -189,16 +193,17 @@ export function InsightLabel({
                         </>
                     )}
 
-                    {((action?.math && action.math !== 'total') || showCountedByTag) && (
-                        <div className="insights-label__math flex flex-nowrap items-center gap-x-1">
-                            <MathTag
-                                math={action?.math}
-                                mathProperty={action?.math_property}
-                                mathHogQL={action?.math_hogql}
-                                mathGroupTypeIndex={action?.math_group_type_index}
-                            />
-                        </div>
-                    )}
+                    {((action?.math && action.math !== 'total') || showCountedByTag) &&
+                        !(hideHogQLTagWhenCustomName && action?.custom_name && action?.math === 'hogql') && (
+                            <div className="insights-label__math flex flex-nowrap items-center gap-x-1">
+                                <MathTag
+                                    math={action?.math}
+                                    mathProperty={action?.math_property}
+                                    mathHogQL={action?.math_hogql}
+                                    mathGroupTypeIndex={action?.math_group_type_index}
+                                />
+                            </div>
+                        )}
 
                     {pillValues.length > 0 && (
                         <div className="flex flex-wrap gap-1">

@@ -5,9 +5,10 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.response import Response
 
-from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam, DuckLakeBackfill
+from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.presentation.views import managed_warehouse
@@ -59,13 +60,39 @@ def test_provision_persists_duckgres_server_on_success(mock_request: MagicMock) 
 @pytest.mark.django_db
 @override_settings(CLOUD_DEPLOYMENT="US", DUCKGRES_PG_PORT=5432)
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
-def test_provision_persists_bucket_returned_by_control_plane(mock_request: MagicMock) -> None:
+def test_provision_sends_default_team_id_to_control_plane(mock_request: MagicMock) -> None:
+    # duckgres denies a provision without a default team, so the provisioning team must be
+    # forwarded as default_team_id in the outbound body.
+    org = Organization.objects.create(name="Org")
+    team = Team.objects.create(organization=org)
+    mock_request.return_value = Response(
+        {"status": "provisioning started", "org": str(org.id), "username": "root", "password": "secret"},
+        status=202,
+    )
+
+    managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+
+    json_body = mock_request.call_args.kwargs["json_body"]
+    assert json_body["default_team_id"] == team.id
+
+
+@parameterized.expand(
+    [
+        ("US", "posthog-duckling-0194d6405db400006cde48d6114c0f99-mw-prod-us", "us-east-1"),
+        ("EU", "posthog-duckling-0194d6405db400006cde48d6114c0f99-mw-prod-eu", "eu-central-1"),
+    ]
+)
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_provision_persists_bucket_returned_by_control_plane(
+    deployment: str, cp_bucket: str, expected_region: str, mock_request: MagicMock
+) -> None:
     # When the control plane returns the authoritative bucket name, persist it
     # verbatim instead of re-deriving — the CP owns the naming rule (it pins the
     # same name on the Duckling CR), and the local derivation has drifted from it.
+    # A CP response without a region falls back to the deployment's home region.
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org)
-    cp_bucket = "posthog-duckling-0194d6405db400006cde48d6114c0f99-mw-prod-us"
     mock_request.return_value = Response(
         {
             "status": "provisioning started",
@@ -77,13 +104,14 @@ def test_provision_persists_bucket_returned_by_control_plane(mock_request: Magic
         status=202,
     )
 
-    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+    with override_settings(CLOUD_DEPLOYMENT=deployment, DUCKGRES_PG_PORT=5432):
+        resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
 
     assert resp.status_code == 202
     server = DuckgresServer.objects.get(organization_id=org.id)
     # Verbatim, not the locally-derived f"posthog-duckling-{org.id}-prod-us".
     assert server.bucket == cp_bucket
-    assert server.bucket_region == "us-east-1"
+    assert server.bucket_region == expected_region
 
 
 @pytest.mark.django_db
@@ -100,24 +128,21 @@ def test_provision_enables_backfill_for_calling_team_only(mock_request: MagicMoc
 
     managed_warehouse.provision(org.id, "my-warehouse", team.id, "prod_events")
 
-    backfill = DuckLakeBackfill.objects.get(team_id=team.id)
-    assert backfill.enabled is True
-    # New provisions set the per-environment suffix from the admin-provided table name.
-    assert backfill.table_suffix == "prod_events"
-    assert not DuckLakeBackfill.objects.filter(team_id=other_team.id).exists()
-
-    # Provision also records first-class duckling membership for the provisioning team only.
+    # Provision records first-class duckling membership + backfill for the provisioning team only.
     server = DuckgresServer.objects.get(organization_id=org.id)
-    assert DuckgresServerTeam.objects.filter(server=server, team_id=team.id).exists()
+    link = DuckgresServerTeam.objects.get(server=server, team_id=team.id)
+    assert link.backfill_enabled is True
+    # New provisions set the per-environment suffix from the admin-provided table name.
+    assert link.table_suffix == "prod_events"
     assert not DuckgresServerTeam.objects.filter(team_id=other_team.id).exists()
 
 
 @pytest.mark.django_db
 @override_settings(CLOUD_DEPLOYMENT="EU", DUCKGRES_PG_PORT=5432)
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
-def test_provision_persists_server_without_bucket_when_region_unsupported(mock_request: MagicMock) -> None:
-    # EU has no managed-warehouse bucket convention, so bucket derivation raises. The
-    # connection row (with the one-time password) must still be persisted.
+def test_provision_on_eu_deployment_persists_eu_host(mock_request: MagicMock) -> None:
+    # An EU deployment must present the eu.postwh.com zone in the persisted connection.
+    # A CP response without a bucket leaves the column unset here too.
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org)
     mock_request.return_value = Response(
@@ -129,6 +154,7 @@ def test_provision_persists_server_without_bucket_when_region_unsupported(mock_r
 
     assert resp.status_code == 202
     server = DuckgresServer.objects.get(organization_id=org.id)
+    assert server.host == "my-warehouse.dw.eu.postwh.com"
     assert server.password == "secret"
     assert server.bucket is None
 
@@ -144,10 +170,11 @@ def test_provision_does_not_persist_on_failure(mock_request: MagicMock) -> None:
 
     assert resp.status_code == 500
     assert not DuckgresServer.objects.filter(organization_id=org.id).exists()
-    assert not DuckLakeBackfill.objects.filter(team_id=team.id).exists()
+    assert not DuckgresServerTeam.objects.filter(team_id=team.id).exists()
 
 
 @pytest.mark.django_db
+@override_settings(CLOUD_DEPLOYMENT="US")
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
 def test_status_for_self_heals_stale_bucket(mock_request: MagicMock) -> None:
     # A row with a stale (locally-derived) bucket converges to the CP-reported
@@ -373,10 +400,9 @@ def test_enable_backfill_creates_backfill_and_membership(mock_enabled: MagicMock
     assert resp.status_code == 200
     assert resp.data == {"enabled": True, "table_suffix": "my_events"}
 
-    backfill = DuckLakeBackfill.objects.get(team_id=team.id)
-    assert backfill.enabled is True
-    assert backfill.table_suffix == "my_events"
-    assert DuckgresServerTeam.objects.filter(server=server, team_id=team.id).exists()
+    link = DuckgresServerTeam.objects.get(server=server, team_id=team.id)
+    assert link.backfill_enabled is True
+    assert link.table_suffix == "my_events"
 
 
 @pytest.mark.django_db
@@ -388,20 +414,20 @@ def test_enable_backfill_rejects_invalid_name(mock_enabled: MagicMock) -> None:
         resp = managed_warehouse.enable_backfill(org.id, team.id, bad_name)
         assert resp.status_code == 400, bad_name
 
-    assert not DuckLakeBackfill.objects.filter(team_id=team.id).exists()
+    assert not DuckgresServerTeam.objects.filter(team_id=team.id).exists()
 
 
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
 def test_enable_backfill_rejects_duplicate_suffix_in_org(mock_enabled: MagicMock) -> None:
-    org, team_a, _ = _provisioned_org()
+    org, team_a, server = _provisioned_org()
     team_b = Team.objects.create(organization=org, name="Env B")
-    DuckLakeBackfill.objects.create(team=team_a, table_suffix="shared")
+    DuckgresServerTeam.objects.create(server=server, team=team_a, table_suffix="shared")
 
     resp = managed_warehouse.enable_backfill(org.id, team_b.id, "shared")
 
     assert resp.status_code == 400
-    assert not DuckLakeBackfill.objects.filter(team_id=team_b.id).exists()
+    assert not DuckgresServerTeam.objects.filter(team_id=team_b.id).exists()
 
 
 @pytest.mark.django_db
@@ -424,7 +450,7 @@ def test_enable_backfill_gated_on_feature_flag(mock_enabled: MagicMock) -> None:
     resp = managed_warehouse.enable_backfill(org.id, team.id, "events")
 
     assert resp.status_code == 403
-    assert not DuckLakeBackfill.objects.filter(team_id=team.id).exists()
+    assert not DuckgresServerTeam.objects.filter(team_id=team.id).exists()
 
 
 @pytest.mark.django_db
@@ -436,9 +462,8 @@ def test_enable_backfill_same_name_is_idempotent(mock_enabled: MagicMock) -> Non
     resp = managed_warehouse.enable_backfill(org.id, team.id, "first")
 
     assert resp.status_code == 200
-    assert DuckLakeBackfill.objects.filter(team_id=team.id).count() == 1
     assert DuckgresServerTeam.objects.filter(team_id=team.id).count() == 1
-    assert DuckLakeBackfill.objects.get(team_id=team.id).table_suffix == "first"
+    assert DuckgresServerTeam.objects.get(team_id=team.id).table_suffix == "first"
 
 
 @pytest.mark.django_db
@@ -451,17 +476,34 @@ def test_enable_backfill_refuses_to_change_an_existing_suffix(mock_enabled: Magi
 
     # Changing a set suffix would split the team's data across two tables — rejected, unchanged.
     assert resp.status_code == 400
-    assert DuckLakeBackfill.objects.get(team_id=team.id).table_suffix == "first"
+    assert DuckgresServerTeam.objects.get(team_id=team.id).table_suffix == "first"
 
 
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
 def test_enable_backfill_refuses_to_set_a_suffix_on_a_legacy_shared_team(mock_enabled: MagicMock) -> None:
-    org, team, _ = _provisioned_org()
+    org, team, server = _provisioned_org()
     # A legacy team already backfilling to the shared tables (NULL suffix), e.g. backfilled by migration.
-    DuckLakeBackfill.objects.create(team=team, enabled=True, table_suffix=None)
+    DuckgresServerTeam.objects.create(server=server, team=team, backfill_enabled=True, table_suffix=None)
 
     resp = managed_warehouse.enable_backfill(org.id, team.id, "new_name")
 
     assert resp.status_code == 400
-    assert DuckLakeBackfill.objects.get(team_id=team.id).table_suffix is None
+    assert DuckgresServerTeam.objects.get(team_id=team.id).table_suffix is None
+
+
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.internal_requests")
+@override_settings(DUCKGRES_API_URL="http://duckgres.invalid", DUCKGRES_INTERNAL_SECRET="s")
+def test_delete_org_issues_delete_to_org_root(mock_internal: MagicMock, _mock_enabled: MagicMock) -> None:
+    # Guards the empty-path branch in _request: delete_org must hit the org resource itself,
+    # /api/v1/orgs/{org}, not a suffixed org path or the global /api/v1/ route.
+    org_id = uuid4()
+    mock_internal.request.return_value = MagicMock(status_code=200, **{"json.return_value": {"status": "deleted"}})
+
+    resp = managed_warehouse.delete_org(org_id)
+
+    assert resp.status_code == 200
+    method, url = mock_internal.request.call_args.args
+    assert method == "DELETE"
+    assert url == f"http://duckgres.invalid/api/v1/orgs/{org_id}"

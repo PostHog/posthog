@@ -21,62 +21,73 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.utils import str_to_bool
 
-from products.data_warehouse.backend.direct_mysql import hide_direct_mysql_table
-from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table
-from products.data_warehouse.backend.logic.data_load.service import (
+from products.data_warehouse.backend.facade.api import (
     cancel_external_data_workflow,
+    create_and_register_webhook,
     external_data_workflow_exists,
+    get_or_create_webhook_hog_function,
+    get_postgres_source_location,
+    hide_direct_mysql_table,
+    hide_direct_postgres_table,
+    hide_direct_snowflake_table,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
     is_xmin_enabled_for_team,
     pause_external_data_schedule,
+    reconcile_webhook_events,
+    reproject_direct_mysql_table,
+    reproject_direct_postgres_table,
+    reproject_direct_snowflake_table,
     sync_cdc_extraction_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
-from products.data_warehouse.backend.logic.external_data_source.webhooks import (
-    create_and_register_webhook,
-    get_or_create_webhook_hog_function,
-    reconcile_webhook_events,
-)
-from products.data_warehouse.backend.mysql_helpers import reproject_direct_mysql_table
-from products.data_warehouse.backend.postgres_helpers import (
-    get_postgres_source_location,
-    reproject_direct_postgres_table,
-)
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import (
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataJob,
     ExternalDataSchema,
+    ExternalDataSource,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     update_sync_type_config_keys,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
+from products.warehouse_sources.backend.facade.source_management import (
+    RowFilterValidationError,
+    SourceRegistry,
+    WebhookSource,
+    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     source_type_supports_cdc,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
-    RowFilterValidationError,
-    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
 
 
 def source_supports_column_selection(source_type: str) -> bool:
+    """Column selection is available for every registered source: SQL sources project the
+    selection into their SELECT, everything else is projected generically just before the
+    Delta write. Unknown source types stay False so the UI fails closed.
+
+    Excludes managed-schema sources (Stripe, Paddle, Zendesk): their HogQL tables expose a
+    fixed canonical schema, so dropping a referenced column breaks the query."""
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        return False
+    return not source.has_managed_hogql_schema
+
+
+def source_supports_row_filters(source_type: str) -> bool:
     try:
         source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
     except Exception as e:
         capture_exception(e)
         return False
     # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
-    return bool(source.supports_column_selection)
+    return bool(source.supports_row_filters)
 
 
 _CDC_WRITE_TARGETS_BY_TABLE_MODE: dict[str, frozenset[str]] = {
@@ -177,14 +188,17 @@ class RowFiltersField(serializers.JSONField):
     """Typed JSON field for the list of `{column, operator, value}` row-filter predicates."""
 
 
-def unsupported_row_filter_reason(*, is_direct_postgres: bool, is_cdc: bool) -> str | None:
+def unsupported_row_filter_reason(*, is_direct_query: bool, is_cdc: bool) -> str | None:
     """Row filters are only enforced on snapshot-style syncs, which apply them as a `WHERE`
-    clause. Direct Postgres queries tables live and CDC streams WAL changes — both bypass that
+    clause. Direct-query sources read tables live and CDC streams WAL changes — both bypass that
     query, so a saved filter would silently leave excluded rows visible. Reject those up front.
+
+    This covers every direct engine (Postgres, MySQL, Snowflake): none of the live-query executors
+    apply the predicates, so accepting a filter would be a silent data-restriction bypass.
     """
-    if is_direct_postgres:
+    if is_direct_query:
         return (
-            "Row filters are not supported for direct Postgres sources — "
+            "Row filters are not supported for direct-query sources — "
             "tables are queried live and filters cannot be enforced at the source."
         )
     if is_cdc:
@@ -308,8 +322,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     )
     available_columns = serializers.SerializerMethodField(
         read_only=True,
-        help_text="Source-side column metadata (name, data type, nullable) discovered for this schema. "
-        "Empty until the source has been refreshed via `refresh_schemas`.",
+        help_text="Column metadata (name, data type, nullable) for this schema. For SQL sources this is the "
+        "source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back "
+        "to the synced table's columns. Empty only before the first successful sync/refresh.",
     )
     # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
     # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
@@ -378,17 +393,25 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def get_available_columns(self, schema: ExternalDataSchema) -> list[dict[str, Any]]:
         metadata = schema.schema_metadata or {}
         columns = metadata.get("columns") if isinstance(metadata, dict) else None
-        if not isinstance(columns, list):
-            return []
-        return [
-            {
-                "name": column.get("name"),
-                "data_type": column.get("data_type"),
-                "is_nullable": column.get("is_nullable"),
-            }
-            for column in columns
-            if isinstance(column, dict) and isinstance(column.get("name"), str)
-        ]
+        if isinstance(columns, list):
+            sql_columns = [
+                {
+                    "name": column.get("name"),
+                    "data_type": column.get("data_type"),
+                    "is_nullable": column.get("is_nullable"),
+                }
+                for column in columns
+                if isinstance(column, dict) and isinstance(column.get("name"), str)
+            ]
+            if sql_columns:
+                return sql_columns
+        # `schema_metadata` is only written on source creation and explicit schema reload
+        # (`refresh_schemas`) — never by background schema discovery or the data sync, and never for
+        # non-SQL sources. So it's empty for non-SQL sources and for SQL schemas discovered/added later
+        # or not yet reloaded. Fall back to the synced table's universal column store so the Descriptions
+        # UI can still list columns (and surface their existing annotations) and let users edit them.
+        table = schema.table
+        return table.get_user_facing_columns() if table is not None else []
 
     @extend_schema_field(
         {
@@ -398,6 +421,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 "id": {"type": "string"},
                 "source_type": {"type": "string"},
                 "supports_column_selection": {"type": "boolean"},
+                "supports_row_filters": {"type": "boolean"},
                 "user_access_level": {"type": "string", "nullable": True},
             },
         }
@@ -417,6 +441,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "id": str(source.id),
             "source_type": source.source_type,
             "supports_column_selection": source_supports_column_selection(source.source_type),
+            "supports_row_filters": source_supports_row_filters(source.source_type),
             "user_access_level": user_access_level,
         }
 
@@ -552,6 +577,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if "enabled_columns" in validated_data:
             enabled_columns = validated_data["enabled_columns"]
             if enabled_columns is not None:
+                # Managed-schema sources expose a fixed canonical HogQL schema; dropping a
+                # referenced column breaks the query, so column selection isn't offered for them.
+                if not source_supports_column_selection(instance.source.source_type):
+                    raise ValidationError("Column selection is not supported for this source type.")
                 if not isinstance(enabled_columns, list) or not all(isinstance(c, str) for c in enabled_columns):
                     raise ValidationError("enabled_columns must be a list of column-name strings or null.")
                 metadata = instance.schema_metadata or {}
@@ -571,12 +600,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
+            # Only sources that push filters into their query (SQL WHERE) can honor them — a
+            # saved-but-ignored filter would silently sync unfiltered rows.
+            if not source_supports_row_filters(instance.source.source_type):
+                raise ValidationError("Row filters are not supported for this source type.")
             incoming_sync_type = data.get("sync_type")
             target_is_cdc = (
                 incoming_sync_type == ExternalDataSchema.SyncType.CDC if "sync_type" in data else instance.is_cdc
             )
             if reason := unsupported_row_filter_reason(
-                is_direct_postgres=instance.source.is_direct_postgres, is_cdc=target_is_cdc
+                is_direct_query=instance.source.is_direct_query, is_cdc=target_is_cdc
             ):
                 raise ValidationError(reason)
             try:
@@ -689,9 +722,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                         or payload.get("incremental_field_last_value") is None
                     )
 
-            if "incremental_field" in data:
+            # Webhook schemas derive their incremental field from the source, so a null here is the
+            # client's "not applicable", not an intentional clear. Writing it would wipe the cursor
+            # config a previous append/incremental sync built up, turning the webhook initial sync
+            # into an unbounded full-history scan with no durable watermark progress.
+            is_webhook_target = resulting_sync_type == ExternalDataSchema.SyncType.WEBHOOK
+            if "incremental_field" in data and not (is_webhook_target and incremental_field is None):
                 payload["incremental_field"] = incremental_field
-            if "incremental_field_type" in data:
+            if "incremental_field_type" in data and not (
+                is_webhook_target and data.get("incremental_field_type") is None
+            ):
                 payload["incremental_field_type"] = data.get("incremental_field_type")
 
             # Lookback only applies to incremental — merge-by-PK makes re-reading the overlap window
@@ -856,9 +896,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             newly_exposed = should_sync is True and instance.should_sync is False
             projection_needs_refresh = enabled_columns_changed and instance.table is not None and instance.should_sync
             if newly_exposed or projection_needs_refresh:
-                reproject = (
-                    reproject_direct_postgres_table if source.is_direct_postgres else reproject_direct_mysql_table
-                )
+                if source.is_direct_postgres:
+                    reproject = reproject_direct_postgres_table
+                elif source.is_direct_snowflake:
+                    reproject = reproject_direct_snowflake_table
+                else:
+                    reproject = reproject_direct_mysql_table
                 validated_data["table"] = reproject(
                     instance,
                     source=source,
@@ -868,6 +911,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if should_sync is False and instance.should_sync is True:
                 if source.is_direct_postgres:
                     hide_direct_postgres_table(instance.table)
+                elif source.is_direct_snowflake:
+                    hide_direct_snowflake_table(instance.table)
                 else:
                     hide_direct_mysql_table(instance.table)
         elif enabled_columns_changed and instance.table is not None and instance.should_sync:
@@ -1325,6 +1370,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.source.is_direct_query:
             if instance.source.is_direct_postgres:
                 hide_direct_postgres_table(instance.table)
+            elif instance.source.is_direct_snowflake:
+                hide_direct_snowflake_table(instance.table)
             else:
                 hide_direct_mysql_table(instance.table)
             instance.should_sync = False

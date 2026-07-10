@@ -25,7 +25,7 @@ class PersonhogTestMixin:
 
     def setUp(self) -> None:
         super().setUp()  # type: ignore[misc]
-        from posthog.test.personhog_fake import get_active_fake
+        from posthog.personhog_client.fake_client import get_active_fake
 
         self._fake_client = get_active_fake()
 

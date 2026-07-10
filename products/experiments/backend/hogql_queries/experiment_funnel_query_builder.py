@@ -94,7 +94,6 @@ class FunnelQueryBuilder:
             inject_step_columns = False
             step_extracts = ", ".join(f"arrayElement(t.steps, {i + 1}) AS step_{i}" for i in range(num_steps))
             entity_id_cast = "toUUID(t.entity_id)" if self._b.entity_key == "person_id" else "t.entity_id"
-            session_id_col = "t.session_id AS session_id," if not self._b.funnel_steps_data_disabled else ""
 
             # Filter by experiment date range: jobs can cover broader time ranges
             # than the experiment for cache reusability, so we must filter on read.
@@ -112,7 +111,6 @@ class FunnelQueryBuilder:
                             {entity_id_cast} AS entity_id,
                             t.timestamp AS timestamp,
                             t.event_uuid AS uuid,
-                            {session_id_col}
                             {step_extracts}
                         FROM experiment_metric_events_preaggregated AS t
                         WHERE t.job_id IN {{metric_events_job_ids}}
@@ -131,20 +129,13 @@ class FunnelQueryBuilder:
                     )
             """
         else:
-            session_id_column = (
-                """
-                            properties.$session_id AS session_id,"""
-                if not self._b.funnel_steps_data_disabled
-                else ""
-            )
-
             metric_events_cte_str = f"""
                     metric_events AS (
                         SELECT
                             {{entity_key}} AS entity_id,
                             {{variant_property}} as variant,
                             timestamp,
-                            uuid,{session_id_column}
+                            uuid,
                             -- step_0, step_1, ... step_N columns added programmatically below
                         FROM events
                         WHERE ({{exposure_predicate}} OR {{funnel_steps_filter}})
@@ -172,25 +163,6 @@ class FunnelQueryBuilder:
         else:
             entity_id_join = "ON exposures.entity_id = metric_events.entity_id"
 
-        if self._b.funnel_steps_data_disabled:
-            # When steps data is disabled, we skip the expensive session/event maps and
-            # the per-exposure columns that are only needed for steps_event_data.
-            # The exposures CTE already deduplicates to one row per (entity_id, variant),
-            # so removing these from GROUP BY doesn't change results.
-            extra_select_columns = ""
-            extra_group_by_columns = ""
-        else:
-            extra_select_columns = """,
-                    exposures.exposure_event_uuid AS exposure_event_uuid,
-                    exposures.exposure_session_id AS exposure_session_id,
-                    exposures.first_exposure_time AS exposure_timestamp,
-                    {uuid_to_session_map} AS uuid_to_session,
-                    {uuid_to_timestamp_map} AS uuid_to_timestamp"""
-            extra_group_by_columns = """,
-                    exposures.exposure_event_uuid,
-                    exposures.exposure_session_id,
-                    exposures.first_exposure_time"""
-
         ctes_sql = f"""
             exposures AS (
                 {{exposure_select_query}}
@@ -202,7 +174,7 @@ class FunnelQueryBuilder:
                 SELECT
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
-                    {{funnel_aggregation}} AS value{extra_select_columns}
+                    {{funnel_aggregation}} AS value
                     -- covariate_value added programmatically below when CUPED is enabled
                 FROM exposures
                 LEFT JOIN metric_events
@@ -210,7 +182,7 @@ class FunnelQueryBuilder:
                     {temporal_filter}  -- Only for unordered: filters out events before exposure
                 GROUP BY
                     exposures.entity_id,
-                    exposures.variant{extra_group_by_columns}
+                    exposures.variant
             )
         """
 
@@ -245,10 +217,6 @@ class FunnelQueryBuilder:
             "date_from": self._b.date_range_query.date_from_as_hogql(),
             "date_to": self._b.date_range_query.date_to_as_hogql(),
         }
-        if not self._b.funnel_steps_data_disabled:
-            placeholders["uuid_to_session_map"] = self.build_uuid_to_session_map()
-            placeholders["uuid_to_timestamp_map"] = self.build_uuid_to_timestamp_map()
-
         if self._b.metric_events_preaggregation_job_ids:
             placeholders["metric_events_job_ids"] = ast.Constant(value=self._b.metric_events_preaggregation_job_ids)
             placeholders["metric_events_team_id"] = ast.Constant(value=self._b.team.id)
@@ -270,7 +238,6 @@ class FunnelQueryBuilder:
                 countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
                 -- CUPED aggregation columns added programmatically below
                 -- step_counts added programmatically below
-                -- steps_event_data added programmatically below
                 -- breakdown columns added programmatically below
             FROM entity_metrics
             WHERE notEmpty(variant)
@@ -317,27 +284,6 @@ class FunnelQueryBuilder:
 
         query.select.append(parse_expr(step_counts_expr))
 
-        # For each step in the funnel, get at least 100 tuples of person_id, session_id, event uuid, and timestamp, that have
-        # that step as their last step in the funnel.
-        # For the users that have 0 matching steps in the funnel (-1), we return the event data for the exposure event.
-        # This is skipped when funnel_steps_data_disabled is set, as it's expensive for high-traffic experiments.
-        if not self._b.funnel_steps_data_disabled:
-            event_uuids_exprs = []
-            for i in range(1, num_steps + 1):
-                event_uuids_expr = f"""
-                    groupArraySampleIf(100)(
-                        if(
-                            entity_metrics.value.2 != '',
-                            tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2, toString(uuid_to_timestamp[entity_metrics.value.2])),
-                            tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))
-                        ),
-                        entity_metrics.value.1 = {i} - 1
-                    )
-                """
-                event_uuids_exprs.append(event_uuids_expr)
-            event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as steps_event_data"
-            query.select.append(parse_expr(event_uuids_exprs_sql))
-
         return query
 
     def build_funnel_query_optimized(self) -> ast.SelectQuery:
@@ -356,13 +302,6 @@ class FunnelQueryBuilder:
 
         num_steps = len(self._b.metric.series) + 1  # +1 as we are including exposure criteria
 
-        session_id_column = (
-            """
-                        properties.$session_id AS session_id,"""
-            if not self._b.funnel_steps_data_disabled
-            else ""
-        )
-
         # CTE 1: base_events - single scan of events table
         # WHERE admits both exposure and conversion events. Exclusion filters are
         # embedded in step_0 only, not the WHERE clause, so conversion events from
@@ -373,7 +312,7 @@ class FunnelQueryBuilder:
                         {{entity_key}} AS entity_id,
                         {{variant_property}} AS variant_value,
                         timestamp,
-                        uuid,{session_id_column}
+                        uuid,
                         -- step_0, step_1, ... step_N columns added programmatically below
                     FROM events
                     WHERE ({{exposure_predicate}} OR {{funnel_steps_filter}})
@@ -383,16 +322,6 @@ class FunnelQueryBuilder:
         is_unordered_funnel = self._b.metric.funnel_order_type == StepOrderValue.UNORDERED
 
         # CTE 2: entity_metrics - GROUP BY entity_id, no JOIN
-        if self._b.funnel_steps_data_disabled:
-            extra_select_columns = ""
-        else:
-            extra_select_columns = """,
-                    argMinIf(uuid, timestamp, step_0 = 1) AS exposure_event_uuid,
-                    argMinIf(session_id, timestamp, step_0 = 1) AS exposure_session_id,
-                    minIf(timestamp, step_0 = 1) AS exposure_timestamp,
-                    {uuid_to_session_map} AS uuid_to_session,
-                    {uuid_to_timestamp_map} AS uuid_to_timestamp"""
-
         first_exposures_cte_str, temporal_join, having_clause = self.build_funnel_optimized_temporal_setup(
             is_unordered_funnel
         )
@@ -404,7 +333,7 @@ class FunnelQueryBuilder:
                 SELECT
                     base_events.entity_id AS entity_id,
                     {{variant_expr}} AS variant,
-                    {{funnel_aggregation}} AS value{extra_select_columns}
+                    {{funnel_aggregation}} AS value
                     -- covariate_value added programmatically below when CUPED is enabled
                 FROM base_events
                 {temporal_join}
@@ -421,9 +350,6 @@ class FunnelQueryBuilder:
             "funnel_aggregation": self.build_funnel_aggregation_expr_optimized(),
             "num_steps_minus_1": ast.Constant(value=num_steps - 1),
         }
-        if not self._b.funnel_steps_data_disabled:
-            placeholders["uuid_to_session_map"] = self.build_uuid_to_session_map_optimized()
-            placeholders["uuid_to_timestamp_map"] = self.build_uuid_to_timestamp_map_optimized()
 
         query = parse_select(
             f"""
@@ -440,7 +366,6 @@ class FunnelQueryBuilder:
                 countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
                 -- CUPED aggregation columns added programmatically below
                 -- step_counts added programmatically below
-                -- steps_event_data added programmatically below
                 -- breakdown columns added programmatically below
             FROM entity_metrics
             WHERE notEmpty(variant)
@@ -492,24 +417,6 @@ class FunnelQueryBuilder:
         step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
 
         query.select.append(parse_expr(step_counts_expr))
-
-        # For each step in the funnel, get sample tuples of person_id, session_id, event uuid, and timestamp
-        if not self._b.funnel_steps_data_disabled:
-            event_uuids_exprs = []
-            for i in range(1, num_steps + 1):
-                event_uuids_expr = f"""
-                    groupArraySampleIf(100)(
-                        if(
-                            entity_metrics.value.2 != '',
-                            tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2, toString(uuid_to_timestamp[entity_metrics.value.2])),
-                            tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))
-                        ),
-                        entity_metrics.value.1 = {i} - 1
-                    )
-                """
-                event_uuids_exprs.append(event_uuids_expr)
-            event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as steps_event_data"
-            query.select.append(parse_expr(event_uuids_exprs_sql))
 
         return query
 
@@ -708,22 +615,6 @@ class FunnelQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentFunnelMetric)
         return funnel_evaluation_expr(self._b.team, self._b.metric, events_alias="metric_events", include_exposure=True)
-
-    def build_uuid_to_session_map(self) -> ast.Expr:
-        """
-        Creates a map from event UUID to session ID for funnel metrics.
-        """
-        return parse_expr(
-            "mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), '')))"
-        )
-
-    def build_uuid_to_timestamp_map(self) -> ast.Expr:
-        """
-        Creates a map from event UUID to timestamp for funnel metrics.
-        """
-        return parse_expr(
-            "mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0))))"
-        )
 
     def has_datawarehouse_steps(self) -> bool:
         """
@@ -1042,22 +933,6 @@ class FunnelQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentFunnelMetric)
         return funnel_evaluation_expr(self._b.team, self._b.metric, events_alias="base_events", include_exposure=True)
-
-    def build_uuid_to_session_map_optimized(self) -> ast.Expr:
-        """
-        UUID-to-session map for the optimized path. References base_events columns.
-        """
-        return parse_expr(
-            "mapFromArrays(groupArray(coalesce(toString(uuid), '')), groupArray(coalesce(toString(session_id), '')))"
-        )
-
-    def build_uuid_to_timestamp_map_optimized(self) -> ast.Expr:
-        """
-        UUID-to-timestamp map for the optimized path. References base_events columns.
-        """
-        return parse_expr(
-            "mapFromArrays(groupArray(coalesce(toString(uuid), '')), groupArray(coalesce(timestamp, toDateTime(0))))"
-        )
 
     def build_maturity_having_clause_optimized(self) -> Optional[ast.Expr]:
         """

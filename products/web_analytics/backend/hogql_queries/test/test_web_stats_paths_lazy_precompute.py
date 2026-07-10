@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 
 import unittest
 from freezegun import freeze_time
@@ -28,6 +29,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
@@ -141,6 +143,42 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     def _run(self, query: WebStatsTableQuery):
         return WebStatsTableQueryRunner(team=self.team, query=query).calculate()
+
+    def test_failed_lazy_read_clears_stale_tag(self):
+        from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags, tag_queries
+
+        from products.web_analytics.backend.hogql_queries import stats_table as stats_table_mod
+
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+        reset_query_tags()
+
+        def tag_then_fail(*args, **kwargs):
+            tag_queries(precompute_stale=True)
+            return None
+
+        try:
+            with (
+                patch.object(stats_table_mod, "can_use_paths_lazy_precompute", return_value=True),
+                patch.object(stats_table_mod, "execute_paths_lazy_precomputed_read", side_effect=tag_then_fail),
+            ):
+                assert runner._maybe_calculate_via_lazy_precompute() is None
+            assert get_query_tag_value("precompute_stale") is None, (
+                "a failed lazy read must not leave the stale tag to mislabel the fallback"
+            )
+        finally:
+            reset_query_tags()
+
+    @parameterized.expand([("stale_tagged", True, True), ("fresh", False, None)])
+    def test_lazy_response_stamps_precompute_stale(self, _name, tag_set, expected):
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+        reset_query_tags()
+        try:
+            if tag_set:
+                tag_queries(precompute_stale=True)
+            response = runner._build_response_from_lazy_rows([], limit=10, offset=0)
+        finally:
+            reset_query_tags()
+        assert response.preComputeStale is expected
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_unfiltered_round_trip_creates_precompute_job(self):
@@ -462,6 +500,47 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             "capped insert top-level columns must all be aliased for _build_manual_insert_sql"
         )
 
+    def test_capped_insert_caps_per_day_not_per_window(self):
+        # The cap must be computed PER DAY, not over the whole job window. The read path
+        # decomposes a request into daily windows and can serve one of them from a wider
+        # covering job (`filter_overlapping_jobs`), so a path in a single day's top-K must
+        # be stored even if it falls outside the job window's overall top-K — a per-window
+        # cap silently drops it. Guards against a revert to per-window capping.
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+        placeholders: dict = {
+            "events_session_id": _events_session_id_expr(runner),
+            "breakdown_value_expr": _breakdown_value_expr(runner),
+            "entry_breakdown_value_expr": _entry_breakdown_value_expr(runner),
+            "event_type_filter": runner.event_type_expr,
+            "user_filter": host_filter_expr(runner.query.properties or [], team=runner.team),
+            "test_account_filter": _test_account_filter_expr(
+                test_account_filters=runner._test_account_filters, team=runner.team
+            ),
+            "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+            "top_k_metric": _top_k_ranking_expr(runner),
+            "time_window_min": ast.Constant(value="__MIN__"),
+            "time_window_max": ast.Constant(value="__MAX__"),
+        }
+        parsed = parse_select(INSERT_QUERY_TEMPLATE_CAPPED, placeholders=placeholders)
+
+        rank_windows: list[ast.WindowExpr] = []
+
+        def walk(node: object) -> None:
+            if isinstance(node, ast.WindowFunction) and node.name == "dense_rank" and node.over_expr:
+                rank_windows.append(node.over_expr)
+            if dataclasses.is_dataclass(node) and not isinstance(node, type):
+                for field in dataclasses.fields(node):
+                    walk(getattr(node, field.name, None))
+            elif isinstance(node, list | tuple):
+                for item in node:
+                    walk(item)
+
+        walk(parsed)
+        assert rank_windows, "capped insert must rank breakdowns with a windowed dense_rank()"
+        assert all(w.partition_by and "day_bucket" in str(w.partition_by) for w in rank_windows), (
+            f"the top-K rank must partition by the day bucket, got: {[w.partition_by for w in rank_windows]}"
+        )
+
     @freeze_time("2024-01-15T12:00:00Z")
     def test_uuid_session_mode_falls_through(self):
         query = self._build_query()
@@ -724,63 +803,145 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(self._build_query(opt_in_precompute=False))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @parameterized.expand([("allowlisted", True), ("not_allowlisted", False)])
+    @parameterized.expand(
+        [
+            ("user_request", None),
+            ("eager_warmer", "webAnalyticsEagerBaselineWarming"),
+            ("replay_warmer", "webAnalyticsQueryWarming"),
+            # The SWR revalidation task's re-run must count as background too, or it
+            # would be served stale itself and never refresh anything.
+            ("stale_revalidation", "webAnalyticsStaleRevalidation"),
+        ]
+    )
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_pathkey_mirror_runs_only_for_allowlisted_teams(self, _name: str, allowlisted: bool) -> None:
-        import products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute as mod
+    def test_ensure_wait_budget_by_trigger(self, _name: str, trigger: str | None) -> None:
+        from datetime import UTC, datetime
 
-        job_id = uuid.uuid4()
-        mirror_team_ids = [self.team.pk] if allowlisted else []
+        from posthog.clickhouse.query_tagging import reset_query_tags, tags_context
+
+        from products.web_analytics.backend.hogql_queries import web_stats_paths_lazy_precompute as mod
+
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+        reset_query_tags()
+        with patch.object(
+            mod, "web_ensure_precomputed", return_value=LazyComputationResult(ready=True, job_ids=[])
+        ) as ensure_mock:
+            if trigger is not None:
+                with tags_context(trigger=trigger):
+                    mod.ensure_web_stats_paths_precomputed(
+                        runner, datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC)
+                    )
+            else:
+                mod.ensure_web_stats_paths_precomputed(
+                    runner, datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC)
+                )
+
+        # The stale-while-revalidate grace is applied centrally by web_ensure_precomputed
+        # (see test_web_lazy_precompute_common), so only the wait budget is paths policy.
+        budget = ensure_mock.call_args.kwargs["wait_timeout_seconds"]
+        if trigger is None:
+            assert budget == mod.PATHS_USER_ENSURE_WAIT_SECONDS
+        else:
+            assert budget is None, f"background trigger {trigger} must keep the framework default budget"
+
+    @parameterized.expand(
+        [
+            # First ensure burned 9.5s of the 10s budget: the compare ensure must be
+            # skipped entirely (fallback to raw) instead of getting a fresh budget.
+            ("budget_spent_skips_compare", 9.5, None),
+            # First ensure took 2s: the compare ensure runs with the 8s remainder,
+            # not a fresh PATHS_USER_ENSURE_WAIT_SECONDS.
+            ("remainder_passed_to_compare", 2.0, 8.0),
+        ]
+    )
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_user_ensure_budget_is_shared_across_compare_periods(
+        self, _name: str, first_ensure_seconds: float, expected_compare_budget: float | None
+    ) -> None:
+
+        from posthog.clickhouse.query_tagging import reset_query_tags
+
+        from products.web_analytics.backend.hogql_queries import web_stats_paths_lazy_precompute as mod
+
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(compare=True))
+        reset_query_tags()
+
+        # perf_counter sequence: overall_started, ensure_started, after first ensure;
+        # everything after sticks to the last value so later timing reads are stable.
+        ticks = [0.0, 0.0, first_ensure_seconds]
+
+        def fake_perf_counter() -> float:
+            return ticks.pop(0) if len(ticks) > 1 else ticks[0]
+
         with (
-            self._enable_lazy(),
-            override_settings(WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS=mirror_team_ids),
             patch.object(
                 mod,
                 "ensure_web_stats_paths_precomputed",
-                return_value=LazyComputationResult(ready=True, job_ids=[job_id]),
-            ),
+                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()]),
+            ) as ensure_mock,
             patch.object(mod, "execute_read_query", return_value=[]),
-            patch.object(mod, "mirror_jobs_to_pathkey") as mock_mirror,
+            patch.object(mod.time, "perf_counter", side_effect=fake_perf_counter),
         ):
-            runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
-            mod.execute_lazy_precomputed_read(runner, sort_column="visitors", sort_direction="DESC", limit=11, offset=0)
+            result = mod.execute_lazy_precomputed_read(
+                runner, sort_column="visitors", sort_direction="DESC", limit=11, offset=0
+            )
 
-        if allowlisted:
-            mock_mirror.assert_called_once_with(team_id=self.team.pk, job_ids=[str(job_id)])
+        if expected_compare_budget is None:
+            assert result is None, "spent budget must skip the compare ensure and fall back to raw"
+            assert ensure_mock.call_count == 1
         else:
-            mock_mirror.assert_not_called()
+            assert ensure_mock.call_count == 2
+            assert ensure_mock.call_args_list[1].kwargs["wait_budget_seconds"] == expected_compare_budget
 
-    def test_mirror_jobs_to_pathkey_copies_rows_between_tables(self) -> None:
-        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
+    @parameterized.expand([("no_compare", False), ("compare", True)])
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_read_scan_is_pruned_to_requested_windows(self, _name: str, compare: bool) -> None:
+        from datetime import UTC, datetime
 
-        job_id = uuid.uuid4()
-        with patch(
-            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute"
-        ) as mock_exec:
-            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[str(job_id)])
+        from products.web_analytics.backend.hogql_queries import web_stats_paths_lazy_precompute as mod
 
-        mock_exec.assert_called_once()
-        sql, params = mock_exec.call_args.args
-        assert "INSERT INTO web_stats_paths_preaggregated_pathkey" in sql
-        assert "FROM web_stats_paths_preaggregated" in sql
-        assert params["team_id"] == self.team.pk
-        assert params["job_ids"] == [job_id]  # coerced from str back to UUID
+        cur_start = datetime(2024, 1, 8, tzinfo=UTC)
+        cur_end = datetime(2024, 1, 15, tzinfo=UTC)
+        prev_start = datetime(2024, 1, 1, tzinfo=UTC) if compare else None
+        prev_end = datetime(2024, 1, 8, tzinfo=UTC) if compare else None
 
-    def test_mirror_jobs_to_pathkey_swallows_errors(self) -> None:
-        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(compare=compare))
+        captured: dict = {}
 
-        with patch(
-            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute",
-            side_effect=ValueError("boom"),
-        ):
-            # Must not raise — a failed mirror cannot affect the primary read.
-            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[str(uuid.uuid4())])
+        def fake_execute(**kwargs):
+            captured["query"] = kwargs["query"]
+            return type("FakeResponse", (), {"results": []})()
 
-    def test_mirror_jobs_to_pathkey_noop_on_empty(self) -> None:
-        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
+        with patch.object(mod, "execute_hogql_query", side_effect=fake_execute):
+            mod.execute_read_query(
+                runner=runner,
+                job_ids=[str(uuid.uuid4())],
+                current_start_utc=cur_start,
+                current_end_utc=cur_end,
+                previous_start_utc=prev_start,
+                previous_end_utc=prev_end,
+                sort_column="visitors",
+                sort_direction="DESC",
+                limit=11,
+                offset=0,
+            )
 
-        with patch(
-            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute"
-        ) as mock_exec:
-            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[])
-        mock_exec.assert_not_called()
+        inner = captured["query"].select_from.table
+        assert isinstance(inner, ast.SelectQuery)
+        bounds: dict[str, object] = {}
+        assert inner.where is not None
+        for expr in inner.where.args if isinstance(inner.where, ast.Call) else [inner.where]:
+            if (
+                isinstance(expr, ast.CompareOperation)
+                and isinstance(expr.left, ast.Field)
+                and expr.left.chain == ["time_window_start"]
+                and isinstance(expr.right, ast.Constant)
+            ):
+                key = "min" if expr.op == ast.CompareOperationOp.GtEq else "max"
+                bounds[key] = expr.right.value
+
+        # The scan lower bound must be the union of the requested windows — with a compare
+        # period that is prev_start; without one it must stay cur_start (NOT the 1970
+        # no-compare sentinel, which would defeat the pruning entirely).
+        expected_min = prev_start if compare else cur_start
+        assert bounds == {"min": expected_min, "max": cur_end}

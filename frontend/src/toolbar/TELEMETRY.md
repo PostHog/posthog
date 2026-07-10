@@ -149,6 +149,54 @@ Fired when a toolbar mode is toggled on or off.
 `actions/actionsTabLogic.tsx`, `experiments/experimentsTabLogic.tsx`,
 `product-tours/productToursLogic.ts`
 
+## Heatmaps / clickmaps
+
+### `toolbar clickmap processed`
+
+Fired when a clickmap matching run ends, including runs cancelled because a newer run superseded them (see `completed`).
+A user paginating emits one event per page with cumulative `event_count` — group by `trigger` when aggregating.
+
+| Property                 | Type      | Description                                                                                                      |
+| ------------------------ | --------- | ---------------------------------------------------------------------------------------------------------------- |
+| `event_count`            | `number`  | Element stats rows processed                                                                                     |
+| `matched_element_count`  | `number`  | Rows matched to a visible DOM element                                                                            |
+| `index_matched_count`    | `number`  | Rows matched via the DOM index fast path (before visibility trimming)                                            |
+| `fallback_matched_count` | `number`  | Rows matched via the selector fallback (before visibility trimming); rising values signal index drift            |
+| `match_cache_hit_count`  | `number`  | Rows resolved from the per-row match cache (keyed on the server's chain hash) instead of re-matching             |
+| `page_element_count`     | `number`  | Elements collected from the page for matching                                                                    |
+| `has_shadow_roots`       | `boolean` | Whether open shadow roots were detected; selects which fallback implementation runs, not whether a fallback runs |
+| `duration_ms`            | `number`  | Wall-clock processing time, including main-thread yields; DOM index build time is included only on a cold cache  |
+| `trigger`                | `string`  | What started the run: `initial`, `auto-load` (the background full fetch), `pagination`, `refresh`, or `toggle`   |
+| `cache_hit`              | `boolean` | Whether the page-elements cache was warm (no collect + index rebuild)                                            |
+| `completed`              | `boolean` | False when the run did not finish — superseded by a newer run, or failed mid-processing                          |
+
+**File:** `elements/heatmapToolbarMenuLogic.ts`
+
+### `toolbar heatmap area selection started`
+
+Fired when the user starts picking an area to filter the heatmap/clickmap to (the target icon in the heatmap menu).
+
+| Property          | Type      | Description                                                                                        |
+| ----------------- | --------- | -------------------------------------------------------------------------------------------------- |
+| `candidate_count` | `number`  | Area candidates rendered as hover targets                                                          |
+| `capped`          | `boolean` | Whether the candidate list hit its rendering cap (candidates beyond the cap, if any, were dropped) |
+
+**File:** `elements/heatmapToolbarMenuLogic.ts`
+
+### `toolbar heatmap area filter changed`
+
+Fired when the heatmap area filter is applied, changed, or cleared.
+
+| Property        | Type                       | Description                                                                                                       |
+| --------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `enabled`       | `boolean`                  | Whether a filter is now applied (`false` = cleared)                                                               |
+| `has_selector`  | `boolean`                  | Whether a stable CSS selector was derived for the area (without one, only pixel bounds filtering runs)            |
+| `tag_name`      | `string \| null`           | Lowercase tag name of the selected area element                                                                   |
+| `trigger`       | `'user' \| 'element_lost'` | `user` = picked or cleared in the UI; `element_lost` = the tracked node left the DOM and could not be re-resolved |
+| `arrow_stepped` | `boolean \| undefined`     | Only on `trigger: 'user'`: whether arrow keys refined the selection before it was applied                         |
+
+**File:** `elements/heatmapToolbarMenuLogic.ts`
+
 ## Element inspection
 
 ### `toolbar selected HTML element`

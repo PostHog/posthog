@@ -1,15 +1,18 @@
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 
 from posthog.test.base import _create_event, _create_person
 from unittest.mock import MagicMock, patch
 
+from django.forms.models import model_to_dict
 from django.test import override_settings
 
 from parameterized import parameterized
 
 from posthog.schema import (
     EventsNode,
+    ExperimentExposureQuery,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
@@ -18,8 +21,9 @@ from posthog.schema import (
     IntervalType,
 )
 
-from posthog.hogql.constants import get_default_hogql_global_settings
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, get_default_hogql_global_settings
 
+from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -27,12 +31,17 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     _get_insert_settings,
     ensure_precomputed,
 )
-from products.experiments.backend.hogql_queries.base_query_utils import get_experiment_date_range
+from products.analytics_platform.backend.models import PreaggregationJob
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window
+from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
 )
-from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.experiment_query_runner import (
+    PRECOMPUTE_MAX_WINDOW_DAYS,
+    ExperimentQueryRunner,
+)
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
@@ -61,7 +70,8 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
             experiment.exposure_criteria
         )
-        date_range = get_experiment_date_range(experiment, self.team, None)
+        as_of = experiment.end_date or datetime.now(UTC)
+        date_range = experiment_window(experiment, self.team, as_of)
         return ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=feature_flag.key,
@@ -70,7 +80,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             multiple_variant_handling=multiple_variant_handling,
             variants=[v["key"] for v in feature_flag.variants],
             date_range_query=QueryDateRange(
-                date_range=date_range, team=self.team, interval=IntervalType.DAY, now=datetime.now()
+                date_range=date_range, team=self.team, interval=IntervalType.DAY, now=as_of
             ),
             entity_key=get_entity_key(feature_flag.filters.get("aggregation_group_type_index")),
             metric=metric,
@@ -167,6 +177,111 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert direct_result.baseline.number_of_samples == 5
         assert direct_result.variant_results is not None
         assert direct_result.variant_results[0].number_of_samples == 7
+
+    def test_frozen_band_jobs_capped_at_max_window_days(self):
+        feature_flag = self.create_feature_flag(key="window-cap-test")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 31),
+        )
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        for variant in ("control", "test"):
+            _create_person(distinct_ids=[f"cap_user_{variant}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"cap_user_{variant}", feature_flag, variant, datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+            )
+
+        self._enable_precomputation()
+        response = self._run_experiment(experiment, metric)
+        assert response.baseline is not None
+
+        jobs = list(PreaggregationJob.objects.filter(team=self.team, status=PreaggregationJob.Status.READY))
+        assert len(jobs) > 1
+        widths = [(job.time_range_end - job.time_range_start).days for job in jobs]
+        assert max(widths) <= PRECOMPUTE_MAX_WINDOW_DAYS
+        assert min(job.time_range_start for job in jobs) == datetime(2024, 1, 1, tzinfo=UTC)
+        assert max(job.time_range_end for job in jobs) >= datetime(2024, 1, 31, tzinfo=UTC)
+
+    def _spy_insert_settings_by_table(self, run: Callable[[], Any]) -> dict[str, list[dict]]:
+        """Run `run` with the executor's sync_execute spied, returning INSERT settings keyed by target table."""
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+            side_effect=sync_execute,
+        ) as spy_execute:
+            run()
+        by_table: dict[str, list[dict]] = {}
+        for call in spy_execute.call_args_list:
+            sql = str(call.args[0]).lstrip()
+            if not sql.startswith("INSERT"):
+                continue
+            table = sql.removeprefix("INSERT INTO ").split(" ")[0]
+            by_table.setdefault(table, []).append(call.kwargs["settings"])
+        return by_table
+
+    def test_precompute_inserts_spill_group_by_to_disk(self):
+        # Covers all three ensure_precomputed call sites: the metric runner's exposures and
+        # metric_events builds (funnel metric), and the exposures timeline runner's build
+        # (separate experiment, so it can't reuse the first runner's cached jobs).
+        feature_flag = self.create_feature_flag(key="spill-test")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 3),
+        )
+        metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        timeline_flag = self.create_feature_flag(key="spill-timeline-test")
+        timeline_experiment = self.create_experiment(
+            feature_flag=timeline_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 3),
+        )
+
+        for flag, user in ((feature_flag, "spill_user"), (timeline_flag, "spill_timeline_user")):
+            _create_person(distinct_ids=[user], team_id=self.team.pk)
+            self._create_exposure_event(user, flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC))
+
+        self._enable_precomputation()
+
+        metric_run_settings = self._spy_insert_settings_by_table(lambda: self._run_experiment(experiment, metric))
+
+        def run_timeline() -> None:
+            query = ExperimentExposureQuery(
+                kind="ExperimentExposureQuery",
+                experiment_id=timeline_experiment.id,
+                experiment_name=timeline_experiment.name,
+                feature_flag=model_to_dict(timeline_flag),
+                holdout=None,
+                start_date=timeline_experiment.start_date.isoformat(),
+                end_date=timeline_experiment.end_date.isoformat(),
+                exposure_criteria=timeline_experiment.exposure_criteria,
+            )
+            ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        timeline_run_settings = self._spy_insert_settings_by_table(run_timeline)
+
+        # One insert batch per call site: exposures + metric_events from the metric runner,
+        # exposures from the timeline runner.
+        assert set(metric_run_settings) == {
+            "experiment_exposures_preaggregated",
+            "experiment_metric_events_preaggregated",
+        }
+        assert set(timeline_run_settings) == {"experiment_exposures_preaggregated"}
+        for settings_by_table in (metric_run_settings, timeline_run_settings):
+            for settings_list in settings_by_table.values():
+                assert all(
+                    settings["max_bytes_before_external_group_by"] == MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
+                    for settings in settings_list
+                )
 
     def test_lazy_computed_results_match_direct_scan_multiple_jobs(self):
         feature_flag = self.create_feature_flag(key="multi-job-test")

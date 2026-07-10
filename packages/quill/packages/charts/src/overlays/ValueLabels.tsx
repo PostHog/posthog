@@ -19,6 +19,8 @@ export interface ValueLabelContext {
     /** Finite values of every series contributing to this band's stack (non-excluded, not a fill
      *  lower-bound, not an overlay) at this dataIndex — the denominator set for share math. */
     bandValues: number[]
+    /** Same as `bandValues` for the preceding dataIndex; empty at the first index. */
+    previousBandValues: number[]
     /** True in normalized/percent layout, where `value` is already a fraction. */
     isPercent: boolean
 }
@@ -186,6 +188,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
         const text = valueFormatter(total, -1, dIdx, {
             rawValue: total,
             bandValues: bandValuesAt(visible, dIdx),
+            previousBandValues: dIdx > 0 ? bandValuesAt(visible, dIdx - 1) : [],
             isPercent,
         })
         if (text === '') {
@@ -262,6 +265,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             const text = valueFormatter(displayValue, sIdx, dIdx, {
                 rawValue,
                 bandValues: bandValuesByIndex[dIdx],
+                previousBandValues: dIdx > 0 ? bandValuesByIndex[dIdx - 1] : [],
                 isPercent,
             })
             if (text === '') {

@@ -4,12 +4,13 @@ Two-tier config system:
 - **Dev mode** (USE_LOCAL_SETUP=True): every helper returns hardcoded localhost
   defaults from the DEFAULTS / DUCKGRES_DEFAULTS dicts, optionally overridden
   by environment variables. No database rows need to exist.
-- **Production**: per-team config is read from the DuckLakeCatalog and
-  DuckgresServer models. The get_*_for_team() lookups return None only when
-  the row is genuinely missing; callers should treat that as an error or
-  provision the row via admin.
+- **Production**: per-org config is read from the DuckgresServer model (which holds
+  both the duckgres query-server connection and the separate DuckLake catalog
+  connection). The get_*_for_organization() lookups return None only when the row is
+  genuinely missing; callers should treat that as an error or provision the row via
+  admin.
 
-The `get_team_config()` and `get_duckgres_config()` entry-points encapsulate
+The `get_org_config()` and `get_duckgres_config_for_org()` entry-points encapsulate
 this branching so callers don't need to check the mode themselves.
 """
 
@@ -26,7 +27,7 @@ import psycopg
 from psycopg import sql
 
 if TYPE_CHECKING:
-    from posthog.ducklake.models import DuckgresServer, DuckLakeCatalog
+    from posthog.ducklake.models import DuckgresServer
 
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
@@ -38,6 +39,30 @@ DATA_MODELING_DUCKGRES_SHADOW_SCHEMA_PREFIX = "shadow"
 
 logger = logging.getLogger(__name__)
 
+# Managed-warehouse buckets live in the deployment's home region: us-east-1 for
+# PostHog Cloud US, eu-central-1 for PostHog Cloud EU.
+_BUCKET_REGION_BY_CLOUD_DEPLOYMENT: dict[str, str] = {
+    "US": "us-east-1",
+    "EU": "eu-central-1",
+}
+
+
+def default_bucket_region() -> str:
+    """Deployment-default S3 region for managed-warehouse buckets.
+
+    Prefers the CLOUD_DEPLOYMENT Django setting, falling back to the same-named
+    environment variable so CLI tools work without Django configured. us-east-1
+    remains the default for US, dev, and self-hosted setups.
+    """
+    try:
+        from django.conf import settings
+
+        deployment = getattr(settings, "CLOUD_DEPLOYMENT", None)
+    except Exception:
+        deployment = os.environ.get("CLOUD_DEPLOYMENT")
+    return _BUCKET_REGION_BY_CLOUD_DEPLOYMENT.get((deployment or "").upper(), "us-east-1")
+
+
 DEFAULTS: dict[str, str] = {
     "DUCKLAKE_RDS_HOST": "localhost",
     "DUCKLAKE_RDS_PORT": "5432",
@@ -45,7 +70,9 @@ DEFAULTS: dict[str, str] = {
     "DUCKLAKE_RDS_USERNAME": "posthog",
     "DUCKLAKE_RDS_PASSWORD": "posthog",
     "DUCKLAKE_BUCKET": "ducklake-dev",
-    "DUCKLAKE_BUCKET_REGION": "us-east-1",
+    # Frozen at import time: depends on the CLOUD_DEPLOYMENT env var being set before
+    # process start (override_settings cannot affect it).
+    "DUCKLAKE_BUCKET_REGION": default_bucket_region(),
     # Optional: S3 credentials for local dev (production uses IRSA)
     "DUCKLAKE_S3_ACCESS_KEY": "",
     "DUCKLAKE_S3_SECRET_KEY": "",
@@ -64,35 +91,21 @@ def get_config() -> dict[str, str]:
     return _get_config_from_env_strict()
 
 
-def _catalog_to_config(catalog: DuckLakeCatalog) -> dict[str, str]:
-    config = catalog.to_public_config()
-    config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
+def _server_to_catalog_config(server: DuckgresServer) -> dict[str, str]:
+    config = server.to_catalog_public_config()
+    config["DUCKLAKE_RDS_PASSWORD"] = server.catalog_password or ""
     return config
 
 
 def get_org_config(organization_id: str) -> dict[str, str]:
-    """Get DuckLake configuration for an organization from DuckLakeCatalog."""
+    """Get DuckLake catalog configuration for an organization from DuckgresServer."""
     if is_dev_mode():
         return get_config()
 
-    catalog = get_ducklake_catalog_for_organization(organization_id)
-    if catalog is not None:
-        return _catalog_to_config(catalog)
-    raise ValueError(f"No DuckLakeCatalog configured for organization {organization_id}")
-
-
-def get_team_config(team_id: int) -> dict[str, str]:
-    """Get DuckLake configuration for a specific team from DuckLakeCatalog.
-
-    Deprecated: use get_org_config() instead.
-    """
-    if is_dev_mode():
-        return get_config()
-
-    catalog = get_ducklake_catalog_for_team(team_id)
-    if catalog is not None:
-        return _catalog_to_config(catalog)
-    raise ValueError(f"No DuckLakeCatalog configured for team {team_id}")
+    server = get_duckgres_server_for_organization(organization_id)
+    if server is not None:
+        return _server_to_catalog_config(server)
+    raise ValueError(f"No DuckgresServer configured for organization {organization_id}")
 
 
 def is_dev_mode() -> bool:
@@ -130,17 +143,6 @@ def _get_org_id_for_team(team_id: int) -> str:
     return str(team.organization_id)
 
 
-def get_ducklake_catalog_by_team_org(team_id: int) -> DuckLakeCatalog | None:
-    """Look up DuckLakeCatalog via team_id → organization_id.
-
-    Convenience wrapper for callers that have team_id but catalog is org-scoped.
-    """
-    if is_dev_mode():
-        return None
-    org_id = _get_org_id_for_team(team_id)
-    return get_ducklake_catalog_for_organization(org_id)
-
-
 def get_duckgres_server_by_team_org(team_id: int) -> DuckgresServer | None:
     """Look up DuckgresServer via team_id → organization_id.
 
@@ -150,35 +152,6 @@ def get_duckgres_server_by_team_org(team_id: int) -> DuckgresServer | None:
         return None
     org_id = _get_org_id_for_team(team_id)
     return get_duckgres_server_for_organization(org_id)
-
-
-def get_ducklake_catalog_for_organization(organization_id: str) -> DuckLakeCatalog | None:
-    """Look up DuckLakeCatalog for an organization."""
-    if is_dev_mode():
-        return None
-
-    from posthog.ducklake.models import DuckLakeCatalog
-
-    try:
-        return DuckLakeCatalog.objects.get(organization_id=organization_id)
-    except DuckLakeCatalog.DoesNotExist:
-        return None
-
-
-def get_ducklake_catalog_for_team(team_id: int) -> DuckLakeCatalog | None:
-    """Look up DuckLakeCatalog for a team.
-
-    Deprecated: use get_ducklake_catalog_for_organization() instead.
-    """
-    if is_dev_mode():
-        return None
-
-    from posthog.ducklake.models import DuckLakeCatalog
-
-    try:
-        return DuckLakeCatalog.objects.get(team_id=team_id)
-    except DuckLakeCatalog.DoesNotExist:
-        return None
 
 
 DUCKGRES_DEFAULTS: dict[str, str] = {
@@ -215,20 +188,6 @@ def get_duckgres_config_for_org(organization_id: str) -> dict[str, str]:
     if server is not None:
         return _server_to_config(server)
     raise ValueError(f"No DuckgresServer configured for organization {organization_id}")
-
-
-def get_duckgres_config(team_id: int) -> dict[str, str]:
-    """Get duckgres connection config for a specific team.
-
-    Deprecated: use get_duckgres_config_for_org() instead.
-    """
-    if is_dev_mode():
-        return _duckgres_dev_config()
-
-    server = get_duckgres_server_for_team(team_id)
-    if server is not None:
-        return _server_to_config(server)
-    raise ValueError(f"No DuckgresServer configured for team {team_id}")
 
 
 def get_duckgres_server_for_organization(organization_id: str) -> DuckgresServer | None:
@@ -289,24 +248,11 @@ def upsert_duckgres_server_for_org(
 # Production code reads it from there (persisted on DuckgresServer.bucket, self-healed from
 # warehouse status) — it is never re-derived, because a local re-derivation drifted from the
 # Crossplane composition (UUID hyphen-compaction + the mw- env suffix) and named buckets
-# that don't exist. The region is fixed for the single managed-warehouse deployment.
-DUCKGRES_BUCKET_REGION = "us-east-1"
-
-
-def get_duckgres_server_for_team(team_id: int) -> DuckgresServer | None:
-    """Look up DuckgresServer for a team.
-
-    Deprecated: use get_duckgres_server_for_organization() instead.
-    """
-    if is_dev_mode():
-        return None
-
-    from posthog.ducklake.models import DuckgresServer
-
-    try:
-        return DuckgresServer.objects.get(team_id=team_id)
-    except DuckgresServer.DoesNotExist:
-        return None
+# that don't exist. The region follows the cloud deployment: each managed warehouse
+# lives in its deployment's home region (see default_bucket_region).
+# Frozen at import time: depends on the CLOUD_DEPLOYMENT env var being set before
+# process start (override_settings cannot affect it).
+DUCKGRES_BUCKET_REGION = default_bucket_region()
 
 
 def get_ducklake_connection_string(config: dict[str, str] | None = None) -> str:
@@ -561,7 +507,7 @@ def validate_duckgres_identifier(identifier: str) -> None:
 
     Only alphanumeric characters and underscores are allowed. Mirrors the
     events/persons duckling DAG's ``_validate_identifier`` so a user-supplied
-    ``DuckLakeBackfill.table_suffix`` is validated identically wherever it is
+    ``DuckgresServerTeam.table_suffix`` is validated identically wherever it is
     interpolated into DuckDB DDL.
     """
     if not identifier or not identifier.replace("_", "").isalnum():
@@ -573,7 +519,7 @@ def duckgres_data_imports_schema(team_id: int) -> str:
 
     A DuckgresServer is org-scoped and hosts many teams, so each team needs its
     own schema. Historically that was ``posthog_data_imports_team_{team_id}``.
-    When a team sets ``DuckLakeBackfill.table_suffix`` (the same field that
+    When a team sets ``DuckgresServerTeam.table_suffix`` (the same field that
     governs its events/persons tables), the data-import schema uses that suffix
     so one user-chosen identifier names all of a team's warehouse tables.
 
@@ -584,9 +530,9 @@ def duckgres_data_imports_schema(team_id: int) -> str:
     that have already written a team's tables must trigger a re-prime (handled
     by the backfill state machine), not silently switch.
     """
-    from posthog.ducklake.models import DuckLakeBackfill
+    from posthog.ducklake.models import DuckgresServerTeam
 
-    suffix = DuckLakeBackfill.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
+    suffix = DuckgresServerTeam.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
     if not suffix:
         return f"posthog_data_imports_team_{team_id}"
     validate_duckgres_identifier(suffix)
@@ -640,9 +586,9 @@ def enable_team_backfill(*, team_id: int, organization_id: str | UUID, table_nam
     """Enable a team's warehouse backfill with a dedicated set of per-environment tables.
 
     The user-supplied ``table_name`` is used verbatim as the table suffix (validated, not
-    rewritten). Records first-class team↔duckling membership (DuckgresServerTeam) and persists
-    the suffix on the team's DuckLakeBackfill so the Dagster backfill writes to ``events_<suffix>``
-    / ``persons_<suffix>`` instead of the shared tables.
+    rewritten). Records the team↔duckling membership and the backfill suffix on a single
+    DuckgresServerTeam row so the Dagster backfill writes to ``events_<suffix>`` /
+    ``persons_<suffix>`` instead of the shared tables.
 
     **Write-once.** The suffix is fixed when the backfill is first created and cannot be changed
     afterward — including switching a legacy NULL suffix (shared tables) to a real name. Changing
@@ -653,9 +599,7 @@ def enable_team_backfill(*, team_id: int, organization_id: str | UUID, table_nam
     and the suffix must be unique among the org's environments. Returns the suffix, or raises
     DucklingBackfillEnableError with a user-facing message.
     """
-    from django.db import transaction
-
-    from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam, DuckLakeBackfill
+    from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
 
     error = validate_table_suffix(table_name)
     if error:
@@ -669,11 +613,10 @@ def enable_team_backfill(*, team_id: int, organization_id: str | UUID, table_nam
             "No managed warehouse is provisioned for this organization. Provision one first."
         )
 
-    existing = DuckLakeBackfill.objects.filter(team_id=team_id).first()
+    existing = DuckgresServerTeam.objects.filter(team_id=team_id).first()
     if existing is not None:
         if existing.table_suffix == suffix:
-            # Same name — ensure membership is recorded, then leave the backfill untouched.
-            DuckgresServerTeam.objects.get_or_create(server=server, team_id=team_id)
+            # Same name — already set up; idempotent no-op.
             return suffix
         current = f"events_{existing.table_suffix}" if existing.table_suffix else "the shared tables"
         raise DucklingBackfillEnableError(
@@ -682,7 +625,7 @@ def enable_team_backfill(*, team_id: int, organization_id: str | UUID, table_nam
         )
 
     collision = (
-        DuckLakeBackfill.objects.filter(team__organization_id=organization_id, table_suffix=suffix)
+        DuckgresServerTeam.objects.filter(team__organization_id=organization_id, table_suffix=suffix)
         .exclude(team_id=team_id)
         .exists()
     )
@@ -691,9 +634,7 @@ def enable_team_backfill(*, team_id: int, organization_id: str | UUID, table_nam
             f"The table name '{suffix}' is already used by another environment in this organization."
         )
 
-    with transaction.atomic():
-        DuckgresServerTeam.objects.get_or_create(server=server, team_id=team_id)
-        DuckLakeBackfill.objects.create(team_id=team_id, enabled=True, table_suffix=suffix)
+    DuckgresServerTeam.objects.create(server=server, team_id=team_id, backfill_enabled=True, table_suffix=suffix)
     return suffix
 
 
@@ -704,9 +645,9 @@ def get_team_backfill_state(team_id: int) -> dict[str, object]:
     safe to show) from one already backfilling (a row exists → show read-only, since the table is
     immutable). ``table_suffix`` is None for legacy teams still on the shared tables.
     """
-    from posthog.ducklake.models import DuckLakeBackfill
+    from posthog.ducklake.models import DuckgresServerTeam
 
-    backfill = DuckLakeBackfill.objects.filter(team_id=team_id).values("table_suffix").first()
+    backfill = DuckgresServerTeam.objects.filter(team_id=team_id).values("table_suffix").first()
     if backfill is None:
         return {"has_backfill": False, "table_suffix": None}
     return {"has_backfill": True, "table_suffix": backfill["table_suffix"]}
@@ -715,22 +656,19 @@ def get_team_backfill_state(team_id: int) -> dict[str, object]:
 __all__ = [
     "DucklingBackfillEnableError",
     "attach_catalog",
+    "default_bucket_region",
     "duckgres_data_imports_schema",
     "duckgres_data_imports_table_name",
     "duckgres_data_modeling_schema",
     "enable_team_backfill",
     "escape",
     "get_config",
-    "get_ducklake_catalog_for_organization",
-    "get_ducklake_catalog_for_team",
     "get_ducklake_connection_string",
     "get_ducklake_data_path",
-    "get_duckgres_config",
     "get_duckgres_config_for_org",
+    "get_duckgres_server_by_team_org",
     "get_duckgres_server_for_organization",
-    "get_duckgres_server_for_team",
     "get_org_config",
-    "get_team_config",
     "ensure_ducklake_catalog",
     "initialize_ducklake",
     "is_ducklake_catalog_reset_allowed",

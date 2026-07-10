@@ -7,7 +7,7 @@ from typing import Any, cast
 from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, QuerySet
 from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
@@ -17,6 +17,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, renderers, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -43,7 +44,10 @@ from ..oauth import (
     discover_oauth_metadata,
     exchange_oauth_token,
     generate_pkce,
+    oauth_resource,
     register_dcr_client,
+    requested_oauth_scopes,
+    select_token_endpoint_auth_method,
 )
 from ..proxy import proxy_mcp_request, validate_installation_auth
 from ..tasks import sync_installation_tools_task
@@ -127,6 +131,15 @@ def _get_oauth_redirect_uri() -> str:
     return f"{settings.SITE_URL}/api/mcp_store/oauth_redirect/"
 
 
+def _oauth_authorize_response(authorize_url: str, install_source: str) -> HttpResponse:
+    if install_source == "posthog-code":
+        return Response({"redirect_url": authorize_url}, status=status.HTTP_200_OK)
+
+    response = HttpResponse(status=302)
+    response["Location"] = authorize_url
+    return response
+
+
 def _template_uses_dcr(template: MCPServerTemplate) -> bool:
     """Is this template configured for per-user Dynamic Client Registration?
 
@@ -186,6 +199,9 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
     tool_count = serializers.SerializerMethodField(
         help_text="Number of live (non-removed) tools exposed by this installation."
     )
+    is_owner = serializers.SerializerMethodField(
+        help_text="True when the requesting user owns this installation. Lets clients gate owner-only controls instead of surfacing 403s."
+    )
 
     class Meta:
         model = MCPServerInstallation
@@ -199,6 +215,8 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "description",
             "auth_type",
             "is_enabled",
+            "scope",
+            "is_owner",
             "needs_reauth",
             "pending_oauth",
             "proxy_url",
@@ -206,7 +224,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "template_id", "created_at", "updated_at", "tool_count"]
+        read_only_fields = ["id", "template_id", "created_at", "updated_at", "tool_count", "scope", "is_owner"]
 
     def get_tool_count(self, obj: MCPServerInstallation) -> int:
         # Prefer the annotation to avoid N+1 on list; fall back to a direct
@@ -243,6 +261,12 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             )
         return ""
 
+    def get_is_owner(self, obj: MCPServerInstallation) -> bool:
+        request = self.context.get("request")
+        if not request or not getattr(request, "user", None):
+            return False
+        return request.user.id == obj.user_id
+
 
 class InstallCustomSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=200)
@@ -256,6 +280,12 @@ class InstallCustomSerializer(serializers.Serializer):
     client_secret = serializers.CharField(required=False, allow_blank=True, default="")
     install_source = serializers.ChoiceField(choices=["posthog", "posthog-code"], required=False, default="posthog")
     posthog_code_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
+    scope = serializers.ChoiceField(
+        choices=["personal", "shared"],
+        required=False,
+        default="personal",
+        help_text="'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).",
+    )
 
     def validate_url(self, value: str) -> str:
         allowed, error = is_url_allowed(value)
@@ -274,6 +304,12 @@ class InstallTemplateSerializer(serializers.Serializer):
     api_key = serializers.CharField(required=False, allow_blank=True, default="")
     install_source = serializers.ChoiceField(choices=["posthog", "posthog-code"], required=False, default="posthog")
     posthog_code_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
+    scope = serializers.ChoiceField(
+        choices=["personal", "shared"],
+        required=False,
+        default="personal",
+        help_text="'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).",
+    )
 
     def validate_posthog_code_callback_url(self, value: str) -> str:
         if value and not _is_valid_posthog_code_callback_url(value):
@@ -349,14 +385,16 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         "install_template",
         "update_tool_approval",
         "refresh_tools",
+        "share",
+        "unshare",
     ]
     queryset = MCPServerInstallation.objects.all()
     serializer_class = MCPServerInstallationSerializer
     lookup_field = "id"
     permission_classes = [IsAuthenticated]
 
-    # Installations are user-scoped (safely_get_queryset filters by user), so
-    # write actions like install/uninstall don't need project admin access.
+    # Installations are user-scoped or shared (safely_get_queryset returns both),
+    # so write actions don't need project admin access.
     # Return project:read so AccessControlPermission requires "member" not "admin".
     _USER_SCOPED_ACTIONS = {
         "destroy",
@@ -365,7 +403,15 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         "install_template",
         "update_tool_approval",
         "refresh_tools",
+        # share/unshare enforce their own owner/admin checks in the action bodies.
+        "share",
+        "unshare",
     }
+
+    # Mutations restricted to the credential owner (installer) on shared rows.
+    # Tool approval is included: it gates which tools autonomous runs may execute
+    # under the owner's credential, so a non-owner must not be able to flip it.
+    _OWNER_ONLY_ACTIONS = {"destroy", "partial_update", "refresh_tools", "update_tool_approval"}
 
     def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
         if self.action in self._USER_SCOPED_ACTIONS:
@@ -374,27 +420,96 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return (
-            queryset.filter(team_id=self.team_id, user=self.request.user)
+            queryset.filter(
+                team_id=self.team_id,
+            )
+            .filter(Q(scope="shared") | Q(user=self.request.user))
             .select_related("template")
             .annotate(tool_count_annotated=Count("tools", filter=Q(tools__removed_at__isnull=True)))
             .order_by("-created_at")
         )
 
+    def check_object_permissions(self, request: Request, obj: Any) -> None:
+        # Enforce owner-only mutation of shared rows centrally so every action in
+        # _OWNER_ONLY_ACTIONS is guarded via get_object() — a new owner-only action
+        # only needs to be added to the set, not to re-implement the check inline.
+        super().check_object_permissions(request, obj)
+        if (
+            self.action in self._OWNER_ONLY_ACTIONS
+            and isinstance(obj, MCPServerInstallation)
+            and obj.scope == "shared"
+            and obj.user_id != request.user.id
+        ):
+            # destroy differs from the other owner-only actions: a project admin may
+            # delete another member's shared installation, so shared credentials
+            # don't become orphaned and unremovable when the owner leaves the team.
+            # partial_update / refresh_tools / update_tool_approval reconfigure how
+            # the owner's credential is used, so they stay strictly owner-only.
+            if self.action == "destroy" and self._is_project_admin():
+                return
+            raise PermissionDenied("Only the credential owner can modify a shared server.")
+
+    def _assert_shared_mutation_allowed(self, installation: MCPServerInstallation) -> None:
+        """Owner guard for get_or_create-based install/reinstall flows.
+
+        These don't pass through get_object()/check_object_permissions, and a
+        shared row keyed on (team, url) can belong to another member. Without
+        this, any member could re-post the same shared server and overwrite the
+        owner's credentials/OAuth state that agents and the proxy rely on.
+        """
+        if installation.scope == "shared" and installation.user_id != self.request.user.id:
+            raise PermissionDenied("Only the credential owner can modify a shared server.")
+
+    def _is_project_admin(self) -> bool:
+        """True for organization admins/owners, or users explicitly granted
+        admin on this project via access controls.
+
+        Deliberately NOT `effective_membership_level`: on a project with no
+        access controls configured, that defaults to admin for every org
+        member (open-project semantics), which would let any member share,
+        unshare, or delete team-wide MCP credentials. `explicit=True` skips
+        that default, so regular members fail closed."""
+        if self.user_access_control.is_organization_admin:
+            return True
+        return bool(self.user_access_control.check_access_level_for_object(self.team, "admin", explicit=True))
+
+    def _require_admin_for_shared_scope(self, scope: str) -> None:
+        """Creating a team-wide shared MCP server is admin-only.
+
+        A shared install exposes the installer's credential to every project
+        member and all autonomous agents, and any action taken through it is
+        attributed to the credential owner (e.g. a member could write to Linear
+        as the owner). Gating creation to admins keeps a regular member from
+        standing up a shared server that others act through.
+        """
+        if scope != "shared":
+            return
+        if not self._is_project_admin():
+            raise PermissionDenied("Only project admins can create shared MCP servers.")
+
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    def perform_destroy(self, instance: MCPServerInstallation) -> None:
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # PUT is disabled: all edits go through partial_update (PATCH), which restricts
+        # writable fields to display_name/description/is_enabled and enforces shared-row
+        # ownership. The default PUT would bypass both (full serializer + no ownership check).
+        return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        installation = self.get_object()
         report_user_action(
-            self.request.user,
+            request.user,
             "mcp_store server uninstalled",
             properties={
-                "server_name": _installation_name(instance),
-                "server_url": instance.url,
-                "auth_type": instance.auth_type,
+                "server_name": _installation_name(installation),
+                "server_url": installation.url,
+                "auth_type": installation.auth_type,
             },
             team=self.team,
         )
-        super().perform_destroy(instance)
+        installation.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _validate_mcp_url_or_error_response(self, mcp_url: str) -> Response | None:
         allowed, reason = is_url_allowed(mcp_url)
@@ -405,7 +520,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
     def _register_dcr_client_or_raise(
         self, metadata: dict, redirect_uri: str, *, server_url: str = ""
-    ) -> tuple[str, str | None]:
+    ) -> tuple[str, str | None, str]:
         log_context = {"error": ""} if not server_url else {"server_url": server_url, "error": ""}
         try:
             return register_dcr_client(metadata, redirect_uri)
@@ -435,8 +550,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
         }
-        if scopes := metadata.get("scopes_supported"):
+        if scopes := requested_oauth_scopes(metadata):
             query_params["scope"] = " ".join(scopes)
+        if resource := oauth_resource(metadata):
+            query_params["resource"] = resource
 
         auth_endpoint = metadata.get("authorization_endpoint", "")
         if not auth_endpoint:
@@ -474,6 +591,103 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         serializer = self.get_serializer(installation)
         return Response(serializer.data)
 
+    @extend_schema(request=None, responses={200: OpenApiResponse(response=MCPServerInstallationSerializer)})
+    @action(detail=True, methods=["post"], url_path="share")
+    def share(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Escalate a personal installation to a team-wide shared one.
+
+        Owner-only AND admin-only: sharing exposes the owner's credential to
+        every project member and all autonomous agents, so it carries the same
+        gate as creating a shared install outright.
+        """
+        installation = self.get_object()
+        if installation.scope != "personal":
+            return Response(
+                {"detail": "Only personal installations can be shared."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if installation.user_id != request.user.id:
+            raise PermissionDenied("Only the installation owner can share it with the project.")
+        if not self._is_project_admin():
+            raise PermissionDenied("Only project admins can share MCP servers with the project.")
+
+        try:
+            with transaction.atomic():
+                if MCPServerInstallation.objects.filter(
+                    team_id=self.team_id, url=installation.url, scope="shared"
+                ).exists():
+                    return Response(
+                        {"detail": "A shared connection for this server already exists in this project."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                installation.scope = "shared"
+                installation.save(update_fields=["scope", "updated_at"])
+        except IntegrityError:
+            return Response(
+                {"detail": "A shared connection for this server already exists in this project."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        report_user_action(
+            request.user,
+            "mcp_store server shared",
+            properties={
+                "server_name": _installation_name(installation),
+                "server_url": installation.url,
+                "auth_type": installation.auth_type,
+            },
+            team=self.team,
+        )
+        return Response(self.get_serializer(installation).data)
+
+    @extend_schema(request=None, responses={200: OpenApiResponse(response=MCPServerInstallationSerializer)})
+    @action(detail=True, methods=["post"], url_path="unshare")
+    def unshare(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """De-escalate a shared installation back to personal.
+
+        Allowed for the credential owner OR a project admin (the reclaim path
+        for shared credentials). The row always stays owned by the ORIGINAL
+        owner — an admin unsharing someone else's install must not capture
+        their credential.
+        """
+        installation = self.get_object()
+        if installation.scope != "shared":
+            return Response(
+                {"detail": "Only shared installations can be unshared."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if installation.user_id != request.user.id and not self._is_project_admin():
+            raise PermissionDenied("Only the credential owner or a project admin can unshare a shared server.")
+
+        try:
+            with transaction.atomic():
+                if MCPServerInstallation.objects.filter(
+                    team_id=self.team_id, user_id=installation.user_id, url=installation.url, scope="personal"
+                ).exists():
+                    return Response(
+                        {"detail": "The owner already has a personal installation for this server."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                installation.scope = "personal"
+                installation.save(update_fields=["scope", "updated_at"])
+        except IntegrityError:
+            return Response(
+                {"detail": "The owner already has a personal installation for this server."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        report_user_action(
+            request.user,
+            "mcp_store server unshared",
+            properties={
+                "server_name": _installation_name(installation),
+                "server_url": installation.url,
+                "auth_type": installation.auth_type,
+            },
+            team=self.team,
+        )
+        return Response(self.get_serializer(installation).data)
+
     @action(
         detail=True,
         methods=["post"],
@@ -484,6 +698,17 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     )
     def proxy(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse | StreamingHttpResponse:
         installation = self.get_object()
+
+        # Basic audit trail for who exercises which installation (especially
+        # shared credentials). Metadata only — never request/response bodies
+        # or headers.
+        logger.info(
+            "mcp_store proxy request",
+            team_id=self.team_id,
+            installation_id=str(installation.id),
+            scope=installation.scope,
+            user_id=request.user.id,
+        )
 
         ok, error_response = validate_installation_auth(installation)
         if not ok and error_response is not None:
@@ -509,23 +734,30 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         template_id = data["template_id"]
         install_source = data.get("install_source", "posthog")
         posthog_code_callback_url = data.get("posthog_code_callback_url", "")
+        scope = data.get("scope", "personal")
+        self._require_admin_for_shared_scope(scope)
 
         try:
             template = MCPServerTemplate.objects.get(id=template_id, is_active=True)
         except MCPServerTemplate.DoesNotExist:
             return Response({"detail": "Template not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        lookup = {"team_id": self.team_id, "url": template.url, "scope": scope}
+        if scope == "personal":
+            lookup["user"] = request.user
         installation, created = MCPServerInstallation.objects.get_or_create(
-            team_id=self.team_id,
-            user=request.user,
-            url=template.url,
+            **lookup,
             defaults={
+                **({"user": request.user} if scope == "shared" else {}),
                 "template": template,
                 "display_name": template.name,
                 "description": template.description,
                 "auth_type": template.auth_type,
             },
         )
+        # A pre-existing shared row may belong to another member; block hijacking its creds.
+        if not created:
+            self._assert_shared_mutation_allowed(installation)
         # Re-link in case a previous install pointed elsewhere (e.g. post-migration reconnect).
         if installation.template_id != template.id:
             installation.template = template
@@ -584,7 +816,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
 
             try:
-                client_id, dcr_client_secret = self._register_dcr_client_or_raise(
+                client_id, dcr_client_secret, token_endpoint_auth_method = self._register_dcr_client_or_raise(
                     metadata,
                     redirect_uri,
                     server_url=template.url,
@@ -607,6 +839,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             sensitive = dict(installation.sensitive_configuration or {})
             sensitive["dcr_client_id"] = client_id
             sensitive["dcr_is_user_provided"] = False
+            sensitive["dcr_token_endpoint_auth_method"] = token_endpoint_auth_method
             if dcr_client_secret:
                 sensitive["dcr_client_secret"] = dcr_client_secret
             else:
@@ -698,6 +931,8 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         description = data.get("description", "")
         user_client_id = (data.get("client_id") or "").strip()
         user_client_secret = (data.get("client_secret") or "").strip()
+        scope = data.get("scope", "personal")
+        self._require_admin_for_shared_scope(scope)
 
         install_source = data.get("install_source", "posthog")
         posthog_code_callback_url = data.get("posthog_code_callback_url", "")
@@ -712,17 +947,20 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 user_client_secret=user_client_secret,
                 install_source=install_source,
                 posthog_code_callback_url=posthog_code_callback_url,
+                scope=scope,
             )
         if auth_type == "api_key":
             sensitive_config: SensitiveConfig = {}
             if api_key:
                 sensitive_config["api_key"] = api_key
 
+            lookup: dict[str, Any] = {"team_id": self.team_id, "url": url, "scope": scope}
+            if scope == "personal":
+                lookup["user"] = request.user
             installation, created = MCPServerInstallation.objects.get_or_create(
-                team_id=self.team_id,
-                user=request.user,
-                url=url,
+                **lookup,
                 defaults={
+                    **({"user": request.user} if scope == "shared" else {}),
                     "display_name": name,
                     "description": description,
                     "auth_type": "api_key",
@@ -771,6 +1009,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         user_client_secret: str = "",
         install_source: str = "posthog",
         posthog_code_callback_url: str = "",
+        scope: str = "personal",
     ) -> HttpResponse:
         """Kick off an OAuth flow for a user-added MCP server.
 
@@ -784,16 +1023,22 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         redirect_uri = _get_oauth_redirect_uri()
 
+        lookup: dict[str, Any] = {"team_id": self.team_id, "url": mcp_url, "scope": scope}
+        if scope == "personal":
+            lookup["user"] = request.user
         installation, created = MCPServerInstallation.objects.get_or_create(
-            team_id=self.team_id,
-            user=request.user,
-            url=mcp_url,
+            **lookup,
             defaults={
+                **({"user": request.user} if scope == "shared" else {}),
                 "display_name": name,
                 "description": description,
                 "auth_type": "oauth",
             },
         )
+        # A pre-existing shared row may belong to another member; block a non-owner
+        # from swapping its DCR client / clearing its tokens via reinstall.
+        if not created:
+            self._assert_shared_mutation_allowed(installation)
         if not created and installation.auth_type != "oauth":
             installation.auth_type = "oauth"
             installation.save(update_fields=["auth_type", "updated_at"])
@@ -814,12 +1059,25 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         # Resolve per-installation client credentials: either user-supplied or fresh DCR.
         dcr_client_secret: str | None = None
+        token_endpoint_auth_method = "none"
         if user_client_id:
             client_id = user_client_id
             dcr_is_user_provided = True
+            try:
+                token_endpoint_auth_method = select_token_endpoint_auth_method(
+                    metadata, has_client_secret=bool(user_client_secret)
+                )
+            except ValueError as e:
+                logger.warning("OAuth token endpoint auth method unsupported", server_url=mcp_url, error=str(e))
+                if created:
+                    installation.delete()
+                return Response(
+                    {"detail": "OAuth token endpoint auth method is not supported."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         else:
             try:
-                client_id, dcr_client_secret = self._register_dcr_client_or_raise(
+                client_id, dcr_client_secret, token_endpoint_auth_method = self._register_dcr_client_or_raise(
                     metadata, redirect_uri, server_url=mcp_url
                 )
             except DCRNotSupportedError:
@@ -851,6 +1109,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             sensitive["needs_reauth"] = True
         sensitive["dcr_client_id"] = client_id
         sensitive["dcr_is_user_provided"] = dcr_is_user_provided
+        sensitive["dcr_token_endpoint_auth_method"] = token_endpoint_auth_method
         # A user-supplied secret without a user-supplied client_id is discarded;
         # it would never pair with the DCR-minted client_id.
         effective_secret = user_client_secret if dcr_is_user_provided else dcr_client_secret
@@ -939,23 +1198,30 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         template_id: Any,
         install_source: str,
         posthog_code_callback_url: str,
+        installation: MCPServerInstallation | None = None,
     ) -> HttpResponse:
         try:
             template = MCPServerTemplate.objects.get(id=template_id, is_active=True)
         except MCPServerTemplate.DoesNotExist:
             return Response({"detail": "Template not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        installation, _ = MCPServerInstallation.objects.get_or_create(
-            team_id=self.team_id,
-            user=cast(User, request.user),
-            url=template.url,
-            defaults={
-                "template": template,
-                "display_name": template.name,
-                "description": template.description,
-                "auth_type": template.auth_type,
-            },
-        )
+        if installation is None:
+            # Direct marketplace (re)connect keyed on template — always the
+            # personal row. Scope must be in the lookup: a user can own both a
+            # personal and a shared row for the same URL, so (team, user, url)
+            # alone is no longer unique and would raise MultipleObjectsReturned.
+            installation, _ = MCPServerInstallation.objects.get_or_create(
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                url=template.url,
+                scope="personal",
+                defaults={
+                    "template": template,
+                    "display_name": template.name,
+                    "description": template.description,
+                    "auth_type": template.auth_type,
+                },
+            )
         if installation.template_id != template.id:
             installation.template = template
             installation.save(update_fields=["template", "updated_at"])
@@ -1033,9 +1299,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             team=self.team,
         )
 
-        response = HttpResponse(status=302)
-        response["Location"] = authorize_url
-        return response
+        return _oauth_authorize_response(authorize_url, install_source)
 
     def _authorize_for_installation(
         self,
@@ -1064,6 +1328,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 template_id=installation.template_id,
                 install_source=install_source,
                 posthog_code_callback_url=posthog_code_callback_url,
+                installation=installation,
             )
 
         if blocked_response := self._validate_mcp_url_or_error_response(installation.url):
@@ -1101,9 +1366,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except OAuthAuthorizeURLError:
             return Response({"detail": "Authorization endpoint must use HTTPS"}, status=status.HTTP_400_BAD_REQUEST)
 
-        response = HttpResponse(status=302)
-        response["Location"] = authorize_url
-        return response
+        return _oauth_authorize_response(authorize_url, install_source)
 
     @extend_schema(responses={200: OpenApiResponse(response=MCPServerInstallationToolSerializer(many=True))})
     @action(detail=True, methods=["get"], url_path="tools")

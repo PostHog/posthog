@@ -1,6 +1,5 @@
 import re
 import json
-import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -3581,7 +3580,7 @@ class TestSurvey(APIBaseTest):
         )
         assert all(r["name"] != "Totally unrelated" for r in results)
 
-    def test_list_filter_by_search_returns_exact_first_with_match_type(self):
+    def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
         for name in ("feedback survey", "survey feedback", "feeback form", "Engineering survey"):
             Survey.objects.create(team=self.team, name=name, type="popover", questions=[])
 
@@ -3593,11 +3592,7 @@ class TestSurvey(APIBaseTest):
         assert match_type_by_name == {
             "feedback survey": "exact",
             "survey feedback": "exact",
-            "feeback form": "similar",
-        }
-
-        match_types = [r["search_match_type"] for r in results]
-        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+        }, "similar matches must be hidden when exact matches exist"
 
     def test_list_filter_by_search_match_type_absent_without_search(self):
         Survey.objects.create(team=self.team, name="Alpha", type="popover", questions=[])
@@ -6304,24 +6299,26 @@ class TestSurveyBulkDuplication(APIBaseTest):
 
     def test_bulk_duplicate_multiple_times_to_same_team(self):
         """Test that multiple duplications to the same team create surveys with different timestamps"""
-        # Create first duplicate
-        response1 = self.client.post(
-            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
-            data={"target_team_ids": [self.team2.id]},
-            format="json",
-        )
-        assert response1.status_code == status.HTTP_201_CREATED
+        with freeze_time("2024-01-01 00:00:00") as frozen_time:
+            # Create first duplicate
+            response1 = self.client.post(
+                f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+                data={"target_team_ids": [self.team2.id]},
+                format="json",
+            )
+            assert response1.status_code == status.HTTP_201_CREATED
 
-        # Wait a second to ensure different timestamp
-        time.sleep(1)
+            # Advance the clock so the second duplicate's name timestamp differs (the
+            # duplicate name embeds datetime.now() at second precision)
+            frozen_time.tick(timedelta(seconds=1))
 
-        # Try to create another duplicate (should succeed because timestamp is different)
-        response2 = self.client.post(
-            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
-            data={"target_team_ids": [self.team2.id]},
-            format="json",
-        )
-        assert response2.status_code == status.HTTP_201_CREATED
+            # Try to create another duplicate (should succeed because timestamp is different)
+            response2 = self.client.post(
+                f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+                data={"target_team_ids": [self.team2.id]},
+                format="json",
+            )
+            assert response2.status_code == status.HTTP_201_CREATED
 
         # Verify two surveys exist with different names
         team2_surveys = Survey.objects.filter(team=self.team2).order_by("created_at")

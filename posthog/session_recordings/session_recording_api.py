@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
-from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
+from django.http import HttpResponse, JsonResponse
 
 import requests
 import structlog
@@ -24,7 +24,6 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from loginas.utils import is_impersonated_session
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
     ChatCompletionMessageParam,
@@ -57,8 +56,11 @@ from posthog.schema import (
     RecordingsQuery,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import (
     ExportRendererAuthentication,
@@ -70,9 +72,10 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
@@ -89,7 +92,6 @@ from posthog.rate_limit import (
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -133,6 +135,8 @@ from .queries.combine_session_ids_for_filtering import combine_session_id_filter
 from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 
 MAX_RECORDINGS_PER_BULK_ACTION = 20
+# Matches recording-api's MAX_DELETE_SESSION_IDS — one downstream call per delete batch.
+MAX_RECORDINGS_PER_BULK_DELETE = 100
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -539,6 +543,36 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
         return data
 
 
+# Schema-only; enforcement stays in the view to preserve the pre-existing error contract.
+class SessionRecordingBulkDeleteRequestSerializer(serializers.Serializer):
+    session_recording_ids = serializers.ListField(
+        child=serializers.CharField(),
+        min_length=1,
+        max_length=MAX_RECORDINGS_PER_BULK_DELETE,
+        help_text=f"Session IDs of the recordings to delete (max {MAX_RECORDINGS_PER_BULK_DELETE} per call).",
+    )
+    date_from = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. "
+        "Providing this narrows the lookup and speeds up the request; defaults to the project's "
+        "recording retention period.",
+    )
+
+
+class SessionRecordingBulkDeleteResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(
+        help_text="True when no deletion attempt failed. IDs that were not found, or that the caller lacks edit "
+        "access to, are skipped rather than failed — compare deleted_count to total_requested to detect skips."
+    )
+    deleted_count = serializers.IntegerField(help_text="Number of recordings that were deleted.")
+    total_requested = serializers.IntegerField(help_text="Number of session recording IDs in the request.")
+    failed_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Session IDs that were found but could not be deleted. These can be retried.",
+    )
+
+
 def list_recordings_response(
     listing_result: tuple[list[SessionRecording], bool, str, str | None], context: dict[str, Any]
 ) -> Response:
@@ -912,10 +946,17 @@ class SessionRecordingViewSet(
         except CHQueryErrorTooManySimultaneousQueries:
             SESSION_RECORDING_THROTTLED.labels(location="too_many_simultaneous_queries", auth_type=auth_type).inc()
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            # A bad filter or query (e.g. a property referencing a field that doesn't exist on the
+            # event) is the caller's problem, not a server error. Surface the actual reason as a 400
+            # instead of collapsing it into a generic 500.
+            raise exceptions.ValidationError(str(e), getattr(e, "code_name", None))
+        except exceptions.APIException:
+            # ValidationError, Throttled, and the ClickHouse capacity / timeout / memory-limit
+            # exceptions already carry a correct status code and a user-safe message. Let DRF render
+            # them as-is rather than masking a well-formed response behind a generic 500.
+            raise
         except (ServerException, Exception) as e:
-            if isinstance(e, exceptions.ValidationError):
-                raise
-
             if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
                 SESSION_RECORDING_THROTTLED.labels(location="query_timeout_exceeded", auth_type=auth_type).inc()
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
@@ -1092,14 +1133,16 @@ class SessionRecordingViewSet(
 
         return Response(status=204)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Delete a batch of session recordings by session ID. Deletion is permanent and cannot be undone. "
+        "IDs that don't match an existing recording are skipped and counted in `total_requested` but not "
+        "`deleted_count`.",
+        request=SessionRecordingBulkDeleteRequestSerializer,
+        responses={200: SessionRecordingBulkDeleteResponseSerializer},
+    )
     @action(methods=["POST"], detail=False, url_path="bulk_delete")
     def bulk_delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        """Bulk delete recordings via recording-api (crypto-shredding).
-
-        Accepts optional date_from parameter to optimize ClickHouse query performance by limiting the search range.
-        If not provided, defaults to the team's retention period to ensure all recordings can be found.
-        """
+        """Bulk delete recordings via recording-api (crypto-shredding)."""
 
         session_recording_ids = request.data.get("session_recording_ids", [])
         date_from = request.data.get("date_from", None)
@@ -1107,9 +1150,9 @@ class SessionRecordingViewSet(
         if not session_recording_ids or not isinstance(session_recording_ids, list):
             raise exceptions.ValidationError("session_recording_ids must be provided as a non-empty array")
 
-        if len(session_recording_ids) > MAX_RECORDINGS_PER_BULK_ACTION:
+        if len(session_recording_ids) > MAX_RECORDINGS_PER_BULK_DELETE:
             raise exceptions.ValidationError(
-                f"Cannot process more than {MAX_RECORDINGS_PER_BULK_ACTION} recordings at once"
+                f"Cannot process more than {MAX_RECORDINGS_PER_BULK_DELETE} recordings at once"
             )
 
         if not date_from:
@@ -1121,6 +1164,8 @@ class SessionRecordingViewSet(
             "date_from": date_from,
             "date_to": None,
             "kind": "RecordingsQuery",
+            # Without an explicit limit the query defaults to 50 rows, silently truncating larger batches.
+            "limit": len(session_recording_ids),
         }
         query = RecordingsQuery.model_validate(query_data)
         recordings, _, _, _ = list_recordings_from_query(query, None, self.team)
@@ -1157,7 +1202,7 @@ class SessionRecordingViewSet(
                 organization_id=cast(User, request.user).current_organization_id,
                 team_id=self.team.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=None,
                 scope="Replay",
                 activity="bulk_deleted",
@@ -1672,15 +1717,12 @@ class SessionRecordingViewSet(
             session_ids=[session_id],
             video_based=True,
         )
-        response = StreamingHttpResponse(
+        return sse_streaming_response(
             self._generate_video_based_summary(
                 session_id, user, tracking_id, product_context, custom_tags, force_restart=force_restart
             ),
-            content_type=ServerSentEventRenderer.media_type,
+            endpoint="session_recording_summary",
         )
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True, url_path="summarize/cancel")

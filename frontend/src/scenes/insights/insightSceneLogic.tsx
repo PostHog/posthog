@@ -3,7 +3,6 @@ import { urlToAction } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { AlertType } from 'lib/components/Alerts/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -22,11 +21,21 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
+import {
+    DashboardFilter,
+    FileSystemIconType,
+    HogQLVariable,
+    Node,
+    NodeKind,
+    QueryLogTags,
+    TileFilters,
+} from '~/queries/schema/schema-general'
 import {
     checkLatestVersionsOnQuery,
     convertDataTableNodeToDataVisualizationNode,
+    isDataTableNode,
     isInsightVizNode,
 } from '~/queries/utils'
 import {
@@ -43,6 +52,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { AlertType } from 'products/alerts/frontend/types'
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -66,6 +76,29 @@ function normalizeItemId(itemId: string | undefined): string | number | null {
     return itemId
 }
 
+// Tag a new insight's query with the product_analytics productKey (on the executed source query) so
+// ClickHouse doesn't reject it as untagged. Leaves an existing productKey untouched.
+function withDefaultProductAnalyticsTags(query: Node): Node {
+    if (isInsightVizNode(query) && !query.source.tags?.productKey) {
+        return {
+            ...query,
+            source: { ...query.source, tags: { ...query.source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
+        } as Node
+    }
+    // EventsNode is the only DataTableNode source kind without a `tags` field and its schema forbids
+    // extra keys, so tagging it would make the payload invalid.
+    if (isDataTableNode(query) && query.source.kind !== NodeKind.EventsNode) {
+        const source = query.source as { tags?: QueryLogTags | null }
+        if (!source.tags?.productKey) {
+            return {
+                ...query,
+                source: { ...query.source, tags: { ...source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
+            } as Node
+        }
+    }
+    return query
+}
+
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect(() => ({
@@ -81,7 +114,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             ['filterTestAccountsDefault'],
             featureFlagLogic,
             ['featureFlags'],
+            sceneLayoutLogic,
+            ['scenePanelIsPresent'],
         ],
+        actions: [sceneLayoutLogic, ['setScenePanelIsPresent']],
     })),
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
@@ -412,11 +448,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setSceneState: [
             sharedListeners.reloadInsightLogic,
             ({ sceneSource }) => {
-                if (sceneSource === 'endpoints') {
+                // Only open here when the scene panel already exists; otherwise Info isn't in
+                // `enabledTabs` yet and SidePanel's fallback reroutes to Max. The fresh-navigation
+                // case is handled by the `setScenePanelIsPresent` listener below.
+                if (sceneSource === 'endpoints' && values.scenePanelIsPresent) {
                     sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Info)
                 }
             },
         ],
+        setScenePanelIsPresent: ({ active }) => {
+            if (active && values.sceneSource === 'endpoints') {
+                sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Info)
+            }
+        },
         upgradeQuery: async ({ query }) => {
             let upgradedQuery: Node | null = null
 
@@ -434,7 +478,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     {
                         ...createEmptyInsight('new'),
                         ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
-                        query: upgradedQuery,
+                        query: upgradedQuery ? withDefaultProductAnalyticsTags(upgradedQuery) : upgradedQuery,
                     },
                     {
                         fromPersistentApi: false,
@@ -570,16 +614,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if ((initial || queryFromUrl || method === 'PUSH') && !validatingQuery) {
                 if (insightId === 'new' || insightId.startsWith('new-')) {
                     const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
-                    const taggedQuery =
-                        isInsightVizNode(query) && !query.source.tags?.productKey
-                            ? {
-                                  ...query,
-                                  source: {
-                                      ...query.source,
-                                      tags: { ...query.source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS },
-                                  },
-                              }
-                            : query
+                    const taggedQuery = withDefaultProductAnalyticsTags(query)
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
                             ...createEmptyInsight('new'),

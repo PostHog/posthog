@@ -154,6 +154,7 @@ _RETRYABLE_CODES = frozenset(
         grpc.StatusCode.UNAVAILABLE,
         grpc.StatusCode.DEADLINE_EXCEEDED,
         grpc.StatusCode.ABORTED,
+        grpc.StatusCode.UNKNOWN,
     }
 )
 
@@ -161,10 +162,11 @@ _RETRYABLE_CODES = frozenset(
 class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
     """Retries transient gRPC errors with jittered backoff.
 
-    Covers three failure modes:
+    Covers four failure modes:
     - UNAVAILABLE: client-to-router connection failure
     - ABORTED: HTTP/2 stream reset during router deploys
     - DEADLINE_EXCEEDED: transient timeout (event loop saturation, brief backend slowness)
+    - UNKNOWN: catch-all for transient failures that don't map to a specific code
 
     Sits outside MetricsInterceptor so each attempt gets its own per-call metrics.
     """

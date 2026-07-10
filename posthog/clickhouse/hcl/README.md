@@ -1,121 +1,158 @@
 # Declarative ClickHouse schema (HCL)
 
 Source of truth for satellite ClickHouse clusters, managed declaratively with
-[`hclexp`](../../../../python-clickhouse-schema) instead of sequential Python
-migrations. Schemas are written in HCL, layered for multi-environment setups,
-resolved into a flat desired state, and diffed against live clusters (or
-captured dumps) to produce migration DDL.
+[`hclexp`](../../../../python-clickhouse-schema) instead of hand-written migrations.
+Schemas are written in HCL, **composed per node** `(env, role)`, verified against
+captured cluster dumps, and used to generate the migration that applies a change.
 
-Currently covers the **OPS** cluster. LOGS is next.
+Currently covers the **OPS** and **LOGS** roles across the three cloud envs
+(dev, prod-us, prod-eu); OPS also has `local`.
 
-## Layout
+## Model: per-node composition
+
+A node's schema = `compose(its layers)`. The two axes are **env** (dev/prod-us/prod-eu)
+and **node role** (ops/logs/…). Placement is expressed by _which layers a node composes_,
+declared once in the manifest — there is no object→roles side-table.
 
 ```text
 hcl/
-  bin/hclexp                # wrapper: local binary or pinned container image
-  ops/
-    base/ops.hcl            # query_log_archive data path + ops tables/views (all envs)
-    base/custom_metrics.hcl # custom_metrics Prometheus-style views (all envs)
-    prod/ops.hcl            # metrics suite — prod-us + prod-eu only
-    env/
-      local/ops.hcl         # local dev — composes base as-is (no local-only objects yet)
-      dev/ops.hcl           # prom_metrics experiment (cloud dev only)
-      prod-us/ops.hcl       # events distributed proxies, sharded_tophog (tophog_new)
-      prod-eu/ops.hcl       # sharded_tophog (tophog) — query_log_archive_old intentionally unmanaged
-    golden/                 # vendored per-env cluster dumps — the drift baseline
-    check.sh                # validate + diff layers vs golden for every env
-    diff.sh                 # preview DDL your uncommitted edits produce, per env
+  bin/hclexp               # wrapper: $HCLEXP_BIN local binary, or pinned container image
+  nodes                    # composition manifest: (env, role) -> ordered layer list  ← placement
+  clusters                 # cluster_name -> composing roles; rendered into the manifest check.sh feeds `validate -manifest` to resolve cross-cluster proxies
+  roles/shared/            # objects on every role (query_log_archive path + custom_metrics_* sub-views + ops_query_log_archive_mv)
+  roles/ops/shared/        # OPS objects on every OPS env
+  roles/ops/prod/          # OPS objects on both prod envs only (the metrics suite)
+  roles/ops/<env>/         # per-env OPS overlay (sharded_tophog zoo_path, prod-us ProfileEvents2, dev prom_metrics); env ∈ local/dev/prod-us/prod-eu
+  roles/logs/shared/       # LOGS objects on every LOGS env
+  roles/logs/<env>/        # per-env LOGS overlay (kafka/zoo_path/distributed variants; traces on prod only); env ∈ dev/prod-us/prod-eu
+  <layer>/sql/<object>.sql # view/MV query bodies extracted from a layer, referenced as query = file("sql/<object>.sql")
+  golden/<env>-<role>.hcl  # resolved composition per node (the desired schema); check.sh diffs against it
+  sql/<env>-<role>.sql     # generated build-from-scratch CREATE schema per node (apply to a fresh ClickHouse)
+  check.sh                 # CI guard (offline): validate + diff every node vs golden + verify golden/ & sql/ are fresh
+  dump-live.sh             # CI gate step 1 (live): introspect the migrated OPS/LOGS nodes into HCL dumps
+  check-live.sh            # CI gate step 2 (offline): diff those dumps vs golden — catches migrations that desync from the HCL
+  exclude.hcl              # objects the gate drops (transient + cross-cluster proxies + out-of-band-managed, not in the managed set)
+  diff.sh                  # preview the DDL your uncommitted edits produce, per node
+  gen-golden.sh            # (re)generate golden/  — hclexp load per node
+  gen-sql.sh               # (re)generate sql/
+  codegen/gen_migration.py # turn an edit into run_sql_with_exceptions(...) operations
 ```
 
-`base/` is a single layer directory; `hclexp` loads every `*.hcl` in it, so
-`base/ops.hcl` and `base/custom_metrics.hcl` are always composed together.
+## Convergence gate: migrations must reproduce the golden (`dump-live.sh` + `check-live.sh`)
 
-Each environment is the ordered composition of layers:
+`check.sh` is **offline** — it proves the HCL is internally consistent and that `golden/`/`sql/` are
+fresh, but it never contacts a cluster, so it cannot tell whether the imperative migrations in
+`posthog/clickhouse/migrations/` still produce the schema the HCL declares. That gap is how old
+migrations silently desynced the live OPS/LOGS schema from the HCL.
 
-| Environment | Layer stack                     | Golden                          |
-| ----------- | ------------------------------- | ------------------------------- |
-| local       | `base` + `env/local`            | — (created from HCL; see below) |
-| dev         | `base` + `env/dev`              | `golden/dev-ops.hcl`            |
-| prod-us     | `base` + `prod` + `env/prod-us` | `golden/prod-us-ops.hcl`        |
-| prod-eu     | `base` + `prod` + `env/prod-eu` | `golden/prod-eu-ops.hcl`        |
+The convergence gate closes it, in **two steps** that run inside the multinode migration smoke
+(`tools/infra-scripts/clickhouse-multinode/`, workflow `ci-clickhouse-multinode-migrations.yml`)
+**after** `manage.py migrate_clickhouse`:
 
-`local` composes the same shared `base` as cloud (so `custom_metrics` and the
-`query_log_archive` data path exist locally too); it just has none of the cloud
-env extras. It has no external cluster dump, so `check.sh` validates it but does
-not diff it against a golden — the live round-trip is exercised by the
-local-apply tooling instead.
-
-Per-node `{shard}` / `{replica}` stay as ClickHouse macros, so the 1a/1b (1c/1d)
-replicas of a cluster collapse to a single definition.
-
-## The OPS cluster, in brief
-
-Only `sharded_query_log_archive` (ReplicatedMergeTree, single shard) physically
-lives on OPS. Every node role across the fleet also gets three companion objects
-that reference it — modeled in `base/ops.hcl`:
-
-- `query_log_archive` — Distributed **read** → `ops.sharded_query_log_archive`
-- `writable_query_log_archive` — Distributed **write** → `ops.sharded_query_log_archive`
-- `ops_query_log_archive_mv` — MV reading each node's `system.query_log` and
-  writing through `writable_query_log_archive`.
-
-Some objects reference tables **outside** the OPS schema by design and are
-excluded from `validate` (see `SKIP` in `check.sh`): the `custom_metrics*` views
-read the `system` database, the MV reads `system.query_log`, and
-`events_main` / `events_recent` are Distributed proxies to the main events
-cluster.
-
-## Local apply notes
-
-The `custom_metrics*` views read system tables (`system.part_log`,
-`system.parts`, `system.backup_log`, `system.crash_log`, …). On a fresh local
-ClickHouse some of these are created lazily (e.g. `system.part_log` appears only
-after merge activity), so applying the views may fail with `UNKNOWN_TABLE` until
-those system tables exist. This is an environment dependency, not a schema
-issue; on the real clusters the system tables are always present.
-
-(The earlier `CREATE VIEW` regeneration bug for views with a column list +
-`SELECT *` — [PostHog/chschema#41](https://github.com/PostHog/chschema/issues/41)
-— is fixed in `hclexp`; rebuild or pull the latest before running the tooling.)
-
-## Common commands
-
-Run from the repo root. Point `HCLEXP_BIN` at a built binary for fast local
-iteration; CI uses the container image via the same wrapper.
+1. **`dump-live.sh [outdir]`** — `hclexp introspect` each managed role's live node into
+   `<outdir>/<env>-<role>.hcl`, dropping unmanaged / transient objects via `exclude.hcl`. Needs the
+   cluster (a `--network host` container, or `HCLEXP_BIN` locally). Also writes
+   `<outdir>/hclexp-version.txt` (`hclexp -version`) recording the tool build that produced the dump —
+   informational provenance, not gated by `check-live.sh`.
+2. **`check-live.sh <dumpdir>`** — for each role, `hclexp diff -format json` the committed
+   `golden/<env>-<role>.hcl` against the dump, drop the ignored operations (named_collections +
+   `exclude.hcl` globs), and require nothing left. Offline — only needs `hclexp`.
 
 ```bash
-HCLEXP=posthog/clickhouse/hcl/bin/hclexp
-
-# Fidelity + reference guard for every OPS environment (CI entry point)
-bash posthog/clickhouse/hcl/ops/check.sh
-
-# Preview the migration DDL your uncommitted edits would produce, per env
-# (committed = reference, working tree = desired). Optional ref / env args.
-bash posthog/clickhouse/hcl/ops/diff.sh
-
-# Resolve a layer stack to canonical HCL
-$HCLEXP load -layer posthog/clickhouse/hcl/ops/base,posthog/clickhouse/hcl/ops/env/dev -out /tmp/ops-dev.hcl
-
-# Migration DDL to bring a live cluster up to the HCL source of truth
-$HCLEXP diff \
-  -left posthog/clickhouse/hcl/ops/base,posthog/clickhouse/hcl/ops/prod,posthog/clickhouse/hcl/ops/env/prod-us \
-  -right 'clickhouse://user:pass@host:9440/posthog?secure=true' \
-  -sql
+DUMP=$(bash posthog/clickhouse/hcl/dump-live.sh)   # step 1 -> prints the dump dir
+bash posthog/clickhouse/hcl/check-live.sh "$DUMP"  # step 2
 ```
 
-`diff -sql` may flag in-place-impossible changes `-- UNSAFE`. Those are review-gated
-and must never be auto-applied to production — `query_log_archive` is a
-fleet-wide, sensitive table.
+Remaining drift means a migration changed the live schema without the HCL being updated (or vice
+versa). Fix the migration to match the HCL, or — if the change is intended — edit the layer, rerun
+`gen-golden.sh`/`gen-sql.sh`, and add the migration (the normal change flow below). Step 2 is
+**enforced** (drift fails the smoke); export `VERIFY_LIVE_WARN=1` to make it informational while
+reconciling a new role.
 
-## Updating the schema
+Each managed role is compared against its `golden/local-<role>.hcl`. The local LOGS node runs a
+partial/newer schema than the cloud logs nodes, so `local logs` composes a self-contained
+`roles/logs/local` (extracted from the live node) rather than the shared cloud layers.
 
-1. Edit the relevant layer file(s).
-2. When prod changes upstream, re-dump the cluster (see the
-   `../../../../python-clickhouse-schema` `dump-cluster` command) and refresh the
-   matching `ops/golden/*-ops.hcl` baseline in the same change.
-3. Run `check.sh` — it must report `no differences` for every environment.
-4. Generate the migration DDL with `diff -sql` and apply it through the normal
-   operational path.
+`node_roles` is **derived**: an object in `roles/shared/` appears in every node's composition →
+`node_roles` = every managed role (currently `[LOGS, OPS]`); an object under `roles/ops/` appears
+only in the ops nodes → `[OPS]`; one under `roles/logs/` → `[LOGS]`.
 
-The `golden/*-ops.hcl` files are captured cluster dumps, kept in lockstep with
-the layered source so `check.sh` is a deterministic, offline CI guard.
+Per-node `{shard}` / `{replica}` stay as ClickHouse macros, so replicas collapse to one definition.
+A cross-cluster Distributed proxy references a table on another cluster's composition; `check.sh`
+renders `nodes` + `clusters` into an HCL manifest and runs `validate -manifest -env <env>`, so those
+remotes resolve against their target cluster (existence + column agreement) rather than being
+skipped. `system.*` remotes are always resolvable. The `posthog` data cluster is `local`-only here
+(prod goldens live in posthog-cloud-infra), so `check.sh` passes it via `-cluster` flags — composed
+for `local`, `@absent` elsewhere. A tiny `known_drift_skip` covers real proxy/storage drift pending
+a fix.
+
+## Making a change (edit HCL → migration)
+
+Run from the repo root. All the scripts below call `hclexp` through `bin/hclexp`,
+which runs the pinned container image — **no install needed, just have Docker running**:
+
+```bash
+HCL=posthog/clickhouse/hcl
+# the wrapper used by every script (for running hclexp directly), e.g.:
+$HCL/bin/hclexp -help
+# it is equivalent to:
+docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
+  ghcr.io/posthog/chschema:sha-0409212 -help
+```
+
+(For faster local iteration you can build the binary — `go build -o hclexp ./cmd/hclexp` in
+`../../../../python-clickhouse-schema` — and `export HCLEXP_BIN=…/hclexp`; the wrapper prefers it.)
+
+1. **Edit the right layer** for what you're changing:
+   - all-role object (the `query_log_archive` path, `custom_metrics_*` sub-views, cross-cluster MVs) → `roles/shared/`
+   - OPS-only → `roles/ops/shared/` (all OPS envs), `roles/ops/prod/` (both prod envs), or `roles/ops/<env>/` (one env)
+   - LOGS → `roles/logs/shared/` (common) or `roles/logs/<env>/` (per-env / differing)
+   - a brand-new object → add it to the layer above **and**, if it's on a new role, add that role's
+     line to `nodes` (+ a golden for it).
+   - a long view/MV `query` → keep it in `<layer>/sql/<object>.sql` and reference it as
+     `query = file("sql/<object>.sql")` (resolved relative to the layer file). The loader normalizes
+     `file()`, heredoc, and inline forms to one canonical query, so the form is purely cosmetic — edit
+     the `.sql`. `gen-sql.sh`/`gen-golden.sh` emit the beautified form.
+
+2. **Preview the DDL** the change produces, per node:
+
+   ```bash
+   bash $HCL/diff.sh            # committed HEAD -> working tree, per (env, role); flags UNSAFE
+   ```
+
+3. **Generate the migration** — `--auto` writes the next numbered migration and bumps `max_migration.txt`:
+
+   ```bash
+   python $HCL/codegen/gen_migration.py --name <slug> --auto
+   ```
+
+   It derives `node_roles` from composition and `sharded`/`is_alter_on_replicated_table` from the engine.
+   Review the generated `posthog/clickhouse/migrations/NNNN_<slug>.py`: add `settings.CLOUD_DEPLOYMENT`
+   gating where a statement is flagged env-specific, and recheck any `UNSAFE` (recreate) statements by hand.
+   (Drop `--auto` to print to stdout instead.)
+
+4. **Refresh the generated artifacts** so the guard passes:
+
+   ```bash
+   bash $HCL/gen-golden.sh      # rebuild golden/ (resolved compositions); optional [env] [role] filter
+   bash $HCL/gen-sql.sh         # rebuild sql/
+   ```
+
+   (Golden = the desired post-apply schema; the dump pipeline re-introspects after deploy to confirm
+   the real cluster converged to it.)
+
+5. **Verify**:
+
+   ```bash
+   bash $HCL/check.sh          # validate + diff every node vs golden + sql freshness; must exit 0
+   ```
+
+The committed migration is the apply + history record; the HCL/golden/sql are the source of truth and
+the offline guard. `diff -sql` UNSAFE statements (engine/zoo_path/order_by recreations) are review-gated
+and must never be auto-applied to production.
+
+## Build a node from scratch
+
+`sql/<env>-<role>.sql` is the full, dependency-ordered CREATE schema for that node — e.g. apply
+`sql/local-ops.sql` to a local ClickHouse to create the OPS schema. (It is faithful to the HCL, so it
+references the real clusters / `{shard}` macros / Kafka; apply it to an env that has those configured.)

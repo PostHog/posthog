@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _ensure_duckgres_apply_table,
     _insert_batch,
     _mark_duckgres_batch_applied,
+    _process_backfill_batch,
     _process_batch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -354,11 +355,11 @@ def test_missing_table_is_created_from_parquet() -> None:
 def test_insert_batch_uses_explicit_column_projection() -> None:
     conn = _make_conn()
 
-    _insert_batch(conn, "warehouse", "customers", "s3://bucket/path", ["id", "email"])
+    _insert_batch(conn, "warehouse", "customers", ["s3://bucket/path"], ["id", "email"])
 
     query = conn.execute.call_args.args[0]
     assert "SELECT *" not in repr(query)
-    assert conn.execute.call_args.args[1] == ["s3://bucket/path"]
+    assert "s3://bucket/path" in repr(query)  # path is inlined as a literal now
 
 
 def test_already_applied_batch_skips_duckgres_mutation() -> None:
@@ -449,3 +450,108 @@ def test_duckgres_apply_marker_is_scoped_by_schema_id() -> None:
         2,
         "00000000-0000-0000-0000-000000000001",
     ]
+
+
+def _make_backfill_batch(**overrides: Any) -> PendingBatch:
+    md = {
+        "duckgres_backfill": True,
+        "chunk_paths": ["s3://bucket/chunk_0.parquet"],
+        "chunk_count": 3,
+    }
+    md.update(overrides.pop("metadata", {}))
+    return _make_batch(
+        job_id="duckgres-backfill",
+        run_uuid="duckgres-backfill-schema-1-v7",
+        sync_type="full_refresh",
+        is_resume=True,
+        metadata=md,
+        **overrides,
+    )
+
+
+class TestBackfillProcessing:
+    def test_first_chunk_creates_backfill_table_without_swap(self) -> None:
+        conn = _make_conn()
+        batch = _make_backfill_batch(batch_index=0)
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._ensure_duckgres_apply_table"
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._has_duckgres_batch_applied",
+                return_value=False,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._read_parquet_schema",
+                return_value=_parquet_schema(),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._mark_duckgres_batch_applied"
+            ) as mark,
+        ):
+            _process_backfill_batch(conn, batch, _make_schema())
+
+        executed = " ".join(repr(c.args[0]) for c in conn.execute.call_args_list)
+        assert "stripe_customers__bf_schema1" in executed
+        assert "CREATE OR REPLACE TABLE" in executed
+        assert "RENAME TO" not in executed
+        mark.assert_called_once()
+
+    def test_last_chunk_swaps_and_marks_primed(self) -> None:
+        conn = _make_conn()
+        batch = _make_backfill_batch(batch_index=2, metadata={"chunk_paths": ["s3://bucket/chunk_2.parquet"]})
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._ensure_duckgres_apply_table"
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._has_duckgres_batch_applied",
+                return_value=False,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._read_parquet_schema",
+                return_value=_parquet_schema(),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._ensure_target_columns"
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._insert_batch"
+            ) as insert,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._mark_duckgres_batch_applied"
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill.mark_primed"
+            ) as primed,
+        ):
+            _process_backfill_batch(conn, batch, _make_schema())
+
+        executed = " ".join(repr(c.args[0]) for c in conn.execute.call_args_list)
+        assert "DROP TABLE IF EXISTS" in executed
+        assert "Identifier('stripe_customers')" in executed
+        assert "RENAME TO" in executed
+        insert.assert_called_once()
+        primed.assert_called_once_with("schema-1", run_uuid="duckgres-backfill-schema-1-v7", chunks_applied=3)
+
+    def test_already_applied_chunk_is_a_noop(self) -> None:
+        conn = _make_conn()
+        batch = _make_backfill_batch(batch_index=1)
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._ensure_duckgres_apply_table"
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._has_duckgres_batch_applied",
+                return_value=True,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._insert_batch"
+            ) as insert,
+        ):
+            _process_backfill_batch(conn, batch, _make_schema())
+
+        insert.assert_not_called()

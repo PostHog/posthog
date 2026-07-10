@@ -167,10 +167,10 @@ def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
         span_filter.key = "duration_nano"
         if isinstance(span_filter.value, list):
             span_filter.value = [
-                str(decimal.Decimal(str(v)) * 1000000) for v in span_filter.value if _is_number(str(v))
+                str(int(decimal.Decimal(str(v)) * 1000000)) for v in span_filter.value if _is_number(str(v))
             ]
         elif _is_number(str(span_filter.value)):
-            span_filter.value = str(decimal.Decimal(str(span_filter.value)) * 1000000)
+            span_filter.value = str(int(decimal.Decimal(str(span_filter.value)) * 1000000))
 
     if span_filter.key == "kind" and span_filter.value is not None:
         values: list = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]

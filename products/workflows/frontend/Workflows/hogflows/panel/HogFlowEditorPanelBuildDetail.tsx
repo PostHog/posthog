@@ -18,6 +18,8 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { urls } from 'scenes/urls'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+
 import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySelect'
 
 import { workflowLogic } from '../../workflowLogic'
@@ -33,9 +35,8 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, workflow, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setMode } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(workflowLogic)
-    const { mappings, pendingPath, testLoading, testError, testResultData, shakePickButton } = useValues(
-        hogFlowOutputMappingLogic(logicProps)
-    )
+    const { mappings, pendingPath, testLoading, testError, testResultData, shakePickButton, pendingSuggestions } =
+        useValues(hogFlowOutputMappingLogic(logicProps))
     const {
         setSelectedActionId,
         setMappings,
@@ -46,6 +47,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
         assignPendingPathToMapping,
         cancelPendingPath,
         runOutputTest,
+        applySuggestion,
     } = useActions(hogFlowOutputMappingLogic(logicProps))
 
     useEffect(() => {
@@ -116,7 +118,9 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                     )}
                 </div>
                 <LemonDivider className="my-2" />
-                {Step?.renderConfiguration(selectedNode)}
+                <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>
+                    {Step?.renderConfiguration(selectedNode)}
+                </ErrorBoundary>
             </ScrollableShadows>
 
             {isOptOutEligibleAction(action) && (
@@ -237,6 +241,24 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     </LemonField.Pure>
                                                 </div>
                                             ))}
+                                            {pendingSuggestions.length > 0 && (
+                                                <div className="w-full">
+                                                    <p className="text-xs text-secondary mb-1">Suggested</p>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {pendingSuggestions.map((suggestion) => (
+                                                            <LemonButton
+                                                                key={suggestion.key}
+                                                                size="xsmall"
+                                                                type="secondary"
+                                                                icon={<IconPlus />}
+                                                                onClick={() => applySuggestion(suggestion)}
+                                                            >
+                                                                {suggestion.label}
+                                                            </LemonButton>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
                                             <div className="flex gap-2 w-full">
                                                 <LemonButton
                                                     icon={<IconPlus />}

@@ -12,11 +12,36 @@ import { urls } from 'scenes/urls'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { type InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { type AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { aiObservabilityErrorsLogic } from './tabs/aiObservabilityErrorsLogic'
+
+export function buildErrorTracesUrl(
+    errorString: string,
+    searchParams: Record<string, unknown>,
+    currentPropertyFilters: AnyPropertyFilter[]
+): string {
+    return combineUrl(urls.aiObservabilityTraces(), {
+        ...searchParams,
+        filters: [
+            ...currentPropertyFilters,
+            {
+                type: PropertyFilterType.Event,
+                key: '$ai_is_error',
+                operator: PropertyOperator.Exact,
+                value: 'true',
+            },
+            {
+                type: PropertyFilterType.Event,
+                key: '$ai_error_normalized',
+                operator: PropertyOperator.Exact,
+                value: errorString,
+            },
+        ],
+    }).url
+}
 
 export function AIObservabilityErrors(): JSX.Element {
     const sharedLogic = useMountedLogic(aiObservabilitySharedLogic)
@@ -87,32 +112,11 @@ export function AIObservabilityErrors(): JSX.Element {
                                 errorString.length > 80 ? errorString.slice(0, 77) + '...' : errorString
 
                             return (
-                                <div className="flex items-center gap-1">
+                                <div className="flex min-w-0 items-center gap-1">
                                     <Tooltip title={errorString}>
                                         <Link
-                                            to={
-                                                combineUrl(urls.aiObservabilityTraces(), {
-                                                    ...searchParams,
-                                                    filters: [
-                                                        {
-                                                            type: PropertyFilterType.Event,
-                                                            key: '$ai_is_error',
-                                                            operator: PropertyOperator.Exact,
-                                                            value: 'true',
-                                                        },
-                                                        {
-                                                            type: PropertyFilterType.Event,
-                                                            key: '$ai_error_normalized',
-                                                            operator: PropertyOperator.Exact,
-                                                            // Escape backslashes and quotes to match HogQL's JSONExtractRaw extraction
-                                                            value: errorString
-                                                                .replace(/\\/g, '\\\\')
-                                                                .replace(/"/g, '\\"'),
-                                                        },
-                                                    ],
-                                                }).url
-                                            }
-                                            className="font-mono text-sm"
+                                            to={buildErrorTracesUrl(errorString, searchParams, currentPropertyFilters)}
+                                            className="min-w-0 shrink truncate font-mono text-sm"
                                             data-attr="llm-errors-row-click"
                                         >
                                             {displayValue}

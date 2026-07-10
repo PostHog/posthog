@@ -22,6 +22,7 @@ import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
@@ -84,7 +85,6 @@ describe('Hogflow Executor', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
@@ -99,6 +99,12 @@ describe('Hogflow Executor', () => {
         )
         const recipientsManager = new RecipientsManagerService(hub.postgres)
         const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
+        // Stubbed to always allow: this suite covers executor routing and flow control,
+        // not MX validation (email-validation.service.test.ts does), and the real
+        // service would fire live DNS lookups for the fixture recipients here.
+        const emailValidationService = {
+            getSkipReason: () => Promise.resolve(null),
+        } as unknown as EmailValidationService
 
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
@@ -135,7 +141,11 @@ describe('Hogflow Executor', () => {
 
         await insertHogFunctionTemplate(hub.postgres, posthogCaptureTemplate)
 
-        executor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService)
+        executor = new HogFlowExecutorService(
+            hogFlowFunctionsService,
+            recipientPreferencesService,
+            emailValidationService
+        )
     })
 
     describe('general event processing', () => {
@@ -203,6 +213,7 @@ describe('Hogflow Executor', () => {
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
+                emailAssets: [],
                 invocation: {
                     state: {
                         actionStepCount: 1,
@@ -678,7 +689,8 @@ describe('Hogflow Executor', () => {
                 )
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                // The property-based conversion is also counted on the exit path
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_conversion ([Person:person_id|John Doe] matches conversion filters)",
@@ -793,12 +805,109 @@ describe('Hogflow Executor', () => {
 
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                // The property-based conversion is also counted on the exit path
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_trigger_not_matched_or_conversion ([Person:person_id|John Doe] matches conversion filters)",
                     ]
                 `)
+            })
+
+            it('counts a property-based conversion without exiting when exit condition is exit_only_at_end', async () => {
+                hogFlow.exit_condition = 'exit_only_at_end'
+                hogFlow.conversion = {
+                    filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
+                    bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
+                    window_minutes: null,
+                }
+
+                const invocation = createExampleHogFlowInvocation(
+                    hogFlow,
+                    {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            event: '$pageview',
+                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                        },
+                    },
+                    { properties: { $browser: 'Chrome' } }
+                )
+
+                const result = await executor.execute(invocation)
+                // The run completes normally (no early exit) but the conversion is counted exactly once
+                expect(result.finished).toBe(true)
+                expect(result.metrics.map((m) => m.metric_name)).toEqual([
+                    'conversion',
+                    'fetch',
+                    'billable_invocation',
+                    'succeeded',
+                    'succeeded',
+                ])
+                expect(result.metrics.filter((m) => m.metric_name === 'conversion')).toHaveLength(1)
+                expect(invocation.state.conversionCounted).toBe(true)
+                // The conversion is also surfaced as a billable $workflows_conversion event exactly once.
+                const conversionEvents = result.capturedPostHogEvents.filter((e) => e.event === '$workflows_conversion')
+                expect(conversionEvents).toHaveLength(1)
+                expect(conversionEvents[0]).toMatchObject({
+                    distinct_id: 'distinct_id',
+                    properties: { $workflow_id: hogFlow.id, $workflow_conversion_type: 'property' },
+                })
+            })
+
+            it('does not re-count a property-based conversion on a resume that already counted', async () => {
+                hogFlow.exit_condition = 'exit_only_at_end'
+                hogFlow.conversion = {
+                    filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
+                    bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
+                    window_minutes: null,
+                }
+
+                const invocation = createExampleHogFlowInvocation(
+                    hogFlow,
+                    {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            event: '$pageview',
+                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                        },
+                    },
+                    { properties: { $browser: 'Chrome' } }
+                )
+                // Simulate a prior step in this run having already counted the conversion
+                invocation.state.conversionCounted = true
+
+                const result = await executor.execute(invocation)
+                expect(result.finished).toBe(true)
+                expect(result.metrics.map((m) => m.metric_name)).not.toContain('conversion')
+            })
+
+            it('does not count event-based conversions in the executor (counted by the matcher)', async () => {
+                hogFlow.exit_condition = 'exit_only_at_end'
+                // Event-based conversion goal: no property filters/bytecode, so the executor's
+                // property path never matches. The matcher flags the run via conversionMatched.
+                hogFlow.conversion = {
+                    filters: [],
+                    bytecode: [],
+                    window_minutes: null,
+                    events: [{ filters: { bytecode: ['_H', 1, 29] } }],
+                }
+
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: '$pageview',
+                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                    },
+                })
+                invocation.state.conversionMatched = true
+
+                const result = await executor.execute(invocation)
+                expect(result.finished).toBe(true)
+                // No conversion metric from the executor; the flag is consumed, not double-counted
+                expect(result.metrics.map((m) => m.metric_name)).not.toContain('conversion')
+                expect(invocation.state.conversionMatched).toBe(false)
+                expect(invocation.state.conversionCounted).toBeUndefined()
             })
 
             describe('on_error handling', () => {

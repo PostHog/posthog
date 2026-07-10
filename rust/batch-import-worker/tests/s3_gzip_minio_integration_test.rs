@@ -13,18 +13,15 @@ use batch_import_worker::{
     source::DataSource,
 };
 use common_types::{InternallyCapturedEvent, RawEvent};
-use flate2::write::GzEncoder;
-use flate2::Compression;
 use std::collections::HashSet;
-use std::io::Write;
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 use uuid::Uuid;
 
 mod common;
 use common::{
-    cleanup_bucket, create_minio_client, ensure_bucket_exists, MINIO_ACCESS_KEY, MINIO_ENDPOINT,
-    MINIO_SECRET_KEY,
+    cleanup_bucket, create_minio_client, ensure_bucket_exists, gzip_bytes, MINIO_ACCESS_KEY,
+    MINIO_ENDPOINT, MINIO_SECRET_KEY,
 };
 
 const TEST_BUCKET: &str = "batch-import-test";
@@ -43,12 +40,6 @@ fn make_captured_event(i: u32) -> String {
         "properties": { "idx": i }
     })
     .to_string()
-}
-
-fn gzip_bytes(data: &[u8]) -> Vec<u8> {
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    encoder.write_all(data).unwrap();
-    encoder.finish().unwrap()
 }
 
 #[tokio::test]
@@ -117,7 +108,7 @@ async fn test_s3_gzip_minio_integration() {
 
     let _staging = tempfile::TempDir::new().expect("create staging dir");
     let source = s3_config
-        .create_gzip_source(&secrets, _staging.path().to_path_buf())
+        .create_gzip_source(&secrets, None, _staging.path().to_path_buf(), 0, None, 0)
         .await
         .expect("create gzip source");
     source.prepare_for_job().await.expect("prepare for job");
@@ -159,16 +150,21 @@ async fn test_s3_gzip_minio_integration() {
     let mut all_events: Vec<InternallyCapturedEvent> = Vec::new();
     for key in &keys {
         source.prepare_key(key).await.expect("prepare_key");
-        let size = source.size(key).await.expect("size").expect("size some");
+        // Streaming sources discover size lazily, so consume forward until the
+        // reader returns an empty chunk (end of stream) rather than reading up to
+        // a known size.
         let mut offset = 0u64;
-        while offset < size {
+        loop {
             let chunk = source
                 .get_chunk(key, offset, CHUNK_SIZE)
                 .await
                 .expect("get_chunk");
+            if chunk.is_empty() {
+                break;
+            }
             let parsed = parser(chunk).expect("parse chunk");
-            all_events.extend(parsed.data);
             offset += parsed.consumed as u64;
+            all_events.extend(parsed.data);
         }
     }
 

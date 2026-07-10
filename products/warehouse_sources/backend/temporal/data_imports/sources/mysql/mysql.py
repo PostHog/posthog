@@ -33,7 +33,10 @@ from pymysql.constants import FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
-from posthog.exceptions_capture import capture_exception
+# Module-level error-capture seam. This module's best-effort probes (get_rows_to_sync,
+# explain_query, fetch_average_row_size) deliberately do NOT report handled failures here;
+# their guard tests patch `mysql.capture_exception` to enforce that.
+from posthog.exceptions_capture import capture_exception  # noqa: F401
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -398,6 +401,27 @@ def _is_transient_packet_sequence_error(e: BaseException) -> bool:
     return any(_PACKET_SEQUENCE_ERROR_PHRASE in str(arg) for arg in e.args)
 
 
+# Vitess/PlanetScale vtgate surfaces a backend tablet it can't reach at connect time as pymysql
+# OperationalError(1815, 'internal connection error: dial tcp <addr>: connect: connection timed
+# out, after N attempts, reqid=...'): the vtgate handshake succeeds but dialing the tablet behind
+# it times out — a failover, a restart, or a momentary network blip that a fresh attempt recovers
+# from. 1815 is MySQL's generic ER_INTERNAL_ERROR, so key on the Go-network `dial tcp` +
+# `connection timed out` signature (no plain MySQL error carries the `dial tcp` token) rather than
+# the bare code; the volatile tablet address, attempt count, and reqid stay untouched. This is the
+# connect-time sibling of the `code = Unavailable` tablet-unavailable case, which instead lands on
+# the first query after connect (see `_is_transient_tablet_unavailable`).
+_VITESS_DIAL_TOKEN = "dial tcp"
+_VITESS_DIAL_TIMEOUT_TOKEN = "connection timed out"
+
+
+def _is_transient_vitess_dial_timeout(e: BaseException) -> bool:
+    """Return True if a Vitess vtgate timed out dialing its backend tablet — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    args_text = " ".join(str(arg) for arg in e.args)
+    return _VITESS_DIAL_TOKEN in args_text and _VITESS_DIAL_TIMEOUT_TOKEN in args_text
+
+
 def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
     """Open a pymysql connection, retrying a transient drop or timeout on connect.
 
@@ -416,6 +440,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
                 _is_transient_connect_drop(e)
                 or _is_transient_connect_timeout(e)
                 or _is_transient_packet_sequence_error(e)
+                or _is_transient_vitess_dial_timeout(e)
             ):
                 raise
             structlog.get_logger().warning(
@@ -1064,8 +1089,14 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             row_size_bytes = max(row[0] or 0, 1)
             return int(row_size_bytes)
         except Exception as e:
+            # Row-size sampling is a best-effort probe: on any failure the caller falls back to the
+            # default chunk size and the sync proceeds. A genuine problem (missing table, revoked
+            # permission) resurfaces in the real extraction query and is classified through the normal
+            # retryable/non-retryable path, while a transient connection drop here (e.g. pymysql's
+            # `InterfaceError(0, '')` when the socket was already closed) stays retryable there too.
+            # Capturing it would only flood error tracking with handled duplicates, so log at debug and
+            # fall back. Mirrors `get_partition_settings` and the Redshift source's `fetch_average_row_size`.
             logger.debug(f"fetch_average_row_size: Error: {e}.", exc_info=e)
-            capture_exception(e)
             return None
 
     def find_index_for_cursor(

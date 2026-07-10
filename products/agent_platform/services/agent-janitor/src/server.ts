@@ -6,7 +6,7 @@
  * Endpoints (grouped):
  *
  *   Session lifecycle (existing):
- *     GET    /sessions?application_id=  list sessions for one application (newest first)
+ *     GET    /sessions?application_id=  list sessions for one application (most recently active first)
  *     GET    /sessions/:id              full session state
  *     POST   /sessions/:id/cancel       mark failed
  *     POST   /sweep                     trigger a sweep (tests / debug)
@@ -45,6 +45,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
 import {
+    acceptedModelIds,
     accumulateUsage,
     AgentRevision,
     AgentRevisionRaw,
@@ -52,6 +53,8 @@ import {
     AgentSpec,
     AgentSpecSchema,
     ApprovalRequest,
+    CatalogModel,
+    GatewayCatalog,
     ApprovalStore,
     applyApprovalDecision,
     BundleEntry,
@@ -68,11 +71,16 @@ import {
     isDev,
     lastAssistantTextPreview,
     MemoryStore,
+    MODEL_POLICY_LEVELS,
     PgIdentityAdminStore,
+    previewText,
     readTypedBundle,
     RevisionStore,
+    SandboxPool,
     SessionQueue,
     skillBodyPath,
+    SPEC_SCHEMA_SECTIONS,
+    specJsonSchema,
     TabularStore,
     verifyInternalJwt,
 } from '@posthog/agent-shared'
@@ -125,6 +133,23 @@ export interface JanitorServerOpts {
      * non-`/healthz` request. Unset → middleware is skipped (dev / harness).
      */
     internalSigningKey?: string
+    /** Served-model catalog. When set, `validate` + freeze reject a models
+     *  the gateway doesn't serve; omitted → the model check is skipped. */
+    gatewayCatalog?: GatewayCatalog
+    /**
+     * Single-shot sandbox pool backing the `POST /tools/:id/dry_run`
+     * endpoint. Same `selectSandboxPool` impl the runner uses; lifecycle is
+     * per-call (acquire → invoke → release) rather than per-session. When
+     * omitted, the dry-run route 503s. May split into a dedicated
+     * `agent-exec` service if execution duties grow.
+     */
+    sandboxes?: SandboxPool
+    /** Wall-clock cap per dry-run invocation. Defaults applied at boot. */
+    dryRunWallMs?: number
+    /** Memory cap per dry-run sandbox. Defaults applied at boot. */
+    dryRunMemoryMb?: number
+    /** Max dry-run sandboxes in flight at once. Defaults applied at boot. */
+    dryRunMaxConcurrent?: number
 }
 
 const SessionStateSchema = z.enum(['queued', 'running', 'completed', 'closed', 'failed'])
@@ -342,6 +367,52 @@ const DecideApprovalBodySchema = z.object({
     reason: z.string().optional(),
 })
 
+interface CatalogModelRow {
+    model: string
+    provider: string
+    context_window: number
+    input: number
+    output: number
+    cache_read?: number
+    cache_write?: number
+}
+
+/** Per-token USD → per-Mtok, rounded so the UI sees `3` not `0.0000030004`. */
+function perMtok(perToken: number | undefined): number | undefined {
+    return perToken === undefined ? undefined : Math.round(perToken * 1e6 * 1000) / 1000
+}
+
+function catalogToModels(catalog: CatalogModel[]): CatalogModelRow[] {
+    return catalog
+        .map((m) => {
+            const row: CatalogModelRow = {
+                model: m.canonical,
+                provider: m.owned_by,
+                context_window: m.context_window,
+                input: perMtok(m.pricing.prompt) ?? 0,
+                output: perMtok(m.pricing.completion) ?? 0,
+            }
+            const cacheRead = perMtok(m.pricing.cache_read)
+            const cacheWrite = perMtok(m.pricing.cache_write)
+            if (cacheRead !== undefined) {
+                row.cache_read = cacheRead
+            }
+            if (cacheWrite !== undefined) {
+                row.cache_write = cacheWrite
+            }
+            return row
+        })
+        .sort((a, b) => a.model.localeCompare(b.model))
+}
+
+/** Resolve each curated level's members to their catalog canonical id (the
+ *  level list uses alias forms); fall back to the raw id when the catalog is
+ *  empty or the model isn't served. */
+function resolveLevels(catalog: CatalogModel[]): Record<string, string[]> {
+    const canonicalFor = (id: string): string => catalog.find((m) => acceptedModelIds([m]).has(id))?.canonical ?? id
+    return Object.fromEntries(Object.entries(MODEL_POLICY_LEVELS).map(([level, ids]) => [level, ids.map(canonicalFor)]))
+}
+
 export function buildJanitorApp(opts: JanitorServerOpts): Express {
     const app = express()
     // Dev only: serve /metrics on the request port (no dedicated scrape server —
@@ -390,6 +461,43 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         res.json({ ok: true })
     })
 
+    /* ───────────────────────────── models ─────────────────────────────── */
+    // The served-model catalog (id, provider, context, pricing per Mtok) plus
+    // the curated auto-level → model map, both from the single source the
+    // runner/validation already use. Powers the config-UI model browser (via
+    // Django REST) and, through the PostHog MCP, the agent builder's
+    // model-choosing skill. Pricing-free on an unreachable gateway (empty list).
+    app.get(
+        '/models',
+        asyncHandler(async (_req, res) => {
+            const catalog = opts.gatewayCatalog ? await opts.gatewayCatalog.list() : []
+            res.json({ models: catalogToModels(catalog), levels: resolveLevels(catalog) })
+        })
+    )
+
+    /* ──────────────────────────── spec schema ──────────────────────────── */
+    // The agent-spec JSON Schema, emitted from the canonical zod `AgentSpecSchema`
+    // (no hand-maintained mirror). Powers the `agent-applications-spec-schema` MCP
+    // tool so any client can derive the full spec shape — incl. `spec.models` —
+    // from the schema itself instead of guessing. `?section=` returns one
+    // top-level slice (e.g. `models`, `triggers`, `limits`) to save tokens.
+    app.get(
+        '/spec-schema',
+        asyncHandler(async (req, res) => {
+            const section = typeof req.query.section === 'string' && req.query.section ? req.query.section : undefined
+            const result = specJsonSchema(section)
+            if (!result) {
+                res.status(400).json({
+                    error: 'unknown_section',
+                    message: `Unknown spec section "${section}". Valid sections: ${SPEC_SCHEMA_SECTIONS.join(', ')}.`,
+                    sections: SPEC_SCHEMA_SECTIONS,
+                })
+                return
+            }
+            res.json(result)
+        })
+    )
+
     /* ───────────────────────────── sessions ───────────────────────────── */
 
     app.get(
@@ -405,12 +513,15 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 search: q.search,
             }
             const [sessions, count] = await Promise.all([
-                opts.queue.listByApplication(q.application_id, { ...filter, limit: q.limit, offset: q.offset }),
+                opts.queue.listSummariesByApplication(q.application_id, {
+                    ...filter,
+                    limit: q.limit,
+                    offset: q.offset,
+                }),
                 opts.queue.countByApplication(q.application_id, filter),
             ])
-            // Conversation can be large; strip it from the list view but derive a
-            // preview so a single tool call still tells you what the agent said.
-            // usage_total reads off the persisted column — no JSONB walk.
+            // `turns` + `preview` come off the persisted `turn_count` /
+            // `search_text` columns, so listing never detoasts a transcript.
             const summaries = sessions.map((s) => ({
                 id: s.id,
                 application_id: s.application_id,
@@ -420,8 +531,8 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 idempotency_key: s.idempotency_key,
                 trigger_metadata: s.trigger_metadata,
                 principal: s.principal,
-                turns: s.conversation.length,
-                preview: lastAssistantTextPreview(s.conversation),
+                turns: s.turns,
+                preview: previewText(s.search_text),
                 usage_total: s.usage_total,
                 retry_count: s.retry_count,
                 created_at: s.created_at,
@@ -824,7 +935,17 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     // (`/file?path=X`, `/bundle` with `mode`) were removed. The new
     // surface lives entirely under the typed router below.
     if (opts.revisions && opts.bundles) {
-        app.use('/revisions/:id', buildTypedBundleRouter({ revisions: opts.revisions, bundles: opts.bundles }))
+        app.use(
+            '/revisions/:id',
+            buildTypedBundleRouter({
+                revisions: opts.revisions,
+                bundles: opts.bundles,
+                sandboxes: opts.sandboxes,
+                dryRunWallMs: opts.dryRunWallMs,
+                dryRunMemoryMb: opts.dryRunMemoryMb,
+                dryRunMaxConcurrent: opts.dryRunMaxConcurrent,
+            })
+        )
     }
 
     app.post(
@@ -882,8 +1003,9 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                     })
             )
             const validateInput: AgentRevision = { ...ok.rev!, spec: derivedSpec }
+            const freezeCatalog = opts.gatewayCatalog ? await opts.gatewayCatalog.list() : []
             const report = await instrument({ key: 'freeze.validate', log, context: ctx }, () =>
-                validateRevisionBundle(validateInput, opts.bundles!)
+                validateRevisionBundle(validateInput, opts.bundles!, freezeCatalog)
             )
             if (!report.ok) {
                 res.status(422).json({ error: 'validation_failed', report })
@@ -917,7 +1039,8 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 res.status(404).json({ error: 'revision_not_found' })
                 return
             }
-            const report = await validateRevisionBundle(rev, opts.bundles!)
+            const validateCatalog = opts.gatewayCatalog ? await opts.gatewayCatalog.list() : []
+            const report = await validateRevisionBundle(rev, opts.bundles!, validateCatalog)
             res.json(report)
         })
     )

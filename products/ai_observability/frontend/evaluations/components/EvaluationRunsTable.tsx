@@ -1,15 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { urls } from 'scenes/urls'
 
 import { EvaluationResultTag, getEvaluationResultSortValue } from '../../components/EvaluationResultTag'
-import { sanitizeTraceUrlSearchParams } from '../../utils'
+import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
 import { evaluationSupportsReports } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun, SentimentEvaluationRunsFilter } from '../types'
@@ -41,8 +39,6 @@ function SentimentEvaluationRunsFilters(): JSX.Element {
 
 export function EvaluationRunsTable(): JSX.Element {
     const { filteredEvaluationRuns, evaluation, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
-    const { searchParams } = useValues(router)
-    const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
     const showSummary = evaluationSupportsReports(evaluation)
     const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'
@@ -55,28 +51,9 @@ export function EvaluationRunsTable(): JSX.Element {
             sorter: (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         },
         {
-            title: 'Generation ID',
-            key: 'generation_id',
-            render: (_, run) => {
-                if (!run.generation_id) {
-                    return <span className="font-mono text-sm text-muted">—</span>
-                }
-                return (
-                    <div className="font-mono text-sm">
-                        <Link
-                            to={
-                                combineUrl(urls.aiObservabilityTrace(run.trace_id), {
-                                    ...traceSearchParams,
-                                    event: run.generation_id,
-                                }).url
-                            }
-                            className="text-primary"
-                        >
-                            {run.generation_id.slice(0, 12)}...
-                        </Link>
-                    </div>
-                )
-            },
+            title: 'Target',
+            key: 'target',
+            render: (_, run) => <EvaluationRunTargetCell run={run} />,
         },
         {
             title: 'Result',

@@ -14,12 +14,12 @@ This is the scene for **PostHog AI**, PostHog's agent. It hosts **two coexisting
 Per-concern mapping, `langgraph` (LEGACY, frozen) → `sandbox` (NEW, build here):
 
 - **Runtime flag**: `agent_runtime === 'langgraph'` → `agent_runtime === 'sandbox'`
-- **Stream logic**: `maxThreadLogic.tsx` (LangGraph stream loop) → `sandboxStreamLogic.ts` (SSE over products/tasks)
-- **Activity renderer**: `components/Activity/LangGraphActivity.tsx` → `components/Activity/SandboxActivity.tsx`
-- **Thread renderer**: `Thread.tsx` (default path) → `Thread.tsx` → `SandboxThread()`
+- **Stream logic**: `maxThreadLogic.tsx` (LangGraph stream loop) → `runStreamLogic` (SSE; in `products/posthog_ai/frontend/logics/`)
+- **Activity renderer**: `components/Activity/LangGraphActivity.tsx` → `RunActivity` (in `products/posthog_ai/frontend/components/`)
+- **Thread renderer**: `Thread.tsx` (default path) → `Thread.tsx` binds the surface's `ThreadView`
 - **Context shape**: rich `MaxUIContext` (full objects) → flat `AttachedContext` (typed refs, agent fetches)
-- **Approvals**: `DangerousOperationApprovalCard.tsx` / `approvalOperationUtils.ts` → `SandboxPermissionInput` / `SandboxQuestionInput`
-- **Tool widgets**: `messages/` + `messages/adapters/` → `sandboxToolRegistry` / `sandboxToolResolver`
+- **Approvals**: `DangerousOperationApprovalCard.tsx` / `approvalOperationUtils.ts` → the surface's `PermissionInput` / `QuestionInput`
+- **Tool widgets**: `messages/` + `messages/adapters/` → the surface's `toolRegistry` (Max's product renderers register via `messages/adapters/registerMaxToolRenderers`)
 
 ### Rule: do not extend the LangGraph path unless explicitly asked
 
@@ -32,71 +32,43 @@ New behavior — new tools, new context types, new UI affordances — goes on th
 
 If a task genuinely needs the LangGraph path extended, confirm that intent explicitly before touching `maxThreadLogic.tsx`, `LangGraphActivity.tsx`, `max-constants.tsx` (`EnhancedToolCall`), the `MaxUIContext` half of `maxContextLogic.ts`, or `messages/` + `messages/adapters/`.
 
-## 2. Sandbox architecture (the new path)
+## 2. Sandbox architecture &amp; conventions live with the surface
 
-`sandboxStreamLogic.ts` is the heart of the sandbox runtime:
+The sandbox runtime's heart — `runStreamLogic` (SSE connection, the append-only `log`, the pure
+`foldLogToThread` projection, permission routing) — and the conventions for working on it (logic-not-
+component, runtime-agnostic plain-props UI, atomic memoized leaves, pure projection) are documented in
+**`products/posthog_ai/frontend/AGENTS.md`**, where that code now lives. Read it before touching the surface.
 
-- **SSE connection** — a `fetch` body reader pumped through `eventsource-parser`; a reconnect resumes after the last Redis stream id via `Last-Event-ID` (capped exponential backoff + healthy-connection forgiveness + cumulative cap).
-- **Ordered, append-only `log` is the single source of truth** — every wire frame (plus a few client-injected synthetic entries) is appended, never keyed or per-entry deduped.
-- **Pure projection** `foldLogToThread(entries) → { threadItems, toolInvocations }`, memoized on `log` identity, derives the rendered thread.
-- **Keyed by `streamKey`** (conversation id for Max, task id for a generic task viewer), so concurrent streams stay independent.
+What's Max-specific on the sandbox path and stays here: `Thread.tsx` branches **high** on
+`conversation.agent_runtime` and, for the sandbox branch, binds `runStreamLogic` (keyed by the
+conversation id) and renders `ThreadView` from the surface — passing resolved props down, never
+parsing wire frames in a Max component.
 
-**Lifecycle:** `bootstrapRun` (connect SSE → buffer live frames → read the S3 `logs/` snapshot → `dedupeBufferedAgainstHistory` drains the seam) → `ingestAcpFrame` appends + fires fire-once side effects → projection → `Thread.tsx`'s `SandboxThread()` renders `threadItems`, looking up `toolInvocations` by id.
+## 4. The sandbox surface lives in `products/posthog_ai/frontend`
 
-**Permissions:** parse (`parsePermissionRequestFrame`) → route (`sandboxToolPolicy.defaultPermissionDecision` auto-approves built-ins + read-only PostHog `exec`, else surfaces a card) → answer (`respondToPermission`) → resolve (clears the card, pins the id so a reconnect replay can't re-surface it).
+The conversation-agnostic sandbox run surface (stream logic, thread/tool/permission/composer components,
+policy, wire types) **no longer lives under `scenes/max`** — it's the composable PostHog AI agent-run
+library at `products/posthog_ai/frontend`, consumed here through its tiered `api/<module>` facade
+(`import { ... } from 'products/posthog_ai/frontend/api/readableRun'` / `api/runSurface` / `api/primitives` /
+`api/logics` / `api/types` / `api/tools` — there is no root barrel; pick the narrowest tier). See that
+directory's `README.md` for the tier decision table + recipes and its `AGENTS.md` for layout, the public API
+(`ReadonlyRunSurface`, the `RunSurface` compound, `Thread`, `Composer`, `runStreamLogic`, the tool registry),
+and the hard rule that it must never import `scenes/max`.
 
-**Supporting modules:** `sandboxToolPolicy`, `sandboxPermissionUtils`, `sandboxPermissionDisplayUtils`, `sandboxQuestionUtils`, `sandboxToolResolver`; types in `types/sandboxStreamTypes.ts` (folded thread shapes) + `types/sandboxWireTypes.ts` (ACP wire shapes + discriminant guards).
-
-**Wire types are loosely typed** (`notification.params` is `Record<string, unknown>`) — guard at the parse boundary with runtime `typeof`/shape checks; never assume a field is present because the type says so.
-
-## 3. Conventions for new sandbox code
-
-### Streaming/runtime logic stays in the logic, never in a component
-
-Wire parsing, log folding, SSE handling, telemetry, and permission routing belong in `sandboxStreamLogic` (or a sibling logic/util). Components **consume selectors and dispatch actions** — never parse ACP frames, hold SSE/connection state, or fold wire data in a component body.
-
-Selectors to consume: `threadItems`, `toolInvocations`, `isThinking`, `streamPhase`, `pendingPermissionRequest`, `respondingToPermission`, `contextUsage`, `resourcesUsed`.
-
-### Keep UI runtime-agnostic
-
-Render components take **plain props** — `ThreadItem`, `ToolInvocation`, `PermissionRequestRecord` — and know nothing about langgraph vs sandbox; this is what lets the legacy path be deleted later without touching shared UI. If a component must branch on runtime, branch **high** (in `Thread.tsx`, off `agent_runtime`) and pass resolved props down.
-
-### Atomic components
-
-One responsibility per component: extract each thread-item type into a **small leaf presenter**, not a giant inline `switch`/`map`. `SandboxThread()` in `Thread.tsx` (inline dispatch over 15+ item types) and the 1900-line `sandboxStreamLogic.ts` are anti-patterns to shrink, not extend.
-
-### Memoize — `threadItems` re-projects on every appended frame
-
-- Wrap leaf renderers in `React.memo`, keyed by the stable item `id`.
-- Derive per-item data with `useMemo`; wrap callbacks passed to children in `useCallback`.
-- **Subscribe narrowly** — select only what the component renders; pulling in unrelated selectors means an unrelated fold re-renders it.
-
-### Keep the projection pure
-
-`foldLogToThread` and its helpers must be **pure and deterministic** — item ids stay stable across re-folds. Never mutate thread/invocation state from a listener; derive everything in the projection. Listeners fire only **side effects** (telemetry, API calls), each with its own fire-once guard, suppressed on `source: 'replay'`.
-
-## 4. Target directory organization
-
-The `max/` root is a flat sprawl (~70 files) with sandbox code scattered across the root, `sandbox/`, `components/`, `components/Activity/`, and `types/`. **Do not big-bang-move on the active branch** — it conflicts with in-flight work. Follow this target layout incrementally: new sandbox files land in the right place; an existing file moves only when you're already editing it and the move is low-risk.
-
-Target `sandbox/` subtree:
-
-```text
-sandbox/
-  sandboxStreamLogic.ts            # stream logic + orchestration (+ .test, + generated *LogicType.ts)
-  components/                      # SandboxActivity, SandboxApproval, SandboxPermissionInput,
-                                  # SandboxQuestionInput, SandboxResourcesBar, SandboxContextUsage,
-                                  # SandboxThreadItems, SandboxQuestionRenderer
-  policy/                          # sandboxToolPolicy, sandboxPermissionUtils,
-                                  # sandboxPermissionDisplayUtils, sandboxQuestionUtils
-  types/                           # sandboxStreamTypes, sandboxWireTypes
-```
+What stays in `scenes/max`: conversation orchestration (`maxLogic`, `maxThreadLogic`, `maxGlobalLogic`), the
+Max Context subsystem, slash commands, `useMaxTool`/`MaxTool`, feedback/ratings, the frozen LangGraph path,
+and Max's **product-specific tool renderers** (`messages/adapters/*`), which register themselves into the
+shared `toolRegistry` via `messages/adapters/registerMaxToolRenderers` (imported once from
+`Thread.tsx`). Add a new product tool renderer there, not in `products/posthog_ai/frontend`.
 
 ## 5. Where do I add X?
 
-- **A new thread-item type** → add to the `ThreadItem` union in `types/sandboxStreamTypes.ts`, handle it in `foldLogToThread`, and add a memoized leaf renderer wired into `SandboxThread()`.
-- **A new permission affordance / auto-approval rule** → `sandboxToolPolicy.ts`, then surface it through `SandboxPermissionInput`.
-- **New telemetry** → a guarded `posthog.capture` in the relevant `sandboxStreamLogic` listener (fire-once, suppressed on replay).
+The first three now live in `products/posthog_ai/frontend` (the shared surface) — make the change there, not in `scenes/max`:
+
+- **A new thread-item type** → `products/posthog_ai/frontend/types/streamTypes.ts` (the `ThreadItem` union), handle it in `foldLogToThread`, and add a memoized leaf renderer wired into `ThreadView`/`ThreadRow`.
+- **A new permission affordance / auto-approval rule** → `products/posthog_ai/frontend/policy/toolPolicy.ts`, then surface it through `PermissionInput`.
+- **New stream telemetry** → a guarded `posthog.capture` in the relevant `runStreamLogic` listener (fire-once, suppressed on replay).
+- **A new product tool renderer** (renders a PostHog entity) → `scenes/max/messages/adapters/*` + register it in `messages/adapters/registerMaxToolRenderers`.
 - **New context the agent should see** → extend `AttachedContext` (not `MaxUIContext`).
 
 ## 6. Don'ts

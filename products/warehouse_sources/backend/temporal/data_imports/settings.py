@@ -27,21 +27,21 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     check_pipeline_version_activity,
     release_v3_pipeline_lock_activity,
 )
-from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (
-    EnrichTableSemanticsWorkflow,
-    enrich_table_semantics_activity,
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
+    maybe_repartition_table_activity,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
     sync_new_schemas_activity,
 )
 
+# NOTE: post-sync table-metadata workflows (semantic enrichment, column statistics) intentionally live on
+# their own worker — see table_metadata_settings.py / DATA_WAREHOUSE_METADATA_TASK_QUEUE — not here.
 WORKFLOWS = [
     ExternalDataJobWorkflow,
     CDPProducerJobWorkflow,
     CDCExtractionWorkflow,
     CDCSlotCleanupWorkflow,
     DiscoverSchemasWorkflow,
-    EnrichTableSemanticsWorkflow,
 ]
 
 ACTIVITIES = [
@@ -60,5 +60,5 @@ ACTIVITIES = [
     check_pipeline_version_activity,
     acquire_v3_pipeline_lock_activity,
     release_v3_pipeline_lock_activity,
-    enrich_table_semantics_activity,
+    maybe_repartition_table_activity,
 ]

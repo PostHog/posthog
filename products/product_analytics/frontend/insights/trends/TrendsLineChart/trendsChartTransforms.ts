@@ -37,6 +37,9 @@ export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> 
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M
+    // Resolves the legend/series label (custom name + breakdown formatting). Hosts that lack the
+    // breakdown/cohort deps (e.g. MCP) omit it and fall back to the raw humanized event name.
+    getLabel?: (r: R) => string
 }
 
 // Shared between buildMainTrendsSeries (stroke.partial.fromIndex) and buildDerivedConfigs
@@ -65,7 +68,7 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
     const meta: M | undefined = opts.buildMeta ? opts.buildMeta(r, index) : undefined
     return {
         key: String(r.id),
-        label: humanizeSeriesLabel(r.label),
+        label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
         data: r.data,
         color: opts.getColor(r, index),
         yAxisId,
@@ -94,6 +97,7 @@ export interface BuildDerivedConfigsOpts<R extends TrendsResultLike> {
     isStickiness?: boolean
     incompletenessOffsetFromEnd?: number
     getHidden?: (r: R) => boolean
+    getLabel?: (r: R) => string
 }
 
 export interface DerivedConfigs {
@@ -142,7 +146,7 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
                 trendLines.push({
                     seriesKey: movingAverageKey(String(r.id)),
                     kind: 'linear',
-                    label: `${humanizeSeriesLabel(r.label)} (Moving avg)`,
+                    label: `${opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label)} (Moving avg)`,
                 })
             }
         }
@@ -186,6 +190,7 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     goalLines?: GoalLineLike[] | null
     incompletenessOffsetFromEnd?: number
     getHidden?: (r: R) => boolean
+    getLabel?: (r: R) => string
 
     showConfidenceIntervals?: boolean
     confidenceLevel?: number
@@ -195,6 +200,9 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     showTrendLines?: boolean
 
     valueLabels?: TimeSeriesLineChartConfig['valueLabels']
+
+    /** Line interpolation override (per-insight chart style). Leave undefined for app defaults. */
+    curve?: 'linear' | 'monotone'
 
     showCrosshair?: boolean
     tooltip?: TooltipConfig
@@ -219,6 +227,7 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
         isStickiness: opts.isStickiness,
         incompletenessOffsetFromEnd: opts.incompletenessOffsetFromEnd,
         getHidden: opts.getHidden,
+        getLabel: opts.getLabel,
     })
     return {
         xAxis: {
@@ -236,6 +245,7 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
         goalLines: goalLineConfigs,
         ...derivedConfigs,
         percentStackView: opts.isPercentStackView,
+        curve: opts.curve,
         showCrosshair: opts.showCrosshair,
         tooltip: opts.tooltip,
         legend: opts.legend,

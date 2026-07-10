@@ -7,15 +7,28 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import {
+    engineeringAnalyticsCiFailureLogs,
     engineeringAnalyticsPrCost,
     engineeringAnalyticsPrLifecycle,
     engineeringAnalyticsPrRuns,
     engineeringAnalyticsWorkflowJobs,
 } from '../generated/api'
-import type { PRCostSummaryApi, PRLifecycleApi, WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
+import type {
+    CIFailureLogsApi,
+    PRCostSummaryApi,
+    PRLifecycleApi,
+    WorkflowJobApi,
+    WorkflowRunDetailApi,
+} from '../generated/api.schemas'
+import { failedShardsLabel, groupJobs } from '../lib/jobGroups'
 import { jobCacheKey } from '../lib/jobs'
-import { LifecycleSummary, WorkflowRun, isPassingConclusion, summarizeLifecycle } from '../lib/lifecycle'
-import type { WorkflowHealthBucket, WorkflowHealthRow } from './engineeringAnalyticsLogic'
+import {
+    LifecycleSummary,
+    WorkflowRun,
+    isDecisiveFailure,
+    isPassingConclusion,
+    summarizeLifecycle,
+} from '../lib/lifecycle'
 import type { pullRequestDetailLogicType } from './pullRequestDetailLogicType'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -35,6 +48,54 @@ export function sortRunsForTriage(runs: WorkflowRun[]): WorkflowRun[] {
     return [...runs].sort((a, b) => rank(a) - rank(b) || a.workflow.localeCompare(b.workflow))
 }
 
+// A broken push shouldn't fan the eager "what failed" job fetches out into dozens of requests.
+const MAX_FAILING_JOB_FETCHES = 6
+
+/** The latest run per workflow on the newest push — what the "CI verdict · latest push" tile counts. */
+export interface LatestPushStats {
+    headSha: string
+    total: number
+    green: number
+    running: number
+    failingWorkflows: string[]
+}
+
+export function computeLatestPushStats(group: PrCommitRuns | undefined): LatestPushStats | null {
+    if (!group) {
+        return null
+    }
+    const latestByWorkflow = new Map<string, WorkflowRun>()
+    for (const run of group.runs) {
+        const seen = latestByWorkflow.get(run.workflow)
+        if (!seen || (run.startedAt ?? '') > (seen.startedAt ?? '')) {
+            latestByWorkflow.set(run.workflow, run)
+        }
+    }
+    const latest = Array.from(latestByWorkflow.values())
+    return {
+        headSha: group.headSha,
+        total: latest.length,
+        green: latest.filter((run) => run.conclusion != null && isPassingConclusion(run.conclusion)).length,
+        running: latest.filter((run) => run.conclusion == null).length,
+        failingWorkflows: latest
+            .filter((run) => run.conclusion != null && !isPassingConclusion(run.conclusion))
+            .map((run) => run.workflow)
+            .sort(),
+    }
+}
+
+/** Each workflow's latest run on the PR (across pushes) — drives the CI-runs table's verdict column. */
+export function latestRunPerWorkflow(runs: PrRunRow[]): Map<string, PrRunRow> {
+    const latest = new Map<string, PrRunRow>()
+    for (const run of runs) {
+        const seen = latest.get(run.workflow)
+        if (!seen || (run.startedAt ?? '') > (seen.startedAt ?? '')) {
+            latest.set(run.workflow, run)
+        }
+    }
+    return latest
+}
+
 /** A PR's runs for one commit (head SHA) — used to bucket the progression sparkline by push. */
 export interface PrCommitRuns {
     headSha: string
@@ -50,7 +111,13 @@ export interface PrRunRow extends WorkflowRun {
     headBranch: string
 }
 
-const isDecisiveFailure = (conclusion: string | null): boolean => conclusion === 'failure' || conclusion === 'timed_out'
+/** One row of the PR page's workflows table — its verdict/failed-job columns derive separately. */
+export interface PrWorkflowRow {
+    workflowName: string
+    runCount: number
+    p50Seconds: number | null
+    estimatedCostUsd: number | null
+}
 
 /** Nearest-rank percentile over a small sample (the PR's per-workflow run durations). */
 function percentile(values: number[], q: number): number | null {
@@ -73,11 +140,9 @@ function toWorkflowRun(run: WorkflowRunDetailApi): WorkflowRun {
     }
 }
 
-// Re-exported for existing importers (the PR detail scene); defined in lib/jobs so the shared RunsTable
-// can read the cache without importing scene logic.
 export { jobCacheKey }
 
-/** Group a PR's runs by commit, newest push first — so the detail shows CI across all pushes. */
+/** Group a PR's runs by commit, newest push first. */
 export function groupRunsByCommit(prRuns: WorkflowRunDetailApi[]): PrCommitRuns[] {
     const byCommit = new Map<string, WorkflowRunDetailApi[]>()
     for (const run of prRuns) {
@@ -112,7 +177,6 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             runId,
             runAttempt,
         }),
-        // Free-text filter on workflow name, narrowing the per-round run tables.
         setWorkflowFilter: (filter: string) => ({ filter }),
     }),
 
@@ -150,12 +214,28 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                     }),
             },
         ],
+        // Fetched only once a decisive failure is known; 'unavailable' = the fetch itself failed.
+        failureLogs: [
+            null as CIFailureLogsApi | 'unavailable' | null,
+            {
+                loadFailureLogs: async (): Promise<CIFailureLogsApi | 'unavailable'> => {
+                    try {
+                        return await engineeringAnalyticsCiFailureLogs(projectId(), {
+                            pr_number: props.number,
+                            repo: `${props.repoOwner}/${props.repoName}`,
+                            source_id: props.sourceId ?? undefined,
+                        })
+                    } catch {
+                        return 'unavailable'
+                    }
+                },
+            },
+        ],
         runJobs: [
             {} as Record<string, WorkflowJobApi[]>,
             {
-                // Lazy: fetched only when a run row is first expanded. Keyed by run+attempt; the
-                // post-await read of values.runJobs (not a pre-await snapshot) keeps two near-simultaneous
-                // first-expands from clobbering each other's entries.
+                // The post-await read of values.runJobs (not a pre-await snapshot) keeps two
+                // near-simultaneous first-expands from clobbering each other.
                 loadJobs: async ({
                     runId,
                     runAttempt,
@@ -183,8 +263,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 loadLifecycleFailure: () => true,
             },
         ],
-        // Separate from loadFailed (the PR header): a runs-load failure shows an error in the CI-runs
-        // section instead of the misleading "no runs attributed" empty state, with its own retry.
+        // Separate from loadFailed so a runs-load failure errors the CI-runs section, not the header.
         prRunsFailed: [
             false,
             {
@@ -205,15 +284,28 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
 
     listeners(({ actions, values }) => ({
         setRunExpanded: ({ expanded, runId, runAttempt }) => {
-            // Fetch a run+attempt's jobs once, on first expand.
             if (expanded && runId != null && !(jobCacheKey(runId, runAttempt) in values.runJobs)) {
                 actions.loadJobs({ runId, runAttempt })
             }
         },
+        // Failure logs only exist once something failed — skip the Logs query otherwise.
+        loadPrRunsSuccess: () => {
+            if (values.prRuns.some((run) => isDecisiveFailure(run.conclusion))) {
+                actions.loadFailureLogs()
+            }
+            // Eagerly fetch each failing workflow's latest run's jobs so the table can name what failed.
+            Array.from(latestRunPerWorkflow(values.filteredRuns).values())
+                .filter((run) => run.conclusion != null && !isPassingConclusion(run.conclusion))
+                .slice(0, MAX_FAILING_JOB_FETCHES)
+                .forEach((run) => {
+                    if (run.runId != null && !(jobCacheKey(run.runId, run.runAttempt) in values.runJobs)) {
+                        actions.loadJobs({ runId: run.runId, runAttempt: run.runAttempt })
+                    }
+                })
+        },
     })),
 
     selectors({
-        // Exposed so the scene can build links (commit/run) and preserve `?source=` without waiting on lifecycle.
         sourceId: [() => [(_, p: PullRequestDetailLogicProps) => p.sourceId], (sourceId): string | null => sourceId],
         repoOwner: [() => [(_, p: PullRequestDetailLogicProps) => p.repoOwner], (repoOwner): string => repoOwner],
         repoName: [() => [(_, p: PullRequestDetailLogicProps) => p.repoName], (repoName): string => repoName],
@@ -221,11 +313,9 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             (s) => [s.lifecycle],
             (lifecycle): LifecycleSummary | null => (lifecycle ? summarizeLifecycle(lifecycle.events) : null),
         ],
-        // All of the PR's runs, flattened — for the header counts.
         runs: [(s) => [s.prRuns], (prRuns): WorkflowRun[] => prRuns.map(toWorkflowRun)],
-        // The PR's runs grouped by commit, newest push first — one collapsible round per commit in the UI.
         commitGroups: [(s) => [s.prRuns], (prRuns): PrCommitRuns[] => groupRunsByCommit(prRuns)],
-        // Rounds with their runs narrowed to the workflow filter; rounds with no match drop out.
+        // Groups with their runs narrowed to the workflow filter; groups with no match drop out.
         filteredCommitGroups: [
             (s) => [s.commitGroups, s.workflowFilter],
             (commitGroups, workflowFilter): PrCommitRuns[] => {
@@ -241,8 +331,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                     .filter((group) => group.runs.length > 0)
             },
         ],
-        // The PR's runs as one flat list (newest push first), each tagged with its commit and narrowed
-        // to the workflow filter — the single runs table that replaced the per-commit tables.
+        // Flat run list (newest push first), each run tagged with its commit.
         filteredRuns: [
             (s) => [s.filteredCommitGroups],
             (groups): PrRunRow[] =>
@@ -250,15 +339,12 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                     group.runs.map((run) => ({ ...run, headSha: group.headSha, headBranch: group.headBranch }))
                 ),
         ],
-        // The PR's runs rolled up per workflow, in the same WorkflowHealthRow shape the Workflows tab
-        // uses — so the PR page reuses the shared WorkflowHealthTable. The sparkline buckets are the
-        // PR's pushes (oldest → newest), zero-filled across all pushes so every workflow row aligns.
-        workflowHealthRows: [
-            (s) => [s.commitGroups, s.repoOwner, s.repoName, s.prCost],
-            (commitGroups, repoOwner, repoName, prCost): WorkflowHealthRow[] => {
+        // One row per workflow on the PR (first-seen order) — just what the workflows table renders;
+        // the verdict column derives from latestRunPerWorkflow separately.
+        prWorkflowRows: [
+            (s) => [s.commitGroups, s.prCost],
+            (commitGroups, prCost): PrWorkflowRow[] => {
                 const costByWorkflow = new Map((prCost?.by_workflow ?? []).map((cost) => [cost.workflow_name, cost]))
-                const pushesOldestFirst = [...commitGroups].reverse()
-                // Workflow names that ran on the PR, first-seen order (newest push first).
                 const workflowNames: string[] = []
                 const seen = new Set<string>()
                 for (const group of commitGroups) {
@@ -269,60 +355,24 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                         }
                     }
                 }
-                return workflowNames.map((workflowName): WorkflowHealthRow => {
-                    const buckets: WorkflowHealthBucket[] = pushesOldestFirst.map((group, index) => {
-                        const runs = group.runs.filter((run) => run.workflow === workflowName)
-                        return {
-                            bucketStart: group.headSha,
-                            label: `Push ${index + 1} (${group.headSha.slice(0, 7)})`,
-                            runCount: runs.length,
-                            completed: runs.filter((run) => run.conclusion !== null).length,
-                            successes: runs.filter((run) => run.conclusion === 'success').length,
-                            failures: runs.filter((run) => isDecisiveFailure(run.conclusion)).length,
-                        }
-                    })
+                return workflowNames.map((workflowName): PrWorkflowRow => {
                     const all = commitGroups.flatMap((group) =>
                         group.runs.filter((run) => run.workflow === workflowName)
                     )
-                    const completedRuns = all.filter((run) => run.conclusion !== null)
-                    const durations = completedRuns
+                    const durations = all
+                        .filter((run) => run.conclusion !== null)
                         .map((run) => run.durationSeconds)
                         .filter((d): d is number => d != null)
-                    // Latest completed run (by start) drives the status badge, same as workflow health.
-                    const latest = [...completedRuns].sort((a, b) =>
-                        (b.startedAt ?? '').localeCompare(a.startedAt ?? '')
-                    )[0]
-                    const failingStarts = all
-                        .filter((run) => isDecisiveFailure(run.conclusion))
-                        .map((run) => run.startedAt)
-                        .filter((at): at is string => !!at)
                     return {
-                        repoOwner,
-                        repoName,
                         workflowName,
                         runCount: all.length,
-                        successRate:
-                            completedRuns.length > 0
-                                ? all.filter((run) => run.conclusion === 'success').length / completedRuns.length
-                                : null,
                         p50Seconds: percentile(durations, 0.5),
-                        p95Seconds: percentile(durations, 0.95),
-                        lastFailureAt: failingStarts.length
-                            ? failingStarts.reduce((max, at) => (at > max ? at : max))
-                            : null,
-                        latestRunFailed: latest ? isDecisiveFailure(latest.conclusion) : null,
-                        latestRunConclusion: latest ? latest.conclusion : null,
-                        granularity: 'push',
-                        buckets,
-                        billableMinutes: costByWorkflow.get(workflowName)?.billable_minutes ?? null,
                         estimatedCostUsd: costByWorkflow.get(workflowName)?.estimated_cost_usd ?? null,
                     }
                 })
             },
         ],
-        // Per-run cost keyed by jobCacheKey(run_id, run_attempt) — so the expanded runs table can show a
-        // cost column per attempt, rolling up to the per-workflow figure above it. Empty when the job
-        // source isn't synced (prCost.jobs_available false).
+        // Per-run cost keyed by jobCacheKey(run_id, run_attempt); empty when the job source isn't synced.
         runCostByKey: [
             (s) => [s.prCost],
             (prCost): Record<string, { minutes: number | null; cost: number | null }> => {
@@ -336,25 +386,58 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 return map
             },
         ],
-        // Workflow health rows narrowed to the workflow-name filter.
-        filteredWorkflowHealthRows: [
-            (s) => [s.workflowHealthRows, s.workflowFilter],
-            (rows: WorkflowHealthRow[], workflowFilter: string): WorkflowHealthRow[] => {
+        filteredPrWorkflowRows: [
+            (s) => [s.prWorkflowRows, s.workflowFilter],
+            (rows: PrWorkflowRow[], workflowFilter: string): PrWorkflowRow[] => {
                 const query = workflowFilter.trim().toLowerCase()
                 return query ? rows.filter((row) => row.workflowName.toLowerCase().includes(query)) : rows
             },
         ],
-        // CI triggers: distinct head SHAs across the PR's runs (matches the backend `pushes` definition).
+        latestPushStats: [
+            (s) => [s.commitGroups],
+            (commitGroups): LatestPushStats | null => computeLatestPushStats(commitGroups[0]),
+        ],
+        // workflow → "what failed" label (de-sharded failing job names); missing = jobs not loaded yet.
+        failingJobLabelByWorkflow: [
+            (s) => [s.filteredRuns, s.runJobs],
+            (filteredRuns, runJobs): Record<string, string> => {
+                const labels: Record<string, string> = {}
+                for (const [workflow, run] of latestRunPerWorkflow(filteredRuns)) {
+                    if (run.conclusion == null || isPassingConclusion(run.conclusion) || run.runId == null) {
+                        continue
+                    }
+                    const jobs = runJobs[jobCacheKey(run.runId, run.runAttempt)]
+                    if (!jobs) {
+                        continue
+                    }
+                    const failing = groupJobs(jobs).filter((group) => group.failed.length > 0)
+                    if (failing.length) {
+                        labels[workflow] = failing
+                            .map((group) =>
+                                group.jobs.length > 1 ? `${group.base} (${failedShardsLabel(group)})` : group.base
+                            )
+                            .join(' · ')
+                    }
+                }
+                return labels
+            },
+        ],
+        // Both match the backend definitions (`pushes`, `rerun_cycles`).
         pushes: [(s) => [s.prRuns], (prRuns): number => new Set(prRuns.map((run) => run.head_sha)).size],
-        // Runs that were a 2nd+ attempt — re-run cycles (matches the backend `rerun_cycles` definition).
         rerunCycles: [(s) => [s.prRuns], (prRuns): number => prRuns.filter((run) => (run.run_attempt ?? 1) > 1).length],
         breadcrumbs: [
             (_, p) => [p.repoOwner, p.repoName, p.number],
             (repoOwner, repoName, number): Breadcrumb[] => [
                 {
                     key: 'EngineeringAnalytics',
-                    name: 'CI analytics',
+                    name: 'Engineering analytics',
                     path: urls.engineeringAnalytics(),
+                    iconType: 'health',
+                },
+                {
+                    key: 'EngineeringAnalyticsPullRequests',
+                    name: 'Pull requests',
+                    path: urls.engineeringAnalyticsPullRequestList(),
                     iconType: 'health',
                 },
                 {

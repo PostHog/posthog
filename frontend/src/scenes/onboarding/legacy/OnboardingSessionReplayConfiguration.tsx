@@ -1,13 +1,16 @@
 import { useActions } from 'kea'
 
+import * as directorPng from '@posthog/brand/hoggies/png/director'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { FilmCameraHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStepComponentType, onboardingLogic } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
+
+const HedgehogDirector = pngHoggie(directorPng)
 
 export const OnboardingSessionReplayConfiguration: OnboardingStepComponentType = () => {
     const { goToNextStep, updateCurrentTeam } = useActions(onboardingLogic)
@@ -29,7 +32,7 @@ export const OnboardingSessionReplayConfiguration: OnboardingStepComponentType =
 
             <div className="flex flex-col md:flex-row items-center gap-6">
                 <div className="hidden md:block flex-shrink-0">
-                    <FilmCameraHog className="w-36 h-auto" />
+                    <HedgehogDirector className="w-36 h-auto" />
                 </div>
                 <div className="flex-1 border border-gray-200 rounded-lg bg-bg-light dark:bg-bg-depth p-4">
                     <h4 className="text-lg font-semibold mb-2">Why enable Session Replay?</h4>

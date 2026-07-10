@@ -11,6 +11,7 @@ import {
     PendingElevationRequest,
     SessionAclEntry,
     SessionPrincipal,
+    SessionUsageTotal,
 } from '../spec/spec'
 
 /** Input to the atomic elevation-decision transition (`decideElevationRequest`). */
@@ -70,8 +71,31 @@ export interface ListSessionsOpts {
     createdAfter?: string
     /** ISO datetime — only return sessions with created_at <= this. */
     createdBefore?: string
-    /** Case-insensitive substring over the session id and external_key. */
+    /** Case-insensitive substring over id, external_key, and the conversation digest. */
     search?: string
+}
+
+/**
+ * Lightweight list row — every summary column except the heavy `conversation`
+ * JSONB. `turns` and `search_text` come off persisted columns, so listing never
+ * detoasts a transcript.
+ */
+export interface SessionSummary {
+    id: string
+    application_id: string
+    revision_id: string
+    team_id: number
+    external_key: string | null
+    idempotency_key: string | null
+    trigger_metadata: Record<string, unknown> | null
+    state: AgentSession['state']
+    principal: AgentSession['principal']
+    usage_total: SessionUsageTotal
+    retry_count: number
+    turns: number
+    search_text: string | null
+    created_at: string
+    updated_at: string
 }
 
 /**
@@ -157,10 +181,12 @@ export interface SessionQueue extends SessionInputsStore {
      */
     clearStaleIdempotencyKeys(cutoff: Date): Promise<number>
     /**
-     * List sessions for one application, newest first. `limit` defaults to 100
-     * so a buggy caller can't accidentally page through every session in the
-     * project; supply an explicit larger value if needed (capped at 500
-     * server-side). Filters compose with AND semantics.
+     * List sessions for one application, most recently active first
+     * (`updated_at DESC` — the runner stamps `updated_at` on every
+     * conversation write). `limit` defaults to 100 so a buggy caller can't
+     * accidentally page through every session in the project; supply an
+     * explicit larger value if needed (capped at 500 server-side). Filters
+     * compose with AND semantics.
      */
     listByApplication(applicationId: string, opts?: ListSessionsOpts): Promise<AgentSession[]>
     /**
@@ -169,6 +195,12 @@ export interface SessionQueue extends SessionInputsStore {
      * and `offset` are ignored — the count is over the full filtered set.
      */
     countByApplication(applicationId: string, opts?: Omit<ListSessionsOpts, 'limit' | 'offset'>): Promise<number>
+    /**
+     * Like `listByApplication` but returns {@link SessionSummary} rows (no
+     * conversation transcript) for the list view — `turns` + `search_text` read
+     * off persisted columns instead of detoasting JSONB.
+     */
+    listSummariesByApplication(applicationId: string, opts?: ListSessionsOpts): Promise<SessionSummary[]>
     /**
      * Roll up summary stats for an agent — drives the agent-detail
      * overview tiles. `since` filters cost + sessions count to a

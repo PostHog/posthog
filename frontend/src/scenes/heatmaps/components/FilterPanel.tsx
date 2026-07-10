@@ -121,9 +121,11 @@ export function ViewportChooser(): JSX.Element {
 export function FilterPanel({
     captureMethod,
     onCaptureMethodChange,
+    clickmapSettings,
 }: {
     captureMethod?: HeatmapType
     onCaptureMethodChange?: (type: HeatmapType) => void
+    clickmapSettings?: JSX.Element
 }): JSX.Element {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
     const {
@@ -187,7 +189,7 @@ export function FilterPanel({
                     <div className="mt-2 md:mt-0">
                         <Popover
                             overlay={
-                                <div className="p-2">
+                                <div className="p-2 w-80">
                                     <HeatmapsSettings
                                         heatmapFilters={heatmapFilters}
                                         patchHeatmapFilters={patchHeatmapFilters}
@@ -219,21 +221,6 @@ export function FilterPanel({
                                             />
                                         </SectionSetting>
                                     )}
-                                    <SectionSetting
-                                        title="Internal and test users filter"
-                                        info="Filter out internal and test users"
-                                    >
-                                        <TestAccountFilter
-                                            size="small"
-                                            filters={{ filter_test_accounts: commonFilters?.filter_test_accounts }}
-                                            onChange={(value) => {
-                                                setCommonFilters?.({
-                                                    ...commonFilters,
-                                                    filter_test_accounts: value.filter_test_accounts,
-                                                })
-                                            }}
-                                        />
-                                    </SectionSetting>
                                 </div>
                             }
                             visible={isSettingsOpen}
@@ -253,6 +240,19 @@ export function FilterPanel({
                                 Heatmap settings
                             </LemonButton>
                         </Popover>
+                    </div>
+                    {clickmapSettings ? <div className="mt-2 md:mt-0">{clickmapSettings}</div> : null}
+                    <div className="mt-2 md:mt-0">
+                        <TestAccountFilter
+                            size="small"
+                            filters={{ filter_test_accounts: commonFilters?.filter_test_accounts }}
+                            onChange={(value) => {
+                                setCommonFilters?.({
+                                    ...commonFilters,
+                                    filter_test_accounts: value.filter_test_accounts,
+                                })
+                            }}
+                        />
                     </div>
                 </div>
                 <ViewportChooser />
