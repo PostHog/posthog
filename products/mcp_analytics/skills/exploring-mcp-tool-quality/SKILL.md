@@ -100,7 +100,7 @@ SELECT
     concat(
         coalesce(nullIf(toString(properties.$mcp_error_type), ''), 'unknown'),
         if(empty(coalesce(toString(properties.$mcp_error_status), '')), '',
-           concat(' (HTTP ', toString(properties.$mcp_error_status), ')'))
+           concat(' (HTTP ', coalesce(toString(properties.$mcp_error_status), ''), ')'))
     ) AS failure,
     count() AS n
 FROM events
