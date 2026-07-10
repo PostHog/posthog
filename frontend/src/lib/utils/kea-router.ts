@@ -96,6 +96,14 @@ export function addProjectIdIfMissing(path: string, teamId?: TeamType['id']): st
 const STAY_ON_SAME_PAGE_PATHS = ['settings']
 const REDIRECT_TO_PROJECT_ROOT_PATHS = ['products', 'onboarding']
 
+// Beta, flag-gated products whose scenes render <NotFound> when the gating flag is off. The flag
+// is evaluated per project, so a product can be enabled in the current project but disabled in the
+// target one, and the switcher has no way to know the target project's flags before navigating.
+// Resource IDs under these routes (e.g. a scanner UUID) also don't exist in another environment.
+// Rather than risk landing on "Page not found", fall back to the new project's home. Add the
+// first URL segment of any such product here.
+const FLAG_GATED_PRODUCT_PATHS = ['replay-vision']
+
 export function getProjectSwitchTargetUrl(
     currentPath: string,
     newTeamId: number,
@@ -109,8 +117,16 @@ export function getProjectSwitchTargetUrl(
     // Extract the resource path (first part after removing project ID)
     const resourcePath = route.split('/')[1]
 
-    // If it's a path that should redirect to project root
-    if (REDIRECT_TO_PROJECT_ROOT_PATHS.includes(resourcePath)) {
+    // Fall back to the new project's home when the mapped destination wouldn't resolve there:
+    // - project-less pages (org/instance/account/...) get stripped back to a routeless bare path
+    //   by `locationChanged`, landing on "Page not found"
+    // - `products`/`onboarding` are meant to start from the project root anyway
+    // - beta, flag-gated products may render <NotFound> if their flag is off in the target project
+    if (
+        REDIRECT_TO_PROJECT_ROOT_PATHS.includes(resourcePath) ||
+        FLAG_GATED_PRODUCT_PATHS.includes(resourcePath) ||
+        isPathWithoutProjectId(route)
+    ) {
         return `/project/${newTeamId}`
     }
 
