@@ -5,9 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from hogli_commands.owners import fmt as fmt_module
 from hogli_commands.owners.cli import _consolidation_suggestions, _reserved_location_error
 from hogli_commands.owners.conversion import Converter, parse_soft_file, render_owners_yaml
-from hogli_commands.owners.fmt import MAX_RULES, CanonicalPlacer, CanonicalPlan
+from hogli_commands.owners.fmt import CanonicalPlacer, CanonicalPlan
 from hogli_commands.owners.legacy_diff import DiffClass, LegacyOwners, classify
 from hogli_commands.owners.matcher import path_matches_pattern
 from hogli_commands.owners.resolver import OwnersResolver
@@ -280,20 +281,39 @@ def test_fmt_folds_dedicated_child_into_pinned_parent(tmp_path: Path) -> None:
     assert plan.proved
 
 
-def test_fmt_splits_when_carrier_exceeds_capacity(tmp_path: Path) -> None:
-    # One pinned parent above 21 owned sibling dirs would blow past MAX_RULES, so a
-    # dedicated child facility opens under the shared prefix to absorb the overflow.
+def test_fmt_splits_when_carrier_exceeds_capacity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A pinned parent above enough owned sibling dirs to blow past MAX_RULES opens a
+    # dedicated child facility under the shared prefix to absorb the overflow.
+    monkeypatch.setattr(fmt_module, "MAX_RULES", 3)
     files = {
         "P/owners.yaml": "version: 1\nowners: [team-p]\ncontact:\n  slack: '#p'\n",
         "P/f.py": "x",
         "r1.py": "x",
         "r2.py": "x",
     }
-    for i in range(MAX_RULES + 1):
+    for i in range(4):
         files[f"P/c/s{i}/owners.yaml"] = f"version: 1\nowners: [team-{i}]\n"
         files[f"P/c/s{i}/g.py"] = "x"
     plan = _fmt_plan(tmp_path, files)
     assert "P/c/owners.yaml" in plan.creations
+    assert plan.proved
+
+
+def test_fmt_never_exiles_singleton_rules_on_overflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # When every overflow group is a single statement, splitting would recreate the
+    # per-dir single-purpose files fmt exists to remove — the cap is soft instead.
+    monkeypatch.setattr(fmt_module, "MAX_RULES", 3)
+    files = {
+        "P/owners.yaml": "version: 1\nowners: [team-p]\ncontact:\n  slack: '#p'\n",
+        "P/f.py": "x",
+        "r1.py": "x",
+        "r2.py": "x",
+    }
+    for i in range(4):
+        files[f"P/d{i}/owners.yaml"] = f"version: 1\nowners: [team-{i}]\n"
+        files[f"P/d{i}/g.py"] = "x"
+    plan = _fmt_plan(tmp_path, files)
+    assert plan.creations == []
     assert plan.proved
 
 
@@ -310,6 +330,27 @@ def test_fmt_product_yaml_is_a_free_carrier(tmp_path: Path) -> None:
         },
     )
     assert plan.is_canonical
+    assert plan.proved
+
+
+def test_fmt_never_places_rules_on_a_product_yaml_dir(tmp_path: Path) -> None:
+    # A product.yaml manifest only exposes its owners list — it cannot physically hold
+    # rules, and an owners.yaml next to it is a lint error. A differently-owned subtree
+    # below a product must keep its own file or fold to an ancestor, never produce
+    # additions keyed on the product dir.
+    plan = _fmt_plan(
+        tmp_path,
+        {
+            "products/foo/product.yaml": "name: Foo\nowners:\n  - team-foo\n",
+            "products/foo/x.py": "x",
+            "products/foo/sub/owners.yaml": "version: 1\nowners: [team-bar]\n",
+            "products/foo/sub/y.py": "x",
+            "r1.py": "x",
+            "r2.py": "x",
+        },
+    )
+    assert "products/foo/owners.yaml" not in plan.additions
+    assert "products/foo/owners.yaml" not in plan.creations
     assert plan.proved
 
 

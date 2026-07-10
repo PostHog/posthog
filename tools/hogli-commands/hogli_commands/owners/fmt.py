@@ -39,7 +39,15 @@ from .schema import UNSET, OwnersRule, parse_owners_file, parse_product_yaml_as_
 # Cost model. "Canonical" is optimal only relative to these; tune to taste.
 ALPHA = 8  # cost of a dedicated simple owners.yaml existing
 GAMMA = 1  # per-level cost of carrying a statement as an ancestor rule
-MAX_RULES = 20  # max statements a single file may carry before a split is forced
+# Soft cap on statements per file before a split is attempted. Sized to the largest
+# hand-accepted rules block in the repo (frontend/src/scenes carries ~60); a split
+# only happens when a whole subtree of rules can move together — singleton rules are
+# never exiled to per-dir files, so overflow past the cap is tolerated.
+MAX_RULES = 100
+
+# Sentinel carry distance meaning "no usable ancestor" — large enough that opening a
+# dedicated file (ALPHA) always beats carrying even a single statement this far.
+_BLOCKED = 10**6
 
 
 # An owner set is an ordered tuple of slugs, or None for unowned/no-contribution.
@@ -79,6 +87,8 @@ class _Node:
     pinned: bool = False  # a product.yaml / non-simple owners.yaml carrier lives here (absorbs rules)
     pinned_label: OwnerSet = None  # owners the pinned file already provides here
     frozen: bool = False  # a glob-bearing file lives here: untouched, never a carrier
+    alias: bool = False  # the pin is a product.yaml manifest: only its owners list is read,
+    # so it can never physically carry rules — placements must land elsewhere
 
 
 @dataclass
@@ -192,14 +202,18 @@ class CanonicalPlacer:
 
     # --- classification: pinned carriers vs frozen glob files ------------
 
-    def _classify(self) -> tuple[dict[str, OwnerSet], set[str]]:
-        """Scan ownership files once. Returns (pinned_carriers, frozen_dirs).
+    def _classify(self) -> tuple[dict[str, OwnerSet], set[str], set[str]]:
+        """Scan ownership files once. Returns (pinned_carriers, frozen_dirs, alias_dirs).
 
         Pinned carriers (``product.yaml`` with owners, or a non-simple owners.yaml
         with contact/status/inherit) absorb statements for free. Frozen dirs host a
-        glob-bearing file — crosscutting, untouched, never a carrier."""
+        glob-bearing file — crosscutting, untouched, never a carrier. Alias dirs are
+        the product.yaml subset of pinned: the manifest provides its dir's owners but
+        physically cannot hold rules (only its ``owners:`` list is read), so
+        placements must land elsewhere."""
         pinned: dict[str, OwnerSet] = {}
         frozen: set[str] = set()
+        alias: set[str] = set()
         for f in self.resolver.ownership_files():
             rel_dir = f.parent.relative_to(self.repo_root).as_posix()
             rel_dir = "" if rel_dir == "." else rel_dir
@@ -207,6 +221,7 @@ class CanonicalPlacer:
                 parsed = parse_product_yaml_as_owners(f.read_text(), path=f, directory=rel_dir)
                 if parsed and parsed.owners:
                     pinned[rel_dir] = tuple(parsed.owners)
+                    alias.add(rel_dir)
                 continue
             parsed_owners, _errs = parse_owners_file(f.read_text(), path=f, directory=rel_dir)
             if parsed_owners is None:
@@ -215,16 +230,17 @@ class CanonicalPlacer:
                 frozen.add(rel_dir)
             elif not _is_simple_file(parsed_owners):
                 pinned[rel_dir] = tuple(parsed_owners.owners) if parsed_owners.owners else None
-        return pinned, frozen
+        return pinned, frozen, alias
 
     def _apply_classification(
-        self, node_index: dict[str, _Node], pinned: dict[str, OwnerSet], frozen: set[str]
+        self, node_index: dict[str, _Node], pinned: dict[str, OwnerSet], frozen: set[str], alias: set[str]
     ) -> None:
         for d, owners in pinned.items():
             node = node_index.get(d)
             if node is not None:
                 node.pinned = True
                 node.pinned_label = owners
+                node.alias = d in alias
         for d in frozen:
             node = node_index.get(d)
             if node is not None:
@@ -247,18 +263,25 @@ class CanonicalPlacer:
 
         def cost(node: _Node, d: int) -> int:
             """Min cost to serve node's subtree given the nearest open facility sits
-            ``d`` levels above node (``d`` unused when node opens)."""
+            ``d`` levels above node (``d`` unused when node opens). A ``d`` of
+            ``_BLOCKED`` or more means no usable ancestor exists (an alias manifest
+            shadows everything above by nearest-file-wins), which prices carry-up out
+            so the subtree opens its own facility."""
             key = (node.path, d)
             if key in memo:
                 return memo[key]
             movable = [s for s in node.statements if not self._served_by_pin(node, s)]
             n_here = len(movable)
 
+            forced_open = (node.pinned and not node.alias) or node.path == ""
+            # Statements below an alias can never live above it: the manifest's own
+            # owners would shadow any ancestor rule under nearest-file-wins.
+            child_d = _BLOCKED if node.alias else d + 1
             # Option A: do not open here; carry own statements up ``d`` levels.
-            carry_up = GAMMA * d * n_here + sum(cost(c, d + 1) for c in node.children.values())
-            forced_open = node.pinned or node.path == ""
-            if node.frozen and not forced_open:
-                # A glob file lives here — it is never a carrier; statements pass through.
+            carry_up = GAMMA * d * n_here + sum(cost(c, child_d) for c in node.children.values())
+            if (node.frozen or node.alias) and not forced_open:
+                # A glob file or product.yaml manifest lives here — it can never carry
+                # new rules; statements pass through.
                 memo[key] = carry_up
                 return carry_up
             # Option B: open here; own statements are free, children are one level down.
@@ -269,10 +292,11 @@ class CanonicalPlacer:
 
         def reconstruct(node: _Node, d: int, nearest_open: str) -> None:
             movable = [s for s in node.statements if not self._served_by_pin(node, s)]
-            carry_up = GAMMA * d * len(movable) + sum(cost(c, d + 1) for c in node.children.values())
+            child_d = _BLOCKED if node.alias else d + 1
+            carry_up = GAMMA * d * len(movable) + sum(cost(c, child_d) for c in node.children.values())
             open_here = self._facility_cost(node) + sum(cost(c, 1) for c in node.children.values())
-            forced_open = node.pinned or node.path == ""
-            opens = (forced_open or open_here <= carry_up) and not (node.frozen and not forced_open)
+            forced_open = (node.pinned and not node.alias) or node.path == ""
+            opens = (forced_open or open_here <= carry_up) and not ((node.frozen or node.alias) and not forced_open)
 
             if opens:
                 open_dirs.add(node.path)
@@ -284,7 +308,7 @@ class CanonicalPlacer:
                 for s in movable:
                     placements.append(_Placement(statement=s, carrier_dir=nearest_open, distance=d))
                 for c in node.children.values():
-                    reconstruct(c, d + 1, nearest_open)
+                    reconstruct(c, child_d, nearest_open)
 
         cost(root, 0)
         reconstruct(root, 0, "")
@@ -299,6 +323,13 @@ class CanonicalPlacer:
     def _enforce_capacity(self, root: _Node, placements: list[_Placement], open_dirs: set[str]) -> None:
         """If a carrier exceeds MAX_RULES, open the child prefix with the most overflow
         as a dedicated facility and reassign its statements there. Repeat to a fixpoint."""
+        node_index: dict[str, _Node] = {}
+        _index(root, node_index)
+
+        def can_host(d: str) -> bool:
+            node = node_index.get(d)
+            return node is None or not (node.frozen or node.alias)
+
         changed = True
         while changed:
             changed = False
@@ -310,15 +341,20 @@ class CanonicalPlacer:
                     continue
                 # Group overflow by the immediate child-of-carrier prefix. Only
                 # statements that live under a real subdirectory can move to a child
-                # facility — a direct file (``/x.tsx``) has no subdir to hold it, and the
-                # carrier's own top-level statement (empty head) stays put.
+                # facility — a direct file (``/x.tsx``) has no subdir to hold it, the
+                # carrier's own top-level statement (empty head) stays put, and a dir
+                # hosting a glob file or product.yaml manifest cannot take new rules.
+                # The cap is soft: a group of one is never exiled to a per-dir file
+                # (that recreates the single-purpose sprawl fmt exists to remove), so
+                # if no group has at least two statements the overflow is tolerated.
                 groups: dict[str, list[_Placement]] = {}
                 for p in ps:
                     rel = p.statement.target[len(carrier) + 1 :] if carrier else p.statement.target
                     head = rel.split("/", 1)[0]
                     if head and (p.statement.is_dir or "/" in rel):
                         groups.setdefault(head, []).append(p)
-                best_head = max(groups, key=lambda h: len(groups[h]), default=None)
+                hostable = [h for h in groups if len(groups[h]) >= 2 and can_host(f"{carrier}/{h}" if carrier else h)]
+                best_head = max(hostable, key=lambda h: len(groups[h]), default=None)
                 if best_head is None:
                     continue
                 new_dir = f"{carrier}/{best_head}" if carrier else best_head
@@ -333,7 +369,7 @@ class CanonicalPlacer:
     # --- current layout cost + diff -------------------------------------
 
     def build(self) -> CanonicalPlan:
-        pinned, frozen = self._classify()
+        pinned, frozen, alias = self._classify()
 
         tracked = self.resolver.tracked_files()
         code_files = [p for p in tracked if p.rsplit("/", 1)[-1] not in (OWNERS_FILENAME, PRODUCT_FILENAME)]
@@ -356,7 +392,7 @@ class CanonicalPlacer:
         node_index: dict[str, _Node] = {}
         _index(root, node_index)
         by_dir = self._dir_files(label_owners)
-        self._apply_classification(node_index, pinned, frozen)
+        self._apply_classification(node_index, pinned, frozen, alias)
         self._label_tree(root, by_dir)
         self._collect_statements(root, None, by_dir)
 
@@ -469,7 +505,11 @@ class CanonicalPlacer:
             cur_rules = current_rules.get(carrier, set())
             path = f"{carrier}/{OWNERS_FILENAME}" if carrier else OWNERS_FILENAME
             file_exists = carrier in current_rules or carrier in pinned_dirs
-            if not file_exists and proposed[carrier].rules:
+            proposed_file = proposed[carrier]
+            # A new file matters if it carries rules OR contributes owners itself
+            # (a non-empty list, or explicit null); owners: [] with no rules is a no-op.
+            has_content = bool(proposed_file.rules) or bool(proposed_file.owners) or proposed_file.owners is None
+            if not file_exists and has_content:
                 creations.append(path)
             added = [f"{m} {_fmt_owners(o)}" for m, o in proposed_rules.items() if m not in cur_rules]
             if added:
