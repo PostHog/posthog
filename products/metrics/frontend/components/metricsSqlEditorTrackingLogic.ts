@@ -32,6 +32,10 @@ export const metricsSqlEditorTrackingLogic = kea<metricsSqlEditorTrackingLogicTy
         ],
     })),
     listeners(({ actions, cache }) => {
+        // Fires on submit, not on save success: intents measure interest, not achievement
+        // (a user who names and submits a save has shown the interest we're after, even if
+        // the request then fails), and sqlEditorLogic exposes no per-target success action
+        // to gate on. Activation criteria, defined later, count real saved artifacts.
         const trackSaved = (target: SaveAsMenuItem['action']): void => {
             posthog.capture('metrics sql query saved', { target })
             actions.addProductIntent({
