@@ -41,10 +41,10 @@ You review, suggest, and implement step code that follows the pipeline conventio
 
 Before reviewing or writing any code, read these files:
 
-- `nodejs/src/ingestion/pipelines/docs/01-introduction.test.ts` — pipeline fundamentals, builder pattern, step interface
-- `nodejs/src/ingestion/pipelines/docs/13-conventions.test.ts` — naming, factory pattern, type extension, config injection
-- `nodejs/src/ingestion/pipelines/steps.ts` — `ProcessingStep<T, U>` type definition
-- `nodejs/src/ingestion/pipelines/results.ts` — result constructors and types
+- `nodejs/src/ingestion/framework/docs/01-introduction.test.ts` — pipeline fundamentals, builder pattern, step interface
+- `nodejs/src/ingestion/framework/docs/13-conventions.test.ts` — naming, factory pattern, type extension, config injection
+- `nodejs/src/ingestion/framework/steps.ts` — `ProcessingStep<T, U>` type definition
+- `nodejs/src/ingestion/framework/results.ts` — result constructors and types
 
 Also read any files the user points you to.
 
