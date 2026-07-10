@@ -30,8 +30,10 @@ from products.replay_vision.backend.api.observation_stats import compute_observa
 from products.replay_vision.backend.api.trigger import (
     WorkflowStartOutcome,
     check_observation_quota,
+    check_team_in_flight_capacity,
     start_apply_scanner_workflow,
 )
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_quality_enabled
 from products.replay_vision.backend.models.replay_observation import (
@@ -626,7 +628,8 @@ class ReplayObservationViewSet(
         self.check_object_permissions(self.request, scanner)
         if observation.status != ObservationStatus.FAILED:
             raise ValidationError("Only failed observations can be retried.")
-        check_observation_quota(self.team.organization_id)
+        check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
+        check_team_in_flight_capacity(self.team.id)
         session_id = observation.session_id
         # Free the UNIQUE(scanner, session_id) slot; the usage ledger is immutable, so the failed attempt stays counted.
         observation.delete()

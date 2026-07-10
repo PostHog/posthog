@@ -813,6 +813,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 ]
             )
 
+        day_of_week_filter = self.query_date_range.day_of_week_filter_expr(ast.Field(chain=["timestamp"]))
+        if day_of_week_filter is not None:
+            filters.append(day_of_week_filter)
+
         # Filter by event or action name
         if not self._aggregation_operation.is_first_time_ever_math():
             event_or_action = self._event_or_action_where_expr()

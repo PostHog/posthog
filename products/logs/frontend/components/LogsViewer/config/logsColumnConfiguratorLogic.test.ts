@@ -31,7 +31,8 @@ describe('logsColumnConfiguratorLogic', () => {
     it('draft edits do not touch the applied columns until applyDraft', async () => {
         const before = configLogic.values.columns
         logic.actions.addDraftColumn({ type: 'custom' })
-        const draftId = logic.values.draft[logic.values.draft.length - 1].id
+        // Normalization pins message last, so the new custom column sits just before it
+        const draftId = logic.values.draft.find((c) => c.type === 'custom')!.id
         logic.actions.updateDraftColumn(draftId, { expression: 'attributes.http.url' })
 
         // Still uncommitted — this is what keeps per-keystroke edits from firing logs queries
@@ -42,7 +43,9 @@ describe('logsColumnConfiguratorLogic', () => {
         }).toFinishAllListeners()
 
         expect(configLogic.values.columns).toHaveLength(before.length + 1)
-        expect(configLogic.values.columns.at(-1)?.expression).toBe('attributes.http.url')
+        expect(configLogic.values.columns.find((c) => c.type === 'custom')?.expression).toBe('attributes.http.url')
+        // Message stays pinned last through apply
+        expect(configLogic.values.columns.at(-1)?.type).toBe('message')
         expect(logic.values.isOpen).toBe(false)
     })
 
@@ -68,10 +71,15 @@ describe('logsColumnConfiguratorLogic', () => {
         expect(configLogic.values.columns).toEqual(before)
     })
 
-    it('moveDraftColumn reorders by index', () => {
+    it('moveDraftColumn reorders by index but keeps message pinned last', () => {
         logic.actions.addDraftColumn({ type: 'custom', expression: 'attributes.a' })
+        // Draft is [timestamp, custom, message] after normalization
         const ids = logic.values.draft.map((c) => c.id)
+        logic.actions.moveDraftColumn(0, 1)
+        expect(logic.values.draft.map((c) => c.id)).toEqual([ids[1], ids[0], ids[2]])
+
+        // Dragging a column onto/past message re-normalizes message back to the end
         logic.actions.moveDraftColumn(0, 2)
-        expect(logic.values.draft.map((c) => c.id)).toEqual([ids[1], ids[2], ids[0]])
+        expect(logic.values.draft.at(-1)?.type).toBe('message')
     })
 })

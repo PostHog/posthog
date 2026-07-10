@@ -184,6 +184,13 @@ pub struct Config {
     // streaming path has no wall and stays unlimited when this is 0.
     #[envconfig(from = "STAGED_PLAINTEXT_MAX_BYTES", default = "0")]
     pub staged_plaintext_max_bytes: u64,
+
+    // Per-object ceiling on staged plaintext retained as quarantine evidence when a
+    // job pauses on a data error. Objects above it are deleted without an evidence
+    // copy, bounding how much temp-bucket capacity repeated pause-and-recreate loops
+    // can pin until the bucket TTL. 0 disables the cap. Default 10 GiB.
+    #[envconfig(from = "TEMP_BUCKET_QUARANTINE_MAX_BYTES", default = "10737418240")]
+    pub temp_bucket_quarantine_max_bytes: u64,
 }
 
 /// S3 multipart uploads are capped at 10,000 parts (AWS hard limit).
