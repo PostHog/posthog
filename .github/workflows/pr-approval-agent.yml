@@ -336,10 +336,16 @@ jobs:
         # is skipped for bots, which routes here via the 'skipped' fail-closed
         # path. This only ever touches github-actions[bot] approvals, so it's a
         # no-op when there's nothing to dismiss.
+        # Same-repo only: forked / Dependabot PRs don't receive the app secrets,
+        # so the app-token step below would fail on every such synchronize. There
+        # is nothing to dismiss there anyway, since stamphog can never have
+        # approved a fork PR (the review job's app-token step is equally starved
+        # of secrets on forks), so gate the whole job to head branches in this repo.
         if: >-
             always()
             && github.event.action == 'synchronize'
             && !github.event.pull_request.draft
+            && github.event.pull_request.head.repo.full_name == github.repository
             && (
               needs.decide-delta.outputs.dismiss_approval == 'true'
               || needs.decide-delta.result == 'failure'
