@@ -245,7 +245,7 @@ class TestTrendsDashboardFilters(BaseTest):
             DashboardFilter(properties=[EventPropertyFilter(key="utm_medium", value="abc", operator="is_not")])
         )
 
-        assert query_runner.query.properties == PropertyGroupFilter(  # type: ignore[comparison-overlap]
+        assert query_runner.query.properties == PropertyGroupFilter(
             type=FilterLogicalOperator.AND_,
             values=[
                 PropertyGroupFilterValue(
@@ -282,7 +282,7 @@ class TestTrendsDashboardFilters(BaseTest):
         )
 
         # Conflict detection only covers flat filter lists; AND/OR group trees keep stacking
-        assert query_runner.query.properties == PropertyGroupFilter(  # type: ignore[comparison-overlap]
+        assert query_runner.query.properties == PropertyGroupFilter(
             type=FilterLogicalOperator.AND_,
             values=[
                 PropertyGroupFilterValue(

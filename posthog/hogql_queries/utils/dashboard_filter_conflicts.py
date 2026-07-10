@@ -19,17 +19,20 @@ _INCOMPARABLE_FILTER_TYPES = ("cohort", "hogql")
 
 
 def drop_conflicting_insight_filters(
-    insight_properties: Sequence[AnyPropertyFilter],
+    insight_properties: Sequence[Any],
     dashboard_properties: Sequence[AnyPropertyFilter],
-) -> tuple[list[AnyPropertyFilter], list[DashboardFilterConflict]]:
+) -> tuple[list[Any], list[DashboardFilterConflict]]:
     """Drop insight filters that a dashboard filter on the same property provably contradicts.
 
     A contradiction means ANDing the two filters could never match any value, e.g.
     `utm_medium = abc` vs `utm_medium != abc`. Dashboard filters win: the insight filter is
     dropped and the pair recorded. Anything not provably contradictory is kept (and stacked
     by the caller as usual). Surviving filters are the original instances, not copies.
+
+    Some query models type `properties` as a heterogeneous list (even `list[str]`), so entries
+    are duck-typed: anything without a key and operator can never contradict and survives.
     """
-    surviving: list[AnyPropertyFilter] = []
+    surviving: list[Any] = []
     conflicts: list[DashboardFilterConflict] = []
     for insight_filter in insight_properties:
         contradicting = next((d for d in dashboard_properties if _contradicts(insight_filter, d)), None)
