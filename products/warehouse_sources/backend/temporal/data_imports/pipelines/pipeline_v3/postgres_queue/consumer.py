@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from django.db import close_old_connections
@@ -114,22 +115,15 @@ class DeltaBatchConsumerAdapter:
         job_state: str,
         attempt: int,
         error_response: dict[str, Any] | None = None,
+        batch_created_at: datetime | None = None,
     ) -> None:
-        if error_response is None:
-            await BatchQueue.update_status(
-                conn,
-                batch_id=batch_id,
-                job_state=job_state,
-                attempt=attempt,
-            )
-            return
-
         await BatchQueue.update_status(
             conn,
             batch_id=batch_id,
             job_state=job_state,
             attempt=attempt,
             error_response=error_response,
+            batch_created_at=batch_created_at,
         )
 
     async def fail_run(

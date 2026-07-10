@@ -31,6 +31,16 @@ class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
             "as CTEs; a python node materializes the ones its code reads as pandas frames."
         ),
     )
+    refs = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        default=dict,
+        help_text=(
+            "Available upstream nodes, mapping each named node's dataframe name to its ProseMirror "
+            "node id. The backend inlines the ones this node references as CTEs using each node's "
+            "last-run query (not its live editor text); unreferenced entries are ignored."
+        ),
+    )
 
 
 class NotebookSQLV2PageRequestSerializer(serializers.Serializer):

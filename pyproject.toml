@@ -290,7 +290,7 @@ hogql-parser-parity = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false }
+exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false }
 
 [tool.uv.workspace]
 members = ["tools/hogli"]
@@ -542,8 +542,10 @@ ignore_imports = [
     # logs presentation isolation (temporary): the moved viewsets still reach in-product
     # internals directly. Removed by the follow-up that thins each viewset to go through
     # the facade.
+    "products.logs.backend.presentation.views.api -> products.logs.backend.column_expressions",
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_ranges_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.group_by_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.has_logs_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_attributes_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_facet_values_query_runner",
@@ -569,6 +571,7 @@ ignore_imports = [
     # directly. Thin it to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.activity_logging",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.analytics",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab_stream",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.kernel_runtime",

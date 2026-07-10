@@ -164,7 +164,6 @@ import {
     LLMPrompt,
     LLMPromptPublic,
     LLMPromptResolveResponse,
-    LineageGraph,
     LinearTeamType,
     LinkType,
     LinkedInAdsAccountType,
@@ -175,8 +174,8 @@ import {
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     ObjectMediaPreview,
+    OrganizationFeatureFlag,
     OrganizationFeatureFlagKeysResponse,
-    OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
     OrganizationMemberType,
@@ -751,19 +750,6 @@ export class ApiRequest {
 
     public logsExport(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('export')
-    }
-
-    // # Metrics
-    public metrics(projectId?: ProjectType['id']): ApiRequest {
-        return this.environmentsDetail(projectId).addPathComponent('metrics')
-    }
-
-    public metricsHasMetrics(projectId?: ProjectType['id']): ApiRequest {
-        return this.metrics(projectId).addPathComponent('has_metrics')
-    }
-
-    public metricsValues(projectId?: ProjectType['id']): ApiRequest {
-        return this.metrics(projectId).addPathComponent('values')
     }
 
     // # Tracing
@@ -1848,15 +1834,6 @@ export class ApiRequest {
         return this.insightVariables(teamId).addPathComponent(variableId)
     }
 
-    public upstream(modelId: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId)
-            .addPathComponent('lineage')
-            .addPathComponent('get_upstream')
-            .withQueryString({
-                model_id: modelId,
-            })
-    }
-
     // ActivityLog
     public activityLog(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('activity_log')
@@ -2612,7 +2589,7 @@ const api = {
         async get(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
             featureFlagKey: FeatureFlagType['key']
-        ): Promise<OrganizationFeatureFlags> {
+        ): Promise<OrganizationFeatureFlag[]> {
             return await new ApiRequest().organizationFeatureFlags(orgId, featureFlagKey).get()
         },
         async copy(
@@ -2860,6 +2837,9 @@ const api = {
             hasMore: boolean
             nextCursor?: string
             maxExportableLogs: number
+            // Aliases for the requested customColumns, in request order; rows carry
+            // their custom values under these keys. Null without custom columns.
+            columns?: string[] | null
         }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
@@ -2905,29 +2885,6 @@ const api = {
             filename: string
         }> {
             return new ApiRequest().logsExport().create({ data: { query, columns } })
-        },
-    },
-
-    metrics: {
-        async hasMetrics(): Promise<boolean> {
-            return new ApiRequest()
-                .metricsHasMetrics()
-                .get()
-                .then((response) => Boolean(response.hasMetrics))
-        },
-        async values({
-            search,
-            limit,
-            signal,
-        }: {
-            search?: string
-            limit?: number
-            signal?: AbortSignal
-        } = {}): Promise<{ results: { name: string; metric_type: string }[] }> {
-            return new ApiRequest()
-                .metricsValues()
-                .withQueryString({ value: search ?? '', limit: limit ?? 100 })
-                .get({ signal })
         },
     },
 
@@ -5845,10 +5802,21 @@ const api = {
         }> {
             return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
-        async lineage(
-            nodeId: DataModelingNode['id']
-        ): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
-            return await new ApiRequest().dataModelingNode(nodeId).withAction('lineage').get()
+        async lineage({
+            nodeId,
+            savedQueryId,
+        }: {
+            nodeId?: DataModelingNode['id']
+            savedQueryId?: string
+        }): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
+            const params: Record<string, string> = {}
+            if (nodeId) {
+                params.node_id = nodeId
+            }
+            if (savedQueryId) {
+                params.saved_query_id = savedQueryId
+            }
+            return await new ApiRequest().dataModelingNodes().withAction('lineage').withQueryString(params).get()
         },
     },
 
@@ -6156,11 +6124,6 @@ const api = {
         },
         async user(userId: UserType['uuid']): Promise<QueryTabState> {
             return await new ApiRequest().queryTabStateUser().withQueryString({ user_id: userId }).get()
-        },
-    },
-    upstream: {
-        async get(modelId: string): Promise<LineageGraph> {
-            return await new ApiRequest().upstream(modelId).get()
         },
     },
     insightVariables: {
@@ -7112,6 +7075,13 @@ const api = {
                 .withAction('bulk_update_status')
                 .create({ data: { ids, status: ticketStatus } })
         },
+
+        async submitAiFeedback(
+            ticketId: string,
+            data: { message_id: string; rating: 'good' | 'bad'; feedback_text?: string }
+        ): Promise<void> {
+            await new ApiRequest().conversationsTicket(ticketId).withAction('ai_feedback').create({ data })
+        },
     },
 
     llmPrompts: {
@@ -7143,7 +7113,7 @@ const api = {
 
         async update(
             promptName: string,
-            data: { prompt: LLMPrompt['prompt']; base_version: number }
+            data: { prompt: LLMPrompt['prompt']; base_version: number; version_description?: string }
         ): Promise<LLMPrompt> {
             return await new ApiRequest().llmPromptByName(promptName).update({ data })
         },

@@ -55,6 +55,7 @@ from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_int
 from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
+from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import ConversationsSlackEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.stripe_workflow import StripeEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
@@ -64,6 +65,9 @@ from posthog.temporal.session_replay.gemini_cleanup_sweep import create_gemini_c
 from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
 from posthog.temporal.session_replay.summarization_sweep.reconciler import (
     create_summarization_sweep_reconciler_schedule,
+)
+from posthog.temporal.session_replay.surfacing_score_export_sweep.schedule import (
+    create_surfacing_score_export_sweep_schedule,
 )
 from posthog.temporal.session_replay.surfacing_scoring_sweep.schedule import create_surfacing_scoring_sweep_schedule
 from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
@@ -279,6 +283,46 @@ async def create_salesforce_stripe_enrichment_schedule(client: Client):
             client,
             "salesforce-stripe-enrichment-schedule",
             salesforce_stripe_enrichment_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_salesforce_conversations_slack_enrichment_schedule(client: Client):
+    """Create or update the schedule for the Salesforce Conversations Slack enrichment workflow.
+
+    Runs daily at 5 AM UTC to push Conversations Slack support signals to
+    Salesforce Accounts. ``SKIP`` prevents overlapping runs if Slack API calls
+    or Salesforce updates take longer than expected.
+    """
+    salesforce_conversations_slack_enrichment_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "salesforce-conversations-slack-enrichment",
+            asdict(ConversationsSlackEnrichmentInputs()),
+            id="salesforce-conversations-slack-enrichment-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 5 AM UTC",
+                    hour=[ScheduleRange(start=5, end=5)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "salesforce-conversations-slack-enrichment-schedule"):
+        await a_update_schedule(
+            client,
+            "salesforce-conversations-slack-enrichment-schedule",
+            salesforce_conversations_slack_enrichment_schedule,
+        )
+    else:
+        await a_create_schedule(
+            client,
+            "salesforce-conversations-slack-enrichment-schedule",
+            salesforce_conversations_slack_enrichment_schedule,
             trigger_immediately=False,
         )
 
@@ -758,6 +802,7 @@ schedules = [
     create_evaluation_clustering_schedule,
     cleanup_legacy_session_summarization_schedules,
     create_summarization_sweep_reconciler_schedule,
+    create_surfacing_score_export_sweep_schedule,
     create_surfacing_scoring_sweep_schedule,
     create_ducklake_compaction_schedule,
     create_purge_deleted_recording_metadata_schedule,
@@ -796,6 +841,11 @@ if settings.CLOUD_DEPLOYMENT:
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)
+    # Conversations tickets are region-local, so unlike the other (US-only) Salesforce
+    # writers this one runs per region — each region's tickets enrich that region's
+    # orgs, which map to disjoint Salesforce Accounts.
+    if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
+        schedules.append(create_salesforce_conversations_slack_enrichment_schedule)
     if settings.CLOUD_DEPLOYMENT == "US":
         schedules.append(create_salesforce_enrichment_schedule)
         schedules.append(create_salesforce_usage_enrichment_schedule)
