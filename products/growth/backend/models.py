@@ -113,3 +113,22 @@ class OrganizationEnrichment(UUIDModel):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class EnrichmentSignupSnapshot(UUIDModel):
+    """Write-once marker that the at-signup enrichment snapshot has been emitted for an org.
+
+    Stores no firmographic values (those live only on the person-scoped snapshot event); this
+    row is purely the idempotency guard and provenance timestamp. The OneToOne unique constraint
+    lets concurrent runs make at most one row per org.
+    """
+
+    # db_constraint=False keeps CreateModel off posthog_organization's lock path (hot table);
+    # the OneToOne still gives the write-once uniqueness guarantee.
+    organization = models.OneToOneField(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="enrichment_signup_snapshot",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
