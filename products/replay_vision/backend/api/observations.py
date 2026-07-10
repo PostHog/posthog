@@ -450,7 +450,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
     triggered_by = MultiChoiceFilter(
         field_name="triggered_by",
         valid_choices=frozenset(v for v, _ in ObservationTrigger.choices),
-        help_text="Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.",
+        help_text="Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.",
     )
     verdict = MultiChoiceFilter(
         field_name="scanner_result__model_output__verdict",
@@ -528,25 +528,32 @@ class ReplayObservationFilter(django_filters.FilterSet):
         return queryset.filter(q)
 
 
+# OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
+# string the filter rejects. Declare it as a single-value string enum so it serializes as ?order_by=field.
+_ORDER_BY_PARAMETER = OpenApiParameter(
+    "order_by",
+    str,
+    OpenApiParameter.QUERY,
+    required=False,
+    enum=ordering_enum(_ALL_ORDER_KEYS),
+    description=(
+        "Sort observations. Plain keys: created_at, started_at, completed_at, status, "
+        "recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), "
+        "scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way."
+    ),
+)
+
+
 @extend_schema_view(
-    list=extend_schema(
-        parameters=[
-            # OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
-            # string the filter rejects. Declare it as a single-value string enum so it serializes as ?order_by=field.
-            OpenApiParameter(
-                "order_by",
-                str,
-                OpenApiParameter.QUERY,
-                required=False,
-                enum=ordering_enum(_ALL_ORDER_KEYS),
-                description=(
-                    "Sort observations. Plain keys: created_at, started_at, completed_at, status, "
-                    "recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), "
-                    "scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way."
-                ),
-            )
-        ]
-    )
+    list=extend_schema(parameters=[_ORDER_BY_PARAMETER]),
+    retrieve=extend_schema(
+        parameters=[*ReplayObservationFilter.schema_parameters(), _ORDER_BY_PARAMETER],
+        description=(
+            "Retrieve one observation. Any list filters passed along (status, tags, order_by, …) scope the "
+            "`previous_observation_id`/`next_observation_id` navigation to the matching, identically-ordered "
+            "set — so prev/next from a filtered table stays within that filtered list."
+        ),
+    ),
 )
 class ReplayObservationViewSet(
     TeamAndOrgViewSetMixin,
@@ -590,6 +597,53 @@ class ReplayObservationViewSet(
             .select_related("triggered_by_user", "label")
             .order_by("-created_at", "id")
         )
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        observation = self.get_object()
+        context = {**self.get_serializer_context(), "neighbors": self._observation_neighbors(observation)}
+        return Response(self.get_serializer(observation, context=context).data)
+
+    def _observation_neighbors(self, observation: ReplayObservation) -> dict[str, uuid.UUID | None]:
+        # Neighbors honor the same filters and ordering as the scanner's list endpoint, so prev/next
+        # navigation started from a filtered table stays within the filtered set.
+        siblings = ReplayObservation.objects.filter(
+            team_id=observation.team_id, scanner_id=observation.scanner_id
+        ).order_by("-created_at", "id")
+        if not any(key in self.request.query_params for key in ReplayObservationFilter.base_filters):
+            return self._unfiltered_neighbors(observation, siblings)
+        filterset = ReplayObservationFilter(self.request.query_params, queryset=siblings, request=self.request)
+        if not filterset.is_valid():
+            # Same 400 the list endpoint gives for the identical bad query string.
+            raise ValidationError(filterset.errors)
+        ids: list[uuid.UUID] = list(filterset.qs.values_list("id", flat=True))
+        try:
+            index = ids.index(observation.id)
+        except ValueError:
+            # The observation itself falls outside the filtered set (e.g. a stale deep link) — no neighbors.
+            return {"previous": None, "next": None}
+        return {
+            "previous": ids[index - 1] if index > 0 else None,
+            "next": ids[index + 1] if index < len(ids) - 1 else None,
+        }
+
+    @staticmethod
+    def _unfiltered_neighbors(
+        observation: ReplayObservation, siblings: QuerySet[ReplayObservation]
+    ) -> dict[str, uuid.UUID | None]:
+        # Two indexed lookups instead of materializing every sibling id; mirrors the (-created_at, id) order.
+        ids = siblings.values_list("id", flat=True)
+        return {
+            "previous": ids.filter(
+                Q(created_at__gt=observation.created_at) | Q(created_at=observation.created_at, id__lt=observation.id)
+            )
+            .order_by("created_at", "-id")
+            .first(),
+            "next": ids.filter(
+                Q(created_at__lt=observation.created_at) | Q(created_at=observation.created_at, id__gt=observation.id)
+            )
+            .order_by("-created_at", "id")
+            .first(),
+        }
 
     @extend_schema(
         parameters=[
@@ -723,14 +777,6 @@ class ReplayObservationViewSet(
             )
         ]
     ),
-    retrieve=extend_schema(
-        parameters=ReplayObservationFilter.schema_parameters(),
-        description=(
-            "Retrieve one observation. Any list filters passed along (status, tags, order_by, …) scope the "
-            "`previous_observation_id`/`next_observation_id` navigation to the matching, identically-ordered "
-            "set — so prev/next from a filtered table stays within that filtered list."
-        ),
-    ),
 )
 class SessionReplayObservationViewSet(ReplayObservationViewSet):
     """Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock."""
@@ -762,31 +808,6 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
                 raise ValidationError("The `session_id` query parameter is required.")
             queryset = queryset.filter(session_id=session_id)
         return queryset
-
-    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        observation = self.get_object()
-        context = {**self.get_serializer_context(), "neighbors": self._observation_neighbors(observation)}
-        return Response(self.get_serializer(observation, context=context).data)
-
-    def _observation_neighbors(self, observation: ReplayObservation) -> dict[str, uuid.UUID | None]:
-        # Neighbors honor the same filters and ordering as the scanner's list endpoint, so prev/next
-        # navigation started from a filtered table stays within the filtered set.
-        siblings = ReplayObservation.objects.filter(
-            team_id=observation.team_id, scanner_id=observation.scanner_id
-        ).order_by("-created_at", "id")
-        filterset = ReplayObservationFilter(self.request.query_params, queryset=siblings, request=self.request)
-        if filterset.is_valid():
-            siblings = filterset.qs
-        ids: list[uuid.UUID] = list(siblings.values_list("id", flat=True))
-        try:
-            index = ids.index(observation.id)
-        except ValueError:
-            # The observation itself falls outside the filtered set (e.g. a stale deep link) — no neighbors.
-            return {"previous": None, "next": None}
-        return {
-            "previous": ids[index - 1] if index > 0 else None,
-            "next": ids[index + 1] if index < len(ids) - 1 else None,
-        }
 
     # Hide `stats/` on the session-scoped viewset — it has no `parent_lookup_scanner_id` to dispatch on.
     def stats(self, request: Request, **kwargs: Any) -> Response:  # type: ignore[override]

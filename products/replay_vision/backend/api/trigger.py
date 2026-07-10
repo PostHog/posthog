@@ -67,7 +67,7 @@ def start_apply_scanner_workflow(
     session_id: str,
     *,
     triggered_by_user_id: int,
-    trigger: ObservationTrigger = ObservationTrigger.ON_DEMAND,
+    trigger: ObservationTrigger,
 ) -> tuple[str, WorkflowStartOutcome]:
     """Start the deterministic apply-scanner workflow for one (scanner, session); never raises."""
     workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)

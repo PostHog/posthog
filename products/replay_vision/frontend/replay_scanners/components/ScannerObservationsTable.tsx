@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
 import { IconEye, IconPlay, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
@@ -14,6 +13,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
+import { observationDetailUrl } from '../../observations/replayObservationLogic'
 import {
     OBSERVATIONS_PAGE_SIZE,
     ObservationStatusValue,
@@ -21,6 +21,7 @@ import {
     ObservationVerdictValue,
     replayScannerLogic,
 } from '../replayScannerLogic'
+import { OBSERVATION_TRIGGER_TAG } from '../types'
 
 const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
@@ -30,17 +31,10 @@ const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'pending', label: 'Pending' },
 ]
 
-const TRIGGERED_BY_OPTIONS: { value: ObservationTriggeredByValue; label: string }[] = [
-    { value: 'on_demand', label: 'On demand' },
-    { value: 'schedule', label: 'Schedule' },
-    { value: 'retry', label: 'Retry' },
-]
-
-const TRIGGERED_BY_TAG: Record<ObservationTriggeredByValue, { label: string; type: LemonTagType }> = {
-    schedule: { label: 'Schedule', type: 'default' },
-    on_demand: { label: 'On demand', type: 'highlight' },
-    retry: { label: 'Retry', type: 'completion' },
-}
+const TRIGGERED_BY_OPTIONS = Object.entries(OBSERVATION_TRIGGER_TAG).map(([value, { label }]) => ({
+    value: value as ObservationTriggeredByValue,
+    label,
+}))
 
 const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'yes', label: 'Yes' },
@@ -130,7 +124,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             width: 300,
             render: (_, obs) => (
                 <Link
-                    to={combineUrl(urls.replayVisionObservation(obs.id), observationDetailLinkParams).url}
+                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
                     className="font-mono text-xs text-primary truncate block"
                 >
                     {obs.session_id}
@@ -181,10 +175,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             title: 'Result',
             key: 'result',
             render: (_, obs) => (
-                <Link
-                    to={combineUrl(urls.replayVisionObservation(obs.id), observationDetailLinkParams).url}
-                    className="block"
-                >
+                <Link to={observationDetailUrl(obs.id, observationDetailLinkParams)} className="block">
                     <div className="min-w-[18rem] max-w-xl">
                         <ObservationResultSummary observation={obs} />
                     </div>
@@ -214,8 +205,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             title: 'Triggered by',
             key: 'triggered_by',
             render: (_, obs) => (
-                <LemonTag type={TRIGGERED_BY_TAG[obs.triggered_by].type}>
-                    {TRIGGERED_BY_TAG[obs.triggered_by].label}
+                <LemonTag type={OBSERVATION_TRIGGER_TAG[obs.triggered_by].type}>
+                    {OBSERVATION_TRIGGER_TAG[obs.triggered_by].label}
                 </LemonTag>
             ),
         },
@@ -234,7 +225,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     size="small"
                     type="secondary"
                     icon={<IconEye />}
-                    to={combineUrl(urls.replayVisionObservation(obs.id), observationDetailLinkParams).url}
+                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
                     className="whitespace-nowrap"
                     data-attr="vision-observation-view-details"
                 >

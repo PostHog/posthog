@@ -16,6 +16,7 @@ import {
     VisionScannersObservationsListParams,
     VisionScannersObservationsListQueryParams,
     VisionScannersObservationsRetrieveParams,
+    VisionScannersObservationsRetrieveQueryParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersObservationsStatsRetrieveQueryParams,
     VisionScannersObserveCreateBody,
@@ -115,6 +116,7 @@ const visionObservationsRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/${encodeURIComponent(String(params.id))}/`,
             query: {
                 labeled: params.labeled,
+                order_by: params.order_by,
                 recording_subject: params.recording_subject,
                 session_id: params.session_id,
                 status: params.status,
@@ -286,7 +288,9 @@ const visionScannersList = (): ToolBase<
     },
 })
 
-const VisionScannersObservationsGetSchema = VisionScannersObservationsRetrieveParams.omit({ project_id: true })
+const VisionScannersObservationsGetSchema = VisionScannersObservationsRetrieveParams.omit({ project_id: true }).extend(
+    VisionScannersObservationsRetrieveQueryParams.shape
+)
 
 const visionScannersObservationsGet = (): ToolBase<
     typeof VisionScannersObservationsGetSchema,
@@ -299,6 +303,16 @@ const visionScannersObservationsGet = (): ToolBase<
         const result = await context.api.request<Schemas.ReplayObservation>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                labeled: params.labeled,
+                order_by: params.order_by,
+                recording_subject: params.recording_subject,
+                session_id: params.session_id,
+                status: params.status,
+                tags: params.tags,
+                triggered_by: params.triggered_by,
+                verdict: params.verdict,
+            },
         })
         return result
     },

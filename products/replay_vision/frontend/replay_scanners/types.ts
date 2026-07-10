@@ -5,9 +5,11 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import type {
     PatchedReplayScannerApi,
+    ReplayObservationApi,
     ReplayScannerApi,
     ScannerTypeEnumApi,
     UserBasicApi,
+    VisionObservationsRetrieveParams,
 } from '../generated/api.schemas'
 import { formatCredits } from '../utils/credits'
 
@@ -19,6 +21,25 @@ export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
     scorer: 'warning',
     summarizer: 'success',
 }
+
+export const OBSERVATION_TRIGGER_TAG: Record<
+    ReplayObservationApi['triggered_by'],
+    { label: string; type: LemonTagType }
+> = {
+    schedule: { label: 'Schedule', type: 'default' },
+    on_demand: { label: 'On demand', type: 'highlight' },
+    retry: { label: 'Retry', type: 'completion' },
+}
+
+// Typed against the generated retrieve params so a renamed or dropped backend filter fails the build.
+export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRetrieveParams)[] = [
+    'status',
+    'triggered_by',
+    'verdict',
+    'tags',
+    'recording_subject',
+    'order_by',
+]
 
 export type EnabledFilter = 'enabled' | 'disabled'
 

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import {
@@ -63,11 +63,12 @@ import {
     modelLabel,
     parseFailureReason,
     parseIneligibleReason,
+    OBSERVATION_TRIGGER_TAG,
     type ScannerType,
 } from '../replay_scanners/types'
 import { ImproveScannerPromptButton, describeObservationOutcome } from './ImproveScannerPromptButton'
 import { ObservationLabelControl } from './ObservationLabelControl'
-import { neighborFilterParams, replayObservationLogic } from './replayObservationLogic'
+import { neighborFilterParams, observationDetailUrl, replayObservationLogic } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 export const scene: SceneExport = {
@@ -159,12 +160,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const reasoningSegments = result?.reasoning_segments
     const scannerType = snapshot?.scanner_type
     const scannerName = snapshot?.name || 'Scanner'
-    const triggerLabel =
-        observation.triggered_by === 'on_demand'
-            ? 'On demand'
-            : observation.triggered_by === 'retry'
-              ? 'Retry'
-              : 'Schedule'
+    const triggerLabel = OBSERVATION_TRIGGER_TAG[observation.triggered_by].label
     const snapshotConfig = configFromSnapshot(snapshot)
     const prompt = snapshotConfig?.prompt ?? null
     const summarizerConfig = scannerType === 'summarizer' ? (snapshotConfig as SummarizerScannerConfig | null) : null
@@ -204,7 +200,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     // navigation (and the server-computed neighbor ids) stay within the filtered list.
     const neighborParams = neighborFilterParams(searchParams)
     const neighborsFiltered = Object.keys(neighborParams).some((key) => key !== 'order_by')
-    const observationUrl = (id: string): string => combineUrl(urls.replayVisionObservation(id), neighborParams).url
+    const observationUrl = (id: string): string => observationDetailUrl(id, neighborParams)
 
     const seekEmbeddedPlayer = (ms: number): void => {
         if (!recordingExpanded) {
