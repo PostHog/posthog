@@ -398,6 +398,10 @@ export const RowExpandedUsagePopulated: Story = {
     parameters: {
         testOptions: {
             waitForSelector: ['[data-attr="accounts-refresh"]', '.DataVisualization canvas'],
+            // The pre-snapshot resize the test runner dispatches tears down the Chart.js canvas and
+            // re-renders it; under CI load that re-render can exceed the default 10s waitForSelector,
+            // so give this canvas gate the same headroom the play-fn wait already uses.
+            waitForSelectorTimeout: 30000,
         },
     },
     decorators: billingTabDecorators(
@@ -407,7 +411,7 @@ export const RowExpandedUsagePopulated: Story = {
     play: async ({ canvasElement }) => {
         await expandAndOpenTab(canvasElement, 'Usage')
         // Wait for the chart canvas to render before handing off to the snapshot.
-        // The play function timeout (~60s) is much more generous than waitForSelector (10s),
+        // The play function timeout (~60s) is much more generous than the default waitForSelector (10s),
         // so this prevents flaky timeouts under CI load.
         await waitFor(
             () => {
