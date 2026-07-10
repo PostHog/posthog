@@ -38,7 +38,11 @@ pub struct Exception {
         deserialize_with = "deserialize_exception_type"
     )]
     pub exception_type: String,
-    #[serde(rename = "value", default, deserialize_with = "deserialize_nullable_string")]
+    #[serde(
+        rename = "value",
+        default,
+        deserialize_with = "deserialize_nullable_string"
+    )]
     pub exception_message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mechanism: Option<Mechanism>,
