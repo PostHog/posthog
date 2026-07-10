@@ -237,17 +237,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)], // this is for filtering out world map
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
         supportsCompare: [
-            (s) => [s.querySource, s.display, s.dateRange, s.featureFlags],
-            (q, display, dateRange, featureFlags) => {
+            (s) => [s.querySource, s.display, s.dateRange],
+            (q, display, dateRange) => {
                 if (dateRange?.date_from === 'all') {
                     return false
                 }
                 if (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) {
                     return display !== ChartDisplayType.WorldMap && display !== ChartDisplayType.CalendarHeatmap
                 }
-                // Funnel compare ships behind a flag, for the STEPS, TRENDS and TIME_TO_CONVERT viz
-                // modes. FLOW is excluded — the backend ignores compare for it (mirrors `_is_compare_active`).
-                if (isFunnelsQuery(q) && !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]) {
+                // Funnel compare is supported for the STEPS, TRENDS and TIME_TO_CONVERT viz modes.
+                // FLOW is excluded — the backend ignores compare for it (mirrors `_is_compare_active`).
+                if (isFunnelsQuery(q)) {
                     return (q.funnelsFilter?.funnelVizType ?? FunnelVizType.Steps) !== FunnelVizType.Flow
                 }
                 return false

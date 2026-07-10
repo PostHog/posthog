@@ -16,6 +16,7 @@ from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import SANDBOX_EVENT_INGEST_FEATURE_FLAG
+from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.metrics import observe_task_run_workflow_start
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
@@ -65,7 +66,8 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
     task_run.capture_event(
         "task_run_failed",
         {
-            "error_message": error_message[:500],
+            "error_message": truncate_error_message(error_message),
+            "error_type": "workflow_start_failed",
             "duration_seconds": task_run._duration_seconds(),
         },
     )

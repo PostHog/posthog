@@ -663,6 +663,7 @@ class TestProcessTaskWorkflowUnit:
             "failed",
             error_message="database connection closed",
             run_id="run-id",
+            error_type="RuntimeError",
         )
         track_workflow_event_mock.assert_not_awaited()
         post_slack_update_mock.assert_not_awaited()
@@ -698,6 +699,7 @@ class TestProcessTaskWorkflowUnit:
             "failed",
             error_message="Sandbox not in running state.",
             run_id="run-id",
+            error_type="ActivityError",
         )
 
     async def test_run_skips_relay_when_sandbox_event_ingest_is_enabled(self, monkeypatch):
@@ -867,6 +869,7 @@ class TestProcessTaskWorkflowUnit:
         update_task_run_status_mock.assert_any_await(
             "completed",
             error_message=SANDBOX_GONE_ERROR_MESSAGE,
+            error_type=None,
         )
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
 

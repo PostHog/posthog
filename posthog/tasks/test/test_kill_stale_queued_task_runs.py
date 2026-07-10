@@ -62,12 +62,16 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         TaskRun = apps.get_model("tasks", "TaskRun")
         run = self._make_run(TaskRun.Status.QUEUED, datetime.timedelta(hours=25))
 
-        kill_stale_queued_task_runs()
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            kill_stale_queued_task_runs()
 
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.FAILED)
         self.assertIn("stuck in QUEUED", run.error_message or "")
         self.assertIsNotNone(run.completed_at)
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0].kwargs["properties"]["error_type"], "stale_queued_cleanup")
 
     def test_leaves_recently_queued_run_alone(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -216,11 +220,11 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         original_mark_failed = TaskRun.mark_failed
         call_count = {"n": 0}
 
-        def flaky_mark_failed(self: Any, error: str) -> None:
+        def flaky_mark_failed(self: Any, error: str, error_type: str | None = None) -> None:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise RuntimeError("synthetic failure")
-            return original_mark_failed(self, error)
+            return original_mark_failed(self, error, error_type=error_type)
 
         with (
             patch.object(TaskRun, "mark_failed", flaky_mark_failed),
