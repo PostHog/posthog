@@ -4347,8 +4347,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     )
     @action(methods=["POST"], detail=True, url_path="sync_webhook_events")
     def sync_webhook_events(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Reconcile a source's webhook with the currently selected schemas and refresh the
-        deployed hog function's code from its template.
+        """Reconcile a source's webhook with the currently selected schemas and re-sync the
+        hog function's inputs_schema, schema_mapping, and template linkage from the current
+        template. Hog code itself stays current at runtime via the CDP template mechanisms.
 
         Sources that override sync_webhook_events (e.g. Stripe) get their provider events
         reconciled; sources without an override no-op successfully, and the still-nonempty
@@ -4409,11 +4410,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         )
         eligible_schema_names = [schema.name for schema in eligible_schemas]
 
-        # Preserve the currently configured webhook input VALUES (signing secret, etc.) so the
-        # template refresh below doesn't drop them: get_or_create_webhook_hog_function rebuilds
-        # `inputs` from scratch. Passing the stored non-masked values back through extra_inputs
-        # keeps them; masked secret markers ({"secret": True}) are skipped so move_secret_inputs()
-        # restores the real secret from encrypted_inputs instead of overwriting it.
+        # Preserve the currently configured webhook input VALUES so the rebuild below doesn't
+        # drop them: get_or_create_webhook_hog_function rebuilds `inputs` from scratch. Passing
+        # the stored non-masked values back through extra_inputs keeps them; masked secret
+        # markers ({"secret": True}) are skipped so move_secret_inputs() restores the real
+        # secret from encrypted_inputs instead of overwriting it.
         webhook_field_names = {f.name for f in (source.get_source_config.webhookFields or [])}
         stored_inputs = HogFunctionSerializer(hog_function).data.get("inputs") or {}
         preserved_inputs: dict[str, Any] = {}
@@ -4422,7 +4423,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if isinstance(entry, dict) and "value" in entry:
                 preserved_inputs[name] = entry["value"]
 
-        # Refresh the hog function code + inputs_schema from the current template and merge
+        # Re-sync inputs_schema + template linkage from the current template and merge
         # schema_mapping for the eligible schemas (both idempotent in the existing helper).
         hog_fn_result = get_or_create_webhook_hog_function(
             team=self.team,
