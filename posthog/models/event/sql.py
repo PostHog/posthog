@@ -3,7 +3,7 @@ from functools import cache
 
 from django.conf import settings
 
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
+from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
@@ -206,11 +206,14 @@ def json_property_presence_expr(column: str, prop: str) -> str:
     scalar = f"{column_sql}.{path_sql}"
     if len(parts) == 1 and prop in subcolumns:
         if not _json_subcolumn_type_supports_nullable(subcolumns[prop]):
+            # Native container paths use the empty value for both missing and explicitly empty values.
             return f"notEmpty({scalar})"
         return f"isNotNull({scalar})"
     if parts[0] in subcolumns:
-        # Typed subcolumns are scalar; nothing can be nested beneath them.
-        return "0"
+        head = f"{column_sql}.{escape_clickhouse_identifier(parts[0])}"
+        head_document = head if subcolumns[parts[0]] in ("String", "Nullable(String)") else f"toJSONString({head})"
+        tail = ", ".join(escape_clickhouse_string(part) for part in parts[1:])
+        return f"JSONHas(ifNull({head_document}, ''), {tail})"
     sub_object = f"{column_sql}.^{path_sql}"
     return f"(isNotNull({scalar}) OR toJSONString({sub_object}) != '{{}}')"
 

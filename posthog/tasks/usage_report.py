@@ -1107,17 +1107,17 @@ def get_teams_with_feature_flag_requests_count_in_period(
     target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
 
     use_new = use_new_events_schema(None)
-    # events_json stores properties as native JSON; serialize back to a String document for JSONExtract*.
-    properties_doc = "toJSONString(properties)" if use_new else "properties"
+    count_expr, _ = get_property_string_expr("events", "count", "'count'", "properties", use_new_events_schema=use_new)
+    token_expr, _ = get_property_string_expr("events", "token", "'token'", "properties", use_new_events_schema=use_new)
 
     with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.USAGE_REPORT):
         # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
         return sync_execute(
             f"""
-            SELECT distinct_id as team, sum(JSONExtractInt({properties_doc}, 'count')) as sum
+            SELECT distinct_id as team, sum(toInt64OrZero({count_expr})) as sum
             FROM {events_read_table(use_new)}
             WHERE team_id = %(team_to_query)s AND event=%(target_event)s AND timestamp >= %(begin)s AND timestamp < %(end)s
-            AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw({properties_doc}, 'token'), '^"|"$', ''))
+            AND has([%(validity_token)s], {token_expr})
             GROUP BY team
         """,
             {
@@ -1148,8 +1148,10 @@ def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
     target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
 
     use_new = use_new_events_schema(None)
-    # events_json stores properties as native JSON; serialize back to a String document for JSONExtract*.
-    properties_doc = "toJSONString(properties)" if use_new else "properties"
+    sdk_breakdown_expr, _ = get_property_string_expr(
+        "events", "sdk_breakdown", "'sdk_breakdown'", "properties", use_new_events_schema=use_new
+    )
+    token_expr, _ = get_property_string_expr("events", "token", "'token'", "properties", use_new_events_schema=use_new)
 
     with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.USAGE_REPORT):
         # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
@@ -1157,14 +1159,14 @@ def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
             f"""
             SELECT
                 distinct_id as team,
-                arrayJoin(JSONExtractKeys({properties_doc}, 'sdk_breakdown')) as sdk,
-                sum(JSONExtractInt(JSONExtractRaw({properties_doc}, 'sdk_breakdown'), sdk)) as sum
+                arrayJoin(JSONExtractKeys({sdk_breakdown_expr})) as sdk,
+                sum(JSONExtractInt({sdk_breakdown_expr}, sdk)) as sum
             FROM {events_read_table(use_new)}
             WHERE team_id = %(team_to_query)s
               AND event = %(target_event)s
               AND timestamp >= %(begin)s AND timestamp < %(end)s
-              AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw({properties_doc}, 'token'), '^"|"$', ''))
-              AND JSONHas({properties_doc}, 'sdk_breakdown')
+              AND has([%(validity_token)s], {token_expr})
+              AND {sdk_breakdown_expr} != ''
             GROUP BY team, sdk
         """,
             {
@@ -1245,8 +1247,20 @@ def get_teams_with_ai_event_count_in_period(
     end: datetime,
 ) -> list[tuple[int, int]]:
     use_new = use_new_events_schema(None)
-    # events_json stores properties as native JSON; serialize back to a String document for JSONExtract*.
-    properties_doc = "toJSONString(properties)" if use_new else "properties"
+    verified_expr, _ = get_property_string_expr(
+        "events",
+        "$ai_gateway_verified",
+        "'$ai_gateway_verified'",
+        "properties",
+        use_new_events_schema=use_new,
+    )
+    request_id_expr, _ = get_property_string_expr(
+        "events",
+        "$ai_gateway_request_id",
+        "'$ai_gateway_request_id'",
+        "properties",
+        use_new_events_schema=use_new,
+    )
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.USAGE_REPORT):
         # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
@@ -1266,8 +1280,8 @@ def get_teams_with_ai_event_count_in_period(
             FROM (
                 SELECT
                     team_id,
-                    JSONExtractBool({properties_doc}, '$ai_gateway_verified') as verified,
-                    if(verified, JSONExtractString({properties_doc}, '$ai_gateway_request_id'), '') as request_id
+                    {verified_expr} IN ('true', '1') as verified,
+                    if(verified, {request_id_expr}, '') as request_id
                 FROM {events_read_table(use_new)}
                 WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
             )
@@ -1385,8 +1399,28 @@ def _get_teams_with_ai_credits_for_products(
 
     use_new = use_new_events_schema(None)
     events_table = events_read_table(use_new)
-    # events_json stores properties as native JSON; serialize back to a String document for JSONExtract*.
-    properties_doc = "toJSONString(properties)" if use_new else "properties"
+    region_property = region_filter_params["region_group_property"]
+    region_expr, _ = get_property_string_expr(
+        "events", region_property, f"'{region_property}'", "properties", use_new_events_schema=use_new
+    )
+    trace_id_expr, _ = get_property_string_expr(
+        "events", "$ai_trace_id", "'$ai_trace_id'", "properties", use_new_events_schema=use_new
+    )
+    output_state_expr, _ = get_property_string_expr(
+        "events", "$ai_output_state", "'$ai_output_state'", "properties", use_new_events_schema=use_new
+    )
+    customer_team_id_expr, _ = get_property_string_expr(
+        "events", "team_id", "'team_id'", "properties", use_new_events_schema=use_new
+    )
+    total_cost_expr, _ = get_property_string_expr(
+        "events", "$ai_total_cost_usd", "'$ai_total_cost_usd'", "properties", use_new_events_schema=use_new
+    )
+    billable_expr, _ = get_property_string_expr(
+        "events", "$ai_billable", "'$ai_billable'", "properties", use_new_events_schema=use_new
+    )
+    ai_product_expr, _ = get_property_string_expr(
+        "events", "ai_product", "'ai_product'", "properties", use_new_events_schema=use_new
+    )
 
     with tags_context(
         product=product_tag, feature=Feature.USAGE_REPORT, usage_report=usage_report_tag, kind="usage_report"
@@ -1418,23 +1452,17 @@ def _get_teams_with_ai_credits_for_products(
                     ) AS is_billable
                 FROM (
                     SELECT
-                        JSONExtractString({properties_doc}, '$ai_trace_id') AS trace_id,
+                        {trace_id_expr} AS trace_id,
                         arrayFlatten(
                             arrayMap(
                                 msg -> JSONExtractArrayRaw(msg, 'tool_calls'),
                                 -- Only get messages from current turn (after last human message)
                                 arraySlice(
-                                    JSONExtractArrayRaw(
-                                        JSONExtractRaw({properties_doc}, '$ai_output_state'),
-                                        'messages'
-                                    ),
+                                    JSONExtractArrayRaw({output_state_expr}, 'messages'),
                                     -- Start from the position after the last human message
                                     arrayLastIndex(
                                         x -> JSONExtractString(x, 'type') = 'human',
-                                        JSONExtractArrayRaw(
-                                            JSONExtractRaw({properties_doc}, '$ai_output_state'),
-                                            'messages'
-                                        )
+                                        JSONExtractArrayRaw({output_state_expr}, 'messages')
                                     ) + 1
                                 )
                             )
@@ -1444,7 +1472,7 @@ def _get_teams_with_ai_credits_for_products(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND JSONExtractString({properties_doc}, %(region_group_property)s) = %(region_url)s
+                        AND {region_expr} = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_trace'
@@ -1457,22 +1485,22 @@ def _get_teams_with_ai_credits_for_products(
                     cost_usd
                 FROM (
                     SELECT
-                        JSONExtractInt({properties_doc}, 'team_id') AS customer_team_id,
-                        JSONExtractString({properties_doc}, '$ai_trace_id') AS trace_id,
+                        toInt64OrZero({customer_team_id_expr}) AS customer_team_id,
+                        {trace_id_expr} AS trace_id,
                         toDecimal32OrNull(
-                            JSONExtractString({properties_doc}, '$ai_total_cost_usd'),
+                            {total_cost_expr},
                             5
                         ) AS cost_usd,
-                        JSONExtractBool({properties_doc}, '$ai_billable') AS ai_billable
+                        {billable_expr} IN ('true', '1') AS ai_billable
                     FROM {events_table}
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND JSONExtractString({properties_doc}, %(region_group_property)s) = %(region_url)s
+                        AND {region_expr} = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
-                        AND JSONExtractString({properties_doc}, 'ai_product') IN %(ai_products)s
+                        AND {ai_product_expr} IN %(ai_products)s
                 )
                 WHERE
                     ai_billable = 1

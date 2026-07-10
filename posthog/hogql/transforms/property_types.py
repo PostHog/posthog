@@ -31,6 +31,7 @@ from posthog.clickhouse.materialized_columns import (
     get_materialized_column_for_property,
 )
 from posthog.models import Team
+from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.models.property import PropertyName, TableColumn
 
 _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
@@ -389,6 +390,8 @@ class PropertySwapper(CloningVisitor):
         if len(property_path) != 1:
             return None
         property_name = property_path[0]
+        if not isinstance(property_name, str):
+            return None
 
         field_name = cast(TableColumn, database_field.name)
         mat_col = get_materialized_column_for_property(
@@ -483,10 +486,21 @@ class PropertySwapper(CloningVisitor):
             chain=[*field_arg.chain, first_key],
             type=ast.PropertyType(chain=[first_key], field_type=field_type),
         )
-        serialized_property = ast.Call(
+        subcolumns = (
+            EVENTS_PROPERTIES_JSON_SUBCOLUMNS if field_type.name == "properties" else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+        )
+        declared_type = subcolumns.get(first_key)
+        property_document: ast.Expr = property_field
+        if len(property_path) == 1 or declared_type not in ("String", "Nullable(String)"):
+            property_document = ast.Call(
+                name="toJSONString",
+                args=[property_field],
+                type=ast.StringType(nullable=True),
+            )
+        property_document = ast.Call(
             name="ifNull",
             args=[
-                ast.Call(name="toJSONString", args=[property_field], type=ast.StringType(nullable=True)),
+                property_document,
                 ast.Constant(value="", inline_sentinel=True),
             ],
             type=ast.StringType(nullable=False),
@@ -500,7 +514,7 @@ class PropertySwapper(CloningVisitor):
             end=node.end,
             type=node.type,
             name=node.name,
-            args=[serialized_property, *node.args[2:]],
+            args=[property_document, *node.args[2:]],
             params=node.params,
             distinct=node.distinct,
             within_group=node.within_group,

@@ -611,12 +611,14 @@ def prop_filter_json_extract(
     else:
         if is_json(prop.value) and not is_denormalized:
             if is_events_json:
-                clause = " {property_operator} has(%(v{prepend}_{idx})s, replaceRegexpAll({left}, ' ', ''))"
+                clause = " {property_operator} has(arrayMap(value -> toJSONString(JSONExtract(value, 'Dynamic')), %(v{prepend}_{idx})s), {left})"
+                values = box_value(prop.value)
             else:
                 clause = " {property_operator} has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"
+                values = box_value(prop.value, remove_spaces=True)
             params = {
                 "k{}_{}".format(prepend, idx): prop.key,
-                "v{}_{}".format(prepend, idx): box_value(prop.value, remove_spaces=True),
+                "v{}_{}".format(prepend, idx): values,
             }
         else:
             clause = " {property_operator} has(%(v{prepend}_{idx})s, {left})"

@@ -24,7 +24,7 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     get_sentiment_for_generation,
     load_generation_sentiment_evaluations_for_traces,
 )
-from posthog.hogql_queries.ai.utils import merge_heavy_properties, parse_ai_properties, parse_ai_property_value
+from posthog.hogql_queries.ai.utils import merge_heavy_properties, parse_ai_property_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -176,9 +176,6 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                 argMinIf(output_state,
                          timestamp, event = '$ai_trace'
                 ) AS output_state,
-                argMinIf(properties,
-                         timestamp, event = '$ai_trace'
-                ) AS trace_properties,
                 ifNull(
                     argMinIf(
                         ifNull(nullIf(span_name, ''), nullIf(trace_name, '')),
@@ -277,15 +274,14 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             "created_at": created_at.isoformat(),
             "events": generations,
         }
-        trace_properties = parse_ai_properties(trace_dict.get("trace_properties"))
         sentiment = sentiment_lookup.by_trace_id.get(str(result["id"]))
         if sentiment is not None:
             trace_dict["sentiment"] = sentiment
-        for raw_key, parsed_key, prop_key in [
-            ("input_state", "input_state_parsed", "$ai_input_state"),
-            ("output_state", "output_state_parsed", "$ai_output_state"),
+        for raw_key, parsed_key in [
+            ("input_state", "input_state_parsed"),
+            ("output_state", "output_state_parsed"),
         ]:
-            raw = trace_dict.get(raw_key) or trace_properties.get(prop_key) or None
+            raw = trace_dict.get(raw_key) or None
             trace_dict[raw_key] = raw
             if raw is not None:
                 trace_dict[parsed_key] = parse_ai_property_value(raw)

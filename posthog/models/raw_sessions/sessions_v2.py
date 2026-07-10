@@ -187,14 +187,20 @@ def source_nullable_float_column(column_name: str, properties: str = "properties
     return f"""accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({properties}, '{column_name}'), ''), 'null'), '^"|"$', ''), 'Float64')"""
 
 
-def RAW_SESSION_TABLE_BACKFILL_SELECT_SQL(team_id: int | None = None) -> str:
-    use_new = use_new_events_schema(team_id)
+def RAW_SESSION_TABLE_BACKFILL_SELECT_SQL(
+    team_id: int | None = None,
+    *,
+    events_table: str | None = None,
+    session_id_expr: str = "`$session_id`",
+) -> str:
+    use_new = events_table is None and use_new_events_schema(team_id)
     properties = "toJSONString(properties)" if use_new else "properties"
+    events_table = events_table or events_read_table(use_new)
 
     return """
 SELECT
     team_id,
-    toUInt128(toUUID(`$session_id`)) as session_id_v7,
+    toUInt128(toUUID({session_id})) as session_id_v7,
 
     initializeAggregation('argMaxState', distinct_id, timestamp) as distinct_id,
 
@@ -267,10 +273,11 @@ SELECT
     -- vitals
     initializeAggregation('argMinState', {vitals_lcp}, timestamp) as vitals_lcp
 FROM {database}.{events_table}
-WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull({session_id}, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
-        events_table=events_read_table(use_new),
+        events_table=events_table,
+        session_id=session_id_expr,
         current_url=source_url_column("$current_url", properties),
         current_url_string=source_string_column("$current_url", properties),
         external_click_url=source_string_column("$external_click_url", properties),

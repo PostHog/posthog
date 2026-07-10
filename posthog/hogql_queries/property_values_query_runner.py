@@ -1,7 +1,5 @@
 import json
 import uuid
-from ast import literal_eval
-from contextlib import suppress
 from datetime import datetime
 from functools import cached_property
 from typing import Optional, cast
@@ -38,33 +36,6 @@ from posthog.utils import convert_property_value, flatten, get_instance_region, 
 from products.access_control.backend.property_access_control import get_restricted_property_names
 
 PROPERTY_VALUES_TABLE_FLAG = "property-values-table"
-
-
-def _parse_jsonish_property_value(value: object) -> object:
-    """Decode new-events-schema values: toString(...) over native JSON subcolumns can double-encode
-    strings and emit Python-repr-style containers, so peel quotes/JSON up to twice and fall back to
-    literal_eval for container-looking strings."""
-    if isinstance(value, float | int | bool | uuid.UUID | list | tuple | dict):
-        return value
-    if not isinstance(value, str):
-        return value
-
-    parsed: object = value.replace('\\"', '"')
-    for _ in range(2):
-        if not isinstance(parsed, str):
-            return parsed
-        parsed_str = parsed
-        try:
-            parsed = json.loads(parsed_str)
-        except (json.JSONDecodeError, TypeError):
-            if parsed_str.startswith(("[", "{")):
-                with suppress(ValueError, SyntaxError):
-                    return literal_eval(parsed_str)
-            if len(parsed_str) >= 2 and parsed_str[0] == '"' and parsed_str[-1] == '"':
-                parsed = parsed_str[1:-1]
-                continue
-            return parsed_str
-    return parsed
 
 
 class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse]):
@@ -190,7 +161,9 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         is_virtual = key.startswith("$virt_")
         chain: list[str | int] = [key] if (self.query.is_column or is_virtual) else ["properties", key]
         field_expr: ast.Expr = ast.Field(chain=chain)
-        value_expr: ast.Expr = field_expr
+        value_expr: ast.Expr = (
+            ast.Call(name="toJSONString", args=[field_expr]) if self._use_new_events_schema else field_expr
+        )
         presence_expr: ast.Expr = field_expr
         string_expr: ast.Expr = ast.Call(name="toString", args=[field_expr])
 
@@ -263,7 +236,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         for row in rows:
             raw = row[0]
             if self._use_new_events_schema:
-                values.append(_parse_jsonish_property_value(raw))
+                values.append(json.loads(raw))
             elif isinstance(raw, float | int | bool | uuid.UUID):
                 values.append(raw)
             else:
@@ -284,13 +257,10 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         values: list[object] = []
         for row in rows:
             raw = row[0]
-            if self._use_new_events_schema:
-                values.append(_parse_jsonish_property_value(raw))
-            else:
-                try:
-                    values.append(json.loads(raw))
-                except (json.JSONDecodeError, TypeError):
-                    values.append(raw)
+            try:
+                values.append(json.loads(raw))
+            except (json.JSONDecodeError, TypeError):
+                values.append(raw)
         return self._to_property_value_items(values)
 
     def _to_property_value_items(self, values: list[object]) -> list[PropertyValueItem]:

@@ -216,15 +216,13 @@ class TaxonomyAgentToolkit:
 
         return format_prompt_string(PROPERTIES_EXAMPLE_PROMPT, result=self._generate_properties_output(props))
 
-    def _retrieve_event_or_action_taxonomy(
-        self, event_name_or_action_id: str | int, properties: list[str] | None = None
-    ):
+    def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
         is_event = isinstance(event_name_or_action_id, str)
         if is_event:
-            query = EventTaxonomyQuery(event=event_name_or_action_id, maxPropertyValues=25, properties=properties)
+            query = EventTaxonomyQuery(event=event_name_or_action_id, maxPropertyValues=25)
             verbose_name = f"event {event_name_or_action_id}"
         else:
-            query = EventTaxonomyQuery(actionId=event_name_or_action_id, maxPropertyValues=25, properties=properties)
+            query = EventTaxonomyQuery(actionId=event_name_or_action_id, maxPropertyValues=25)
             verbose_name = f"action with ID {event_name_or_action_id}"
         runner = EventTaxonomyQueryRunner(query, self._team, user=self._user)
         with tags_context(
@@ -334,9 +332,7 @@ class TaxonomyAgentToolkit:
                 return f"The property {property_name} does not exist in the taxonomy."
             property_definition = virtual_definition
 
-        response, verbose_name = self._retrieve_event_or_action_taxonomy(
-            event_name_or_action_id, properties=[property_name]
-        )
+        response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             return f"The {verbose_name} does not exist in the taxonomy."
 

@@ -1,3 +1,4 @@
+import json
 from functools import cached_property
 from typing import cast
 
@@ -18,7 +19,6 @@ from posthog.api.element import ElementSerializer
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.element.element import chain_to_elements
 from posthog.models.event.new_events_schema import use_new_events_schema
-from posthog.models.event.util import parse_properties
 from posthog.utils import relative_date_parse
 
 
@@ -239,7 +239,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                     distinct_id=distinct_id,
                     event=event,
                     timestamp=timestamp_parsed.isoformat(),
-                    properties=parse_properties(properties_raw),
+                    properties=json.loads(properties_raw),
                     elements_chain=elements_chain or None,
                     elements=ElementSerializer(chain_to_elements(elements_chain), many=True).data,
                 )

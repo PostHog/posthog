@@ -499,6 +499,8 @@ def _json_subcolumn_value_expr(
             name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=source.is_nullable)
         )
         if _is_json_container_column(source) and not source.is_nullable:
+            # Declared arrays and maps cannot distinguish a missing path from an explicitly empty value.
+            # Both are intentionally treated as NULL, matching materialized-column behavior.
             return ast.Call(
                 name="if",
                 args=[
@@ -573,6 +575,16 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     _record_property_usage(context, source.kind)
 
     if source.kind == "json_subcolumn" and deeper_keys:
+        if not _is_dynamic_json_source(source):
+            subcolumn_head = _json_subcolumn_value_expr(
+                field_type,
+                [first_key],
+                source=source,
+                as_json=not _is_string_column(source),
+                materialization_mode=context.modifiers.materializationMode,
+            )
+            return ast.PropertyAccess(expr=subcolumn_head, keys=deeper_keys, type=ast.StringType(nullable=True))
+
         subcolumn_keys = [first_key]
         remaining_keys: list[str | int] = []
         for index, key in enumerate(deeper_keys):
@@ -1064,7 +1076,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                 field_type,
                 [first_key],
                 source=source,
-                as_json=True,
+                as_json=not _is_string_column(source),
                 materialization_mode=self.context.modifiers.materializationMode,
             )
             return ast.Call(

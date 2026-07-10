@@ -79,17 +79,17 @@ def _build_property_access(key: str | ast.Expr, use_new_schema: bool) -> ast.Exp
     if use_new_schema and isinstance(key, str):
         return ast.Call(name="toString", args=[ast.Field(chain=["properties", key])])
 
+    properties = _properties_document() if use_new_schema else ast.Field(chain=["properties"])
     return ast.Call(
         name="JSONExtractString",
-        args=[ast.Field(chain=["properties"]), _key_as_expr(key)],
+        args=[properties, _key_as_expr(key)],
     )
 
 
 def _build_coalesce_expr(id_based_key: str | ast.Expr, index_based_key: str, use_new_schema: bool) -> ast.Expr:
     """Build COALESCE expression for single-choice survey response."""
     # Always check the id-based key first: modern SDKs store responses under $survey_response_<question_id>.
-    # Dynamic (non-str) keys use the legacy whole-blob JSONExtract forms, which stay valid under the new
-    # schema because the printer reconstructs whole-blob `properties` reads into a JSON string.
+    # Runtime keys cannot address a native subcolumn, so only that arm explicitly reconstructs the document.
     response_keys: list[str | ast.Expr] = [id_based_key, index_based_key]
 
     coalesce_args: list[ast.Expr] = [
@@ -107,6 +107,10 @@ def _key_as_expr(key: str | ast.Expr) -> ast.Expr:
     return ast.Constant(value=key) if isinstance(key, str) else key
 
 
+def _properties_document() -> ast.Expr:
+    return ast.Call(name="toJSONString", args=[ast.Field(chain=["properties"])])
+
+
 def _build_property_array_raw(key: str | ast.Expr, use_new_schema: bool) -> ast.Expr:
     if use_new_schema and isinstance(key, str):
         json_value = ast.Call(name="toJSONString", args=[ast.Field(chain=["properties", key])])
@@ -115,9 +119,10 @@ def _build_property_array_raw(key: str | ast.Expr, use_new_schema: bool) -> ast.
             args=[ast.Call(name="ifNull", args=[json_value, ast.Constant(value="[]")])],
         )
 
+    properties = _properties_document() if use_new_schema else ast.Field(chain=["properties"])
     return ast.Call(
         name="JSONExtractArrayRaw",
-        args=[ast.Field(chain=["properties"]), _key_as_expr(key)],
+        args=[properties, _key_as_expr(key)],
     )
 
 
@@ -125,9 +130,10 @@ def _build_property_presence(key: str | ast.Expr, use_new_schema: bool) -> ast.E
     if use_new_schema and isinstance(key, str):
         return ast.Call(name="isNotNull", args=[ast.Field(chain=["properties", key])])
 
+    properties = _properties_document() if use_new_schema else ast.Field(chain=["properties"])
     return ast.Call(
         name="JSONHas",
-        args=[ast.Field(chain=["properties"]), _key_as_expr(key)],
+        args=[properties, _key_as_expr(key)],
     )
 
 

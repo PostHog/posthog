@@ -614,13 +614,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 )
             """
         else:
-            # New-schema blob reconstruction surfaces keys whose values stringify to '' — drop them.
-            # Legacy blobs must keep ''-valued pairs: JSONExtractKeysAndValues(..., 'String') yields ''
-            # for every non-string value (numbers, bools, objects), and those properties should still
-            # show up in correlation results.
             properties_pairs = "JSONExtractKeysAndValues(event_table.properties, 'String')"
-            if self._use_new_events_schema:
-                properties_pairs = f"arrayFilter(prop -> prop.2 != '', {properties_pairs})"
             event_property_array_query = f"""
                 if(
                     empty(event_table.event),
