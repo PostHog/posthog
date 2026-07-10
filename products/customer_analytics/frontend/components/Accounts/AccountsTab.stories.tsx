@@ -384,8 +384,8 @@ export const RowExpandedUsageNotFound: Story = {
     render: () => <App />,
     parameters: {
         testOptions: {
+            ...EXPANDED_ROW_TEST_OPTIONS,
             waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-billing-insight-not-found"]'],
-            waitForSelectorTimeout: 30000,
         },
     },
     decorators: billingTabDecorators(EMPTY_INSIGHTS, mockAccountsQuery(SINGLE_ROW)),

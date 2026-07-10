@@ -39,7 +39,7 @@ declare module 'storybook/internal/types' {
             waitForLoadersToDisappear?: boolean
             /** If set, we'll wait for the given selector (or all selectors, if multiple) to be satisfied. */
             waitForSelector?: string | string[]
-            /** Timeout in ms for waitForSelector. Defaults to Playwright's context default (10s). */
+            /** Timeout in ms for waitForSelector. Defaults to Playwright's context timeout (PLAYWRIGHT_TIMEOUT_MS). */
             waitForSelectorTimeout?: number
             /**
              * By default we wait for images to have width as an indication the page is ready for screenshot testing
