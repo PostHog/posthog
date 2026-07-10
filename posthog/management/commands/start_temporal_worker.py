@@ -210,6 +210,10 @@ from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
+from products.stamphog.backend.facade.temporal import (
+    ACTIVITIES as STAMPHOG_ACTIVITIES,
+    WORKFLOWS as STAMPHOG_WORKFLOWS,
+)
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
@@ -423,6 +427,11 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    (
+        settings.STAMPHOG_TASK_QUEUE,
+        STAMPHOG_WORKFLOWS,
+        STAMPHOG_ACTIVITIES,
     ),
 ]
 

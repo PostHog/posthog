@@ -39,6 +39,13 @@ GITHUB_APP_PRIVATE_KEY = get_from_env("GITHUB_APP_PRIVATE_KEY", "")
 # which is separate from the private key used for App-as-App JWT signing.
 GITHUB_APP_CLIENT_SECRET = get_from_env("GITHUB_APP_CLIENT_SECRET", "")
 
+# Stamphog runs as its own dedicated GitHub App (separate identity from the core
+# GITHUB_APP_* above), so it carries its own App id, JWT-signing private key, and
+# webhook secret. Empty defaults keep the app importable when Stamphog is unconfigured.
+STAMPHOG_GITHUB_APP_ID = get_from_env("STAMPHOG_GITHUB_APP_ID", "")
+STAMPHOG_GITHUB_APP_PRIVATE_KEY = get_from_env("STAMPHOG_GITHUB_APP_PRIVATE_KEY", "")
+STAMPHOG_GITHUB_WEBHOOK_SECRET = get_from_env("STAMPHOG_GITHUB_WEBHOOK_SECRET", "")
+
 ZENDESK_ADMIN_EMAIL = get_from_env("ZENDESK_ADMIN_EMAIL", "")
 ZENDESK_API_TOKEN = get_from_env("ZENDESK_API_TOKEN", "")
 ZENDESK_SUBDOMAIN = get_from_env("ZENDESK_SUBDOMAIN", "posthoghelp")

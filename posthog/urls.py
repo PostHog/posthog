@@ -65,6 +65,7 @@ from products.slack_app.backend.views import (
     slack_user_link_authorize,
     slack_user_link_callback,
 )
+from products.stamphog.backend.facade.webhooks import stamphog_github_webhook
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.user_interviews.backend.presentation.webhooks import (
@@ -550,6 +551,8 @@ urlpatterns = [
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
     opt_slash_path("webhooks/github", github_webhook),
+    # Stamphog runs as its own GitHub App with a dedicated inbound endpoint (not the fan-out above)
+    opt_slash_path("webhooks/stamphog/github", stamphog_github_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
