@@ -1,0 +1,76 @@
+{
+  "learnings": [
+    {
+      "id": "pr-adoption-is-a-workflow",
+      "title": "Adopting an existing PR is a repeatable workflow, not an ad-hoc task",
+      "body": "Over two weeks, 'adopt PR NNNN' came up ~15 times, always with the same steps: check the change is still necessary, update from trunk, fix CI, address open review threads, and sometimes split an oversized PR into independent changes (e.g. #66590 became three PRs). Nothing encodes this today, so every run rediscovers the steps and the pitfalls (diffs polluted by bad merges, stale review context).",
+      "themes": ["pr-adoption"],
+      "evidence_tasks": [72639, 73528, 73819, 74505, 74556, 74627, 75851, 77935, 80691, 83401, 83731, 85237, 85972],
+      "skills": [{ "name": "adopting-prs", "status": "proposed" }]
+    },
+    {
+      "id": "autoresearch-protocol-is-pasted",
+      "title": "The autoresearch loop protocol is pasted verbatim into every run",
+      "body": "Six-plus conversations started with the same long 'You are now in autoresearch mode' prompt defining the one-change-measure-report iteration protocol. The protocol belongs in a skill that takes only the brief and the metric, so improvements to the protocol propagate instead of forking per paste.",
+      "themes": ["autoresearch", "ci-test-perf"],
+      "evidence_tasks": [83764, 85216, 86722, 87225, 87704, 89105, 89334],
+      "skills": [{ "name": "running-autoresearch-loops", "status": "proposed" }]
+    },
+    {
+      "id": "async-search-races-recur",
+      "title": "The taxonomic filter's async-search races keep producing the same bug",
+      "body": "Three separate fixes in two weeks addressed false 'No results' states in the taxonomic filter (stale responses racing fresh queries, tab-switch not refetching, react-window update loops). They are one class of bug: search state that doesn't tie results to the query that produced them. The invariant belongs in the modifying-taxonomic-filter skill so the next change doesn't reintroduce it.",
+      "themes": ["taxonomic-filter"],
+      "evidence_tasks": [74008, 77647, 83204, 83888, 89345],
+      "skills": [{ "name": "modifying-taxonomic-filter", "status": "existing" }]
+    },
+    {
+      "id": "error-noise-has-patterns",
+      "title": "Most error-tracking signal work is noise reduction with recurring code patterns",
+      "body": "A large share of inbox-driven fixes were 'stop capturing a benign exception': expected access denials, network flakes in fire-and-forget calls, third-party injected scripts, timeout signals that should propagate, and non-Error objects passed to captureException. The decision tree (swallow vs propagate vs normalize vs suppress-by-fingerprint) repeats and should be written down as a repo-side skill.",
+      "themes": ["error-noise", "signals-inbox"],
+      "evidence_tasks": [76670, 79313, 81753, 84394, 85108, 86969, 86976],
+      "skills": [{ "name": "reducing-error-tracking-noise", "status": "proposed" }]
+    },
+    {
+      "id": "automation-ladder-works",
+      "title": "Moving conventions from instructions to linters pays off immediately",
+      "body": "The em-dash rule lived in AGENTS.md and was routinely violated; turning it into an automatic commit-time replacement removed the review churn entirely. Same shape as the StreamingHttpResponse wrapper enforcement. When a convention is checkable, spend the effort on the linter, not on better prose.",
+      "themes": ["infra-devx"],
+      "evidence_tasks": [74372, 89366, 89516, 89708],
+      "skills": []
+    },
+    {
+      "id": "fleet-needs-metrics",
+      "title": "The agent fleet itself needs observability",
+      "body": "Recurring questions: what share of PRs does stamphog approve, how accurate are its denials, what does a PR cost per model, are shepherd runs looping on the same PR. Several conversations re-derived the same queries from scratch. A skill for assessing the fleet with AI observability and engineering analytics would make these one-liners.",
+      "themes": ["meta-analytics", "pr-fleet"],
+      "evidence_tasks": [79609, 79864, 80495, 75533, 89329],
+      "skills": [{ "name": "assessing-agent-fleet", "status": "proposed" }]
+    },
+    {
+      "id": "bundle-size-campaign",
+      "title": "Bundle-size work has dedicated tooling that isn't documented as a skill",
+      "body": "The eager-graph checker, lazy-loading of scene edges, the vendored paths-filter, and the CloudFront 10MB gzip ceiling on the toolbar bundle all came up repeatedly. The knowledge of how to read the eager-graph report and which lazy-load patterns are safe lives only in past conversations.",
+      "themes": ["bundle-size"],
+      "evidence_tasks": [75490, 75574, 76823, 83060, 88293, 88294, 88313],
+      "skills": [{ "name": "reducing-bundle-size", "status": "proposed" }]
+    },
+    {
+      "id": "ci-perf-is-continuous",
+      "title": "CI/test performance is a continuous campaign with compounding wins",
+      "body": "DB-free serializer validation tests, pytest boot-cost cuts, selective TransactionTestCase flushes, jest related-tests fan-out taming, and trunk.io flaky quarantine all landed in the same two weeks. Each win came from measuring first (slowest tests, hour-by-hour CI speed) and the measurement queries are worth encoding alongside fixing-flaky-tests.",
+      "themes": ["ci-test-perf"],
+      "evidence_tasks": [74056, 79539, 80911, 83627, 83715, 84728, 87975, 89279, 89348],
+      "skills": [{ "name": "fixing-flaky-tests", "status": "existing" }]
+    },
+    {
+      "id": "one-ci-comment",
+      "title": "CI bots should share one updatable PR comment",
+      "body": "Multiple bots each posting their own comment (bundle size, eager graph, hobby deploy, stamphog refusals) buried signal. Consolidating into a single shared report comment with a stable section order made PRs readable again; new CI reporters should join it rather than posting their own.",
+      "themes": ["infra-devx", "pr-fleet"],
+      "evidence_tasks": [76870, 81488, 86000],
+      "skills": []
+    }
+  ]
+}

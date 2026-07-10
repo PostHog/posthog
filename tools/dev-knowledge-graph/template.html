@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Dev knowledge graph — the system that builds the systems</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #131015; color: #eee; font: 13px/1.45 -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  canvas { display: block; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+  #hud { position: fixed; top: 0; left: 0; padding: 12px 16px; pointer-events: none; }
+  #hud h1 { margin: 0 0 2px; font-size: 15px; }
+  #hud .sub { color: #999; font-size: 11px; }
+  #controls { position: fixed; top: 12px; right: 12px; width: 230px; background: #1d1a20cc; border: 1px solid #333; border-radius: 8px; padding: 10px 12px; backdrop-filter: blur(6px); }
+  #controls input[type="search"] { width: 100%; box-sizing: border-box; background: #131015; color: #eee; border: 1px solid #444; border-radius: 5px; padding: 5px 8px; margin-bottom: 8px; }
+  #controls label { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; }
+  .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  #panel { position: fixed; bottom: 12px; left: 12px; max-width: 380px; max-height: 45vh; overflow: auto; background: #1d1a20ee; border: 1px solid #333; border-radius: 8px; padding: 12px 14px; display: none; }
+  #panel h2 { margin: 0 0 4px; font-size: 14px; }
+  #panel .meta { color: #999; font-size: 11px; margin-bottom: 6px; }
+  #panel .detail { white-space: pre-wrap; color: #ccc; }
+  #panel a { color: #f7a501; }
+  .count { color: #777; font-variant-numeric: tabular-nums; margin-left: auto; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <h1>Dev knowledge graph</h1>
+  <div class="sub" id="stats"></div>
+</div>
+<div id="controls">
+  <input id="search" type="search" placeholder="Search nodes…" />
+  <div id="filters"></div>
+</div>
+<div id="panel"></div>
+<script>
+const GRAPH = /*__GRAPH_DATA__*/null;
+const COLORS = { task: "#4c8eda", pr: "#36c46f", theme: "#f7a501", learning: "#e0407b", skill: "#9d5cf5" };
+const RADII = { task: 4, pr: 5, theme: 14, learning: 10, skill: 8 };
+
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+let W, H, dpr;
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + "px"; canvas.style.height = H + "px";
+}
+window.addEventListener("resize", resize);
+resize();
+
+const nodes = GRAPH.nodes.map((n, i) => ({
+  ...n,
+  x: W / 2 + Math.cos(i * 2.399963) * (60 + 6 * Math.sqrt(i)),
+  y: H / 2 + Math.sin(i * 2.399963) * (60 + 6 * Math.sqrt(i)),
+  vx: 0, vy: 0,
+}));
+const byId = new Map(nodes.map((n) => [n.id, n]));
+const edges = GRAPH.edges
+  .filter((e) => byId.has(e.source) && byId.has(e.target))
+  .map((e) => ({ ...e, s: byId.get(e.source), t: byId.get(e.target) }));
+const degree = new Map();
+for (const e of edges) {
+  degree.set(e.s.id, (degree.get(e.s.id) || 0) + 1);
+  degree.set(e.t.id, (degree.get(e.t.id) || 0) + 1);
+}
+
+const visibleKinds = new Set(Object.keys(COLORS));
+let searchTerm = "";
+function isVisible(n) { return visibleKinds.has(n.kind); }
+function matches(n) { return searchTerm && n.label.toLowerCase().includes(searchTerm); }
+
+// Barnes-Hut-free O(n^2) force layout; fine for a few hundred nodes.
+let alpha = 1;
+function tick() {
+  const vis = nodes.filter(isVisible);
+  for (let i = 0; i < vis.length; i++) {
+    const a = vis[i];
+    for (let j = i + 1; j < vis.length; j++) {
+      const b = vis[j];
+      let dx = a.x - b.x, dy = a.y - b.y;
+      let d2 = dx * dx + dy * dy;
+      if (d2 < 1) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 1; }
+      const f = Math.min(1200 / d2, 4) * alpha;
+      const d = Math.sqrt(d2);
+      a.vx += (dx / d) * f; a.vy += (dy / d) * f;
+      b.vx -= (dx / d) * f; b.vy -= (dy / d) * f;
+    }
+  }
+  for (const e of edges) {
+    if (!isVisible(e.s) || !isVisible(e.t)) continue;
+    const dx = e.t.x - e.s.x, dy = e.t.y - e.s.y;
+    const d = Math.max(Math.hypot(dx, dy), 1);
+    const rest = 40 + (RADII[e.s.kind] + RADII[e.t.kind]) * 2;
+    const f = ((d - rest) / d) * 0.02 * alpha * 10;
+    e.s.vx += dx * f; e.s.vy += dy * f;
+    e.t.vx -= dx * f; e.t.vy -= dy * f;
+  }
+  for (const n of vis) {
+    n.vx += (W / 2 - n.x) * 0.0004 * alpha * 10;
+    n.vy += (H / 2 - n.y) * 0.0004 * alpha * 10;
+    if (n !== dragNode) { n.x += n.vx; n.y += n.vy; }
+    n.vx *= 0.6; n.vy *= 0.6;
+  }
+  alpha = Math.max(alpha * 0.996, 0.02);
+}
+
+let panX = 0, panY = 0, zoom = 1;
+function draw() {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.translate(panX, panY);
+  ctx.scale(zoom, zoom);
+  ctx.lineWidth = 0.6 / zoom;
+  ctx.strokeStyle = "#ffffff22";
+  ctx.beginPath();
+  for (const e of edges) {
+    if (!isVisible(e.s) || !isVisible(e.t)) continue;
+    ctx.moveTo(e.s.x, e.s.y); ctx.lineTo(e.t.x, e.t.y);
+  }
+  ctx.stroke();
+  for (const n of nodes) {
+    if (!isVisible(n)) continue;
+    const r = RADII[n.kind] + Math.min((degree.get(n.id) || 0) * 0.15, 6);
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, r, 0, 7);
+    ctx.fillStyle = COLORS[n.kind];
+    ctx.globalAlpha = searchTerm && !matches(n) ? 0.15 : n.kind === "skill" && n.status === "proposed" ? 0.75 : 1;
+    ctx.fill();
+    if (n.kind === "skill" && n.status === "proposed") {
+      ctx.setLineDash([3 / zoom, 3 / zoom]);
+      ctx.strokeStyle = COLORS.skill; ctx.lineWidth = 1.5 / zoom;
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (n === selected || matches(n)) {
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5 / zoom; ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    if (n.kind !== "task" || zoom > 1.6 || n === selected || matches(n)) {
+      ctx.fillStyle = "#ddd";
+      ctx.font = `${Math.max(11 / zoom, 4)}px sans-serif`;
+      ctx.fillText(n.label.slice(0, 48), n.x + r + 3, n.y + 3);
+    }
+  }
+}
+
+function loop() { tick(); draw(); requestAnimationFrame(loop); }
+
+let dragNode = null, panning = false, lastX = 0, lastY = 0, selected = null;
+function pick(mx, my) {
+  const x = (mx - panX) / zoom, y = (my - panY) / zoom;
+  let best = null, bestD = 1e9;
+  for (const n of nodes) {
+    if (!isVisible(n)) continue;
+    const d = Math.hypot(n.x - x, n.y - y);
+    if (d < RADII[n.kind] + 8 && d < bestD) { best = n; bestD = d; }
+  }
+  return best;
+}
+canvas.addEventListener("mousedown", (ev) => {
+  lastX = ev.clientX; lastY = ev.clientY;
+  dragNode = pick(ev.clientX, ev.clientY);
+  panning = !dragNode;
+  canvas.classList.add("dragging");
+  alpha = Math.max(alpha, 0.3);
+});
+window.addEventListener("mousemove", (ev) => {
+  const dx = ev.clientX - lastX, dy = ev.clientY - lastY;
+  lastX = ev.clientX; lastY = ev.clientY;
+  if (dragNode) { dragNode.x += dx / zoom; dragNode.y += dy / zoom; alpha = Math.max(alpha, 0.1); }
+  else if (panning) { panX += dx; panY += dy; }
+});
+window.addEventListener("mouseup", (ev) => {
+  if (dragNode && Math.hypot(ev.clientX - lastX, ev.clientY - lastY) < 3) select(dragNode);
+  else if (panning) { const n = pick(ev.clientX, ev.clientY); if (n) select(n); }
+  dragNode = null; panning = false;
+  canvas.classList.remove("dragging");
+});
+canvas.addEventListener("wheel", (ev) => {
+  ev.preventDefault();
+  const factor = Math.exp(-ev.deltaY * 0.0015);
+  const nz = Math.min(Math.max(zoom * factor, 0.15), 8);
+  panX = ev.clientX - ((ev.clientX - panX) / zoom) * nz;
+  panY = ev.clientY - ((ev.clientY - panY) / zoom) * nz;
+  zoom = nz;
+}, { passive: false });
+
+const panel = document.getElementById("panel");
+function select(n) {
+  selected = n;
+  const neighbors = edges
+    .filter((e) => e.s === n || e.t === n)
+    .map((e) => (e.s === n ? e.t : e.s));
+  panel.style.display = "block";
+  panel.innerHTML = `
+    <h2>${esc(n.label)}</h2>
+    <div class="meta">${n.kind}${n.status ? " · " + n.status : ""}${n.date ? " · " + n.date : ""}${n.origin ? " · via " + esc(n.origin) : ""}
+      ${n.url ? ` · <a href="${esc(n.url)}" target="_blank">open</a>` : ""}</div>
+    ${n.detail ? `<div class="detail">${esc(n.detail)}</div>` : ""}
+    <div class="meta" style="margin-top:8px">${neighbors.length} connections: ${neighbors.slice(0, 12).map((m) => esc(m.label.slice(0, 30))).join(" · ")}${neighbors.length > 12 ? " …" : ""}</div>`;
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+const filters = document.getElementById("filters");
+for (const kind of Object.keys(COLORS)) {
+  const n = nodes.filter((x) => x.kind === kind).length;
+  const label = document.createElement("label");
+  label.innerHTML = `<input type="checkbox" checked data-kind="${kind}"><span class="swatch" style="background:${COLORS[kind]}"></span>${kind}<span class="count">${n}</span>`;
+  label.querySelector("input").addEventListener("change", (ev) => {
+    ev.target.checked ? visibleKinds.add(kind) : visibleKinds.delete(kind);
+    alpha = Math.max(alpha, 0.4);
+  });
+  filters.appendChild(label);
+}
+document.getElementById("search").addEventListener("input", (ev) => {
+  searchTerm = ev.target.value.trim().toLowerCase();
+});
+document.getElementById("stats").textContent =
+  `${nodes.length} nodes · ${edges.length} edges · generated ${GRAPH.generated_at.slice(0, 16).replace("T", " ")} UTC`;
+loop();
+</script>
+</body>
+</html>
