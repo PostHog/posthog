@@ -1,53 +1,73 @@
 ---
 name: growing-dev-knowledge-graph
 description: >
-  Adds a learning to the dev knowledge graph (tools/dev-knowledge-graph) — markdown knowledge nodes connected to the software modules, products, and properties they are about, and to the skills that encode them.
-  Use when finishing a piece of work that taught something worth keeping, when the user says "add this to the knowledge graph" or "record this learning", or when the same problem class has now come up more than once.
-  Also covers regenerating and viewing the graph, and when a learning should graduate into a real skill.
+  Grows the dev knowledge graph (tools/dev-knowledge-graph) — a drillable mind map of system concepts color-coded by area, with markdown learnings attached to the concepts they taught us about.
+  Use when finishing a piece of work that taught something worth keeping, when the user says "add this to the knowledge graph" or "record this learning", when the same problem class has come up more than once, or when the map is missing a part of the system you had to understand to do the work.
+  Also covers regenerating and viewing the map, and when a learning should graduate into a real skill.
 ---
 
 # Growing the dev knowledge graph
 
-`tools/dev-knowledge-graph/` holds a knowledge-first graph of how we work: **learning** nodes carry inspectable markdown (PRs and conversations appear as links inside it, not as nodes) and connect to the software **modules**, **products**, and **properties** they are about, plus the **skills** (existing or proposed) that encode them.
-The graph only grows if we feed it — that is this skill's job.
+`tools/dev-knowledge-graph/` holds a mind map of the system: **concept** nodes are the nouns two people working together would use (the taxonomic filter, the dashboards API, the event pipeline), arranged in a drillable hierarchy and color-coded by system area (layer).
+**Learnings** attach to concepts and carry inspectable markdown — PRs and conversations appear as links inside it, never as nodes.
+The map exists so someone who didn't do the work can explore what the work taught us, cutting across PRs. It only grows if we feed it.
 
-## When to add a learning
+## When to contribute
 
-Add one when work produced knowledge that outlives the conversation:
+Add or extend a **concept** (`concepts.json`) when:
 
-- The same class of problem has now appeared **more than once** (the strongest signal — cite both occurrences as evidence).
-- A workflow was re-explained from scratch that clearly repeats.
-- A non-obvious constraint was discovered the hard way (a limit, a race, a tooling behavior).
+- the map is missing a part of the system you had to understand to do the work
+- you learned how data flows through an existing concept and its markdown doesn't say so yet — extend it
 
-Do **not** add: one-off fixes, anything the repo already records (CLAUDE.md, docs, code comments), or restatements of an existing learning — extend that learning's evidence instead.
+Add a **learning** (`learnings.json`) when:
 
-## How to add one
+- the same class of problem has now appeared **more than once** (the strongest signal — cite both occurrences)
+- a workflow was re-explained from scratch that clearly repeats
+- a non-obvious constraint was discovered the hard way (a limit, a race, a tooling behavior)
 
-1. Read `tools/dev-knowledge-graph/learnings.json` and check for an existing learning that covers the insight. If found, extend its `markdown` and `evidence_tasks` instead of duplicating.
-2. Append a new entry:
+Do **not** add: one-off fixes, anything the repo already records (CLAUDE.md, docs, code comments), or restatements of an existing learning — extend that learning instead.
+
+## How to add a concept
+
+Concepts are the map's skeleton — write the markdown as you'd explain the thing to a teammate: what it is, how data flows through it, which constraints bite.
+
+```json
+{
+  "id": "recordings-list-query",
+  "name": "Recordings list query",
+  "layer": "django",
+  "parent": "session-replay",
+  "markdown": "What it is, how data flows, what constraints matter. Code paths in backticks."
+}
+```
+
+- `layer` must be one of the keys in `concepts.json`'s `layers` (frontend / django / ingestion / ci / agents today; add a layer only when a whole new system area appears).
+- `parent` places it in the hierarchy; top-level concepts (`parent: null`) should be things you'd name in a sentence to any engineer. Prefer deepening an existing branch over adding top-level nodes.
+
+## How to add a learning
+
+1. Check `learnings.json` for an existing learning that covers the insight — extend its `markdown` and `evidence_tasks` rather than duplicating.
+2. Append:
 
    ```json
    {
      "id": "short-kebab-slug",
      "title": "One-line statement of the learning",
-     "markdown": "The why, with enough detail that a stranger gets it. Link context: [#66590](https://github.com/PostHog/posthog/pull/66590).",
-     "modules": ["frontend/src/lib/components/TaxonomicFilter"],
-     "products": ["product analytics"],
-     "properties": [],
+     "markdown": "The why, with enough detail that a stranger gets it. Context as links: [#66590](https://github.com/PostHog/posthog/pull/66590).",
+     "concepts": ["taxonomic-search"],
      "evidence_tasks": [12345],
      "skills": [{ "name": "some-skill", "status": "proposed" }],
      "author": "your-name"
    }
    ```
 
-   - `markdown` is the knowledge itself. PRs, issues, and docs are **context, not knowledge** — put them in the markdown as links, never as their own nodes.
-   - `modules` / `products` / `properties` are the system entities the learning is about — software module paths, product names (sentence case), and user/event properties. Reuse labels already in `learnings.json` where they fit, so knowledge clusters instead of fragmenting.
-   - `evidence_tasks`: PostHog Code task numbers of the conversations that taught this (shown as an overlay with `--include-conversations`).
-   - `skills`: link the skill that encodes (status `existing`) or should encode (status `proposed`) the learning. Proposed entries are the shared backlog of skills worth writing.
-   - `author`: your short name, consistent across entries — it powers the viewer's per-user filter. Match the local part of your email so your conversations and learnings share one identity.
+   - `markdown` is the knowledge. PRs, issues, and docs are **context, not knowledge** — put them in the markdown as links, never as nodes.
+   - `concepts` are the system concepts the learning is about; add the concept first if it doesn't exist yet (ingest fails on unknown ids, which is the guard against orphan learnings).
+   - `skills`: the skill that encodes (status `existing`) or should encode (status `proposed`) the learning. Proposed entries are the shared backlog of skills worth writing.
+   - `author`: your short name, consistent across entries — it powers the per-user filter. Match the local part of your email.
 
-3. **Public-repo safety**: `learnings.json` is committed to a public repository. No customer names, private operational scale, Slack quotes, or unreleased roadmap details. Qualitative descriptions and public PR numbers are fine.
-4. Regenerate to verify it parses and links:
+3. **Public-repo safety**: both files are committed to a public repository. No customer names, private operational scale, Slack quotes, or unreleased roadmap details. Qualitative descriptions and public PR numbers are fine.
+4. Regenerate to verify it parses and links (unknown concept ids and layers fail loudly):
 
    ```bash
    python3 tools/dev-knowledge-graph/ingest.py

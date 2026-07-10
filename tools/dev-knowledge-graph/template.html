@@ -11,11 +11,13 @@
   #hud { position: fixed; top: 0; left: 0; padding: 12px 16px; pointer-events: none; }
   #hud h1 { margin: 0 0 2px; font-size: 15px; }
   #hud .sub { color: #999; font-size: 11px; }
-  #controls { position: fixed; top: 12px; right: 12px; width: 230px; background: #1d1a20cc; border: 1px solid #333; border-radius: 8px; padding: 10px 12px; backdrop-filter: blur(6px); }
-  #controls input[type="search"] { width: 100%; box-sizing: border-box; background: #131015; color: #eee; border: 1px solid #444; border-radius: 5px; padding: 5px 8px; margin-bottom: 8px; }
+  #controls { position: fixed; top: 12px; right: 12px; width: 240px; background: #1d1a20cc; border: 1px solid #333; border-radius: 8px; padding: 10px 12px; backdrop-filter: blur(6px); }
+  #controls input[type="search"], #controls select { width: 100%; box-sizing: border-box; background: #131015; color: #eee; border: 1px solid #444; border-radius: 5px; padding: 5px 8px; margin-bottom: 8px; }
   #controls label { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; }
-  .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-  #panel { position: fixed; bottom: 12px; left: 12px; max-width: 460px; max-height: 55vh; overflow: auto; background: #1d1a20ee; border: 1px solid #333; border-radius: 8px; padding: 12px 14px; display: none; }
+  #controls .section { color: #888; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; margin: 6px 0 2px; }
+  .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .count { color: #777; font-variant-numeric: tabular-nums; margin-left: auto; }
+  #panel { position: fixed; bottom: 12px; left: 12px; max-width: 480px; max-height: 60vh; overflow: auto; background: #1d1a20ee; border: 1px solid #333; border-radius: 8px; padding: 12px 14px; display: none; }
   #panel h2 { margin: 0 0 4px; font-size: 14px; }
   #panel .meta { color: #999; font-size: 11px; margin-bottom: 6px; }
   #panel .detail { color: #ccc; }
@@ -23,7 +25,7 @@
   #panel .detail ul { margin: 6px 0; padding-left: 18px; }
   #panel .detail code { background: #2a2630; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
   #panel a { color: #f7a501; }
-  .count { color: #777; font-variant-numeric: tabular-nums; margin-left: auto; }
+  #hint { position: fixed; bottom: 12px; right: 12px; color: #777; font-size: 11px; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -33,15 +35,16 @@
   <div class="sub" id="stats"></div>
 </div>
 <div id="controls">
-  <input id="search" type="search" placeholder="Search nodes…" />
-  <select id="userFilter" style="width:100%; box-sizing:border-box; background:#131015; color:#eee; border:1px solid #444; border-radius:5px; padding:5px 8px; margin-bottom:8px;"></select>
+  <input id="search" type="search" placeholder="Search the map…" />
+  <select id="userFilter"></select>
   <div id="filters"></div>
 </div>
 <div id="panel"></div>
+<div id="hint">click a concept to drill in / back out · drag to move · scroll to zoom</div>
 <script>
 const GRAPH = /*__GRAPH_DATA__*/null;
-const COLORS = { learning: "#e0407b", module: "#36c46f", product: "#f7a501", property: "#4cc3da", skill: "#9d5cf5", task: "#4c8eda" };
-const RADII = { learning: 10, module: 7, product: 14, property: 6, skill: 8, task: 4 };
+const LAYERS = GRAPH.layers;
+const KIND_COLORS = { learning: "#e0407b", skill: "#bfb6cc", task: "#5a83a8" };
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -55,33 +58,120 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-const nodes = GRAPH.nodes.map((n, i) => ({
-  ...n,
-  x: W / 2 + Math.cos(i * 2.399963) * (60 + 6 * Math.sqrt(i)),
-  y: H / 2 + Math.sin(i * 2.399963) * (60 + 6 * Math.sqrt(i)),
-  vx: 0, vy: 0,
-}));
+const nodes = GRAPH.nodes.map((n) => ({ ...n, x: 0, y: 0, vx: 0, vy: 0 }));
 const byId = new Map(nodes.map((n) => [n.id, n]));
 const edges = GRAPH.edges
   .filter((e) => byId.has(e.source) && byId.has(e.target))
   .map((e) => ({ ...e, s: byId.get(e.source), t: byId.get(e.target) }));
+
+// Relationship indexes for drill-in visibility.
+const childConcepts = new Map(); // concept id -> [concept]
+const conceptLearnings = new Map(); // concept id -> [learning]
+const learningConcepts = new Map(); // learning id -> [concept id]
+const learningAttachments = new Map(); // learning id -> [skill/task]
+for (const n of nodes) {
+  if (n.kind === "concept" && n.parent) {
+    (childConcepts.get(n.parent) || childConcepts.set(n.parent, []).get(n.parent)).push(n);
+  }
+}
+for (const e of edges) {
+  if (e.kind === "about") {
+    (conceptLearnings.get(e.t.id) || conceptLearnings.set(e.t.id, []).get(e.t.id)).push(e.s);
+    (learningConcepts.get(e.s.id) || learningConcepts.set(e.s.id, []).get(e.s.id)).push(e.t.id);
+  }
+  if (e.kind === "encoded-in" || e.kind === "evidenced-by") {
+    (learningAttachments.get(e.s.id) || learningAttachments.set(e.s.id, []).get(e.s.id)).push(e.t);
+  }
+}
+function hiddenCount(conceptId) {
+  return (childConcepts.get(conceptId) || []).length + (conceptLearnings.get(conceptId) || []).length;
+}
+
+// Initial positions: top-level concepts on a circle, descendants stacked on
+// their top-level ancestor so drilling in makes children emerge from the parent.
+const topLevel = nodes.filter((n) => n.kind === "concept" && !n.parent);
+topLevel.forEach((n, i) => {
+  const angle = (i / topLevel.length) * Math.PI * 2;
+  n.x = W / 2 + Math.cos(angle) * Math.min(W, H) * 0.3;
+  n.y = H / 2 + Math.sin(angle) * Math.min(W, H) * 0.3;
+});
+function rootOf(n) {
+  let cursor = n;
+  while (cursor.parent && byId.has(cursor.parent)) cursor = byId.get(cursor.parent);
+  return cursor;
+}
+for (const n of nodes) {
+  if (n.kind === "concept" && n.parent) {
+    const root = rootOf(n);
+    n.x = root.x + (Math.random() - 0.5) * 40; n.y = root.y + (Math.random() - 0.5) * 40;
+  }
+}
+for (const [lid, cids] of learningConcepts) {
+  const anchor = byId.get(cids[0]);
+  const l = byId.get(lid);
+  if (anchor && l) { l.x = anchor.x + (Math.random() - 0.5) * 40; l.y = anchor.y + (Math.random() - 0.5) * 40; }
+}
+for (const [lid, atts] of learningAttachments) {
+  const l = byId.get(lid);
+  for (const a of atts) { a.x = l.x + (Math.random() - 0.5) * 40; a.y = l.y + (Math.random() - 0.5) * 40; }
+}
+
+// --- visibility state ---
+const expanded = new Set();
+const enabledLayers = new Set(Object.keys(LAYERS));
+const enabledKinds = new Set(["learning", "skill", "task"]);
+let searchTerm = "";
+let userFilter = "all";
+let selected = null;
+
+function matches(n) { return searchTerm && n.label.toLowerCase().includes(searchTerm); }
+function authorOk(n) { return userFilter === "all" || !n.author || n.author === userFilter; }
+function ancestorsExpanded(n) {
+  let cursor = n;
+  while (cursor.parent) {
+    if (!expanded.has(cursor.parent)) return false;
+    cursor = byId.get(cursor.parent);
+    if (!cursor) return false;
+  }
+  return true;
+}
+function isVisible(n) {
+  if (!authorOk(n)) return false;
+  if (searchTerm && matches(n)) return true; // search reveals collapsed content
+  if (n.kind === "concept") return enabledLayers.has(n.layer) && ancestorsExpanded(n);
+  if (n.kind === "learning") {
+    if (!enabledKinds.has("learning")) return false;
+    return (learningConcepts.get(n.id) || []).some((cid) => {
+      const c = byId.get(cid);
+      return c && expanded.has(cid) && isVisibleConcept(c);
+    });
+  }
+  // skills and tasks hang off learnings
+  if (!enabledKinds.has(n.kind)) return false;
+  for (const [lid, atts] of learningAttachments) {
+    if (atts.includes(n)) { const l = byId.get(lid); if (l && isVisible(l)) return true; }
+  }
+  return false;
+}
+function isVisibleConcept(c) { return enabledLayers.has(c.layer) && ancestorsExpanded(c); }
+
+function radiusOf(n) {
+  if (n.kind === "concept") return n.depth === 0 ? 16 : n.depth === 1 ? 10 : 8;
+  return { learning: 7, skill: 6, task: 4 }[n.kind] || 5;
+}
+function colorOf(n) {
+  if (n.kind === "concept") return (LAYERS[n.layer] || {}).color || "#888";
+  return KIND_COLORS[n.kind];
+}
+
+// --- force layout (degree-weighted springs; hubs otherwise diverge) ---
 const degree = new Map();
 for (const e of edges) {
   degree.set(e.s.id, (degree.get(e.s.id) || 0) + 1);
   degree.set(e.t.id, (degree.get(e.t.id) || 0) + 1);
 }
-
-const visibleKinds = new Set(Object.keys(COLORS));
-let searchTerm = "";
-let userFilter = "all";
-function isVisible(n) {
-  if (!visibleKinds.has(n.kind)) return false;
-  return userFilter === "all" || !n.author || n.author === userFilter;
-}
-function matches(n) { return searchTerm && n.label.toLowerCase().includes(searchTerm); }
-
-// Barnes-Hut-free O(n^2) force layout; fine for a few hundred nodes.
 let alpha = 1;
+let dragNode = null;
 function tick() {
   const vis = nodes.filter(isVisible);
   for (let i = 0; i < vis.length; i++) {
@@ -91,7 +181,7 @@ function tick() {
       let dx = a.x - b.x, dy = a.y - b.y;
       let d2 = dx * dx + dy * dy;
       if (d2 < 1) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 1; }
-      const f = Math.min(1200 / d2, 4) * alpha;
+      const f = Math.min(2000 / d2, 4) * alpha;
       const d = Math.sqrt(d2);
       a.vx += (dx / d) * f; a.vy += (dy / d) * f;
       b.vx -= (dx / d) * f; b.vy -= (dy / d) * f;
@@ -101,9 +191,7 @@ function tick() {
     if (!isVisible(e.s) || !isVisible(e.t)) continue;
     const dx = e.t.x - e.s.x, dy = e.t.y - e.s.y;
     const d = Math.max(Math.hypot(dx, dy), 1);
-    const rest = 40 + (RADII[e.s.kind] + RADII[e.t.kind]) * 2;
-    // Weight springs down by node degree: hub nodes (themes) otherwise sum
-    // ~100 edge forces per tick and the integrator diverges to NaN.
+    const rest = e.kind === "part-of" ? 70 + radiusOf(e.t) * 2 : 45 + radiusOf(e.t);
     const f = ((d - rest) / d) * 0.05 * alpha;
     const ws = f / Math.sqrt(degree.get(e.s.id) || 1);
     const wt = f / Math.sqrt(degree.get(e.t.id) || 1);
@@ -127,14 +215,15 @@ function tick() {
   alpha = Math.max(alpha * 0.996, 0.02);
 }
 
+// --- render ---
 let panX = 0, panY = 0, zoom = 1;
 function draw() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
   ctx.translate(panX, panY);
   ctx.scale(zoom, zoom);
-  ctx.lineWidth = 0.6 / zoom;
-  ctx.strokeStyle = "#ffffff22";
+  ctx.lineWidth = 0.7 / zoom;
+  ctx.strokeStyle = "#ffffff26";
   ctx.beginPath();
   for (const e of edges) {
     if (!isVisible(e.s) || !isVisible(e.t)) continue;
@@ -143,41 +232,67 @@ function draw() {
   ctx.stroke();
   for (const n of nodes) {
     if (!isVisible(n)) continue;
-    const r = RADII[n.kind] + Math.min((degree.get(n.id) || 0) * 0.15, 6);
+    const r = radiusOf(n);
+    const dimmed = searchTerm && !matches(n);
     ctx.beginPath();
     ctx.arc(n.x, n.y, r, 0, 7);
-    ctx.fillStyle = COLORS[n.kind];
-    ctx.globalAlpha = searchTerm && !matches(n) ? 0.15 : n.kind === "skill" && n.status === "proposed" ? 0.75 : 1;
+    ctx.fillStyle = colorOf(n);
+    ctx.globalAlpha = dimmed ? 0.15 : n.kind === "skill" && n.status === "proposed" ? 0.75 : 1;
     ctx.fill();
     if (n.kind === "skill" && n.status === "proposed") {
       ctx.setLineDash([3 / zoom, 3 / zoom]);
-      ctx.strokeStyle = COLORS.skill; ctx.lineWidth = 1.5 / zoom;
+      ctx.strokeStyle = KIND_COLORS.skill; ctx.lineWidth = 1.5 / zoom;
       ctx.stroke(); ctx.setLineDash([]);
     }
-    if (n === selected || matches(n)) {
+    if (n === selected || (searchTerm && matches(n))) {
       ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5 / zoom; ctx.stroke();
     }
-    ctx.globalAlpha = 1;
-    if (n.kind !== "task" || zoom > 1.6 || n === selected || matches(n)) {
-      ctx.fillStyle = "#ddd";
-      ctx.font = `${Math.max(11 / zoom, 4)}px sans-serif`;
-      ctx.fillText(n.label.slice(0, 48), n.x + r + 3, n.y + 3);
+    // collapsed-content badge: how much is inside if you drill in
+    if (n.kind === "concept" && !expanded.has(n.id)) {
+      const hidden = hiddenCount(n.id);
+      if (hidden > 0 && !dimmed) {
+        ctx.fillStyle = "#131015";
+        ctx.font = `bold ${Math.max(r, 8)}px sans-serif`;
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText("+" + hidden, n.x, n.y + 0.5);
+        ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";
+      }
     }
+    ctx.globalAlpha = dimmed ? 0.3 : 1;
+    if (n.kind !== "task" || zoom > 1.6 || n === selected) {
+      ctx.fillStyle = n.kind === "concept" ? "#eee" : "#bbb";
+      const size = n.kind === "concept" && n.depth === 0 ? 13 : 11;
+      ctx.font = `${n.kind === "concept" && n.depth === 0 ? "bold " : ""}${Math.max(size / zoom, 4)}px sans-serif`;
+      ctx.fillText(n.label.slice(0, 52), n.x + r + 4, n.y + 3);
+    }
+    ctx.globalAlpha = 1;
   }
 }
-
 function loop() { tick(); draw(); requestAnimationFrame(loop); }
 
-let dragNode = null, panning = false, lastX = 0, lastY = 0, startX = 0, startY = 0, selected = null;
+// --- interaction ---
+let panning = false, lastX = 0, lastY = 0, startX = 0, startY = 0;
 function pick(mx, my) {
   const x = (mx - panX) / zoom, y = (my - panY) / zoom;
   let best = null, bestD = 1e9;
   for (const n of nodes) {
     if (!isVisible(n)) continue;
     const d = Math.hypot(n.x - x, n.y - y);
-    if (d < RADII[n.kind] + 8 && d < bestD) { best = n; bestD = d; }
+    if (d < radiusOf(n) + 8 && d < bestD) { best = n; bestD = d; }
   }
   return best;
+}
+function collapseRecursive(conceptId) {
+  expanded.delete(conceptId);
+  for (const child of childConcepts.get(conceptId) || []) collapseRecursive(child.id);
+}
+function activate(n) {
+  if (n.kind === "concept" && hiddenCount(n.id) > 0) {
+    if (expanded.has(n.id)) collapseRecursive(n.id);
+    else expanded.add(n.id);
+    alpha = Math.max(alpha, 0.5);
+  }
+  select(n);
 }
 canvas.addEventListener("mousedown", (ev) => {
   startX = lastX = ev.clientX; startY = lastY = ev.clientY;
@@ -194,8 +309,8 @@ window.addEventListener("mousemove", (ev) => {
 });
 window.addEventListener("mouseup", (ev) => {
   const moved = Math.hypot(ev.clientX - startX, ev.clientY - startY);
-  if (dragNode && moved < 3) select(dragNode);
-  else if (panning && moved < 3) { const n = pick(ev.clientX, ev.clientY); if (n) select(n); }
+  if (dragNode && moved < 3) activate(dragNode);
+  else if (panning && moved < 3) { const n = pick(ev.clientX, ev.clientY); if (n) activate(n); }
   dragNode = null; panning = false;
   canvas.classList.remove("dragging");
 });
@@ -208,23 +323,8 @@ canvas.addEventListener("wheel", (ev) => {
   zoom = nz;
 }, { passive: false });
 
-const panel = document.getElementById("panel");
-function select(n) {
-  selected = n;
-  const neighbors = edges
-    .filter((e) => e.s === n || e.t === n)
-    .map((e) => (e.s === n ? e.t : e.s));
-  panel.style.display = "block";
-  panel.innerHTML = `
-    <h2>${esc(n.label)}</h2>
-    <div class="meta">${n.kind}${n.status ? " · " + n.status : ""}${n.date ? " · " + n.date : ""}${n.author && n.author !== "unknown" ? " · by " + esc(n.author) : ""}${n.evidence_count ? ` · from ${n.evidence_count} conversations` : ""}
-      ${n.url ? ` · <a href="${esc(n.url)}" target="_blank">open</a>` : ""}</div>
-    ${n.markdown ? `<div class="detail">${md(n.markdown)}</div>` : n.detail ? `<div class="detail">${esc(n.detail)}</div>` : ""}
-    <div class="meta" style="margin-top:8px">${neighbors.length} connections: ${neighbors.slice(0, 12).map((m) => esc(m.label.slice(0, 30))).join(" · ")}${neighbors.length > 12 ? " …" : ""}</div>`;
-}
+// --- detail panel with minimal markdown (escape first, then re-introduce) ---
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
-// Minimal markdown: escape everything first, then re-introduce links, bold,
-// code, and bullet lists. Enough for learning bodies; not a full parser.
 function md(src) {
   return src.split(/\n{2,}/).map((block) => {
     const lines = block.split("\n").filter((l) => l.trim());
@@ -237,31 +337,62 @@ function md(src) {
     return "<p>" + inline(block) + "</p>";
   }).join("");
 }
+const panel = document.getElementById("panel");
+function select(n) {
+  selected = n;
+  const layerLabel = n.kind === "concept" ? (LAYERS[n.layer] || {}).label : null;
+  const contents = n.kind === "concept"
+    ? (childConcepts.get(n.id) || []).map((c) => c.label).concat((conceptLearnings.get(n.id) || []).map((l) => "📖 " + l.label))
+    : [];
+  panel.style.display = "block";
+  panel.innerHTML = `
+    <h2>${esc(n.label)}</h2>
+    <div class="meta">${layerLabel ? esc(layerLabel) : n.kind}${n.status ? " · " + n.status : ""}${n.date ? " · " + n.date : ""}${n.author && n.author !== "unknown" ? " · by " + esc(n.author) : ""}${n.evidence_count ? ` · from ${n.evidence_count} conversations` : ""}
+      ${n.url ? ` · <a href="${esc(n.url)}" target="_blank">open</a>` : ""}</div>
+    ${n.markdown ? `<div class="detail">${md(n.markdown)}</div>` : ""}
+    ${contents.length ? `<div class="meta" style="margin-top:8px">inside: ${contents.map((c) => esc(c)).join(" · ")}</div>` : ""}`;
+}
 
+// --- controls ---
 const filters = document.getElementById("filters");
-for (const kind of Object.keys(COLORS)) {
-  const n = nodes.filter((x) => x.kind === kind).length;
+function addFilterSection(title) {
+  const div = document.createElement("div");
+  div.className = "section"; div.textContent = title;
+  filters.appendChild(div);
+}
+addFilterSection("System areas");
+for (const [layerId, layer] of Object.entries(LAYERS)) {
+  const count = nodes.filter((x) => x.kind === "concept" && x.layer === layerId).length;
   const label = document.createElement("label");
-  label.innerHTML = `<input type="checkbox" checked data-kind="${kind}"><span class="swatch" style="background:${COLORS[kind]}"></span>${kind}<span class="count">${n}</span>`;
+  label.innerHTML = `<input type="checkbox" checked><span class="swatch" style="background:${layer.color}"></span>${esc(layer.label)}<span class="count">${count}</span>`;
   label.querySelector("input").addEventListener("change", (ev) => {
-    ev.target.checked ? visibleKinds.add(kind) : visibleKinds.delete(kind);
+    ev.target.checked ? enabledLayers.add(layerId) : enabledLayers.delete(layerId);
+    alpha = Math.max(alpha, 0.4);
+  });
+  filters.appendChild(label);
+}
+addFilterSection("Knowledge");
+for (const kind of Object.keys(KIND_COLORS)) {
+  const count = nodes.filter((x) => x.kind === kind).length;
+  if (kind === "task" && count === 0) continue;
+  const label = document.createElement("label");
+  label.innerHTML = `<input type="checkbox" checked><span class="swatch" style="background:${KIND_COLORS[kind]}"></span>${kind}<span class="count">${count}</span>`;
+  label.querySelector("input").addEventListener("change", (ev) => {
+    ev.target.checked ? enabledKinds.add(kind) : enabledKinds.delete(kind);
     alpha = Math.max(alpha, 0.4);
   });
   filters.appendChild(label);
 }
 document.getElementById("search").addEventListener("input", (ev) => {
   searchTerm = ev.target.value.trim().toLowerCase();
+  alpha = Math.max(alpha, 0.3);
 });
 const userSelect = document.getElementById("userFilter");
 const authors = [...new Set(nodes.map((n) => n.author).filter((a) => a && a !== "unknown"))].sort();
-userSelect.innerHTML = `<option value="all">Everyone</option>` +
-  authors.map((a) => `<option value="${esc(a)}">${esc(a)}</option>`).join("");
-userSelect.addEventListener("change", (ev) => {
-  userFilter = ev.target.value;
-  alpha = Math.max(alpha, 0.4);
-});
+userSelect.innerHTML = `<option value="all">Everyone</option>` + authors.map((a) => `<option value="${esc(a)}">${esc(a)}</option>`).join("");
+userSelect.addEventListener("change", (ev) => { userFilter = ev.target.value; alpha = Math.max(alpha, 0.4); });
 document.getElementById("stats").textContent =
-  `${nodes.length} nodes · ${edges.length} edges · generated ${GRAPH.generated_at.slice(0, 16).replace("T", " ")} UTC`;
+  `${nodes.filter((n) => n.kind === "concept").length} concepts · ${nodes.filter((n) => n.kind === "learning").length} learnings · generated ${GRAPH.generated_at.slice(0, 16).replace("T", " ")} UTC`;
 loop();
 </script>
 </body>

@@ -4,100 +4,205 @@
       "id": "pr-adoption-is-a-workflow",
       "title": "Adopting an existing PR is a repeatable workflow, not an ad-hoc task",
       "markdown": "Adopting someone else's in-flight PR always follows the same steps, and skipping any of them is where adoptions go wrong:\n\n- check the change is **still necessary** before any mechanical work\n- update from trunk without polluting the diff\n- fix CI, then address open review threads\n- split oversized PRs into independently assessable changes — [#66590](https://github.com/PostHog/posthog/pull/66590) was one PR that became three\n\nThe recurring pitfalls: diffs polluted by bad merges (a PR \"showing way too many changes\" is almost always this), stale review context silently dropped, and rebasing an obsolete change trunk already solved another way.\n\nNow encoded in the `adopting-prs` skill in the skills store.",
-      "modules": [],
-      "products": ["PostHog Code"],
-      "properties": [],
-      "evidence_tasks": [72639, 73528, 73819, 74505, 74556, 74627, 75851, 77935, 80691, 83401, 83731, 85237, 85972],
-      "skills": [{ "name": "adopting-prs", "status": "existing" }],
-      "author": "paul"
+      "evidence_tasks": [
+        72639,
+        73528,
+        73819,
+        74505,
+        74556,
+        74627,
+        75851,
+        77935,
+        80691,
+        83401,
+        83731,
+        85237,
+        85972
+      ],
+      "skills": [
+        {
+          "name": "adopting-prs",
+          "status": "existing"
+        }
+      ],
+      "author": "paul",
+      "concepts": [
+        "pr-fleet"
+      ]
     },
     {
       "id": "autoresearch-protocol-is-pasted",
       "title": "The autoresearch loop protocol is pasted verbatim into every run",
       "markdown": "Six-plus conversations started with the same long \"You are now in autoresearch mode\" prompt defining the one-change → measure → report iteration protocol.\n\nThe protocol belongs in a skill that takes only the **brief** and the **metric**, so improvements to the protocol propagate to every loop instead of forking per paste. Recent loops targeted backend test wall-time, dashboard endpoint latency, and slow RTL tests.",
-      "modules": [],
-      "products": ["PostHog Code"],
-      "properties": [],
-      "evidence_tasks": [83764, 85216, 86722, 87225, 87704, 89105, 89334],
-      "skills": [{ "name": "running-autoresearch-loops", "status": "proposed" }],
-      "author": "paul"
+      "evidence_tasks": [
+        83764,
+        85216,
+        86722,
+        87225,
+        87704,
+        89105,
+        89334
+      ],
+      "skills": [
+        {
+          "name": "running-autoresearch-loops",
+          "status": "proposed"
+        }
+      ],
+      "author": "paul",
+      "concepts": [
+        "autoresearch"
+      ]
     },
     {
       "id": "async-search-races-recur",
       "title": "The taxonomic filter's async-search races keep producing the same bug",
       "markdown": "Three separate fixes in two weeks addressed false **\"No results\"** states in the taxonomic filter:\n\n- stale responses racing fresh queries ([#67499](https://github.com/PostHog/posthog/pull/67499) was a partial fix)\n- tab switches reusing a stale empty cache instead of refetching\n- react-window update loops from churning dependencies (React error #185)\n\nThey are one class of bug: search state that doesn't tie results to the query that produced them. The four invariants are now written into the `modifying-taxonomic-filter` skill (a response only applies if it matches the current query; \"No results\" only renders for a completed search; tab switches refetch; virtualized-list deps stay referentially stable).",
-      "modules": ["frontend/src/lib/components/TaxonomicFilter"],
-      "products": ["product analytics"],
-      "properties": ["$current_url", "email"],
-      "evidence_tasks": [74008, 77647, 83204, 83888, 89345],
-      "skills": [{ "name": "modifying-taxonomic-filter", "status": "existing" }],
-      "author": "paul"
+      "evidence_tasks": [
+        74008,
+        77647,
+        83204,
+        83888,
+        89345
+      ],
+      "skills": [
+        {
+          "name": "modifying-taxonomic-filter",
+          "status": "existing"
+        }
+      ],
+      "author": "paul",
+      "concepts": [
+        "taxonomic-search"
+      ]
     },
     {
       "id": "error-noise-has-patterns",
       "title": "Most error-tracking signal work is noise reduction with recurring code patterns",
       "markdown": "A large share of inbox-driven fixes were \"stop capturing a benign exception\":\n\n- expected access denials captured as errors\n- network flakes in fire-and-forget calls (e.g. the replay player's markViewed)\n- third-party injected scripts (Firefox iOS reader mode) surfacing as our errors\n- timeout signals swallowed in `object_storage` that should propagate\n- non-Error objects passed to `captureException` producing opaque issues\n\nThe decision tree — swallow vs propagate vs normalize vs suppress-by-fingerprint — repeats and should be written down as a repo-side skill.",
-      "modules": ["posthog/storage/object_storage.py", "posthog/session_recordings/queries", "frontend/src/toolbar"],
-      "products": ["error tracking", "session replay"],
-      "properties": [],
-      "evidence_tasks": [76670, 79313, 81753, 84394, 85108, 86969, 86976],
-      "skills": [{ "name": "reducing-error-tracking-noise", "status": "proposed" }],
-      "author": "paul"
+      "evidence_tasks": [
+        76670,
+        79313,
+        81753,
+        84394,
+        85108,
+        86969,
+        86976
+      ],
+      "skills": [
+        {
+          "name": "reducing-error-tracking-noise",
+          "status": "proposed"
+        }
+      ],
+      "author": "paul",
+      "concepts": [
+        "error-capture"
+      ]
     },
     {
       "id": "automation-ladder-works",
       "title": "Moving conventions from instructions to linters pays off immediately",
       "markdown": "The em-dash rule lived in `AGENTS.md` and was routinely violated; turning it into an automatic commit-time replacement ([#69970](https://github.com/PostHog/posthog/pull/69970)) removed the review churn entirely — and the instruction text could then be deleted.\n\nSame shape as enforcing the `StreamingHttpResponse` wrapper with a linter instead of asking people to remember. When a convention is checkable, spend the effort on the linter, not on better prose. The ladder: **linter > lint-staged > skill > instructions**.",
-      "modules": ["AGENTS.md"],
-      "products": ["PostHog Code"],
-      "properties": [],
-      "evidence_tasks": [74372, 89366, 89516, 89708],
+      "evidence_tasks": [
+        74372,
+        89366,
+        89516,
+        89708
+      ],
       "skills": [],
-      "author": "paul"
+      "author": "paul",
+      "concepts": [
+        "skills-system"
+      ]
     },
     {
       "id": "fleet-needs-metrics",
       "title": "The agent fleet itself needs observability",
       "markdown": "Recurring questions with no ready-made answer:\n\n- what share of PRs does stamphog approve, and how accurate are its denials?\n- what does a PR cost per model?\n- are shepherd runs looping on the same PR? (one PR accumulated ~8 \"get mergeable\" runs)\n\nSeveral conversations re-derived the same queries from scratch. A skill for assessing the fleet with AI observability and engineering analytics would make these one-liners.",
-      "modules": [],
-      "products": ["PostHog Code", "engineering analytics", "AI observability"],
-      "properties": [],
-      "evidence_tasks": [79609, 79864, 80495, 75533, 89329],
-      "skills": [{ "name": "assessing-agent-fleet", "status": "proposed" }],
-      "author": "paul"
+      "evidence_tasks": [
+        79609,
+        79864,
+        80495,
+        75533,
+        89329
+      ],
+      "skills": [
+        {
+          "name": "assessing-agent-fleet",
+          "status": "proposed"
+        }
+      ],
+      "author": "paul",
+      "concepts": [
+        "pr-fleet"
+      ]
     },
     {
       "id": "bundle-size-campaign",
       "title": "Bundle-size work has dedicated tooling that isn't documented as a skill",
       "markdown": "Recurring bundle-size knowledge that lives only in past conversations:\n\n- how to read the **eager graph checker** report on PRs, and what a regression looks like ([#66359](https://github.com/PostHog/posthog/pull/66359) grew the authenticated shell by ~80 KiB via static imports)\n- which lazy-load patterns safely cut scene edges from the bundle graph\n- the toolbar bundle must stay under **10 MB** — CloudFront won't gzip larger files\n- the vendored paths-filter ([#67952](https://github.com/PostHog/posthog/pull/67952)) exists because dorny/paths-filter can't express include-except-exclude",
-      "modules": ["frontend/src/toolbar", "frontend/src/scenes"],
-      "products": ["toolbar", "CI"],
-      "properties": [],
-      "evidence_tasks": [75490, 75574, 76823, 83060, 88293, 88294, 88313],
-      "skills": [{ "name": "reducing-bundle-size", "status": "proposed" }],
-      "author": "paul"
+      "evidence_tasks": [
+        75490,
+        75574,
+        76823,
+        83060,
+        88293,
+        88294,
+        88313
+      ],
+      "skills": [
+        {
+          "name": "reducing-bundle-size",
+          "status": "proposed"
+        }
+      ],
+      "author": "paul",
+      "concepts": [
+        "toolbar-bundle",
+        "eager-graph-checker"
+      ]
     },
     {
       "id": "ci-perf-is-continuous",
       "title": "CI/test performance is a continuous campaign with compounding wins",
       "markdown": "Wins that landed in one two-week stretch, each from measuring first:\n\n- DB-free serializer validation tests replacing full-database tests\n- pytest boot-cost cuts ([#69941](https://github.com/PostHog/posthog/pull/69941): langsmith and faker disabled, earlier GC window)\n- selective flush for TransactionTestCase teardowns ([#69487](https://github.com/PostHog/posthog/pull/69487))\n- taming jest related-tests fan-out by splitting productScenes ([#69964](https://github.com/PostHog/posthog/pull/69964))\n- trunk.io flaky detection with quarantine via `.test_quarantine.json`\n\nThe measurement queries (slowest tests, hour-by-hour CI speed) are worth encoding alongside `fixing-flaky-tests`.",
-      "modules": [".github/workflows", ".test_quarantine.json"],
-      "products": ["CI"],
-      "properties": [],
-      "evidence_tasks": [74056, 79539, 80911, 83627, 83715, 84728, 87975, 89279, 89348],
-      "skills": [{ "name": "fixing-flaky-tests", "status": "existing" }],
-      "author": "paul"
+      "evidence_tasks": [
+        74056,
+        79539,
+        80911,
+        83627,
+        83715,
+        84728,
+        87975,
+        89279,
+        89348
+      ],
+      "skills": [
+        {
+          "name": "fixing-flaky-tests",
+          "status": "existing"
+        }
+      ],
+      "author": "paul",
+      "concepts": [
+        "test-performance"
+      ]
     },
     {
       "id": "one-ci-comment",
       "title": "CI bots should share one updatable PR comment",
       "markdown": "Multiple bots each posting their own comment (bundle size, eager graph, hobby deploy, stamphog refusals) buried signal — one PR accumulated pages of stamphog refusal comments.\n\nConsolidating into a **single shared report comment** with a stable section order made PRs readable again. New CI reporters should join that comment rather than posting their own; the hobby deploy smoke test was migrated to it as the pattern.",
-      "modules": [".github/workflows"],
-      "products": ["CI"],
-      "properties": [],
-      "evidence_tasks": [76870, 81488, 86000],
+      "evidence_tasks": [
+        76870,
+        81488,
+        86000
+      ],
       "skills": [],
-      "author": "paul"
+      "author": "paul",
+      "concepts": [
+        "ci-bot-comment"
+      ]
     }
   ]
 }

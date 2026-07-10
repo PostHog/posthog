@@ -1,0 +1,200 @@
+{
+  "layers": {
+    "frontend": { "label": "Frontend app", "color": "#4c8eda" },
+    "django": { "label": "Main Django app", "color": "#36c46f" },
+    "ingestion": { "label": "Ingestion services", "color": "#e8853d" },
+    "ci": { "label": "CI & repo tooling", "color": "#f7c948" },
+    "agents": { "label": "Agent fleet", "color": "#9d5cf5" }
+  },
+  "concepts": [
+    {
+      "id": "taxonomic-filter",
+      "name": "Taxonomic filter",
+      "layer": "frontend",
+      "parent": null,
+      "markdown": "The multi-tab picker users hit to choose any \"thing PostHog knows about\" — events, properties, actions, cohorts. It's the on-ramp into almost every analytics and replay configuration. Code lives in `frontend/src/lib/components/TaxonomicFilter/`.\n\nData flow: open → group configs decide which tabs exist → each tab fetches independently (definitions APIs, paginated) through `infiniteListLogic` → selection feeds back into the calling filter. Top three rows carry ~80% of selections, so ordering changes are product changes."
+    },
+    {
+      "id": "taxonomic-search",
+      "name": "Search & result races",
+      "layer": "frontend",
+      "parent": "taxonomic-filter",
+      "markdown": "Each keystroke fires per-tab remote fetches; responses race. The recurring failure is a false **\"No results\"** when a stale empty response lands after a fresh query, when a tab switch reuses a stale cache, or mid-typing before the current fetch completes.\n\nThe invariant: results must be bound to the query (and tab) that produced them, and \"No results\" only renders for a completed search of the current input."
+    },
+    {
+      "id": "taxonomic-variants",
+      "name": "Three live variants",
+      "layer": "frontend",
+      "parent": "taxonomic-filter",
+      "markdown": "Two feature flags, three surfaces: `legacy-control`, `legacy-pill` (category dropdown), and the opt-in `rebuild-menu` — a parallel reimplementation over `headless/`, not a skin. A behavior change usually has to land in both the legacy code and the rebuild or the experiment arms diverge. \"Doesn't reproduce\" bug reports are almost always a variant mismatch."
+    },
+    {
+      "id": "toolbar",
+      "name": "Toolbar",
+      "layer": "frontend",
+      "parent": null,
+      "markdown": "The JS app PostHog injects into customers' own sites (`frontend/src/toolbar/`). Everything it does runs in a hostile environment — other people's pages, other people's monkey-patches — so defensive coding matters more here than anywhere else in the frontend. It patches `history.pushState`/`replaceState` to track SPA navigation and matches DOM elements against autocapture data."
+    },
+    {
+      "id": "toolbar-bundle",
+      "name": "Toolbar bundle",
+      "layer": "frontend",
+      "parent": "toolbar",
+      "markdown": "Ships as a single bundle to customer pages. Hard constraint: **CloudFront won't gzip files over 10 MB**, and the bundle crossed 13 MB — so size regressions ship uncompressed to every customer page load. Fixes that worked: lazy-loading feature menus, cutting app-zone edges from the bundle graph, trimming serialized element attributes."
+    },
+    {
+      "id": "heatmaps-clickmaps",
+      "name": "Heatmaps & clickmaps",
+      "layer": "frontend",
+      "parent": "toolbar",
+      "markdown": "Click/heat overlays driven by the element stats API (`/api/element/stats`): autocapture `$autocapture` events filtered by a `$current_url` regex, aggregated by elements chain. Clickmaps can constrain the query to a container via a `selector` property filter. Fixed-position chrome (nav bars) inflates hotspot rankings — read hotspots against the page section, not the raw count."
+    },
+    {
+      "id": "dashboards",
+      "name": "Dashboards & insights",
+      "layer": "frontend",
+      "parent": null,
+      "markdown": "Dashboards are grids of tiles, each tile an insight backed by a query. The scene loads dashboard metadata, then streams tile results; the editor and the tile render the same query through different paths, which is why \"empty tile but editor shows data\" bugs exist."
+    },
+    {
+      "id": "dashboard-api",
+      "name": "Dashboards API & tile serialization",
+      "layer": "django",
+      "parent": "dashboards",
+      "markdown": "`GET /api/.../dashboards/:id` serializes every tile server-side; tile serialization is the dominant cost and was parallelized behind a feature flag ([#69660](https://github.com/PostHog/posthog/pull/69660)). Loading the `Team` model is itself expensive (wide row, many unused columns) and shows up in every request path that touches it."
+    },
+    {
+      "id": "session-replay",
+      "name": "Session replay",
+      "layer": "frontend",
+      "parent": null,
+      "markdown": "Recordings are captured by posthog-js (rrweb), ingested through a dedicated pipeline, stored as blobs, and played back in the app. The three recurring pain points: the list query (what sessions match your filters), quota/disabled states presenting as dead-ends, and player noise from flaky networks."
+    },
+    {
+      "id": "recordings-list-query",
+      "name": "Recordings list query",
+      "layer": "django",
+      "parent": "session-replay",
+      "markdown": "`session_recording_list_from_query.py` translates UI filters into HogQL predicates over ClickHouse. Two lessons: a broad `except Exception` around the query swallowed the real cause of thousands of 500s (surface the real error), and leftover filter properties the builder doesn't recognize are normal input (HogQL expressions, flag filters) — capturing them as exceptions flooded error tracking with noise."
+    },
+    {
+      "id": "replay-player",
+      "name": "Replay player",
+      "layer": "frontend",
+      "parent": "session-replay",
+      "markdown": "Plays rrweb events; canvas replay goes through an rrweb plugin whose error handler receives the failed canvas command object (not an Error) — normalize before capturing or error tracking fills with \"Object captured as exception\". Fire-and-forget calls like markViewed must swallow network failures; a flaky network is not an application error."
+    },
+    {
+      "id": "replay-ingestion",
+      "name": "Replay ingestion pipeline",
+      "layer": "ingestion",
+      "parent": "session-replay",
+      "markdown": "SDK posts snapshots to `/s/` → capture-replay (Rust) → Kafka → ingestion-sessionreplay (Node) → blob storage (SeaweedFS locally, S3 in prod) → recording-api serves playback. When local replay \"doesn't work\", walk that chain; common local failures are orphaned processes and stuck workers, not SDK config."
+    },
+    {
+      "id": "event-pipeline",
+      "name": "Event pipeline",
+      "layer": "ingestion",
+      "parent": null,
+      "markdown": "The main data flow: SDKs → capture service → Kafka → plugin-server pipelines (person processing, property/group handling) → ClickHouse `events`. Composed from a step/pipeline framework with explicit result types (ok/dlq/drop/redirect) and ingestion warnings for recoverable weirdness."
+    },
+    {
+      "id": "object-storage",
+      "name": "Object storage",
+      "layer": "django",
+      "parent": null,
+      "markdown": "All S3-compatible access goes through `posthog/storage/object_storage.py` (MinIO today for general storage, SeaweedFS for replay v2 and the direction of travel). Its broad `except Exception` wrappers must not capture control-flow signals: `SoftTimeLimitExceeded` from Celery has to propagate or timed-out tasks look like storage bugs."
+    },
+    {
+      "id": "error-capture",
+      "name": "Exception capture conventions",
+      "layer": "django",
+      "parent": null,
+      "markdown": "`capture_exception` is an alerting decision, not a logging habit. The decision tree learned from a fortnight of noise triage:\n\n- expected outcomes (access denials, validation) → never capture\n- fire-and-forget network calls → swallow, at most log\n- control-flow signals (timeouts) → propagate\n- third-party injected script errors → suppress by fingerprint\n- non-Error objects → normalize into a real Error first"
+    },
+    {
+      "id": "mcp-analytics",
+      "name": "MCP analytics",
+      "layer": "django",
+      "parent": null,
+      "markdown": "Analytics over MCP tool-call events (`products/mcp_analytics/`): known event schema + property set, query runners on the backend, a dashboard frontend, and harness attribution (which client called the tool). Its events get separated in the taxonomic filter the way autocapture is, so users can build funnels and paths between tool calls."
+    },
+    {
+      "id": "ci-system",
+      "name": "CI system",
+      "layer": "ci",
+      "parent": null,
+      "markdown": "GitHub Actions fan-out per PR, gated by paths filtering so only affected jobs run. The repo cap of 500 workflow dispatches per 10s makes deep PR stacks dangerous to restack all at once. Every job must declare `timeout-minutes`, and workflow changes must degrade gracefully for unrebased branches."
+    },
+    {
+      "id": "eager-graph-checker",
+      "name": "Eager graph checker",
+      "layer": "ci",
+      "parent": "ci-system",
+      "markdown": "Per-PR report of what the authenticated shell eagerly imports — the frontend bundle's dependency graph. A PR that adds a static import to a scene can silently grow the initial bundle (one added ~80 KiB via static S3 setup-modal imports); the checker makes that visible and lazy-loading the edge is the standard fix."
+    },
+    {
+      "id": "paths-filter",
+      "name": "Vendored paths filter",
+      "layer": "ci",
+      "parent": "ci-system",
+      "markdown": "dorny/paths-filter couldn't express \"run on changes to folder X except *.md\", so it was vendored and extended with include-except-exclude matching ([#67952](https://github.com/PostHog/posthog/pull/67952)). All call sites migrate to the vendored action; new job gating should use it."
+    },
+    {
+      "id": "test-performance",
+      "name": "Test suite performance",
+      "layer": "ci",
+      "parent": "ci-system",
+      "markdown": "Backend test wall-time is a continuous campaign; the wins that compounded: DB-free serializer validation tests, cutting per-process pytest boot cost (langsmith/faker disabled, GC tuning — [#69941](https://github.com/PostHog/posthog/pull/69941)), selective flush in TransactionTestCase teardowns ([#69487](https://github.com/PostHog/posthog/pull/69487)), and splitting `productScenes` out of `products.tsx` to tame jest related-tests fan-out ([#69964](https://github.com/PostHog/posthog/pull/69964)). Measure first: slowest-test reports and hour-by-hour CI speed."
+    },
+    {
+      "id": "flaky-quarantine",
+      "name": "Flaky tests & quarantine",
+      "layer": "ci",
+      "parent": "ci-system",
+      "markdown": "trunk.io analytics receive junit uploads from nearly every suite and track per-test flake rates. Confirmed flakes get quarantined in `.test_quarantine.json` (managed by `hogli test:quarantine`); CI's quarantine gate passes a job when every failure is an already-quarantined flake. Quarantine is a holding action — fixing the test means removing its entry in the same PR."
+    },
+    {
+      "id": "ci-bot-comment",
+      "name": "Shared CI report comment",
+      "layer": "ci",
+      "parent": "ci-system",
+      "markdown": "CI bots (bundle size, eager graph, hobby deploy, stamphog) used to each post their own PR comment, burying signal. They now share **one updatable report comment** with a stable section order. New CI reporters should join it, not post their own."
+    },
+    {
+      "id": "agent-fleet",
+      "name": "Agent fleet",
+      "layer": "agents",
+      "parent": null,
+      "markdown": "The system that builds the system: PostHog Code tasks run agents in sandboxes with signed-git publishing, driven interactively, from Slack, from inbox signals, or by fleet automation reacting to PR state changes. Two weeks of history: ~1/3 of all conversations are fleet automation."
+    },
+    {
+      "id": "pr-fleet",
+      "name": "PR shepherds & stamphog",
+      "layer": "agents",
+      "parent": "agent-fleet",
+      "markdown": "Automation that reacts to PR state transitions: CI shepherd on failing checks, review triage on new review threads, conflict resolution on conflicting PRs, and stamphog deciding whether a bot can approve without a human. Observed failure mode: loops — one PR accumulated ~8 \"get mergeable\" runs. The fleet needs its own metrics (approval share, denial accuracy, cost per PR)."
+    },
+    {
+      "id": "autoresearch",
+      "name": "Autoresearch loops",
+      "layer": "agents",
+      "parent": "agent-fleet",
+      "markdown": "An iterative optimization protocol: one focused change per iteration, measure the metric, report a structured result block, repeat. Used for test wall-time, dashboard endpoint latency, and RTL test speed. The protocol is currently pasted verbatim into each run's prompt."
+    },
+    {
+      "id": "skills-system",
+      "name": "Skills",
+      "layer": "agents",
+      "parent": "agent-fleet",
+      "markdown": "How knowledge becomes behavior: repo skills in `.agents/skills/` (mandatory for some areas), product skills in `products/*/skills/`, and the per-team skills store over MCP. The automation ladder governs what belongs where: **linter > lint-staged > skill > instructions** — if a convention is mechanically checkable, don't spend it on prose."
+    },
+    {
+      "id": "knowledge-graph",
+      "name": "Dev knowledge graph",
+      "layer": "agents",
+      "parent": "agent-fleet",
+      "markdown": "This tool (`tools/dev-knowledge-graph/`): a mind map of system concepts, color-coded by area, with learnings attached where the work taught us something — a surface for exploring what the fleet learned that cuts across PRs. Grown via the `growing-dev-knowledge-graph` skill."
+    }
+  ]
+}

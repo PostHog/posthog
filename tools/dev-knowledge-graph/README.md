@@ -1,63 +1,64 @@
 # Dev knowledge graph
 
-A small graph database + HTML frontend of what we learn while working in this repo: "the system that builds the systems we work on".
+A mind map of the PostHog system and what we learn while working on it: "the system that builds the systems we work on".
 
-The graph is **knowledge-first**: learning nodes carry markdown you can inspect (with PRs and conversations as links, not nodes) and connect to the parts of the system the knowledge is about — software modules, products, user/event properties, and the skills that encode them.
+The top level is **concepts** — the nouns two people working together would use ("the taxonomic filter", "the dashboards API", "the event pipeline") — color-coded by system area and drillable: click a concept to open what's inside it (sub-concepts and learnings), click again to back out. Learnings carry inspectable markdown; PRs and conversations appear as links inside that markdown, not as nodes.
 
-## Node types
+## Structure
 
-| Kind       | Meaning                                                                                              |
-| ---------- | ---------------------------------------------------------------------------------------------------- |
-| `learning` | Something we learned that should outlive the conversation it came from; carries inspectable markdown |
-| `module`   | A software module the learning is about (e.g. `frontend/src/lib/components/TaxonomicFilter`)         |
-| `product`  | A product or system area (e.g. `session replay`, `CI`, `PostHog Code`)                               |
-| `property` | A user/event property the learning concerns (e.g. `$current_url`)                                    |
-| `skill`    | A skill that encodes (`existing`) or should encode (`proposed`) the learning                         |
-| `task`     | A conversation cited as evidence — only with `--include-conversations`                               |
-
-Edges: `learning→module/product/property` (about), `module→product` (part-of, inferred from `products/<name>/` paths), `learning→skill` (encoded-in), `learning→task` (evidenced-by).
+| Piece     | File             | Meaning                                                                                                                  |
+| --------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Layers    | `concepts.json`  | System areas that color-code the map (frontend app, main Django app, ingestion services, CI & repo tooling, agent fleet) |
+| Concepts  | `concepts.json`  | The system's nouns, in a hierarchy — each with markdown describing what it is and how data flows through it              |
+| Learnings | `learnings.json` | What work taught us, attached to the concepts it's about; markdown with PRs/conversations as links                       |
+| Skills    | `learnings.json` | The skill that encodes a learning (`existing`) or should (`proposed`, rendered dashed)                                   |
+| Tasks     | API overlay      | Conversations cited as evidence — only with `--include-conversations`                                                    |
 
 ## Usage
 
 ```bash
-# Build the knowledge graph (no API access needed)
+# Build the mind map (no API access needed)
 python3 tools/dev-knowledge-graph/ingest.py
 
 # Overlay the conversations cited as evidence (your own, or --all-users for the team)
 POSTHOG_PERSONAL_API_KEY=... python3 tools/dev-knowledge-graph/ingest.py \
     --include-conversations --days 14
 
-# Offline from a previously fetched dump
-python3 tools/dev-knowledge-graph/ingest.py --include-conversations --from-file out/tasks.json
-
 open tools/dev-knowledge-graph/out/graph.html
 ```
 
-`ingest.py` is stdlib-only. The viewer supports pan/zoom, search, per-kind filters, a per-user filter, and a detail panel that renders each learning's markdown.
+`ingest.py` is stdlib-only. The viewer: click concepts to drill in and back out (the `+N` badge shows how much is inside), drag nodes, scroll to zoom, search (reveals matches inside collapsed concepts), filter by system area, knowledge kind, and user.
 
 The `out/` directory is gitignored: fetched conversation content is private and must never be committed to this public repo.
 
-## Growing the graph
+## Growing the map
 
-Add a learning to `learnings.json` when work taught something worth keeping:
+Two kinds of contribution, both guided by the `growing-dev-knowledge-graph` skill (`.agents/skills/`):
+
+**A concept** (`concepts.json`) when the map is missing a part of the system you had to understand to do the work — write the markdown as you'd explain it to a teammate: what it is, how data flows, the constraints that bite.
+
+```json
+{
+  "id": "recordings-list-query",
+  "name": "Recordings list query",
+  "layer": "django",
+  "parent": "session-replay",
+  "markdown": "What it is, how data flows through it, what constraints matter."
+}
+```
+
+**A learning** (`learnings.json`) when work taught something worth keeping, attached to the concepts it's about:
 
 ```json
 {
   "id": "short-kebab-slug",
   "title": "One-line statement of the learning",
-  "markdown": "The why, with enough detail that a stranger gets it. Link context: [#66590](https://github.com/PostHog/posthog/pull/66590).",
-  "modules": ["frontend/src/lib/components/TaxonomicFilter"],
-  "products": ["product analytics"],
-  "properties": [],
+  "markdown": "The why, with context as links: [#66590](https://github.com/PostHog/posthog/pull/66590).",
+  "concepts": ["taxonomic-search"],
   "evidence_tasks": [72639, 73819],
   "skills": [{ "name": "adopting-prs", "status": "existing" }],
   "author": "your-name"
 }
 ```
 
-- `markdown` is the knowledge itself — PRs, issues, and docs belong here as links, not as graph nodes.
-- `modules` / `products` / `properties` are what the learning is _about_; reuse existing node labels where they fit so knowledge clusters.
-- `skills[].status` is `existing` or `proposed` — proposed skills render dashed, so the graph doubles as a backlog of skills worth writing.
-- `author` powers the viewer's user filter; match the local part of your email so conversations and learnings share one identity.
-
-The `growing-dev-knowledge-graph` skill (`.agents/skills/`) guides agents through adding learnings at the end of significant work — entries must be public-repo safe (no customer data, internal scale, or Slack quotes).
+Both files are committed to a public repository — no customer data, internal scale, or Slack quotes. `author` powers the per-user filter; match the local part of your email.

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Build the dev knowledge graph.
 
-The graph is knowledge-first: learning nodes carry inspectable markdown (with
-PRs and conversations as links, not nodes) and connect to the parts of the
-system they are about — software modules, products, user/event properties, and
-the skills that encode them. Optionally overlays the conversations (PostHog
-Code tasks) cited as evidence. Stdlib-only; renders a single self-contained
+A mind map of the system: concept nodes (the nouns two people working on
+PostHog would use — "the taxonomic filter", "the dashboards API") arranged in
+a drillable hierarchy and color-coded by system area. Learnings attach to the
+concepts they taught us about and carry inspectable markdown, with PRs and
+conversations as links rather than nodes. Optionally overlays the
+conversations cited as evidence. Stdlib-only; renders a single self-contained
 HTML file.
 """
 
@@ -14,7 +15,6 @@ HTML file.
 from __future__ import annotations
 
 import os
-import re
 import sys
 import json
 import argparse
@@ -62,13 +62,26 @@ def task_author(task: dict[str, Any]) -> str:
     return (creator.get("email") or "").split("@")[0] or creator.get("first_name", "").lower() or "unknown"
 
 
-def module_product(module: str) -> str | None:
-    """A module under products/<name>/ belongs to that product."""
-    match = re.match(r"products/([^/]+)/", module)
-    return match.group(1).replace("_", " ") if match else None
+def concept_depths(concepts: list[dict[str, Any]]) -> dict[str, int]:
+    parents = {c["id"]: c.get("parent") for c in concepts}
+    depths: dict[str, int] = {}
+    for cid in parents:
+        depth, cursor = 0, cid
+        while parents.get(cursor):
+            cursor = parents[cursor]
+            depth += 1
+            if depth > 20:
+                sys.exit(f"concept hierarchy cycle involving {cid!r}")
+        depths[cid] = depth
+    return depths
 
 
-def build_graph(learnings: list[dict[str, Any]], tasks: list[dict[str, Any]] | None) -> dict[str, Any]:
+def build_graph(
+    layers: dict[str, Any],
+    concepts: list[dict[str, Any]],
+    learnings: list[dict[str, Any]],
+    tasks: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
     nodes: dict[str, dict[str, Any]] = {}
     edges: list[dict[str, str]] = []
 
@@ -79,8 +92,24 @@ def build_graph(learnings: list[dict[str, Any]], tasks: list[dict[str, Any]] | N
     def add_edge(source: str, target: str, kind: str) -> None:
         edges.append({"source": source, "target": target, "kind": kind})
 
-    tasks_by_number = {t["task_number"]: t for t in tasks or []}
+    depths = concept_depths(concepts)
+    concept_ids = {c["id"] for c in concepts}
+    for concept in concepts:
+        if concept["layer"] not in layers:
+            sys.exit(f"concept {concept['id']!r} has unknown layer {concept['layer']!r}")
+        add_node(
+            f"concept:{concept['id']}",
+            "concept",
+            concept["name"],
+            layer=concept["layer"],
+            parent=f"concept:{concept['parent']}" if concept.get("parent") else None,
+            depth=depths[concept["id"]],
+            markdown=concept.get("markdown", ""),
+        )
+        if concept.get("parent"):
+            add_edge(f"concept:{concept['id']}", f"concept:{concept['parent']}", "part-of")
 
+    tasks_by_number = {t["task_number"]: t for t in tasks or []}
     for learning in learnings:
         lid = f"learning:{learning['id']}"
         add_node(
@@ -91,19 +120,10 @@ def build_graph(learnings: list[dict[str, Any]], tasks: list[dict[str, Any]] | N
             author=learning.get("author", "unknown"),
             evidence_count=len(learning.get("evidence_tasks", [])),
         )
-        for module in learning.get("modules", []):
-            mid = f"module:{module}"
-            add_node(mid, "module", module)
-            add_edge(lid, mid, "about")
-            if product := module_product(module):
-                add_node(f"product:{product}", "product", product)
-                add_edge(mid, f"product:{product}", "part-of")
-        for product in learning.get("products", []):
-            add_node(f"product:{product}", "product", product)
-            add_edge(lid, f"product:{product}", "about")
-        for prop in learning.get("properties", []):
-            add_node(f"property:{prop}", "property", prop)
-            add_edge(lid, f"property:{prop}", "about")
+        for cid in learning.get("concepts", []):
+            if cid not in concept_ids:
+                sys.exit(f"learning {learning['id']!r} references unknown concept {cid!r}")
+            add_edge(lid, f"concept:{cid}", "about")
         for skill in learning.get("skills", []):
             sid = f"skill:{skill['name']}"
             add_node(sid, "skill", skill["name"], status=skill.get("status", "proposed"))
@@ -124,7 +144,12 @@ def build_graph(learnings: list[dict[str, Any]], tasks: list[dict[str, Any]] | N
                 )
                 add_edge(lid, tid, "evidenced-by")
 
-    return {"nodes": list(nodes.values()), "edges": edges, "generated_at": datetime.now(UTC).isoformat()}
+    return {
+        "layers": layers,
+        "nodes": list(nodes.values()),
+        "edges": edges,
+        "generated_at": datetime.now(UTC).isoformat(),
+    }
 
 
 def render(graph: dict[str, Any]) -> str:
@@ -159,8 +184,9 @@ def main() -> None:
             since = datetime.now(UTC) - timedelta(days=args.days)
             tasks = fetch_tasks(args.host, key, args.project, args.repository, since, args.all_users)
 
+    concept_data = json.loads((HERE / "concepts.json").read_text())
     learnings = json.loads((HERE / "learnings.json").read_text())["learnings"]
-    graph = build_graph(learnings, tasks)
+    graph = build_graph(concept_data["layers"], concept_data["concepts"], learnings, tasks)
 
     OUT_DIR.mkdir(exist_ok=True)
     if tasks is not None:
@@ -169,7 +195,7 @@ def main() -> None:
     kinds: dict[str, int] = {}
     for node in graph["nodes"]:
         kinds[node["kind"]] = kinds.get(node["kind"], 0) + 1
-    print(f"{len(learnings)} learnings -> {len(graph['nodes'])} nodes ({kinds}), {len(graph['edges'])} edges")
+    print(f"{len(graph['nodes'])} nodes ({kinds}), {len(graph['edges'])} edges")
     print(f"open {OUT_DIR / 'graph.html'}")
 
 
