@@ -2,12 +2,28 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SlackChannelType, UserBasicType } from '~/types'
 
+import { TicketChannel } from '../../types'
 import type { supportSettingsLogicType } from './supportSettingsLogicType'
+
+const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
+
+export function aiAllChannelsForFeatureFlags(featureFlags: Record<string, boolean | string>): TicketChannel[] {
+    const channels: TicketChannel[] = [...BASE_AI_CHANNELS]
+    if (featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED]) {
+        channels.push('teams')
+    }
+    if (featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_GITHUB_CHANNEL]) {
+        channels.push('github')
+    }
+    return channels
+}
 
 export interface EmailConfigStatus {
     id: string
@@ -22,7 +38,7 @@ export interface EmailConfigStatus {
 export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam', 'currentTeamLoading']],
+        values: [teamLogic, ['currentTeam', 'currentTeamLoading'], featureFlagLogic, ['featureFlags']],
         actions: [
             teamLogic,
             ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'updateCurrentTeamFailure', 'loadCurrentTeam'],
@@ -542,14 +558,19 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 return channels
             },
         ],
+        aiAllChannels: [
+            (s) => [s.featureFlags],
+            (featureFlags): TicketChannel[] => aiAllChannelsForFeatureFlags(featureFlags),
+        ],
         aiResolutionChannels: [
-            (s) => [s.currentTeam, s.aiEnabledChannels],
-            (currentTeam, aiEnabledChannels): string[] => {
+            (s) => [s.currentTeam, s.aiEnabledChannels, s.aiAllChannels],
+            (currentTeam, aiEnabledChannels, aiAllChannels): string[] => {
+                const allowed = aiEnabledChannels.filter((channel) => aiAllChannels.includes(channel as TicketChannel))
                 const stored = currentTeam?.conversations_settings?.ai_resolution_channels
                 if (Array.isArray(stored)) {
-                    return stored.filter((ch: string) => aiEnabledChannels.includes(ch))
+                    return stored.filter((channel: string) => allowed.includes(channel))
                 }
-                return aiEnabledChannels
+                return allowed
             },
         ],
         aiReplyModes: [
@@ -957,10 +978,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             })
         },
         setAiResolutionChannels: ({ channels }) => {
+            const allowed = new Set(values.aiAllChannels)
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
-                    ai_resolution_channels: channels,
+                    ai_resolution_channels: channels.filter((channel) => allowed.has(channel as TicketChannel)),
                 },
             })
         },

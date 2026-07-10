@@ -46,6 +46,7 @@ export function AISection(): JSX.Element {
         aiDiagnosticsEnabled,
         aiDiagnosticsLoading,
         aiEnabledChannels,
+        aiAllChannels,
         aiResolutionChannels,
         aiReplyModes,
     } = useValues(supportSettingsLogic)
@@ -53,16 +54,7 @@ export function AISection(): JSX.Element {
         useActions(supportSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const businessKnowledgeEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE]
-    const teamsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED]
-    const githubEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_GITHUB_CHANNEL]
 
-    const allChannels: TicketChannel[] = [
-        'widget',
-        'email',
-        'slack',
-        ...(teamsEnabled ? (['teams'] as const) : []),
-        ...(githubEnabled ? (['github'] as const) : []),
-    ]
     const isChannelActive = (channel: TicketChannel): boolean => aiEnabledChannels.includes(channel)
 
     const openChannelSettings = (channel: TicketChannel): void => {
@@ -140,7 +132,7 @@ export function AISection(): JSX.Element {
                     description="Choose which channels the AI agent runs on. Inactive channels must be enabled under Channels first."
                 >
                     <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
-                        {allChannels.map((channel) => {
+                        {aiAllChannels.map((channel) => {
                             const active = isChannelActive(channel)
                             return (
                                 <LemonCheckbox
