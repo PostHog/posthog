@@ -8,8 +8,10 @@ import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { derivePrState } from 'lib/signals/prState'
 import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
+import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
@@ -264,6 +266,8 @@ interface InboxDetailFrameProps {
     summary: { icon: ReactNode; title: string }
     /** Content rendered in the main column directly under the Summary (e.g. the PR conversation). */
     summaryFooter?: ReactNode
+    /** Badge rendered beside the title (e.g. the PR open/merged/closed state), matching the list card. */
+    headerBadge?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
     primaryAction?: ReactNode
     /** Whether to render the Overview / Files changed tab bar. Driven by whether the report has a PR
@@ -291,6 +295,7 @@ export function InboxDetailFrame({
     tab,
     summary,
     summaryFooter,
+    headerBadge,
     primaryAction,
     showFilesTab,
     diffSection,
@@ -460,15 +465,18 @@ export function InboxDetailFrame({
                             </div>
                         )}
                         <div className="flex flex-col gap-2 min-w-0">
-                            <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
-                                {conventionalTitle && (
-                                    <ConventionalCommitScopeTag
-                                        type={conventionalTitle.type}
-                                        scope={conventionalTitle.scope}
-                                    />
-                                )}
-                                {displayTitle}
-                            </h1>
+                            <div className="flex items-start gap-2 flex-wrap min-w-0">
+                                <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
+                                    {conventionalTitle && (
+                                        <ConventionalCommitScopeTag
+                                            type={conventionalTitle.type}
+                                            scope={conventionalTitle.scope}
+                                        />
+                                    )}
+                                    {displayTitle}
+                                </h1>
+                                {headerBadge}
+                            </div>
                             <ReportDetailMeta
                                 report={report}
                                 evidenceCount={evidenceCount}
@@ -589,6 +597,15 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
             report={report}
             tab={tab}
             summary={{ icon: hasPr ? <IconPullRequest /> : <IconDocument />, title: 'Summary' }}
+            headerBadge={
+                hasPr ? (
+                    <PrBadge
+                        prNumber={prRef.number}
+                        prUrl={prUrl}
+                        state={derivePrState(report.status, report.implementation_pr_merged === true)}
+                    />
+                ) : undefined
+            }
             primaryAction={
                 hasPr ? (
                     <LemonButton
