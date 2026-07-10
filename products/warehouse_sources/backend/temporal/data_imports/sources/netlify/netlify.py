@@ -18,7 +18,7 @@ import re
 import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.netlify.se
 )
 
 NETLIFY_BASE_URL = "https://api.netlify.com/api/v1"
+_NETLIFY_PARSED_BASE = urlparse(NETLIFY_BASE_URL)
 
 
 @dataclasses.dataclass
@@ -46,6 +47,29 @@ class NetlifyRetryableError(Exception):
     pass
 
 
+class NetlifyUntrustedURLError(Exception):
+    """Raised when a next-page/resume URL points off the Netlify API host. We attach the account
+    token to every request, so following an off-host URL would leak it; refuse instead."""
+
+
+class NetlifyPageCapExceededError(Exception):
+    """Raised when a fan-out parent exceeds the per-parent page cap. Failing loudly beats silently
+    writing an incomplete full-refresh table that later runs would keep re-truncating."""
+
+
+def _validate_netlify_url(url: str) -> str:
+    """Reject a URL whose scheme or host differs from NETLIFY_BASE_URL.
+
+    The next-page URL comes from a remote `Link` header (and from persisted resume state), and we
+    send the account token with it. Pinning the scheme and host stops a tampered link from
+    forwarding the token to an attacker-controlled server.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != _NETLIFY_PARSED_BASE.scheme or parsed.netloc != _NETLIFY_PARSED_BASE.netloc:
+        raise NetlifyUntrustedURLError(f"Netlify: refusing to follow off-host URL: {url}")
+    return url
+
+
 def _get_headers(api_token: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_token}",
@@ -54,15 +78,19 @@ def _get_headers(api_token: str) -> dict[str, str]:
     }
 
 
-def _parse_next_url(link_header: str) -> str | None:
-    """Return the URL with rel="next" from Netlify's RFC-5988 Link header, if any."""
+def _parse_next_url(link_header: str, base_url: str = NETLIFY_BASE_URL) -> str | None:
+    """Return the URL with rel="next" from Netlify's RFC-5988 Link header, if any.
+
+    Relative links are resolved against the request URL, and the result is pinned to the Netlify
+    host so a tampered link can't redirect the token off-host.
+    """
     if not link_header:
         return None
     for part in link_header.split(","):
         part = part.strip()
         match = re.match(r'<([^>]+)>;\s*rel="next"', part)
         if match:
-            return match.group(1)
+            return _validate_netlify_url(urljoin(base_url, match.group(1)))
     return None
 
 
@@ -115,8 +143,9 @@ def _iter_pages(
 ) -> Iterator[tuple[list[dict[str, Any]], str]]:
     """Yield (items, page_url) for each page of a Netlify list, following the Link header.
 
-    Netlify list responses are top-level JSON arrays. Stops at `max_pages`, logging a structured
-    warning when the cap is reached so a truncation is never silent.
+    Netlify list responses are top-level JSON arrays. When `max_pages` is set and there are still
+    more pages, it raises rather than truncating: a silently short full-refresh table would stay
+    incomplete on every later run, so we surface the cap as a hard failure instead.
     """
     page_count = 0
     while True:
@@ -124,18 +153,21 @@ def _iter_pages(
         data = response.json()
         if not isinstance(data, list) or not data:
             return
-        next_url = _parse_next_url(response.headers.get("Link", ""))
+        next_url = _parse_next_url(response.headers.get("Link", ""), url)
         yield data, url
         page_count += 1
         if not next_url:
             return
         if max_pages is not None and page_count >= max_pages:
-            logger.warning(
-                "Netlify: per-parent page cap reached; remaining pages skipped",
+            logger.error(
+                "Netlify: per-parent page cap reached; failing to avoid an incomplete table",
                 max_pages=max_pages,
                 **(page_cap_context or {}),
             )
-            return
+            raise NetlifyPageCapExceededError(
+                f"Netlify: per-parent page cap of {max_pages} reached with more pages remaining; "
+                f"raise max_pages_per_parent to sync this parent fully. context={page_cap_context or {}}"
+            )
         url = next_url
 
 
@@ -171,13 +203,11 @@ def _get_fan_out_rows(
     parent_config = NETLIFY_ENDPOINTS[config.fan_out_parent]
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    parent_url = (
-        resume.next_url
-        if resume is not None and resume.next_url
-        else _build_url(parent_config.path, parent_config.page_size)
-    )
     if resume is not None and resume.next_url:
+        parent_url = _validate_netlify_url(resume.next_url)
         logger.debug(f"Netlify: resuming {config.name} fan-out from parent URL: {parent_url}")
+    else:
+        parent_url = _build_url(parent_config.path, parent_config.page_size)
 
     for parents, parent_page_url in _iter_pages(session, parent_url, headers, logger):
         for parent in parents:
@@ -212,24 +242,27 @@ def get_rows(
     config = NETLIFY_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
     # One session reused across every page (and, for fan-out, every parent) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # connection alive instead of re-handshaking per request. Redact the token so the tracked
+    # adapter never persists it in logged URLs or captured request/response samples.
+    session = make_tracked_session(redact_values=(api_token,))
 
     if config.fan_out_parent is not None:
         yield from _get_fan_out_rows(session, headers, logger, resumable_source_manager, config)
         return
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    url = resume.next_url if resume is not None and resume.next_url else _build_url(config.path, config.page_size)
     if resume is not None and resume.next_url:
+        url = _validate_netlify_url(resume.next_url)
         logger.debug(f"Netlify: resuming {endpoint} from URL: {url}")
+    else:
+        url = _build_url(config.path, config.page_size)
 
     while True:
         response = _fetch_page(session, url, headers, logger)
         data = response.json()
         if not isinstance(data, list) or not data:
             break
-        next_url = _parse_next_url(response.headers.get("Link", ""))
+        next_url = _parse_next_url(response.headers.get("Link", ""), url)
         yield data
         if not next_url:
             break
@@ -244,7 +277,9 @@ def validate_credentials(api_token: str) -> bool:
     full account access (no granular scopes), so one authenticated call confirms the whole token."""
     url = _build_url("/sites", page_size=1)
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
+        response = make_tracked_session(redact_values=(api_token,)).get(
+            url, headers=_get_headers(api_token), timeout=10
+        )
         return response.status_code == 200
     except Exception:
         return False

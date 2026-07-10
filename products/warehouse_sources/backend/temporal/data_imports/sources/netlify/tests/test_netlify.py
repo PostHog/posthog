@@ -62,6 +62,19 @@ class TestParseNextUrl:
     def test_parse_next_url(self, _name: str, header: str, expected: str | None) -> None:
         assert _parse_next_url(header) == expected
 
+    def test_resolves_relative_next_url(self) -> None:
+        assert _parse_next_url('</api/v1/sites?page=2>; rel="next"') == f"{BASE}/sites?page=2"
+
+    @parameterized.expand(
+        [
+            ("off_host", "https://evil.example.com/api/v1/sites?page=2"),
+            ("http_scheme", "http://api.netlify.com/api/v1/sites?page=2"),
+        ]
+    )
+    def test_rejects_untrusted_next_url(self, _name: str, target: str) -> None:
+        with pytest.raises(netlify.NetlifyUntrustedURLError):
+            _parse_next_url(f'<{target}>; rel="next"')
+
 
 class TestBuildUrl:
     def test_with_page_size(self) -> None:
@@ -161,18 +174,17 @@ class TestGetRowsFanOut:
 
 
 class TestIterPagesCap:
-    def test_stops_and_warns_at_max_pages(self) -> None:
+    def test_raises_at_max_pages(self) -> None:
         session = mock.Mock()
-        # Always advertise a next page so only max_pages bounds the walk.
+        # Always advertise a next page so only max_pages bounds the walk. Hitting the cap must fail
+        # loudly rather than silently truncate the full-refresh table.
         session.get.return_value = _resp([{"id": "x"}], next_url=f"{BASE}/sites/s1/builds?page=99")
-        logger = mock.Mock()
-        pages = list(
-            netlify._iter_pages(
-                session, f"{BASE}/sites/s1/builds", {}, logger, max_pages=2, page_cap_context={"site_id": "s1"}
+        with pytest.raises(netlify.NetlifyPageCapExceededError):
+            list(
+                netlify._iter_pages(
+                    session, f"{BASE}/sites/s1/builds", {}, mock.Mock(), max_pages=2, page_cap_context={"site_id": "s1"}
+                )
             )
-        )
-        assert len(pages) == 2
-        logger.warning.assert_called_once()
 
 
 class TestFetchPage:
@@ -184,7 +196,7 @@ class TestFetchPage:
     def test_raises_on_client_error(self) -> None:
         session = mock.Mock()
         response = _resp({"code": 401, "message": "Access Denied"}, status=401)
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=response)
         session.get.return_value = response
         with pytest.raises(requests.HTTPError):
             netlify._fetch_page(session, f"{BASE}/sites", {}, mock.Mock())
