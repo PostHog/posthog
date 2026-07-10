@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { type ChangeEvent, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
 import {
@@ -7,16 +7,10 @@ import {
     CUSTOM_RANGE,
     DateTimePicker,
     Day,
-    Input,
     Label,
     Popover,
     PopoverContent,
     PopoverTrigger,
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
     Switch,
     ToggleGroup,
     ToggleGroupItem,
@@ -47,17 +41,7 @@ import {
     retentionDatePresets,
 } from './insightDateFilterNextUtils'
 
-const ROLLING_UNITS: Record<string, string> = {
-    h: 'hours',
-    d: 'days',
-    w: 'weeks',
-    m: 'months',
-    y: 'years',
-}
-
 const ROLLING_DATE_FROM = /^-(\d+)([hdwmy])$/
-const DEFAULT_ROLLING_COUNT = '30'
-const DEFAULT_ROLLING_UNIT = 'd'
 
 type InsightDateFilterNextProps = {
     disabled: boolean
@@ -73,8 +57,6 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
 
     const [open, setOpen] = useState(false)
     const [customOpen, setCustomOpen] = useState(false)
-    const [rollingCount, setRollingCount] = useState<string>(DEFAULT_ROLLING_COUNT)
-    const [rollingUnit, setRollingUnit] = useState<string>(DEFAULT_ROLLING_UNIT)
 
     // Retention's range selects cohort-start buckets, so its presets scale with the period.
     const retentionPeriod = isRetention ? (retentionFilter?.period ?? 'Day') : null
@@ -82,7 +64,6 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
         () => [...(retentionPeriod ? retentionDatePresets(retentionPeriod) : INSIGHT_DATE_PRESETS), ALL_TIME_PRESET],
         [retentionPeriod]
     )
-    const defaultRollingUnit = retentionPeriod ? retentionPeriod.charAt(0).toLowerCase() : DEFAULT_ROLLING_UNIT
 
     const ranges = useMemo(() => insightDateRanges(weekStartDay, presets), [weekStartDay, presets])
     const pickerValue = useMemo(
@@ -95,9 +76,7 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
 
     const handleOpenChange = (nextOpen: boolean): void => {
         if (nextOpen) {
-            const rollingMatch = ROLLING_DATE_FROM.exec(dateRange?.date_from ?? '')
-            setRollingCount(rollingMatch?.[1] ?? DEFAULT_ROLLING_COUNT)
-            setRollingUnit(rollingMatch?.[2] ?? defaultRollingUnit)
+            // Start on the preset list; jump straight to the calendar only if a custom range is active
             setCustomOpen(isCustom)
         }
         setOpen(nextOpen)
@@ -117,63 +96,81 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
         updateDateRange(dateRangeUpdateForPickerValue(next, presets), true)
         setOpen(false)
     }
-    const applyRolling = (): void => {
-        const count = Math.max(1, parseInt(rollingCount) || 1)
-        updateDateRange({ date_from: `-${count}${rollingUnit}`, date_to: null }, true)
-        setOpen(false)
-    }
     const setDays = (days: number[]): void => {
         updateQuerySource(computeDaysOfWeekUpdate(days, querySource, dateRange))
     }
 
+    // Sits under the presets; reveals the calendar in place
     const railFooter = (
-        <div className="flex flex-col gap-1">
-            <div className="flex flex-wrap items-center gap-1">
-                <span className="text-xs whitespace-nowrap">Last</span>
-                <Input
-                    type="number"
-                    min={1}
-                    value={rollingCount}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                        setRollingCount(e.target.value.replace(/[^0-9]/g, ''))
-                    }
-                    className="h-6 w-12"
-                    aria-label="Rolling period count"
-                    data-attr="insight-date-filter-next-rolling-count"
-                />
-                <Select
-                    value={rollingUnit}
-                    onValueChange={(unit: string | null) => setRollingUnit(unit ?? DEFAULT_ROLLING_UNIT)}
-                    items={ROLLING_UNITS}
-                >
-                    <SelectTrigger size="sm" aria-label="Rolling period unit">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent data-lemon-skin>
-                        {Object.entries(ROLLING_UNITS).map(([value, label]) => (
-                            <SelectItem key={value} value={value}>
-                                {label}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                <Button size="sm" onClick={applyRolling} data-attr="insight-date-filter-next-rolling-apply">
-                    Apply
-                </Button>
-            </div>
-            <Button
-                variant="default"
-                size="default"
-                left
-                className="w-full justify-start"
-                aria-selected={customOpen || isCustom}
-                onClick={() => setCustomOpen(!customOpen)}
-                data-attr="insight-date-filter-next-custom-range"
-            >
-                Custom range…
-            </Button>
-        </div>
+        <Button
+            variant="default"
+            size="default"
+            left
+            className="w-full justify-start"
+            aria-selected={customOpen || isCustom}
+            onClick={() => setCustomOpen(true)}
+            data-attr="insight-date-filter-next-custom-range"
+        >
+            Custom range…
+        </Button>
     )
+
+    // Insight-only controls in the picker's footer slot — shown only in the narrow preset list.
+    // The calendar view stays focused on range selection; these persist and are edited from the list.
+    const showFooter = !customOpen && (isTrends || !isRetention)
+    const pickerFooter = showFooter ? (
+        <div className="flex flex-col gap-2 px-3 py-2">
+            {isTrends && (
+                <div className="flex flex-col gap-1">
+                    <ToggleGroup
+                        multiple
+                        size="sm"
+                        className="w-full max-w-60"
+                        value={selectedDays.map(String)}
+                        onValueChange={(days) => setDays(days.map(Number))}
+                    >
+                        {ALL_DAY_NUMBERS.map((day) => (
+                            <ToggleGroupItem
+                                key={day}
+                                value={String(day)}
+                                className="flex-1"
+                                aria-label={DAY_LABELS[day]}
+                                title={DAY_LABELS[day]}
+                                data-attr={`insight-date-filter-next-day-${day}`}
+                            >
+                                {DAY_LABELS_SINGLE[day]}
+                            </ToggleGroupItem>
+                        ))}
+                    </ToggleGroup>
+                    <div className="flex w-full max-w-60 items-center justify-center gap-2">
+                        <Button variant="link" size="xs" onClick={() => setDays(WEEKDAYS)}>
+                            Weekdays
+                        </Button>
+                        <Button variant="link" size="xs" onClick={() => setDays(WEEKENDS)}>
+                            Weekends
+                        </Button>
+                        <Button variant="link" size="xs" onClick={() => setDays([])}>
+                            All days
+                        </Button>
+                    </div>
+                </div>
+            )}
+            {!isRetention && (
+                <div className="flex items-center gap-2">
+                    <Label htmlFor="insight-exclude-incomplete-period">Exclude incomplete period</Label>
+                    <Switch
+                        id="insight-exclude-incomplete-period"
+                        size="sm"
+                        checked={!!dateRange?.excludeIncompletePeriods}
+                        onCheckedChange={(checked) =>
+                            updateDateRange({ excludeIncompletePeriods: checked ? true : null }, true)
+                        }
+                        data-attr="insight-date-filter-next-exclude-incomplete"
+                    />
+                </div>
+            )}
+        </div>
+    ) : undefined
 
     // data-lemon-skin opts these surfaces into the quill-as-lemon skin (lemon-skin.scss) so the
     // filter sits next to Lemon chrome without a visual jump. The skin matches the attribute on the
@@ -203,6 +200,7 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
                     ranges={ranges}
                     applyOnRangeSelect
                     rangesFooter={railFooter}
+                    footer={pickerFooter}
                     showCalendar={customOpen}
                     showHeader={false}
                     showTime={false}
@@ -211,55 +209,6 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
                     onCancel={() => setCustomOpen(false)}
                     className="shadow-none ring-0 rounded-none"
                 />
-                {isTrends && (
-                    <div className="flex flex-col gap-1 border-t border-border px-3 py-2">
-                        <ToggleGroup
-                            multiple
-                            size="sm"
-                            className="w-full max-w-60"
-                            value={selectedDays.map(String)}
-                            onValueChange={(days) => setDays(days.map(Number))}
-                        >
-                            {ALL_DAY_NUMBERS.map((day) => (
-                                <ToggleGroupItem
-                                    key={day}
-                                    value={String(day)}
-                                    className="flex-1"
-                                    aria-label={DAY_LABELS[day]}
-                                    title={DAY_LABELS[day]}
-                                    data-attr={`insight-date-filter-next-day-${day}`}
-                                >
-                                    {DAY_LABELS_SINGLE[day]}
-                                </ToggleGroupItem>
-                            ))}
-                        </ToggleGroup>
-                        <div className="flex w-full max-w-60 items-center justify-center gap-2">
-                            <Button variant="link" size="xs" onClick={() => setDays(WEEKDAYS)}>
-                                Weekdays
-                            </Button>
-                            <Button variant="link" size="xs" onClick={() => setDays(WEEKENDS)}>
-                                Weekends
-                            </Button>
-                            <Button variant="link" size="xs" onClick={() => setDays([])}>
-                                All days
-                            </Button>
-                        </div>
-                    </div>
-                )}
-                {!isRetention && (
-                    <div className="flex items-center gap-2 border-t border-border px-3 py-1.5">
-                        <Switch
-                            id="insight-exclude-incomplete-period"
-                            size="sm"
-                            checked={!!dateRange?.excludeIncompletePeriods}
-                            onCheckedChange={(checked) =>
-                                updateDateRange({ excludeIncompletePeriods: checked ? true : null }, true)
-                            }
-                            data-attr="insight-date-filter-next-exclude-incomplete"
-                        />
-                        <Label htmlFor="insight-exclude-incomplete-period">Exclude incomplete period</Label>
-                    </div>
-                )}
             </PopoverContent>
         </Popover>
     )

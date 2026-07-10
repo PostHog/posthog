@@ -884,3 +884,27 @@
     box-shadow: none;
     translate: 0 0.1875rem;
 }
+
+/* ═══ DateTimePicker quick-range presets → Lemon menu rows ══════════════ */
+
+/* Quill hardcodes the rail's preset buttons to size=sm (0.75rem); bump them
+   toward a Lemon menu row so the list reads at a comfortable size. The
+   .quill-button class lifts specificity over the base size-sm rule. */
+
+[data-lemon-skin] .quill-button[data-attr^='date-time-picker-quick-range-'] {
+    font-size: 0.875rem;
+}
+
+/* ═══ DateTimePicker actions footer → small Lemon buttons ══════════════ */
+
+/* The Cancel/Apply buttons are quill size=sm (xsmall); bump them to small Lemon
+   metrics. The footer band's flat surface + readout size come from quill itself
+   (its bg-muted/30 and text-[10px] are !important Tailwind utilities the skin
+   can't override from an unlayered rule). */
+
+[data-lemon-skin]
+    .quill-button:is([data-attr='date-time-picker-cancel'], [data-attr='date-time-picker-apply-date-range']) {
+    height: 2.0625rem;
+    padding-inline: 0.75rem;
+    font-size: 0.8125rem;
+}

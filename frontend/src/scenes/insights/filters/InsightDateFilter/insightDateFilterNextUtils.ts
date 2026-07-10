@@ -8,19 +8,6 @@ import { DateRange } from '~/queries/schema/schema-general'
 export const DEFAULT_DATE_FROM = '-7d'
 const DEFAULT_DATE_LABEL = 'Last 7 days'
 
-/** The curated presets shown in the popover list; the rolling input and the full
- * INSIGHT_DATE_PRESETS table cover the rest (unlisted values still label correctly). */
-export const LISTED_PRESET_NAMES = [
-    'Today',
-    'Yesterday',
-    'Last 7 days',
-    'Last 30 days',
-    'This week',
-    'This month',
-    'This quarter',
-    'Year to date',
-]
-
 export interface InsightDatePreset {
     name: string
     dateFrom: string
