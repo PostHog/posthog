@@ -14,6 +14,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.schema import (
     DateRange,
@@ -36,6 +37,7 @@ from posthog.event_usage import get_request_analytics_properties, report_user_ac
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.tasks.exporter import export_asset
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -1046,6 +1048,14 @@ class _LogsValuesResponseSerializer(serializers.Serializer):
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # patterns_diff mines two windows per request (current + baseline), roughly doubling the
+        # ClickHouse work of a single patterns query, so it uses the tighter ClickHouse-specific
+        # throttles rather than the default per-project request limits.
+        if self.action == "patterns_diff":
+            return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+        return super().get_throttles()
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:
