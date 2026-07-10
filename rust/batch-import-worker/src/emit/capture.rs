@@ -160,7 +160,7 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
 
         for batch in batches {
             let batch_count = batch.len();
-            if let Err(e) = self.client.capture_batch(batch, true).await {
+            if let Err(e) = self.client.capture_batch_immediate(batch, true).await {
                 // The worker is the only place that sees per-event loss attributed to a
                 // reason: capture counts requests, not events, and a failed import sub-batch
                 // can carry thousands of events. `reason` lets alerting exclude expected
