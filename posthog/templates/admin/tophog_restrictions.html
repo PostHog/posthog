@@ -1,0 +1,177 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin/css/changelists.css' %}" />
+<link rel="stylesheet" href="{% static 'admin/css/forms.css' %}" />
+<style>
+.entry-context {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 15px;
+}
+.entry-context .chip {
+    display: inline-block;
+    padding: 3px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    font-size: 12px;
+    background: var(--darkened-bg);
+    color: var(--body-fg);
+    white-space: nowrap;
+}
+.entry-context .chip b {
+    font-weight: 600;
+}
+.match-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.match-badge.matches {
+    background: var(--message-success-bg, #d1f2d9);
+    color: #0a5c2b;
+}
+.match-badge.no-match {
+    background: var(--darkened-bg);
+    color: var(--body-quiet-color);
+}
+.action-link {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--primary);
+    color: var(--header-link-color, #fff);
+    border: none;
+    border-radius: 4px;
+    font-size: 11px;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    line-height: 1.5;
+}
+.action-link:hover {
+    opacity: 0.85;
+    color: var(--header-link-color, #fff);
+}
+.actions-cell {
+    white-space: nowrap;
+}
+.actions-cell form {
+    display: inline-block;
+    margin: 0;
+}
+.create-bar {
+    margin-top: 15px;
+}
+.create-bar .action-link {
+    padding: 6px 14px;
+    font-size: 12px;
+}
+.pipeline-note {
+    margin: 10px 0;
+    font-size: 12px;
+    color: var(--body-quiet-color);
+}
+</style>
+{% endblock %}
+
+{% if not is_popup %}
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+    &rsaquo; <a href="{{ dashboard_url }}">TopHog Dashboard</a>
+    &rsaquo; Restrictions
+</div>
+{% endblock %}
+{% endif %}
+
+{% block content %}
+<div id="content-main">
+    <h2>Restrictions for tophog entry</h2>
+
+    <div class="entry-context">
+        <span class="chip"><b>token:</b> {{ token }}</span>
+        {% for k, v in key.items %}
+        <span class="chip"><b>{{ k }}:</b> {{ v }}</span>
+        {% endfor %}
+        {% if tophog_pipelines %}
+        <span class="chip"><b>pipelines:</b> {{ tophog_pipelines|join:", " }}</span>
+        {% endif %}
+    </div>
+
+    {% if restriction_pipelines %}
+    <p class="pipeline-note">
+        Mapped to restriction pipelines: {{ restriction_pipelines|join:", " }}{% if unmapped_pipelines %}
+        (no restriction pipeline mapping for: {{ unmapped_pipelines|join:", " }}){% endif %}
+    </p>
+    {% elif unmapped_pipelines %}
+    <p class="pipeline-note">No restriction pipeline mapping for: {{ unmapped_pipelines|join:", " }}</p>
+    {% endif %}
+
+    {% if not token %}
+        <p class="errornote">No token given — cannot search restrictions.</p>
+    {% elif entries %}
+        <div class="module">
+            <table style="width: 100%;">
+                <caption>Existing restrictions for this token</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Type</th>
+                        <th scope="col">Pipelines</th>
+                        <th scope="col">Distinct IDs</th>
+                        <th scope="col">Session IDs</th>
+                        <th scope="col">Event names</th>
+                        <th scope="col">Event UUIDs</th>
+                        <th scope="col">Note</th>
+                        <th scope="col">Covers this entry</th>
+                        <th scope="col"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in entries %}
+                    <tr>
+                        <td>{{ entry.restriction.get_restriction_type_display }}</td>
+                        <td>{{ entry.restriction.pipelines|join:", " }}</td>
+                        <td>{{ entry.restriction.distinct_ids|join:", "|truncatechars:80|default:"all" }}</td>
+                        <td>{{ entry.restriction.session_ids|join:", "|truncatechars:80|default:"all" }}</td>
+                        <td>{{ entry.restriction.event_names|join:", "|truncatechars:80|default:"all" }}</td>
+                        <td>{{ entry.restriction.event_uuids|join:", "|truncatechars:80|default:"all" }}</td>
+                        <td>{{ entry.restriction.note|default:""|truncatechars:80 }}</td>
+                        <td>
+                            {% if entry.matches %}
+                            <span class="match-badge matches">covers</span>
+                            {% else %}
+                            <span class="match-badge no-match">does not cover</span>
+                            {% endif %}
+                        </td>
+                        <td class="actions-cell">
+                            {% if entry.extendable_fields %}
+                            <form method="post" action="">
+                                {% csrf_token %}
+                                <input type="hidden" name="restriction_id" value="{{ entry.restriction.pk }}">
+                                <button type="submit" class="action-link" title="Append entry values to: {{ entry.extendable_fields|join:', ' }}">Extend</button>
+                            </form>
+                            {% endif %}
+                            <a href="{{ entry.edit_url }}" class="action-link">Edit</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p>No existing restrictions for this token.</p>
+    {% endif %}
+
+    {% if create_url %}
+    <div class="create-bar">
+        <a href="{{ create_url }}" class="action-link">Create new restriction</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -884,6 +884,16 @@ class DatabaseSerializedFieldType(StrEnum):
     UNKNOWN = "unknown"
 
 
+class DaysOfWeekEnum(float, Enum):
+    NUMBER_1 = 1
+    NUMBER_2 = 2
+    NUMBER_3 = 3
+    NUMBER_4 = 4
+    NUMBER_5 = 5
+    NUMBER_6 = 6
+    NUMBER_7 = 7
+
+
 class DeepResearchType(StrEnum):
     PLANNING = "planning"
     REPORT = "report"
@@ -1860,6 +1870,73 @@ class ExternalDataSourceType(StrEnum):
     VAPI = "Vapi"
     VESPA = "Vespa"
     WRITESONIC = "Writesonic"
+    AIVEN = "Aiven"
+    AVIATOR = "Aviator"
+    BACKBLAZE = "Backblaze"
+    BASETEN = "Baseten"
+    BROWSERBASE = "Browserbase"
+    COHERE = "Cohere"
+    DENO_DEPLOY = "DenoDeploy"
+    DIGITAL_OCEAN = "DigitalOcean"
+    E2_B = "E2B"
+    FINTOC = "Fintoc"
+    FIRECRAWL = "Firecrawl"
+    FIREWORKS_AI = "FireworksAI"
+    FLY_IO = "FlyIo"
+    GROQ = "Groq"
+    GROWTH_BOOK = "GrowthBook"
+    GUMLOOP = "Gumloop"
+    HATCHET = "Hatchet"
+    HELICONE = "Helicone"
+    HEROKU = "Heroku"
+    HETZNER = "Hetzner"
+    HEY_GEN = "HeyGen"
+    INFISICAL = "Infisical"
+    INNGEST = "Inngest"
+    KAPA_AI = "KapaAI"
+    KERNEL = "Kernel"
+    KOYEB = "Koyeb"
+    LAMBDA_LABS = "LambdaLabs"
+    LANG_SMITH = "LangSmith"
+    LINODE = "Linode"
+    LLAMA_CLOUD = "LlamaCloud"
+    MEM0 = "Mem0"
+    METRIPORT = "Metriport"
+    MINTLIFY = "Mintlify"
+    MISTRAL_AI = "MistralAI"
+    MONO = "Mono"
+    NETLIFY = "Netlify"
+    NORTHFLANK = "Northflank"
+    OPEN_AI = "OpenAI"
+    PINECONE = "Pinecone"
+    PLATFORM_SH = "PlatformSh"
+    PROMPTING_COMPANY = "PromptingCompany"
+    QDRANT = "Qdrant"
+    RENDER = "Render"
+    REPLICATE = "Replicate"
+    RETELL_AI = "RetellAI"
+    ROARK = "Roark"
+    RUN_POD = "RunPod"
+    SCALE_AI = "ScaleAI"
+    SCALEWAY = "Scaleway"
+    SIG_NOZ = "SigNoz"
+    SIM = "Sim"
+    SKYVERN = "Skyvern"
+    SLASH = "Slash"
+    SYNTHESIA = "Synthesia"
+    TELLI = "Telli"
+    TERRA_API = "TerraApi"
+    TRIGGER_DEV = "TriggerDev"
+    TURSO = "Turso"
+    TWELVE_LABS = "TwelveLabs"
+    TWENTY = "Twenty"
+    UNSTRUCTURED = "Unstructured"
+    UPSTASH = "Upstash"
+    VELLUM = "Vellum"
+    VULTR = "Vultr"
+    WINDMILL = "Windmill"
+    ZEP = "Zep"
+    HEX = "Hex"
 
 
 class ExternalQueryErrorCode(StrEnum):
