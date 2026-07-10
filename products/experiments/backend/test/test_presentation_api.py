@@ -6150,6 +6150,73 @@ class TestExperimentParametersFlagConfigCompatibility(APILicensedTest):
         flag = FeatureFlag.objects.get(key=key, team_id=self.team.id)
         self.assertEqual([v["rollout_percentage"] for v in flag.variants], [30, 70], flag.filters)
 
+    def _updated_event_props(self, mock_report_user_action: MagicMock) -> dict:
+        events = [c for c in mock_report_user_action.call_args_list if c.args[1] == "experiment updated"]
+        assert len(events) == 1, f"expected one 'experiment updated' event, got {len(events)}"
+        return events[0].args[2]
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_event_records_deprecated_config_change_on_draft(self, mock_report_user_action: MagicMock) -> None:
+        experiment_id = self._create_via_flag_object(key="upd-changed")
+        # Normalize `parameters` to {} first, so the second PATCH's stripped flag config produces no row
+        # diff at all: the deprecated flag write is then the ONLY reason to report.
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"parameters": {"rollout_percentage": 40}},
+        )
+        mock_report_user_action.reset_mock()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"parameters": {"rollout_percentage": 25}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        props = self._updated_event_props(mock_report_user_action)
+        self.assertEqual(props["changed_fields"], [])
+        self.assertEqual(props["experiment_update_deprecated_parameters_keys"], ["rollout_percentage"])
+        self.assertTrue(props["experiment_update_deprecated_config_changed"])
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_event_records_projection_echo_as_unchanged(self, mock_report_user_action: MagicMock) -> None:
+        experiment_id = self._create_via_flag_object(key="upd-echo")
+        echoed = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}").json()["parameters"]
+        self.assertIn("feature_flag_variants", echoed)
+        mock_report_user_action.reset_mock()
+        # A faithful GET-to-PATCH echo lists the projected keys (the reader proxy) but must not count
+        # as a flag-config write, else the deprecation bake window never closes.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"description": "unrelated edit", "parameters": echoed},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        props = self._updated_event_props(mock_report_user_action)
+        self.assertIn("feature_flag_variants", props["experiment_update_deprecated_parameters_keys"])
+        self.assertFalse(props["experiment_update_deprecated_config_changed"])
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_event_records_flag_object_write_as_unchanged(self, mock_report_user_action: MagicMock) -> None:
+        experiment_id = self._create_via_flag_object(key="upd-clean")
+        mock_report_user_action.reset_mock()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {
+                "description": "clean flag write",
+                "feature_flag": {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "name": "Control", "rollout_percentage": 40},
+                                {"key": "test", "name": "Test", "rollout_percentage": 60},
+                            ]
+                        }
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        props = self._updated_event_props(mock_report_user_action)
+        self.assertNotIn("experiment_update_deprecated_parameters_keys", props)
+        self.assertFalse(props["experiment_update_deprecated_config_changed"])
+
 
 class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTestMixin, APILicensedTest):
     def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):

@@ -506,6 +506,7 @@ export interface PluginAccess {
 export interface PersonalAPIKeyType {
     id: string
     label: string
+    description?: string | null
     value?: string
     is_legacy_hashing: boolean
     mask_value?: string | null
@@ -5364,6 +5365,8 @@ export interface SubscriptionType {
     enabled?: boolean
     summary_enabled?: boolean
     summary_prompt_guide?: string
+    /** Write-only. When false, creating the subscription skips the immediate confirmation send (the schedule is unaffected). */
+    send_test_now?: boolean
 }
 
 export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
