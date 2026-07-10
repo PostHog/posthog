@@ -110,7 +110,11 @@ function nodeAllowed(n) {
 }
 function visibleChildren(n) {
   if (!expanded.has(n.id)) return [];
-  return (treeChildren.get(n.id) || []).filter(nodeAllowed);
+  // stronger learnings first; concepts keep definition order ahead of them
+  return (treeChildren.get(n.id) || []).filter(nodeAllowed).slice().sort((a, b) => {
+    const rank = (k) => (k.kind === "learning" ? 1 : k.kind === "concept" || k.kind === "area" ? 0 : 2);
+    return rank(a) - rank(b) || (b.strength || 0) - (a.strength || 0);
+  });
 }
 function expandableCount(n) {
   return (treeChildren.get(n.id) || []).filter(nodeAllowed).length;
@@ -176,6 +180,7 @@ function categoryOf(n) {
   if (n.kind === "root") return "system";
   if (n.kind === "area") return "system area";
   if (n.kind === "skill") return n.status === "proposed" ? "skill · proposed" : "skill";
+  if (n.kind === "learning") return `learning · ×${n.strength || 1}`;
   return n.kind;
 }
 
@@ -231,8 +236,10 @@ function drawNodes() {
     // accent strip on the hierarchy-facing edge
     ctx.save();
     ctx.clip();
+    // reinforced learnings carry a visibly thicker accent
+    const strip = n.kind === "learning" ? Math.min(3 + (n.strength || 1), 11) : 4;
     ctx.fillStyle = accent;
-    ctx.fillRect(n.side < 0 ? x + CARD_W - 4 : x, y, 4, CARD_H);
+    ctx.fillRect(n.side < 0 ? x + CARD_W - strip : x, y, strip, CARD_H);
     ctx.restore();
     // border: selection/search > proposed-skill dashed > default
     ctx.beginPath();
@@ -349,9 +356,10 @@ function select(n) {
   panel.style.display = "block";
   panel.innerHTML = `
     <h2>${esc(n.label)}</h2>
-    <div class="meta">${esc(meta)}${n.date ? " · " + n.date : ""}${n.author && n.author !== "unknown" ? " · by " + esc(n.author) : ""}${n.evidence_count ? ` · from ${n.evidence_count} conversations` : ""}
+    <div class="meta">${esc(meta)}${n.date ? " · " + n.date : ""}${n.author && n.author !== "unknown" ? " · by " + esc(n.author) : ""}${n.evidence_count ? ` · from ${n.evidence_count} conversations` : ""}${n.last_reinforced ? ` · last reinforced ${esc(n.last_reinforced)}` : ""}
       ${n.url ? ` · <a href="${esc(n.url)}" target="_blank">open</a>` : ""}</div>
     ${n.markdown ? `<div class="detail">${md(n.markdown)}</div>` : ""}
+    ${(n.observations || []).length ? `<div class="meta" style="margin-top:8px">reinforcement history:</div><ul class="meta" style="margin:2px 0 0; padding-left:18px">${n.observations.map((o) => `<li>${esc(o.date)} — ${o.kind === "predicted" ? "🎯 " : ""}${esc(o.note || o.kind)}</li>`).join("")}</ul>` : ""}
     ${also.length ? `<div class="meta" style="margin-top:8px">also relates to: ${also.map(esc).join(" · ")}</div>` : ""}`;
 }
 

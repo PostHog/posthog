@@ -116,6 +116,7 @@ def build_graph(
     tasks_by_number = {t["task_number"]: t for t in tasks or []}
     for learning in learnings:
         lid = f"learning:{learning['id']}"
+        observations = learning.get("observations", [])
         add_node(
             lid,
             "learning",
@@ -123,6 +124,9 @@ def build_graph(
             markdown=learning.get("markdown", ""),
             author=learning.get("author", "unknown"),
             evidence_count=len(learning.get("evidence_tasks", [])),
+            strength=max(len(observations), 1),
+            last_reinforced=max((o["date"] for o in observations), default=None),
+            observations=observations,
         )
         for cid in learning.get("concepts", []):
             if cid not in concept_ids:

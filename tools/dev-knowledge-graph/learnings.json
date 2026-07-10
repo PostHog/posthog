@@ -28,6 +28,48 @@
       "author": "paul",
       "concepts": [
         "pr-fleet"
+      ],
+      "observations": [
+        {
+          "date": "2026-06-28",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-06-29",
+          "kind": "observed",
+          "note": "5 conversations hit this"
+        },
+        {
+          "date": "2026-06-30",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-02",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-03",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-06",
+          "kind": "observed",
+          "note": "2 conversations hit this"
+        },
+        {
+          "date": "2026-07-07",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-08",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        }
       ]
     },
     {
@@ -52,6 +94,33 @@
       "author": "paul",
       "concepts": [
         "autoresearch"
+      ],
+      "observations": [
+        {
+          "date": "2026-07-06",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-07",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-08",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-09",
+          "kind": "observed",
+          "note": "2 conversations hit this"
+        },
+        {
+          "date": "2026-07-10",
+          "kind": "observed",
+          "note": "2 conversations hit this"
+        }
       ]
     },
     {
@@ -74,6 +143,28 @@
       "author": "paul",
       "concepts": [
         "taxonomic-search"
+      ],
+      "observations": [
+        {
+          "date": "2026-06-29",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-01",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-06",
+          "kind": "observed",
+          "note": "2 conversations hit this"
+        },
+        {
+          "date": "2026-07-10",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        }
       ]
     },
     {
@@ -98,6 +189,33 @@
       "author": "paul",
       "concepts": [
         "error-capture"
+      ],
+      "observations": [
+        {
+          "date": "2026-07-01",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-02",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-04",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-07",
+          "kind": "observed",
+          "note": "2 conversations hit this"
+        },
+        {
+          "date": "2026-07-08",
+          "kind": "observed",
+          "note": "2 conversations hit this"
+        }
       ]
     },
     {
@@ -114,6 +232,18 @@
       "author": "paul",
       "concepts": [
         "skills-system"
+      ],
+      "observations": [
+        {
+          "date": "2026-06-29",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-10",
+          "kind": "observed",
+          "note": "3 conversations hit this"
+        }
       ]
     },
     {
@@ -136,6 +266,28 @@
       "author": "paul",
       "concepts": [
         "pr-fleet"
+      ],
+      "observations": [
+        {
+          "date": "2026-06-30",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-02",
+          "kind": "observed",
+          "note": "2 conversations hit this"
+        },
+        {
+          "date": "2026-07-03",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-10",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        }
       ]
     },
     {
@@ -161,6 +313,28 @@
       "concepts": [
         "toolbar-bundle",
         "eager-graph-checker"
+      ],
+      "observations": [
+        {
+          "date": "2026-06-30",
+          "kind": "observed",
+          "note": "2 conversations hit this"
+        },
+        {
+          "date": "2026-07-01",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-06",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-09",
+          "kind": "observed",
+          "note": "3 conversations hit this"
+        }
       ]
     },
     {
@@ -187,6 +361,43 @@
       "author": "paul",
       "concepts": [
         "test-performance"
+      ],
+      "observations": [
+        {
+          "date": "2026-06-29",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-02",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-03",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-06",
+          "kind": "observed",
+          "note": "2 conversations hit this"
+        },
+        {
+          "date": "2026-07-07",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-09",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-10",
+          "kind": "observed",
+          "note": "2 conversations hit this"
+        }
       ]
     },
     {
@@ -202,6 +413,23 @@
       "author": "paul",
       "concepts": [
         "ci-bot-comment"
+      ],
+      "observations": [
+        {
+          "date": "2026-07-01",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-04",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-08",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        }
       ]
     },
     {
@@ -223,7 +451,29 @@
           "status": "existing"
         }
       ],
-      "author": "paul"
+      "author": "paul",
+      "observations": [
+        {
+          "date": "2026-06-29",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-04",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-09",
+          "kind": "observed",
+          "note": "1 conversation hit this"
+        },
+        {
+          "date": "2026-07-10",
+          "kind": "predicted",
+          "note": "named unprompted while reviewing the knowledge graph: the complexity worry has predictive weight"
+        }
+      ]
     }
   ]
 }

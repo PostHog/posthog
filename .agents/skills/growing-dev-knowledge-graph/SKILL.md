@@ -27,7 +27,7 @@ Add a **learning** (`learnings.json`) when:
 
 Do **not** add: one-off fixes, anything the repo already records (CLAUDE.md, docs, code comments), or restatements of an existing learning — extend that learning instead.
 
-**What we did is not what we learned.** A concept describes the system as it is (write in the present tense: "events appear as their own group type", not "we separated the events"). A learning is a memory the work strengthened — often a tension or a worry, not an accomplishment: "adding group types surfaces new data to users *but* spends the taxonomic filter's complexity budget, and we add more often than we consolidate". If your draft reads like a changelog or a brag, it belongs in the PR description, not the graph.
+**What we did is not what we learned.** A concept describes the system as it is (write in the present tense: "events appear as their own group type", not "we separated the events"). A learning is a memory the work strengthened — often a tension or a worry, not an accomplishment: "adding group types surfaces new data to users _but_ spends the taxonomic filter's complexity budget, and we add more often than we consolidate". If your draft reads like a changelog or a brag, it belongs in the PR description, not the graph.
 
 ## How to add a concept
 
@@ -46,9 +46,22 @@ Concepts are the map's skeleton — write the markdown as you'd explain the thin
 - `layer` must be one of the keys in `concepts.json`'s `layers` (frontend / django / ingestion / ci / agents today; add a layer only when a whole new system area appears).
 - `parent` places it in the hierarchy; top-level concepts (`parent: null`) should be things you'd name in a sentence to any engineer. Prefer deepening an existing branch over adding top-level nodes.
 
+## Reinforce before you write
+
+Learnings work the way learning works: an idea is formed from experience, then **reinforced or not** by how often it is re-observed and whether it has predictive power.
+Each learning carries an `observations` log, and its strength is the length of that log — strong learnings render with a thicker accent and sort first under their concept.
+
+So the first question is never "what learning do I write?" — it is "which learning did this work just confirm?":
+
+- **Re-observed**: the pattern happened again → append `{ "date": "YYYY-MM-DD", "kind": "observed", "note": "what happened", "task": <number> }` to that learning's `observations`, and add the task to `evidence_tasks`.
+- **Predictive power**: the learning correctly predicted a problem, or you used it to avoid one → append the same with `"kind": "predicted"`. Predicted observations are the strongest signal a learning is true — say what it predicted.
+- **Contradicted**: the world disagreed with the learning → don't silently delete it. Note the contradiction in its `markdown` and stop adding observations; a learning that stops being reinforced is visibly weak, which is itself information.
+
+Only when no existing learning covers the idea do you write a new one (below), with its first observation.
+
 ## How to add a learning
 
-1. Check `learnings.json` for an existing learning that covers the insight — extend its `markdown` and `evidence_tasks` rather than duplicating.
+1. Check `learnings.json` for an existing learning that covers the insight — reinforce it (above) rather than duplicating.
 2. Append:
 
    ```json
@@ -58,6 +71,7 @@ Concepts are the map's skeleton — write the markdown as you'd explain the thin
      "markdown": "The why, with enough detail that a stranger gets it. Context as links: [#66590](https://github.com/PostHog/posthog/pull/66590).",
      "concepts": ["taxonomic-search"],
      "evidence_tasks": [12345],
+     "observations": [{ "date": "2026-07-10", "kind": "observed", "note": "what happened", "task": 12345 }],
      "skills": [{ "name": "some-skill", "status": "proposed" }],
      "author": "your-name"
    }

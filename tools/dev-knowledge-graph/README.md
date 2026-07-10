@@ -6,13 +6,13 @@ The top level is **concepts** — the nouns two people working together would us
 
 ## Structure
 
-| Piece     | File             | Meaning                                                                                                                                                             |
-| --------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Layers    | `concepts.json`  | System areas — the top-level nodes of the map, coloring everything beneath them (frontend app, main Django app, ingestion services, CI & repo tooling, agent fleet) |
-| Concepts  | `concepts.json`  | The system's nouns, in a hierarchy — each with markdown describing what it is and how data flows through it                                                         |
-| Learnings | `learnings.json` | What work taught us, attached to the concepts it's about; markdown with PRs/conversations as links                                                                  |
-| Skills    | `learnings.json` | The skill that encodes a learning (`existing`) or should (`proposed`, rendered dashed)                                                                              |
-| Tasks     | API overlay      | Conversations cited as evidence — only with `--include-conversations`                                                                                               |
+| Piece     | File             | Meaning                                                                                                                                                                                                    |
+| --------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Layers    | `concepts.json`  | System areas — the top-level nodes of the map, coloring everything beneath them (frontend app, main Django app, ingestion services, CI & repo tooling, agent fleet)                                        |
+| Concepts  | `concepts.json`  | The system's nouns, in a hierarchy — each with markdown describing what it is and how data flows through it                                                                                                |
+| Learnings | `learnings.json` | Ideas about how the system works, attached to the concepts they're about; each carries an `observations` log and its strength (`×N`) is how often work has re-observed it or it has shown predictive power |
+| Skills    | `learnings.json` | The skill that encodes a learning (`existing`) or should (`proposed`, rendered dashed)                                                                                                                     |
+| Tasks     | API overlay      | Conversations cited as evidence — only with `--include-conversations`                                                                                                                                      |
 
 ## Usage
 
