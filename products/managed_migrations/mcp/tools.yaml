@@ -4,15 +4,10 @@
 #
 # To enable a tool, set enabled: true and add required scopes + annotations.
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
-#
-# The `managed-migrations-support-*` tools are PostHog-staff-only: the backend enforces
-# `is_staff` plus the OAuth-hidden `batch_import_support:read` scope, so they only surface
-# for staff personal API keys deliberately minted with that scope. They have no HogQL
-# system table on purpose — system tables are team-scoped (require team_id isolation),
-# and this is a cross-team support surface.
 category: Managed migrations
 feature: managed_migrations
 url_prefix: /managed_migrations
+ui_apps: {}
 tools:
     managed-migrations-create:
         operation: managed_migrations_create
@@ -35,6 +30,17 @@ tools:
     managed-migrations-retrieve:
         operation: managed_migrations_retrieve
         enabled: false
+    managed-migrations-support-get:
+        operation: managed_migrations_support_retrieve
+        enabled: true
+        scopes:
+            - batch_import_support:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get one batch import job with raw worker state (PostHog staff only)
+        description_file: ./prompts/managed-migrations-support-get.md
     managed-migrations-support-list:
         operation: managed_migrations_support_list
         enabled: true
@@ -47,17 +53,6 @@ tools:
         list: true
         title: List batch import jobs across all teams (PostHog staff only)
         description_file: ./prompts/managed-migrations-support-list.md
-    managed-migrations-support-get:
-        operation: managed_migrations_support_retrieve
-        enabled: true
-        scopes:
-            - batch_import_support:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get one batch import job with raw worker state (PostHog staff only)
-        description_file: ./prompts/managed-migrations-support-get.md
     managed-migrations-update:
         operation: managed_migrations_update
         enabled: false
