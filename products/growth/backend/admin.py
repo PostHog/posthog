@@ -35,6 +35,11 @@ def humanize_product_key(product_key: str) -> str:
     return " ".join(parts)
 
 
+def product_key_choices() -> list[tuple[str, str]]:
+    """ProductKey values with humanized labels, for the admin dropdowns."""
+    return [(key.value, humanize_product_key(key.value)) for key in sorted(ProductKey, key=lambda k: k.value)]
+
+
 class ProductPushCampaignForm(forms.ModelForm):
     """TAM-facing form: product_key constrained to ProductKey at runtime (the model
     keeps a plain CharField so the enum can grow without migrations), and rows that
@@ -49,9 +54,7 @@ class ProductPushCampaignForm(forms.ModelForm):
         if "product_key" in self.fields:
             self.fields["product_key"] = forms.ChoiceField(
                 # Display humanized names but keep the raw ProductKey as the stored value.
-                choices=[
-                    (key.value, humanize_product_key(key.value)) for key in sorted(ProductKey, key=lambda k: k.value)
-                ],
+                choices=product_key_choices(),
                 label="Product",
                 help_text="Which product to promote in the org's in-app push card.",
             )
@@ -199,7 +202,7 @@ class ProductPushCampaignInlineForm(ProductPushCampaignForm):
         # so every org save inserted a phantom campaign and 500ed once one was queued.
         product_key_field = self.fields["product_key"]
         assert isinstance(product_key_field, forms.ChoiceField)  # built in ProductPushCampaignForm.__init__
-        product_key_field.choices = BLANK_CHOICE_DASH + list(product_key_field.choices)
+        product_key_field.choices = BLANK_CHOICE_DASH + product_key_choices()
 
 
 class ProductPushCampaignInline(admin.TabularInline):
