@@ -213,8 +213,7 @@ class GenerateBriefRequestSerializer(serializers.Serializer):
         choices=["general_brief", "query_performance"],
         default="general_brief",
         help_text=(
-            "Mission the agent engine runs. Defaults to the general brief; "
-            "query_performance is internal (staff only)."
+            "Mission the agent engine runs. Defaults to the general brief; query_performance is internal (staff only)."
         ),
     )
 
