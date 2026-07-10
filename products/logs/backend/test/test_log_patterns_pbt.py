@@ -1,6 +1,7 @@
 import re
 import json
 import datetime as dt
+from typing import Literal
 
 from unittest import TestCase
 
@@ -29,12 +30,16 @@ def _samples(bodies: list[str]) -> list[LogSample]:
     return [LogSample(body=body, severity_text="info", service_name="api", timestamp=_TS) for body in bodies]
 
 
+# Surrogates ("Cs") can't be UTF-8 encoded; exclude them explicitly to keep intent clear.
+# Annotated so mypy sees the literal category name rather than a widened `str`.
+_EXCLUDE_CATEGORIES: tuple[Literal["Cs"]] = ("Cs",)
+
 # Log bodies are arbitrary user-controlled text. Include the mining placeholder vocabulary
 # and regex metacharacters in the alphabet so generated bodies can collide with the miner's
 # own tokens ("<num>", "<*>") - the injection-shaped inputs example tables never enumerate.
 _body_text = st.text(
     alphabet=st.one_of(
-        st.characters(codec="utf-8", exclude_categories=("Cs",)),
+        st.characters(codec="utf-8", exclude_categories=_EXCLUDE_CATEGORIES),
         st.sampled_from(list('<>*nums."\\^$()[]{}+?|')),
     ),
     max_size=200,
