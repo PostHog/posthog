@@ -14,6 +14,10 @@ def get_current_user():
     return activity_storage.get_user()
 
 
+def get_current_trigger():
+    return activity_storage.get_trigger()
+
+
 def is_impersonated_session(request):
     """Lazy import to avoid circular import issues during Django setup"""
     try:
@@ -123,6 +127,37 @@ class ModelActivityMixin(models.Model):
         should_log = len(changed_fields) > 0
 
         return should_log, before_update
+
+
+class ActivityTriggerContext:
+    """Attributes signal-driven activity logging to an automated source (e.g. a workflow).
+
+    Model-signal activity handlers (like TaggedItem's) run deep inside ORM calls where no
+    Trigger can be passed explicitly, so this stashes one in the activity thread-local for
+    handlers to pick up via ``get_current_trigger()``. Always used as a context manager so
+    the trigger cannot leak into unrelated activity on a reused worker thread; a ``None``
+    trigger makes this a no-op.
+    """
+
+    def __init__(self, trigger):
+        self.trigger = trigger
+        self.previous = None
+
+    def __enter__(self):
+        if self.trigger is not None:
+            # Save and restore rather than clear on exit, so a nested context can't
+            # silently erase an enclosing context's attribution.
+            self.previous = activity_storage.get_trigger()
+            activity_storage.set_trigger(self.trigger)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.trigger is None:
+            return
+        if self.previous is not None:
+            activity_storage.set_trigger(self.previous)
+        else:
+            activity_storage.clear_trigger()
 
 
 class ImpersonatedContext:

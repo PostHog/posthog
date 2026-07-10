@@ -11,24 +11,24 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
-import { FunnelAlertPreview } from 'lib/components/Alerts/funnelAlertPreview'
-import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
-import { fractionToPercentInput, rescaleFunnelBound } from 'lib/components/Alerts/thresholdPercent'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+
+import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+
+import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
+import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
+import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
+import { fractionToPercentInput, rescaleFunnelBound } from 'products/alerts/frontend/logic/thresholdPercent'
 import {
     AlertSimulationResult,
     isAnyRowHogQLConfig,
     isFunnelsAlertConfig,
     isHogQLAlertConfig,
     isTrendsAlertConfig,
-} from 'lib/components/Alerts/types'
-import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
-import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-
-import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
-
-import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+} from 'products/alerts/frontend/types'
+import { DetectorSelector, getDefaultWindow } from 'products/alerts/frontend/views/DetectorSelector'
+import { SimulationSummary } from 'products/alerts/frontend/views/SimulationSummary'
 
 import { FunnelsDefinitionFields, HogQLDefinitionFields, TrendsDefinitionFields } from './AlertDefinitionFields'
 import { getSimulationRangeOptions } from './editAlertModalUtils'
