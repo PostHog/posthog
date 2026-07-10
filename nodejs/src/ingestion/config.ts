@@ -147,7 +147,8 @@ export type IngestionConsumerConfig = {
     // Must equal the person_merge_events topic partition count and the Rust COHORT_PARTITION_COUNT.
     PERSON_MERGE_EVENTS_PARTITION_COUNT: number
     // Which teams to emit person_merge_events for: comma-separated team IDs, or '*' for all teams.
-    // Defaults to team 2 only, mirroring the cohort shuffler/processor REALTIME_COHORT_TEAM_ALLOWLIST.
+    // Defaults to team 2 only. Unlike the Rust REALTIME_COHORT_TEAM_ALLOWLIST, an empty value here
+    // means "no teams", not "all teams"; use '*' to open the gate.
     PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: string
 
     // Group batch writing config

@@ -24,7 +24,10 @@ export type PersonOutputs = IngestionOutputs<
 export type MergeEventsConfig = {
     enabled: boolean
     partitionCount: number
-    /** Only emit merge events for teams this matches. Defaults to team 2 only; '*' allows every team. */
+    /**
+     * Matches teams allowed to emit merge events, built from PERSON_MERGE_EVENTS_TEAM_ALLOWLIST
+     * (team 2 by default, '*' for all). The no-arg constructor default below matches no teams.
+     */
     isTeamEnabled: ValueMatcher<number>
 }
 
