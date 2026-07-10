@@ -1075,34 +1075,39 @@ class TestPrinter(BaseTest):
         self._test_property_group_comparison("properties.key in (lower('a'), lower('b'))", None)
 
     def test_event_property_groups_optimized_in_query_results(self):
+        # Unique event name so the query below sees only this test's events. Postgres teams roll back
+        # between tests but ClickHouse events don't, so a reused team_id can carry foreign events from
+        # another test class into an un-scoped `FROM events` query (a null-valued one polluted the
+        # `value IN (NULL)` case in CI).
+        event_name = "property_groups_result_test"
         _create_event(
             team=self.team,
             distinct_id="distinct_id",
-            event="event",
+            event=event_name,
             properties={"label": "string", "value": "s"},
         )
         _create_event(
             team=self.team,
             distinct_id="distinct_id",
-            event="event",
+            event=event_name,
             properties={"label": "empty_string", "value": ""},
         )
         _create_event(
             team=self.team,
             distinct_id="distinct_id",
-            event="event",
+            event=event_name,
             properties={"label": "null", "value": None},
         )
         _create_event(
             team=self.team,
             distinct_id="distinct_id",
-            event="event",
+            event=event_name,
             properties={"label": "not_set"},
         )
         _create_event(
             team=self.team,
             distinct_id="distinct_id",
-            event="event",
+            event=event_name,
             properties={"label": "int", "value": 1},
         )
 
@@ -1117,8 +1122,8 @@ class TestPrinter(BaseTest):
             hogql_expr = parse_expr(expr)
 
             query = parse_select(
-                "select properties.label as label from events where properties.value in {expr} order by label asc",
-                placeholders={"expr": hogql_expr},
+                "select properties.label as label from events where event = {event} and properties.value in {expr} order by label asc",
+                placeholders={"expr": hogql_expr, "event": ast.Constant(value=event_name)},
             )
 
             disabled_context = HogQLContext(
