@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArchive, IconArrowLeft, IconArrowRight, IconNotification } from '@posthog/icons'
+import { IconArchive, IconArrowRight, IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -90,45 +90,33 @@ export function NotificationsPanel(): JSX.Element {
         </div>
     )
 
-    const panelActions = !archivingEnabled
-        ? undefined
-        : isArchivedTab
-          ? [
-                {
-                    'data-attr': 'notifications-view-inbox',
-                    onClick: () => setActiveTab('all'),
-                    children: (
-                        <>
-                            <IconArrowLeft />
-                            Back to notifications
-                        </>
-                    ),
-                },
-            ]
-          : [
-                {
-                    'data-attr': 'notifications-view-archived',
-                    onClick: () => setActiveTab('archived'),
-                    children: (
-                        <>
-                            <IconArrowRight />
-                            View archived
-                        </>
-                    ),
-                },
-                hasArchivableNotifications
-                    ? {
-                          'data-attr': 'notifications-archive-all',
-                          onClick: () => archiveAll(),
-                          children: (
-                              <>
-                                  <IconArchive />
-                                  Archive all
-                              </>
-                          ),
-                      }
-                    : null,
-            ]
+    const panelActions =
+        !archivingEnabled || isArchivedTab
+            ? undefined
+            : [
+                  {
+                      'data-attr': 'notifications-view-archived',
+                      onClick: () => setActiveTab('archived'),
+                      children: (
+                          <>
+                              <IconArrowRight />
+                              View archived
+                          </>
+                      ),
+                  },
+                  hasArchivableNotifications
+                      ? {
+                            'data-attr': 'notifications-archive-all',
+                            onClick: () => archiveAll(),
+                            children: (
+                                <>
+                                    <IconArchive />
+                                    Archive all
+                                </>
+                            ),
+                        }
+                      : null,
+              ]
 
     return (
         <PanelLayoutPanel searchField={header} panelActionsNewSceneLayout={panelActions}>
