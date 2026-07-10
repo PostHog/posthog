@@ -1921,6 +1921,8 @@ describe('PostgresGroupRepository Integration', () => {
                 group_type_index: 0,
                 group_key: 'posthog',
                 group_properties: groupProperties,
+                created_at: createdAt,
+                version: 1,
             })
         })
 
@@ -1948,18 +1950,24 @@ describe('PostgresGroupRepository Integration', () => {
                         group_type_index: 0,
                         group_key: 'posthog',
                         group_properties: company1Props,
+                        created_at: createdAt,
+                        version: 1,
                     },
                     {
                         team_id: teamId,
                         group_type_index: 0,
                         group_key: 'acme',
                         group_properties: company2Props,
+                        created_at: createdAt,
+                        version: 1,
                     },
                     {
                         team_id: teamId,
                         group_type_index: 1,
                         group_key: 'eng-team',
                         group_properties: org1Props,
+                        created_at: createdAt,
+                        version: 1,
                     },
                 ])
             )
@@ -1989,6 +1997,8 @@ describe('PostgresGroupRepository Integration', () => {
                 group_type_index: 0,
                 group_key: 'posthog',
                 group_properties: groupProperties,
+                created_at: createdAt,
+                version: 1,
             })
         })
 
@@ -2018,12 +2028,16 @@ describe('PostgresGroupRepository Integration', () => {
                         group_type_index: 0,
                         group_key: 'company1',
                         group_properties: team1Props,
+                        created_at: createdAt,
+                        version: 1,
                     },
                     {
                         team_id: localTeamId2,
                         group_type_index: 0,
                         group_key: 'company2',
                         group_properties: team2Props,
+                        created_at: createdAt,
+                        version: 1,
                     },
                 ])
             )

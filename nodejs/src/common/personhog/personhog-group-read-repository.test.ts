@@ -1,4 +1,5 @@
 import { Code, ConnectError, createRouterTransport } from '@connectrpc/connect'
+import { DateTime } from 'luxon'
 
 import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
 import { TeamId } from '~/types'
@@ -70,6 +71,8 @@ describe('PersonHogGroupReadRepository', () => {
                 group_type_index: 0,
                 group_key: 'company-1',
                 group_properties: { name: 'Acme Inc' },
+                created_at: DateTime.fromMillis(1704067200000, { zone: 'utc' }),
+                version: 1,
             })
         })
 

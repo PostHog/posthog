@@ -356,8 +356,22 @@ describe('PersonHogClient', () => {
                 const result = await client.groups.fetchGroupsByKeys([1, 2], [0, 1], ['acme', 'globex'])
 
                 expect(result).toEqual([
-                    { team_id: 1, group_type_index: 0, group_key: 'acme', group_properties: { name: 'Acme' } },
-                    { team_id: 2, group_type_index: 1, group_key: 'globex', group_properties: { name: 'Globex' } },
+                    {
+                        team_id: 1,
+                        group_type_index: 0,
+                        group_key: 'acme',
+                        group_properties: { name: 'Acme' },
+                        created_at: DateTime.fromMillis(Number(CREATED_AT_MS), { zone: 'utc' }),
+                        version: 3,
+                    },
+                    {
+                        team_id: 2,
+                        group_type_index: 1,
+                        group_key: 'globex',
+                        group_properties: { name: 'Globex' },
+                        created_at: DateTime.fromMillis(Number(CREATED_AT_MS), { zone: 'utc' }),
+                        version: 3,
+                    },
                 ])
             })
 
@@ -380,7 +394,14 @@ describe('PersonHogClient', () => {
                 const result = await client.groups.fetchGroupsByKeys([1, 1], [0, 1], ['found', 'missing'])
 
                 expect(result).toEqual([
-                    { team_id: 1, group_type_index: 0, group_key: 'found', group_properties: { x: 1 } },
+                    {
+                        team_id: 1,
+                        group_type_index: 0,
+                        group_key: 'found',
+                        group_properties: { x: 1 },
+                        created_at: DateTime.fromMillis(Number(CREATED_AT_MS), { zone: 'utc' }),
+                        version: 3,
+                    },
                 ])
             })
 
