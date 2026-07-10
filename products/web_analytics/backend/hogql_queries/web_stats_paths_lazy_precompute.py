@@ -792,7 +792,7 @@ def execute_lazy_precomputed_read(
                     ensure_duration_ms += int((time.perf_counter() - prev_ensure_started) * 1000)
 
                     if prev_result.stale:
-                        # The debounce collapses this with the current-period enqueue; one
+                        # handle_stale_served enqueues at most once per request; one
                         # revalidation re-runs the whole query, covering both periods.
                         handle_stale_served(runner=runner, family=_FAMILY)
 

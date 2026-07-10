@@ -38,10 +38,8 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     TooManyFilters,
     UnsupportedFilterKey,
     _oom_pin_key,
-    _swr_revalidate_key,
     check_common_eligibility,
     compute_filters_eligibility_hash,
-    enqueue_stale_revalidation,
     handle_stale_served,
     host_filter_expr,
     is_precompute_enabled_for_team,
@@ -476,7 +474,6 @@ class TestStaleRevalidationEnqueue(BaseTest):
         self.query = WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[])
 
     def tearDown(self):
-        redis.get_client().delete(_swr_revalidate_key(self.team, self.query))
         reset_query_tags()
         super().tearDown()
 
@@ -486,25 +483,16 @@ class TestStaleRevalidationEnqueue(BaseTest):
             ".revalidate_web_analytics_precompute.delay"
         )
 
-    def test_enqueues_once_within_debounce_window(self):
-        with self._delay_patch() as delay:
-            enqueue_stale_revalidation(team=self.team, query=self.query, family="web_overview")
-            enqueue_stale_revalidation(team=self.team, query=self.query, family="web_overview")
-        assert delay.call_count == 1
-        payload = delay.call_args.kwargs
-        assert payload["team_id"] == self.team.pk
-        assert payload["query"]["kind"] == "WebOverviewQuery"
-
-    @mock.patch(f"{_COMMON}.redis.get_client", side_effect=Exception("redis down"))
-    def test_redis_error_fails_closed_without_raising(self, _client):
-        with self._delay_patch() as delay:
-            enqueue_stale_revalidation(team=self.team, query=self.query, family="web_overview")
-        assert delay.call_count == 0
-
-    def test_handle_stale_served_tags_read_and_enqueues(self):
+    def test_handle_stale_served_tags_read_and_enqueues_once_per_request(self):
+        # Two stale ensures in one request (current + compare period) must tag the read
+        # and mint exactly one revalidation task — one re-run covers both periods.
         runner = WebOverviewQueryRunner(team=self.team, query=self.query)
         reset_query_tags()
         with self._delay_patch() as delay:
             handle_stale_served(runner=runner, family="web_overview")
+            handle_stale_served(runner=runner, family="web_overview")
         assert get_query_tag_value("precompute_stale") is True
         assert delay.call_count == 1
+        payload = delay.call_args.kwargs
+        assert payload["team_id"] == self.team.pk
+        assert payload["query"]["kind"] == "WebOverviewQuery"

@@ -2,10 +2,14 @@
 
 The revalidate half of the stale-while-revalidate semantics (RFC 5861): when a
 user-facing read is served from expired-within-grace jobs, the read path
-enqueues this task (debounced in Redis, see
-`web_lazy_precompute_common.enqueue_stale_revalidation`) to re-run the query in
-the background so the next fetch is fresh instead of waiting for the hourly
-eager warmer — which only covers warmed query shapes.
+enqueues this task (see `web_lazy_precompute_common.enqueue_stale_revalidation`)
+to re-run the query in the background so the next fetch is fresh instead of
+waiting for the hourly eager warmer — which only covers warmed query shapes.
+
+Duplicate tasks for the same query shape are tolerated rather than deduped: the
+framework's PENDING-job unique index collapses concurrent recomputes to one
+insert, and once the first task refreshes the jobs the rest are cheap warm
+reads on a queue that paces ClickHouse work anyway.
 """
 
 import time
@@ -23,10 +27,7 @@ from posthog.models import Team
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
-    REVALIDATION_DEBOUNCE_SECONDS,
-    REVALIDATION_TRIGGER,
-)
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import REVALIDATION_TRIGGER
 
 logger = structlog.get_logger(__name__)
 
@@ -41,16 +42,19 @@ REVALIDATION_RUN = Counter(
 REVALIDATION_SOFT_TIME_LIMIT = 600
 REVALIDATION_TIME_LIMIT = REVALIDATION_SOFT_TIME_LIMIT + 30
 
+# Discard tasks that sat in the queue this long: by then either a sibling task
+# already refreshed the jobs, the warmer did, or a newer stale hit re-enqueued.
+# This is the queue's shedding valve against enqueue bursts on a hot stale shape.
+REVALIDATION_EXPIRES_SECONDS = 15 * 60
+
 
 @shared_task(
     ignore_result=True,
     # Same queue insight cache warming uses — prevents ClickHouse from being overwhelmed.
     queue=CeleryQueue.ANALYTICS_LIMITED.value,
-    # A task that sat in the queue past the debounce window has been superseded:
-    # either a newer stale hit re-enqueued, or the warmer already refreshed.
-    expires=REVALIDATION_DEBOUNCE_SECONDS,
-    # No retries: the next stale hit after the debounce TTL re-enqueues, and the
-    # hourly warmer converges regardless.
+    expires=REVALIDATION_EXPIRES_SECONDS,
+    # No retries: the next stale hit re-enqueues, and the hourly warmer converges
+    # regardless.
     max_retries=0,
     soft_time_limit=REVALIDATION_SOFT_TIME_LIMIT,
     time_limit=REVALIDATION_TIME_LIMIT,

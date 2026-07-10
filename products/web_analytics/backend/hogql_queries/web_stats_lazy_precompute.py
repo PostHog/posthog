@@ -671,8 +671,8 @@ def execute_lazy_precomputed_read(
                         time_range_end=prev_range_end,
                     )
                     if prev_result.stale:
-                        # Debounced with the current-period enqueue; one revalidation
-                        # re-runs the whole query, covering both periods.
+                        # handle_stale_served enqueues at most once per request; one
+                        # revalidation re-runs the whole query, covering both periods.
                         handle_stale_served(runner=runner, family=_FAMILY)
 
                     if not prev_result.ready:
