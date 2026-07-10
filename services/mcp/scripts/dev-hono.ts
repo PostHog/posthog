@@ -22,6 +22,12 @@ if (existsSync(dotEnv)) {
     process.loadEnvFile(dotEnv)
 }
 
+// The runtime gates dev-only conveniences (e.g. the `?token=` query-param auth
+// fallback in extractBearerToken) on NODE_ENV, read dynamically from the process
+// env — the esbuild define only rewrites literal `process.env.NODE_ENV` accesses.
+// This script is always a dev loop, so default it for the spawned server.
+process.env.NODE_ENV ??= 'development'
+
 copyInstructions()
 
 // flox sets SSL_CERT_FILE; Node's TLS layer only reads NODE_EXTRA_CA_CERTS.

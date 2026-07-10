@@ -19,3 +19,9 @@ POSTHOG_UI_APPS_TOKEN=your_posthog_ui_apps_token_here
 # If not set, simply won't capture any analytics
 POSTHOG_ANALYTICS_API_KEY=local_api_key
 POSTHOG_ANALYTICS_HOST=http://localhost:8010
+
+# Enables dev-only conveniences like the `?token=` query-param auth fallback
+# (see extractBearerToken in src/lib/utils.ts). The hono dev loop (pnpm dev:hono)
+# defaults this on its own; `wrangler dev` (pnpm dev) only picks it up from here.
+# Never set in production - it would let tokens ride in URLs (logs, referrers).
+NODE_ENV=development
