@@ -23,6 +23,10 @@ class DeliveryStatus:
 # Mirrors Subscription.ResourceType.AI_PROMPT — a plain constant so the Temporal
 # workflow sandbox can route by resource type without importing the Django model.
 AI_PROMPT_RESOURCE_TYPE = "ai_prompt"
+# Mirrors Subscription.ResourceType.PULSE_BRIEF, same reasoning as above.
+PULSE_BRIEF_RESOURCE_TYPE = "pulse_brief"
+# Mirrors Subscription.DEFAULT_REPORT_WINDOW_DAYS, same reasoning as above.
+DEFAULT_REPORT_WINDOW_DAYS = 7
 
 
 class SubscriptionTriggerType:
@@ -172,6 +176,43 @@ class GenerateAIReportResult:
     aborted: bool = False
     skipped: bool = False
     recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class PreparePulseBriefInputs:
+    subscription_id: int
+    # The created brief's id is persisted onto this SubscriptionDelivery row so an
+    # activity retry reuses the same brief instead of minting a duplicate.
+    delivery_id: uuid.UUID
+
+
+@dataclasses.dataclass
+class PreparePulseBriefResult:
+    """Outcome of the prepare phase. `aborted` signals a terminal pre-generation failure
+    (consent revoked, config deleted/disabled, creator gone) that already auto-disabled
+    the subscription; the workflow records `recipient_results` as FAILED and stops."""
+
+    brief_id: str = ""
+    config_id: str = ""
+    period_days: int = DEFAULT_REPORT_WINDOW_DAYS
+    aborted: bool = False
+    recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class RenderPulseBriefInputs:
+    subscription_id: int
+    team_id: int
+    brief_id: str
+    # The rendered markdown is written onto this SubscriptionDelivery row rather than
+    # returned on the wire — brief sections can add up past Temporal's ~2 MiB payload cap.
+    delivery_id: uuid.UUID
+
+
+@dataclasses.dataclass
+class CleanupSkippedPulseBriefInputs:
+    team_id: int
+    brief_id: str
 
 
 @dataclasses.dataclass

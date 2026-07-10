@@ -34,6 +34,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     SubscriptionTriggerType,
 )
 from products.product_analytics.backend.models.insight import Insight
+from products.pulse.backend.models import BriefConfig
 
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.access_control import AccessControl
@@ -106,6 +107,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "resource_name": data["resource_name"],
             "dashboard_export_insights": [],
             "prompt": None,
+            "pulse_brief_config_id": None,
             "target_type": "email",
             "target_value": "test@posthog.com",
             "frequency": "weekly",
@@ -149,7 +151,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        assert "must have an insight, a dashboard, or a prompt" in str(response.json())
+        assert "must have an insight, a dashboard, a prompt, or a brief config" in str(response.json())
 
     @parameterized.expand(
         [
@@ -2718,3 +2720,152 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
         assert "prompt" in str(patch_resp.json()).lower(), patch_resp.json()
+
+
+@patch("ee.api.subscription.sync_connect")
+@patch("ee.api.subscription.is_cloud", return_value=True)
+class TestPulseBriefSubscriptionAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        self.config = self._create_config(self.team, "Growth focus")
+
+    @staticmethod
+    def _create_config(team: Team, name: str, enabled: bool = True) -> "BriefConfig":
+        # BriefConfig is fail-closed team-scoped; tests run outside request context.
+        return BriefConfig.objects.for_team(team.id).create(team=team, name=name, enabled=enabled)
+
+    def _make_payload(self, **overrides):
+        payload = {
+            "pulse_brief_config_id": str(self.config.id),
+            "target_type": "email",
+            "target_value": "pulse@posthog.com",
+            "frequency": "weekly",
+            "interval": 1,
+            "start_date": "2022-01-01T00:00:00",
+            "title": "Weekly product brief",
+        }
+        payload.update(overrides)
+        return payload
+
+    def _mock_temporal(self, mock_sync):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        mock_sync.return_value = mock_client
+        return mock_client
+
+    def test_can_create_pulse_brief_subscription(self, mock_is_cloud, mock_sync):
+        mock_client = self._mock_temporal(mock_sync)
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_payload())
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        data = response.json()
+        assert data["resource_type"] == "pulse_brief"
+        assert data["pulse_brief_config_id"] == str(self.config.id)
+        wf_args, _wf_kwargs = mock_client.start_workflow.call_args
+        assert wf_args[0] == "handle-subscription-value-change"
+        assert wf_args[1].resource_type == "pulse_brief"
+
+    @parameterized.expand(
+        [
+            (
+                "missing_config",
+                lambda self: None,
+                "must have an insight, a dashboard, a prompt, or a brief config",
+            ),
+            ("unknown_config", lambda self: str(uuid4()), "does not exist or does not belong to your team"),
+            (
+                "wrong_team_config",
+                lambda self: str(
+                    self._create_config(Team.objects.create(organization=self.organization), "foreign").id
+                ),
+                "does not exist or does not belong to your team",
+            ),
+            (
+                "disabled_config",
+                lambda self: str(self._create_config(self.team, "paused", enabled=False).id),
+                "disabled",
+            ),
+        ]
+    )
+    def test_invalid_config_is_rejected(self, mock_is_cloud, mock_sync, _name, make_config_id, expected_error_fragment):
+        mock_client = self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_payload(pulse_brief_config_id=make_config_id(self)),
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected_error_fragment in str(response.json())
+        mock_client.start_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # insight/dashboard win kind derivation, so their validators must reject the extra
+            # config; prompt wins over config, so the AI validator must reject it.
+            ("config_plus_insight", "insight"),
+            ("config_plus_dashboard", "dashboard"),
+            ("config_plus_prompt", "prompt"),
+        ]
+    )
+    def test_cannot_combine_config_with_other_content(self, mock_is_cloud, mock_sync, _name, extra_field):
+        mock_client = self._mock_temporal(mock_sync)
+        if extra_field == "insight":
+            extra: dict = {"insight": Insight.objects.create(team=self.team).id}
+        elif extra_field == "dashboard":
+            extra = {"dashboard": Dashboard.objects.create(team=self.team).id}
+        else:
+            extra = {"prompt": "Summarize signups"}
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_payload(**extra))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "brief config" in str(response.json())
+        mock_client.start_workflow.assert_not_called()
+
+    def test_list_filter_by_pulse_brief_resource_type(self, mock_is_cloud, mock_sync):
+        self._mock_temporal(mock_sync)
+        created = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_payload())
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        insight = Insight.objects.create(team=self.team)
+        other = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {
+                "insight": insight.id,
+                "target_type": "email",
+                "target_value": "i@posthog.com",
+                "frequency": "weekly",
+                "interval": 1,
+                "start_date": "2022-01-01T00:00:00",
+            },
+        )
+        assert other.status_code == status.HTTP_201_CREATED, other.json()
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/?resource_type=pulse_brief")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [r["id"] for r in results] == [created.json()["id"]]
+
+    def test_create_requires_ai_consent(self, mock_is_cloud, mock_sync):
+        mock_client = self._mock_temporal(mock_sync)
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_payload())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "approve AI data processing" in str(response.json())
+        mock_client.start_workflow.assert_not_called()
+
+    @parameterized.expand([("config_disabled", False), ("config_deleted", True)])
+    def test_can_soft_delete_subscription_after_config_removed(self, mock_is_cloud, mock_sync, _name, hard_delete):
+        # Hard DELETE is 405 (ForbidDestroyModel), so a config-existence re-check on every
+        # PATCH would make such a subscription permanently stuck.
+        self._mock_temporal(mock_sync)
+        created = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_payload())
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        if hard_delete:
+            self.config.delete()
+        else:
+            self.config.enabled = False
+            self.config.save(update_fields=["enabled"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}", {"deleted": True}
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["deleted"] is True

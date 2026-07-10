@@ -1,0 +1,18 @@
+{% extends "email/base.html" %}
+
+{% block heading %}{{ title }}{% endblock %}
+
+{% block section %}
+
+{# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe #}
+{{ rendered_html|safe }}
+
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ brief_url }}">View in Pulse</a>
+</div>
+
+<p class="text-center text-muted">
+    <a href="{{ unsubscribe_url }}">Unsubscribe from this brief</a>
+</p>
+
+{% endblock %}

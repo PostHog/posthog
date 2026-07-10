@@ -59,6 +59,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     SubscriptionTriggerType,
 )
 from products.product_analytics.backend.models.insight import Insight
+from products.pulse.backend.models import BriefConfig
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
@@ -89,6 +90,17 @@ def _count_active_summaries(organization) -> int:
 
 def _invalidate_summary_quota_cache(organization_id) -> None:
     cache.delete(_summary_quota_cache_key(organization_id))
+
+
+def _pulse_brief_create_gate_reason(organization) -> Optional[str]:
+    # Brief generation runs LLMs over project data — same cloud + consent constraints as AI
+    # subscriptions. No per-user flag gate: creating a BriefConfig is already gated on the
+    # pulse feature flag, and a pulse_brief subscription requires a team-owned config.
+    if not settings.DEBUG and not is_cloud():
+        return "Pulse brief subscriptions are only available in PostHog Cloud."
+    if not organization.is_ai_data_processing_approved:
+        return "Your organization must approve AI data processing before scheduling Pulse briefs."
+    return None
 
 
 def _ai_create_gate_reason(organization, distinct_id: str) -> Optional[str]:
@@ -161,9 +173,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text=(
             "What the subscription delivers: 'insight' (snapshot of one insight), "
-            "'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). "
+            "'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), "
+            "or 'pulse_brief' (scheduled Pulse product brief). "
             "Read-only — derived from the populated target (insight → insight, "
-            "dashboard → dashboard, prompt → ai_prompt)."
+            "dashboard → dashboard, prompt → ai_prompt, pulse_brief_config_id → pulse_brief)."
         ),
     )
 
@@ -178,6 +191,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "resource_name",
             "dashboard_export_insights",
             "prompt",
+            "pulse_brief_config_id",
             "target_type",
             "target_value",
             "frequency",
@@ -213,6 +227,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 "help_text": (
                     "Free-text prompt that drives the AI-generated report. Required when "
                     "resource_type is 'ai_prompt'. Max 4000 characters."
+                ),
+            },
+            "pulse_brief_config_id": {
+                "help_text": (
+                    "ID of the Pulse brief config this subscription delivers briefs for. Required when "
+                    "resource_type is 'pulse_brief'; must reference an enabled config in your team."
                 ),
             },
             "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
@@ -273,18 +293,22 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def _validate_insight_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
         if not (attrs.get("insight") or (existing and existing.insight_id)):
             raise ValidationError({"insight": ["Insight is required for insight subscriptions."]})
-        if attrs.get("dashboard") or attrs.get("prompt"):
-            raise ValidationError({"insight": ["Insight subscriptions cannot also set dashboard or prompt."]})
+        if attrs.get("dashboard") or attrs.get("prompt") or attrs.get("pulse_brief_config_id"):
+            raise ValidationError(
+                {"insight": ["Insight subscriptions cannot also set dashboard, prompt, or brief config."]}
+            )
 
     def _validate_dashboard_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
         if not (attrs.get("dashboard") or (existing and existing.dashboard_id)):
             raise ValidationError({"dashboard": ["Dashboard is required for dashboard subscriptions."]})
-        if attrs.get("insight") or attrs.get("prompt"):
-            raise ValidationError({"dashboard": ["Dashboard subscriptions cannot also set insight or prompt."]})
+        if attrs.get("insight") or attrs.get("prompt") or attrs.get("pulse_brief_config_id"):
+            raise ValidationError(
+                {"dashboard": ["Dashboard subscriptions cannot also set insight, prompt, or brief config."]}
+            )
 
     def _validate_ai_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
-        if attrs.get("insight") or attrs.get("dashboard"):
-            raise ValidationError({"prompt": ["AI subscriptions cannot also set insight or dashboard."]})
+        if attrs.get("insight") or attrs.get("dashboard") or attrs.get("pulse_brief_config_id"):
+            raise ValidationError({"prompt": ["AI subscriptions cannot also set insight, dashboard, or brief config."]})
         # Explicit-key check so a PATCH sending prompt="" doesn't fall through to the stale value.
         prompt = (attrs["prompt"] if "prompt" in attrs else (existing.prompt if existing else None)) or ""
         prompt = prompt.strip()
@@ -303,6 +327,42 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # Gates fire on create only; existing AI subs stay editable.
         if existing is None:
             gate_reason = _ai_create_gate_reason(self.context["get_organization"](), self._caller_distinct_id())
+            if gate_reason is not None:
+                raise ValidationError(gate_reason)
+
+    def _validate_pulse_brief_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
+        if attrs.get("insight") or attrs.get("dashboard") or attrs.get("prompt"):
+            raise ValidationError(
+                {"pulse_brief_config_id": ["Pulse brief subscriptions cannot also set insight, dashboard, or prompt."]}
+            )
+        # Explicit-key check so a PATCH sending null doesn't fall through to the stale value.
+        config_id = (
+            attrs["pulse_brief_config_id"]
+            if "pulse_brief_config_id" in attrs
+            else (existing.pulse_brief_config_id if existing else None)
+        )
+        if not config_id:
+            raise ValidationError(
+                {"pulse_brief_config_id": ["A brief config is required for Pulse brief subscriptions."]}
+            )
+        # Existence/enabled is only re-checked when the config reference is being set or
+        # changed — deactivation PATCHes (deleted/enabled toggles) must always pass, or a
+        # subscription whose config was deleted first becomes impossible to soft-delete
+        # (hard DELETE is 405 via ForbidDestroyModel). Delivery re-checks and auto-disables.
+        if "pulse_brief_config_id" in attrs:
+            config = BriefConfig.objects.for_team(self.context["team_id"]).filter(id=config_id).first()
+            if config is None:
+                raise ValidationError(
+                    {"pulse_brief_config_id": ["This brief config does not exist or does not belong to your team."]}
+                )
+            if not config.enabled:
+                raise ValidationError(
+                    {"pulse_brief_config_id": ["This brief config is disabled. Enable it before subscribing."]}
+                )
+        # Gates fire on create only, mirroring the AI-prompt kind: a consent-less org gets
+        # a clear 400 here instead of a silent auto-disable on the first scheduled run.
+        if existing is None:
+            gate_reason = _pulse_brief_create_gate_reason(self.context["get_organization"]())
             if gate_reason is not None:
                 raise ValidationError(gate_reason)
 
@@ -328,9 +388,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         if existing is None:
-            # Create: a subscription must export an insight, a dashboard, or an AI prompt.
-            if not attrs.get("dashboard") and not attrs.get("insight") and not attrs.get("prompt"):
-                raise ValidationError("A subscription must have an insight, a dashboard, or a prompt.")
+            # Create: a subscription must export an insight, a dashboard, an AI prompt, or a Pulse brief.
+            if (
+                not attrs.get("dashboard")
+                and not attrs.get("insight")
+                and not attrs.get("prompt")
+                and not attrs.get("pulse_brief_config_id")
+            ):
+                raise ValidationError("A subscription must have an insight, a dashboard, a prompt, or a brief config.")
 
         try:
             if existing is not None:
@@ -340,7 +405,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             else:
                 insight, dashboard = attrs.get("insight"), attrs.get("dashboard")
                 resource_type = Subscription.derive_resource_type(
-                    insight.id if insight else None, dashboard.id if dashboard else None, attrs.get("prompt")
+                    insight.id if insight else None,
+                    dashboard.id if dashboard else None,
+                    attrs.get("prompt"),
+                    attrs.get("pulse_brief_config_id"),
                 )
         except ValueError as exc:
             raise ValidationError(str(exc))
@@ -348,6 +416,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             Subscription.ResourceType.INSIGHT: self._validate_insight_content,
             Subscription.ResourceType.DASHBOARD: self._validate_dashboard_content,
             Subscription.ResourceType.AI_PROMPT: self._validate_ai_content,
+            Subscription.ResourceType.PULSE_BRIEF: self._validate_pulse_brief_content,
         }
         validate_for_resource_type = content_validators.get(resource_type)
         # Fail soft on an unexpected resource_type (e.g. a stale DB row) — a 400 is
@@ -836,10 +905,10 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
             OpenApiParameter(
                 name="resource_type",
                 type=str,
-                enum=["insight", "dashboard", "ai_prompt"],
+                enum=["insight", "dashboard", "ai_prompt", "pulse_brief"],
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by subscription resource: insight, dashboard export, or AI report.",
+                description="Filter by subscription resource: insight, dashboard export, AI report, or Pulse brief.",
             ),
             OpenApiParameter(
                 name="target_type",
@@ -946,6 +1015,8 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 queryset = queryset.filter(dashboard_id__isnull=False)
             elif resource_type == "ai_prompt":
                 queryset = queryset.filter(prompt__isnull=False).exclude(prompt="")
+            elif resource_type == "pulse_brief":
+                queryset = queryset.filter(pulse_brief_config_id__isnull=False)
 
             target_type_filter = request_params.get("target_type")
             if target_type_filter:

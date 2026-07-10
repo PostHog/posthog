@@ -13,9 +13,10 @@ from django.conf import settings
 from django.utils import timezone
 
 import pytest_asyncio
+import temporalio.activity
 from asgiref.sync import sync_to_async
 from slack_sdk.errors import SlackApiError
-from temporalio.client import Client
+from temporalio.client import Client, WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -52,6 +53,12 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
+from products.exports.backend.temporal.subscriptions.pulse_subscription.activities import (
+    cleanup_skipped_pulse_brief,
+    prepare_pulse_brief_subscription,
+    render_pulse_brief_for_delivery,
+)
+from products.exports.backend.temporal.subscriptions.pulse_subscription.delivery import QUIET_BRIEF_NOTE
 from products.exports.backend.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
@@ -68,10 +75,15 @@ from products.exports.backend.temporal.subscriptions.types import (
 from products.exports.backend.temporal.subscriptions.workflows import (
     HandleSubscriptionValueChangeWorkflow,
     ProcessAISubscriptionWorkflow,
+    ProcessPulseSubscriptionWorkflow,
     ProcessSubscriptionWorkflow,
     ScheduleAllSubscriptionsWorkflow,
 )
 from products.product_analytics.backend.models.insight import Insight
+from products.pulse.backend.models import BriefConfig, ProductBrief
+from products.pulse.backend.temporal.activities import mark_brief_failed_activity
+from products.pulse.backend.temporal.inputs import GenerateBriefWorkflowInputs, SynthesizeActivityInputs
+from products.pulse.backend.temporal.workflow import GenerateProductBriefWorkflow
 
 from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, SLACK_DISCONNECTED_DISABLE_REASON
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
@@ -2492,3 +2504,271 @@ async def test_fetch_due_subscriptions_includes_ai_with_resource_type(team, user
     match = next((s for s in fetched if s.subscription_id == sub.id), None)
     assert match is not None, "due AI subscription must be picked up by the shared scheduler fetch"
     assert match.resource_type == Subscription.ResourceType.AI_PROMPT
+
+
+_PULSE_SEND_EMAIL = (
+    "products.exports.backend.temporal.subscriptions.pulse_subscription.activities.send_email_pulse_brief"
+)
+
+PULSE_SUBSCRIPTION_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
+    Sequence[Callable[..., Any]],
+    [
+        fetch_due_subscriptions_activity,
+        create_delivery_record,
+        validate_subscription_for_delivery,
+        prepare_pulse_brief_subscription,
+        cleanup_skipped_pulse_brief,
+        render_pulse_brief_for_delivery,
+        deliver_subscription,
+        update_delivery_record,
+        advance_next_delivery_date,
+        mark_brief_failed_activity,
+    ],
+)
+
+PULSE_SUBSCRIPTION_WORKFLOWS = [
+    ScheduleAllSubscriptionsWorkflow,
+    ProcessSubscriptionWorkflow,
+    ProcessPulseSubscriptionWorkflow,
+    GenerateProductBriefWorkflow,
+]
+
+_PULSE_SECTIONS = [
+    {"kind": "movement", "title": "What happened", "markdown": "Conversion dropped 12%.", "citations": ["insight:abc"]}
+]
+
+
+def _fake_pulse_generate_activities(
+    status: str, sections: list[dict], gather_error: str | None = None
+) -> list[Callable[..., Any]]:
+    """Name-matched stand-ins for the pulse generate workflow's LLM activities: gather returns
+    empty (or fails), synthesize persists the desired terminal state onto the brief row —
+    exactly the contract the real activities fulfil, minus the LLM."""
+
+    @temporalio.activity.defn(name="gather_brief_inputs_activity")
+    async def fake_gather(inputs: GenerateBriefWorkflowInputs) -> list[dict]:
+        if gather_error is not None:
+            raise ApplicationError(gather_error, non_retryable=True)
+        return []
+
+    @temporalio.activity.defn(name="synthesize_brief_activity")
+    async def fake_synthesize(inputs: SynthesizeActivityInputs) -> str:
+        await sync_to_async(
+            lambda: (
+                ProductBrief.objects.for_team(inputs.team_id)
+                .filter(id=inputs.brief_id)
+                .update(status=status, sections=sections)
+            )
+        )()
+        return status
+
+    return [fake_gather, fake_synthesize]
+
+
+@sync_to_async
+def _create_pulse_subscription(team, user) -> tuple[Subscription, BriefConfig]:
+    config = BriefConfig.objects.for_team(team.id).create(team=team, name="Growth focus")
+    subscription = create_subscription(
+        team=team,
+        created_by=user,
+        pulse_brief_config_id=config.id,
+        title="Product brief",
+        target_value="pulse@posthog.com",
+    )
+    return subscription, config
+
+
+@sync_to_async
+def _latest_pulse_brief(team) -> ProductBrief | None:
+    return ProductBrief.objects.for_team(team.id).order_by("-created_at").first()
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch(_PULSE_SEND_EMAIL)
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.parametrize(
+    "name,brief_status,sections,expected_markdown_fragment",
+    [
+        ("ready_full_brief", ProductBrief.Status.READY, _PULSE_SECTIONS, "## What happened"),
+        ("quiet_one_line_note", ProductBrief.Status.QUIET, [], QUIET_BRIEF_NOTE),
+    ],
+)
+async def test_schedule_routes_pulse_subscription_through_full_workflow(
+    mock_send_email: MagicMock,
+    mock_metric_meter: MagicMock,
+    mock_analytics: MagicMock,
+    team,
+    user,
+    name: str,
+    brief_status: str,
+    sections: list[dict],
+    expected_markdown_fragment: str,
+):
+    # End-to-end: the scheduler fans a due pulse sub out to ProcessPulseSubscriptionWorkflow,
+    # which runs create-record -> validate -> prepare (brief row) -> child generate workflow ->
+    # render -> deliver -> finalize. Activity-level tests don't catch wrong sequencing or
+    # input wiring across the child-workflow boundary; this does. QUIET must ship the one-line
+    # note (spec: a skipped brief preserves trust), not a padded report.
+    await _set_ai_consent(team, True)
+    sub, _config = await _create_pulse_subscription(team, user)
+    await sync_to_async(Subscription.objects.filter(pk=sub.id).update)(
+        next_delivery_date=datetime(2022, 2, 2, 8, 0, tzinfo=ZoneInfo("UTC"))
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=PULSE_SUBSCRIPTION_WORKFLOWS,
+            activities=[*PULSE_SUBSCRIPTION_ACTIVITIES, *_fake_pulse_generate_activities(brief_status, sections)],
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ScheduleAllSubscriptionsWorkflow.run,
+                ScheduleAllSubscriptionsWorkflowInputs(),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    mock_send_email.assert_called_once()
+    assert expected_markdown_fragment in mock_send_email.call_args.kwargs["markdown"]
+    delivery = await sync_to_async(SubscriptionDelivery.objects.filter(subscription=sub).latest)("created_at")
+    assert delivery.status == SubscriptionDelivery.Status.COMPLETED
+    brief = await _latest_pulse_brief(team)
+    assert brief is not None
+    assert brief.trigger == ProductBrief.Trigger.SCHEDULED
+    assert brief.status == brief_status
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch(_PULSE_SEND_EMAIL)
+@freeze_time("2022-02-02T08:55:00.000Z")
+async def test_pulse_failed_generation_is_not_delivered(
+    mock_send_email: MagicMock,
+    mock_metric_meter: MagicMock,
+    mock_analytics: MagicMock,
+    team,
+    user,
+):
+    # Spec: a FAILED brief is never delivered — the child marks the brief FAILED, the parent
+    # records the delivery as FAILED, and nothing reaches the recipients.
+    await _set_ai_consent(team, True)
+    sub, _config = await _create_pulse_subscription(team, user)
+
+    tracked = TrackedSubscriptionInputs(
+        subscription_id=sub.id,
+        team_id=team.id,
+        distinct_id=str(user.distinct_id),
+        trigger_type=SubscriptionTriggerType.SCHEDULED,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=PULSE_SUBSCRIPTION_WORKFLOWS,
+            activities=[
+                *PULSE_SUBSCRIPTION_ACTIVITIES,
+                *_fake_pulse_generate_activities(ProductBrief.Status.READY, [], gather_error="sources exploded"),
+            ],
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    ProcessPulseSubscriptionWorkflow.run,
+                    tracked,
+                    id=f"process-pulse-subscription-{sub.id}",
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                )
+
+    mock_send_email.assert_not_called()
+    delivery = await sync_to_async(SubscriptionDelivery.objects.filter(subscription=sub).latest)("created_at")
+    assert delivery.status == SubscriptionDelivery.Status.FAILED
+    brief = await _latest_pulse_brief(team)
+    assert brief is not None and brief.status == ProductBrief.Status.FAILED, (
+        "the child's failure path must mark the brief FAILED so it stays visible in-app"
+    )
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch(_PULSE_SEND_EMAIL, side_effect=Exception("smtp down"))
+@freeze_time("2022-02-02T08:55:00.000Z")
+async def test_pulse_delivery_failure_finalizes_record_and_advances_schedule(
+    mock_send_email: MagicMock,
+    mock_metric_meter: MagicMock,
+    mock_analytics: MagicMock,
+    team,
+    user,
+):
+    # A send failure must not strand the delivery row in STARTING or freeze the schedule:
+    # the finally block records FAILED with the error and still advances
+    # next_delivery_date so the subscription retries on its next slot.
+    await _set_ai_consent(team, True)
+    sub, _config = await _create_pulse_subscription(team, user)
+    await sync_to_async(Subscription.objects.filter(pk=sub.id).update)(
+        next_delivery_date=datetime(2022, 2, 2, 8, 0, tzinfo=ZoneInfo("UTC"))
+    )
+
+    tracked = TrackedSubscriptionInputs(
+        subscription_id=sub.id,
+        team_id=team.id,
+        distinct_id=str(user.distinct_id),
+        trigger_type=SubscriptionTriggerType.SCHEDULED,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=PULSE_SUBSCRIPTION_WORKFLOWS,
+            activities=[
+                *PULSE_SUBSCRIPTION_ACTIVITIES,
+                *_fake_pulse_generate_activities(ProductBrief.Status.READY, _PULSE_SECTIONS),
+            ],
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    ProcessPulseSubscriptionWorkflow.run,
+                    tracked,
+                    id=f"process-pulse-subscription-{sub.id}",
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                )
+
+    assert mock_send_email.call_count >= 1
+    delivery = await sync_to_async(SubscriptionDelivery.objects.filter(subscription=sub).latest)("created_at")
+    assert delivery.status == SubscriptionDelivery.Status.FAILED
+    assert delivery.error is not None
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.next_delivery_date is not None
+    assert sub.next_delivery_date > datetime(2022, 2, 2, 8, 0, tzinfo=ZoneInfo("UTC"))
+
+
+async def test_fetch_due_subscriptions_includes_pulse_brief_with_resource_type(team, user):
+    sub, _config = await _create_pulse_subscription(team, user)
+    # `Subscription.save` recomputes next_delivery_date from the rrule, so write a past
+    # value via `.update()` to make it due. A regression in the relationless-sub exclusion
+    # filter would silently drop pulse subs from every scheduler tick.
+    await sync_to_async(Subscription.objects.filter(pk=sub.id).update)(
+        next_delivery_date=datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    )
+
+    fetched = await ActivityEnvironment().run(
+        fetch_due_subscriptions_activity, FetchDueSubscriptionsActivityInputs(buffer_minutes=15)
+    )
+
+    match = next((s for s in fetched if s.subscription_id == sub.id), None)
+    assert match is not None, "due pulse subscription must be picked up by the shared scheduler fetch"
+    assert match.resource_type == Subscription.ResourceType.PULSE_BRIEF

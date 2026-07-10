@@ -24,9 +24,9 @@ export const SubscriptionsListQueryParams = /* @__PURE__ */ zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe('Which field to use when ordering the results.'),
     resource_type: zod
-        .enum(['ai_prompt', 'dashboard', 'insight'])
+        .enum(['ai_prompt', 'dashboard', 'insight', 'pulse_brief'])
         .optional()
-        .describe('Filter by subscription resource: insight, dashboard export, or AI report.'),
+        .describe('Filter by subscription resource: insight, dashboard export, AI report, or Pulse brief.'),
     search: zod.string().optional().describe('A search term.'),
     target_type: zod.enum(['email', 'slack']).optional().describe('Filter by delivery channel (email or Slack).'),
 })
@@ -72,6 +72,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
+            ),
+        pulse_brief_config_id: zod
+            .string()
+            .nullish()
+            .describe(
+                "ID of the Pulse brief config this subscription delivers briefs for. Required when resource_type is 'pulse_brief'; must reference an enabled config in your team."
             ),
         target_type: zod
             .enum(['email', 'slack'])
@@ -204,6 +210,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
+            ),
+        pulse_brief_config_id: zod
+            .string()
+            .nullish()
+            .describe(
+                "ID of the Pulse brief config this subscription delivers briefs for. Required when resource_type is 'pulse_brief'; must reference an enabled config in your team."
             ),
         target_type: zod
             .enum(['email', 'slack'])

@@ -8,13 +8,13 @@ import dateutil.parser
 import temporalio.activity
 from asgiref.sync import sync_to_async
 from structlog import get_logger
-from temporalio.exceptions import ApplicationError
 
 from posthog.models import OrganizationMembership
+from posthog.models.integration import Integration
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     build_ai_subscription_report,
     send_email_ai_subscription_credit_limited,
@@ -25,8 +25,9 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
-    deliver_email,
-    deliver_slack,
+    deliver_markdown_subscription,
+    read_delivery_snapshot_value,
+    write_delivery_snapshot_values,
 )
 from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionInputs,
@@ -39,11 +40,12 @@ from products.exports.backend.temporal.subscriptions.types import (
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
 from ee.tasks.subscriptions import _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, AI_PROMPT_INVALID_DISABLE_REASON
+from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
 
 LOGGER = get_logger(__name__)
 
 # `SubscriptionDelivery.content_snapshot` key the AI report markdown is written under by
-# `generate_ai_subscription_report` and read back by `_deliver_ai_subscription`. The markdown
+# `generate_ai_subscription_report` and read back by `deliver_ai_subscription`. The markdown
 # can exceed Temporal's ~2 MiB payload cap, so it travels through Postgres by reference rather
 # than on the wire — the same pattern insight snapshots use.
 AI_REPORT_SNAPSHOT_KEY = "ai_report"
@@ -56,39 +58,17 @@ AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
 _CREDIT_RESET_FALLBACK_DAYS = 31
 
 
-async def _load_ai_report(delivery_id: uuid.UUID) -> str | None:
-    @database_sync_to_async(thread_sensitive=False)
-    def _read() -> str | None:
-        # DoesNotExist is tolerated here (read side): a missing row just means "no report yet".
-        try:
-            snapshot = SubscriptionDelivery.objects.values_list("content_snapshot", flat=True).get(pk=delivery_id)
-        except SubscriptionDelivery.DoesNotExist:
-            return None
-        if not isinstance(snapshot, dict):
-            return None
-        report = snapshot.get(AI_REPORT_SNAPSHOT_KEY)
-        return report if isinstance(report, str) and report else None
-
-    return await _read()
-
-
 async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult) -> None:
-    @database_sync_to_async(thread_sensitive=False)
-    def _write() -> None:
-        # No DoesNotExist guard: create_delivery_record always writes this row before
-        # generation runs, so a missing row is a wiring bug — let it raise loudly.
-        delivery = SubscriptionDelivery.objects.get(pk=delivery_id)
-        delivery.content_snapshot = {
-            **(delivery.content_snapshot or {}),
+    await write_delivery_snapshot_values(
+        delivery_id,
+        {
             AI_REPORT_SNAPSHOT_KEY: result.markdown,
             AI_REPORT_DIAGNOSTICS_KEY: [
                 {"description": d.description, "hogql": d.hogql, "ok": d.ok, "error_type": d.error_type}
                 for d in result.diagnostics
             ],
-        }
-        delivery.save(update_fields=["content_snapshot", "last_updated_at"])
-
-    await _write()
+        },
+    )
 
 
 def _capture_ai_credit_event(
@@ -183,7 +163,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
 
     # Idempotency on Temporal redispatch: if a prior attempt already produced the report,
     # don't re-bill the LLM — the point of the generate -> deliver split is one LLM run.
-    if await _load_ai_report(inputs.delivery_id) is not None:
+    if await read_delivery_snapshot_value(inputs.delivery_id, AI_REPORT_SNAPSHOT_KEY) is not None:
         await LOGGER.ainfo("generate_ai_subscription_report.already_generated", subscription_id=subscription.id)
         return GenerateAIReportResult(aborted=False)
 
@@ -259,55 +239,33 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
     return GenerateAIReportResult(aborted=False)
 
 
-async def _deliver_ai_subscription(
+async def deliver_ai_subscription(
     subscription: Subscription,
     inputs: DeliverSubscriptionInputs,
     recipient_results: list[RecipientResult],
 ) -> DeliverSubscriptionResult:
-    # Ships the report generate_ai_subscription_report already produced (read back from the
-    # delivery row) — no LLM work here. Transient send errors retry; terminal Slack errors auto-disable.
-    if inputs.delivery_id is None:
-        # The AI workflow always creates the delivery row and runs generation before
-        # delivery, so a missing reference is a wiring bug, not a runtime state.
-        raise ApplicationError(f"AI delivery for subscription {subscription.id} has no delivery_id", non_retryable=True)
+    # Ships the report generate_ai_subscription_report already produced — no LLM work here.
 
-    delivery_id = inputs.delivery_id
-    markdown = await _load_ai_report(delivery_id)
-    if markdown is None:
-        # Generation persists the report before delivery is scheduled, so a missing report
-        # means the row was lost. Non-retryable: re-running *delivery* can't regenerate the
-        # report, so retrying just burns attempts — fail loud rather than ship an empty report.
-        raise ApplicationError(
-            f"AI report missing for subscription {subscription.id} (delivery {inputs.delivery_id})",
-            non_retryable=True,
+    async def _send_email(email: str, markdown: str, delivery_run_id: str, delivery_id: uuid.UUID) -> None:
+        await database_sync_to_async(send_email_ai_subscription_report, thread_sensitive=False)(
+            email=email,
+            subscription=subscription,
+            markdown=markdown,
+            delivery_run_id=delivery_run_id,
+            delivery_id=delivery_id,
         )
 
-    if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
-        # Dedup key for MessagingRecord: stable across this run's retries, unique per run so a re-test re-sends.
-        workflow_run_id = temporalio.activity.info().workflow_run_id
-        if workflow_run_id is None:
-            raise ApplicationError("AI email delivery requires a workflow run id", non_retryable=True)
-
-        async def _send_email(email: str) -> None:
-            await database_sync_to_async(send_email_ai_subscription_report, thread_sensitive=False)(
-                email=email,
-                subscription=subscription,
-                markdown=markdown,
-                delivery_run_id=workflow_run_id,
-                delivery_id=delivery_id,
-            )
-
-        return await deliver_email(subscription, inputs, recipient_results, _send_email)
-    if subscription.target_type == Subscription.SubscriptionTarget.SLACK:
-        return await deliver_slack(
-            subscription,
-            recipient_results,
-            lambda integration: send_slack_ai_subscription_report(
-                subscription=subscription, markdown=markdown, integration=integration, delivery_id=delivery_id
-            ),
+    async def _send_slack(integration: Integration, markdown: str, delivery_id: uuid.UUID) -> SlackDeliveryResult:
+        return await send_slack_ai_subscription_report(
+            subscription=subscription, markdown=markdown, integration=integration, delivery_id=delivery_id
         )
-    # `validate_subscription_for_delivery` auto-disables unsupported targets up front,
-    # so reaching here means an invariant was violated.
-    raise ApplicationError(
-        f"AI delivery reached an unsupported target {subscription.target_type!r}", non_retryable=True
+
+    return await deliver_markdown_subscription(
+        subscription,
+        inputs,
+        recipient_results,
+        snapshot_key=AI_REPORT_SNAPSHOT_KEY,
+        kind_label="AI",
+        send_email=_send_email,
+        send_slack=_send_slack,
     )

@@ -11,6 +11,7 @@
  * * `insight` - Insight
  * * `dashboard` - Dashboard
  * * `ai_prompt` - AI prompt
+ * * `pulse_brief` - Pulse brief
  */
 export type ResourceTypeEnumApi = (typeof ResourceTypeEnumApi)[keyof typeof ResourceTypeEnumApi]
 
@@ -18,6 +19,7 @@ export const ResourceTypeEnumApi = {
     Insight: 'insight',
     Dashboard: 'dashboard',
     AiPrompt: 'ai_prompt',
+    PulseBrief: 'pulse_brief',
 } as const
 
 /**
@@ -128,11 +130,12 @@ export interface UserBasicApi {
  */
 export interface SubscriptionApi {
     readonly id: number
-    /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+    /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), or 'pulse_brief' (scheduled Pulse product brief). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt, pulse_brief_config_id → pulse_brief).
      *
      * * `insight` - Insight
      * * `dashboard` - Dashboard
-     * * `ai_prompt` - AI prompt */
+     * * `ai_prompt` - AI prompt
+     * * `pulse_brief` - Pulse brief */
     readonly resource_type: ResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
@@ -155,6 +158,11 @@ export interface SubscriptionApi {
      * @nullable
      */
     prompt?: string | null
+    /**
+     * ID of the Pulse brief config this subscription delivers briefs for. Required when resource_type is 'pulse_brief'; must reference an enabled config in your team.
+     * @nullable
+     */
+    pulse_brief_config_id?: string | null
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -272,11 +280,12 @@ export const PatchedSubscriptionApiByweekdayItem = {
  */
 export interface PatchedSubscriptionApi {
     readonly id?: number
-    /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+    /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), or 'pulse_brief' (scheduled Pulse product brief). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt, pulse_brief_config_id → pulse_brief).
      *
      * * `insight` - Insight
      * * `dashboard` - Dashboard
-     * * `ai_prompt` - AI prompt */
+     * * `ai_prompt` - AI prompt
+     * * `pulse_brief` - Pulse brief */
     readonly resource_type?: ResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
@@ -299,6 +308,11 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     prompt?: string | null
+    /**
+     * ID of the Pulse brief config this subscription delivers briefs for. Required when resource_type is 'pulse_brief'; must reference an enabled config in your team.
+     * @nullable
+     */
+    pulse_brief_config_id?: string | null
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -485,7 +499,7 @@ export type SubscriptionsListParams = {
      */
     ordering?: string
     /**
-     * Filter by subscription resource: insight, dashboard export, or AI report.
+     * Filter by subscription resource: insight, dashboard export, AI report, or Pulse brief.
      */
     resource_type?: SubscriptionsListResourceType
     /**
@@ -505,6 +519,7 @@ export const SubscriptionsListResourceType = {
     AiPrompt: 'ai_prompt',
     Dashboard: 'dashboard',
     Insight: 'insight',
+    PulseBrief: 'pulse_brief',
 } as const
 
 export type SubscriptionsListTargetType = (typeof SubscriptionsListTargetType)[keyof typeof SubscriptionsListTargetType]

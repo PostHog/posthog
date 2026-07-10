@@ -22,7 +22,11 @@ from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.temporal.common.client import sync_connect
 
 from products.pulse.backend.models import BriefConfig, ProductBrief
-from products.pulse.backend.temporal.inputs import GENERATE_BRIEF_WORKFLOW_NAME, GenerateBriefWorkflowInputs
+from products.pulse.backend.temporal.inputs import (
+    GENERATE_BRIEF_WORKFLOW_NAME,
+    GenerateBriefWorkflowInputs,
+    pulse_brief_workflow_id,
+)
 
 PULSE_FEATURE_FLAG = "pulse"
 
@@ -235,12 +239,14 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                     ),
                     # Keyed on team+config (not brief id) so a second generate while one is
                     # running for the same focus hits WorkflowAlreadyStartedError.
-                    id=f"pulse-brief-{self.team_id}-{config.id if config else 'default'}",
+                    id=pulse_brief_workflow_id(self.team_id, str(config.id) if config else None),
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
                     execution_timeout=_WORKFLOW_EXECUTION_TIMEOUT,
                 )
             )
         except WorkflowAlreadyStartedError:
+            # Collision policy (shared with cleanup_skipped_pulse_brief in the scheduled
+            # subscription path): delete the stranded GENERATING row.
             try:
                 brief.delete()
             except Exception:
