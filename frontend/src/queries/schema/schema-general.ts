@@ -5110,6 +5110,14 @@ export interface DateRange {
      * Omit or empty for all days. Only applied by insight queries.
      */
     daysOfWeek?: (1 | 2 | 3 | 4 | 5 | 6 | 7)[] | null
+    /**
+     * Exclude the current, still-collecting period by clipping date_to to the
+     * end of the last complete interval (evaluated in the project timezone).
+     * No-op when the range contains no complete interval. Only applied by
+     * insight queries.
+     * @default false
+     */
+    excludeIncompletePeriods?: boolean | null
 }
 
 export interface ResolvedDateRangeResponse {
@@ -7403,6 +7411,72 @@ export const externalDataSources = [
     'Vapi',
     'Vespa',
     'Writesonic',
+    'Aiven',
+    'Aviator',
+    'Backblaze',
+    'Baseten',
+    'Browserbase',
+    'Cohere',
+    'DenoDeploy',
+    'DigitalOcean',
+    'E2B',
+    'Fintoc',
+    'Firecrawl',
+    'FireworksAI',
+    'FlyIo',
+    'Groq',
+    'GrowthBook',
+    'Gumloop',
+    'Hatchet',
+    'Helicone',
+    'Heroku',
+    'Hetzner',
+    'HeyGen',
+    'Infisical',
+    'Inngest',
+    'KapaAI',
+    'Kernel',
+    'Koyeb',
+    'LambdaLabs',
+    'LangSmith',
+    'Linode',
+    'LlamaCloud',
+    'Mem0',
+    'Metriport',
+    'Mintlify',
+    'MistralAI',
+    'Mono',
+    'Netlify',
+    'Northflank',
+    'OpenAI',
+    'Pinecone',
+    'PlatformSh',
+    'PromptingCompany',
+    'Qdrant',
+    'Render',
+    'Replicate',
+    'RetellAI',
+    'Roark',
+    'RunPod',
+    'ScaleAI',
+    'Scaleway',
+    'SigNoz',
+    'Sim',
+    'Skyvern',
+    'Slash',
+    'Synthesia',
+    'Telli',
+    'TerraApi',
+    'TriggerDev',
+    'Turso',
+    'TwelveLabs',
+    'Twenty',
+    'Unstructured',
+    'Upstash',
+    'Vellum',
+    'Vultr',
+    'Windmill',
+    'Zep',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

@@ -1,6 +1,5 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useMemo, useState } from 'react'
 
 import {
@@ -10,7 +9,6 @@ import {
     IconInfo,
     IconLeave,
     IconPeople,
-    IconPlusSmall,
     IconTarget,
     IconWarning,
     IconWebhooks,
@@ -23,16 +21,13 @@ import {
     LemonInput,
     LemonLabel,
     LemonSelect,
-    LemonTag,
     Spinner,
     Tooltip,
-    lemonToast,
 } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -781,9 +776,7 @@ function FrequencySection(): JSX.Element {
 function ConversionGoalSection(): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const waitUntilEventEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_WAIT_UNTIL_EVENT]
     const conversionEventFilters = workflow.conversion?.events?.[0]?.filters ?? {}
 
     return (
@@ -820,35 +813,19 @@ function ConversionGoalSection(): JSX.Element {
                 </div>
 
                 <div className="flex flex-col gap-1 items-start w-full">
-                    <LemonLabel>
-                        Detect conversion from events
-                        {!waitUntilEventEnabled && <LemonTag>Coming soon</LemonTag>}
-                    </LemonLabel>
-                    {waitUntilEventEnabled ? (
-                        <HogFlowEventFilters
-                            filtersKey="workflow-conversion-events"
-                            filters={conversionEventFilters}
-                            setFilters={(newFilters) =>
-                                setWorkflowValue('conversion', {
-                                    ...workflow.conversion,
-                                    events: newFilters ? [{ filters: newFilters }] : undefined,
-                                })
-                            }
-                            typeKey="workflow-conversion-event"
-                            buttonCopy="Add event"
-                        />
-                    ) : (
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconPlusSmall />}
-                            onClick={() => {
-                                posthog.capture('workflows workflow event conversion clicked')
-                                lemonToast.info('Event targeting coming soon!')
-                            }}
-                        >
-                            Add event conversion
-                        </LemonButton>
-                    )}
+                    <LemonLabel>Detect conversion from events</LemonLabel>
+                    <HogFlowEventFilters
+                        filtersKey="workflow-conversion-events"
+                        filters={conversionEventFilters}
+                        setFilters={(newFilters) =>
+                            setWorkflowValue('conversion', {
+                                ...workflow.conversion,
+                                events: newFilters ? [{ filters: newFilters }] : undefined,
+                            })
+                        }
+                        typeKey="workflow-conversion-event"
+                        buttonCopy="Add event"
+                    />
                 </div>
             </div>
         </div>
