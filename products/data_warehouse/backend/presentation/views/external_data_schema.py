@@ -5,7 +5,7 @@ from typing import Any, Optional, cast
 from django.db import transaction
 
 import structlog
-import temporalio
+import temporalio.service
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
@@ -63,6 +63,32 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
+
+# Message for sync actions hit on direct-query sources, which have no per-schema
+# Temporal schedules by design (supports_scheduled_sync is False).
+DIRECT_QUERY_NO_SCHEDULE_MESSAGE = "This table is queried directly from the source and cannot be synced on a schedule."
+
+
+def trigger_or_recreate_external_data_workflow(schema: ExternalDataSchema) -> None:
+    """Trigger the schema's sync schedule, (re)creating it first when it is missing.
+
+    A schema can exist without its Temporal schedule: source creation is not transactional,
+    so a request killed between committing the rows and creating the schedules leaves the
+    schema orphaned, and schemas resurrected after a soft-delete lose theirs too. Recreating
+    with an immediate trigger both runs the sync the user asked for and repairs the schedule
+    for future runs.
+    """
+    try:
+        trigger_external_data_workflow(schema)
+    except temporalio.service.RPCError as e:
+        if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
+            raise
+        logger.warning(
+            "Recreating missing external data sync schedule",
+            schema_id=str(schema.id),
+            team_id=schema.team_id,
+        )
+        sync_external_data_job_workflow(schema, create=True, should_sync=schema.should_sync)
 
 
 def source_supports_column_selection(source_type: str) -> bool:
@@ -1267,20 +1293,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
 
+        if not instance.source.supports_scheduled_sync:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": DIRECT_QUERY_NO_SCHEDULE_MESSAGE})
+
         if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
-        try:
-            trigger_external_data_workflow(instance)
-        except temporalio.service.RPCError as e:
-            logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
-
-        except Exception as e:
-            logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
-            raise
+        trigger_or_recreate_external_data_workflow(instance)
 
         instance.status = ExternalDataSchema.Status.RUNNING
         instance.save()
@@ -1289,6 +1311,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def resync(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
+
+        if not instance.source.supports_scheduled_sync:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": DIRECT_QUERY_NO_SCHEDULE_MESSAGE})
 
         if is_any_external_data_schema_paused(self.team_id):
             return Response(
@@ -1326,14 +1351,11 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         if cdc_resync:
             instance.initial_sync_complete = False
+
+        trigger_or_recreate_external_data_workflow(instance)
+
         instance.status = ExternalDataSchema.Status.RUNNING
         instance.save(update_fields=["status", "updated_at"])
-
-        try:
-            trigger_external_data_workflow(instance)
-        except temporalio.service.RPCError as e:
-            logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
-
         return Response(status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=True)

@@ -14,7 +14,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from rest_framework import status
-from temporalio.service import RPCError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -2877,6 +2877,96 @@ class TestCancelExternalDataSchema(APIBaseTest):
         assert response.status_code == 400
         assert response.json()["detail"] == "No running sync to cancel."
         mock_cancel.assert_not_called()
+
+
+_SCHEMA_VIEW_MODULE = "products.data_warehouse.backend.presentation.views.external_data_schema"
+
+
+class TestReloadAndResyncExternalDataSchema(APIBaseTest):
+    def _create_schema(self, access_method: str | None = None) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"stripe_secret_key": "123"},
+            **({"access_method": access_method} if access_method else {}),
+        )
+        return ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+    @parameterized.expand(["reload", "resync"])
+    def test_recreates_missing_schedule_and_marks_running(self, endpoint: str):
+        # A schema can exist without its Temporal schedule (interrupted source creation,
+        # resurrection after soft-delete). These endpoints used to swallow the NOT_FOUND and
+        # fake a Running status; they must now recreate the schedule with the schema's own
+        # should_sync, which also triggers the run the user asked for.
+        schema = self._create_schema()
+
+        with (
+            mock.patch(
+                f"{_SCHEMA_VIEW_MODULE}.trigger_external_data_workflow",
+                side_effect=RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
+            ),
+            mock.patch(f"{_SCHEMA_VIEW_MODULE}.sync_external_data_job_workflow") as mock_sync,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/{endpoint}/"
+            )
+
+        assert response.status_code == 200, response.content
+        mock_sync.assert_called_once()
+        args, kwargs = mock_sync.call_args
+        assert args[0].id == schema.id
+        assert kwargs == {"create": True, "should_sync": True}
+
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.RUNNING
+        if endpoint == "resync":
+            assert schema.sync_type_config.get("reset_pipeline") is True
+
+    @parameterized.expand(["reload", "resync"])
+    def test_rejects_direct_query_source(self, endpoint: str):
+        # Direct-query sources have no per-schema schedules by design, so triggering one is
+        # always a NOT_FOUND; these endpoints used to report 200 and a phantom Running status.
+        schema = self._create_schema(access_method=ExternalDataSource.AccessMethod.DIRECT)
+
+        with mock.patch(f"{_SCHEMA_VIEW_MODULE}.trigger_external_data_workflow") as mock_trigger:
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/{endpoint}/"
+            )
+
+        assert response.status_code == 400, response.content
+        mock_trigger.assert_not_called()
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.COMPLETED
+
+    @parameterized.expand(["reload", "resync"])
+    def test_does_not_mark_running_when_trigger_fails(self, endpoint: str):
+        # A Temporal failure other than a missing schedule must not leave the schema showing
+        # Running with no run started, and must surface as an error instead of a 200.
+        schema = self._create_schema()
+
+        client = HttpClient(raise_request_exception=False)
+        client.force_login(self.user)
+
+        with (
+            mock.patch(
+                f"{_SCHEMA_VIEW_MODULE}.trigger_external_data_workflow",
+                side_effect=RPCError("temporal unavailable", RPCStatusCode.UNAVAILABLE, b""),
+            ),
+            mock.patch(f"{_SCHEMA_VIEW_MODULE}.sync_external_data_job_workflow") as mock_sync,
+        ):
+            response = client.post(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/{endpoint}/")
+
+        assert response.status_code == 500, response.content
+        mock_sync.assert_not_called()
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.COMPLETED
 
 
 class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
