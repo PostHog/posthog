@@ -453,13 +453,13 @@ jobs:
                   HOME: /root
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
                   MODE: ${{ needs.select-stories.outputs.mode }}
-                  AFFECTED_FILES: ${{ needs.select-stories.outputs.affected_files }}
+                  AFFECTED_FILES_JSON: ${{ needs.select-stories.outputs.affected_files_json }}
               run: |
                   if [ "$MODE" = "selective" ]; then
                       # test-storybook is jest-based; positional path args filter the run to
                       # only those story files before Jest distributes them across shards.
-                      # shellcheck disable=SC2086
-                      pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} -- $AFFECTED_FILES
+                      mapfile -d '' -t AFFECTED_FILES < <(jq -j '.[] | ., "\u0000"' <<< "$AFFECTED_FILES_JSON")
+                      pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} -- "${AFFECTED_FILES[@]}"
                   else
                       pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
                   fi
@@ -744,7 +744,7 @@ jobs:
             mode: ${{ steps.classify.outputs.mode }}
             matrix: ${{ steps.classify.outputs.matrix }}
             should_run: ${{ steps.classify.outputs.should_run }}
-            affected_files: ${{ steps.classify.outputs.affected_files }}
+            affected_files_json: ${{ steps.classify.outputs.affected_files_json }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -798,7 +798,7 @@ jobs:
                   fall_back_to_full() {
                       echo "mode=full" >> "$GITHUB_OUTPUT"
                       echo "should_run=true" >> "$GITHUB_OUTPUT"
-                      echo "affected_files=" >> "$GITHUB_OUTPUT"
+                      echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
                   }
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection-result.json ]]; then
@@ -816,24 +816,28 @@ jobs:
 
                   COUNT=$(jq -r '.affected_story_count' /tmp/selection-result.json)
                   if [[ "$COUNT" -eq 0 ]]; then
-                      # Selective mode found zero affected stories — skip visual-regression entirely.
-                      echo "mode=selective" >> "$GITHUB_OUTPUT"
-                      echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
-                      echo "should_run=false" >> "$GITHUB_OUTPUT"
-                      echo "affected_files=" >> "$GITHUB_OUTPUT"
-                      echo "Selective mode: 0 affected stories, skipping visual-regression"
+                      if [[ "${{ github.event.pull_request.draft }}" == "true" ]]; then
+                          echo "mode=selective" >> "$GITHUB_OUTPUT"
+                          echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+                          echo "should_run=false" >> "$GITHUB_OUTPUT"
+                          echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
+                          echo "Selective mode: 0 affected stories on a draft, skipping visual-regression"
+                      else
+                          echo "::warning::selector found no affected stories on a ready PR; running the full visual-regression matrix"
+                          fall_back_to_full
+                      fi
                       exit 0
                   fi
 
                   # Size the narrowed matrix from the estimated affected workload.
-                  AFFECTED_FILES=$(jq -r '.affected_stories | join(" ")' /tmp/selection-result.json)
+                  AFFECTED_FILES_JSON=$(jq -c '.affected_stories' /tmp/selection-result.json)
                   SHARDS=$(jq -r '[.suggested_shards, 16] | min' /tmp/selection-result.json)
                   MATRIX=$(jq -cn --argjson count "$SHARDS" \
                       '{include: [range(1; $count + 1) | {browser: "chromium", shard_count: $count, shard: .}]}')
                   echo "mode=selective" >> "$GITHUB_OUTPUT"
                   echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
                   echo "should_run=true" >> "$GITHUB_OUTPUT"
-                  echo "affected_files=$AFFECTED_FILES" >> "$GITHUB_OUTPUT"
+                  echo "affected_files_json=$AFFECTED_FILES_JSON" >> "$GITHUB_OUTPUT"
                   echo "Selective mode: $COUNT affected story files across $SHARDS shard(s)"
 
             - name: Write summary
