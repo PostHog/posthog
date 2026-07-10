@@ -102,14 +102,16 @@ jobs:
             # blob:none, the post-fetch `git checkout` lazy-fetches every blob in HEAD
             # and the per-blob credential lookup intermittently fails with "could not
             # read Username for github.com" (e.g. #59779 on 2026-05-23, blocked merge
-            # until the job was retried). Materializing only the one file this job
-            # reads collapses the lazy fetch to a handful of blobs.
+            # until the job was retried). Materializing only the files this job reads
+            # (plus the local paths-filter action, which must exist on disk to run)
+            # collapses the lazy fetch to a handful of blobs.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
                   clean: false
                   sparse-checkout: |
+                      .github/actions/paths-filter
                       .github/clickhouse-versions.json
                       docker-compose.base.yml
                   sparse-checkout-cone-mode: false
@@ -121,7 +123,7 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: changes
               if: github.event_name == 'pull_request'
               with:
@@ -146,7 +148,7 @@ jobs:
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the ~25-min E2E stack for that bot push is pure waste;
             # the `playwright_tests` aggregator treats the resulting skip as success. Key
-            # off the push delta (this push's commits), not the whole-PR diff dorny reports,
+            # off the push delta (this push's commits), not the whole-PR diff the filter reports,
             # so it fires even when the PR also carries real code changes.
             - name: Detect Visual Review baseline-only push
               id: baseline_push
