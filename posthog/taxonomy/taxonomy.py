@@ -15,6 +15,11 @@ class CoreFilterDefinition(TypedDict):
     system: NotRequired[bool]
     type: NotRequired[Literal["String", "Numeric", "DateTime", "Boolean"]]
     ignored_in_assistant: NotRequired[bool]
+    # Hide from TaxonomicFilter search results unless the query exactly matches the
+    # event name or label (case-insensitive). Use for legacy/deprecated definitions
+    # that would otherwise clutter fuzzy matches (e.g. searching "mcp" surfacing every
+    # retired MCP event). They stay reachable by typing the full name.
+    only_shown_on_exact_search: NotRequired[bool]
     virtual: NotRequired[bool]
     used_for_debug: NotRequired[bool]
     primary_property: NotRequired[str]
@@ -338,46 +343,55 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP tool call (legacy)",
             "description": "LEGACY — do not use. Superseded by `$mcp_tool_call`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical tool calls before that date.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         "mcp_tools_list": {
             "label": "MCP tools listed (legacy)",
             "description": "LEGACY — do not use. Superseded by `$mcp_tools_list`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         "mcp_initialize": {
             "label": "MCP initialize (legacy)",
             "description": "LEGACY — do not use. Superseded by `$mcp_initialize`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         "mcp_resources_list": {
             "label": "MCP resources listed (legacy)",
             "description": "LEGACY — do not use. Superseded by `$mcp_resources_list`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         "mcp_resource_read": {
             "label": "MCP resource read (legacy)",
             "description": "LEGACY — do not use. Superseded by `$mcp_resource_read`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         "mcp_prompts_list": {
             "label": "MCP prompts listed (legacy)",
             "description": "LEGACY — do not use. Superseded by `$mcp_prompts_list`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         "mcp_prompt_get": {
             "label": "MCP prompt fetched (legacy)",
             "description": "LEGACY — do not use. Superseded by `$mcp_prompt_get`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         "mcp_custom": {
             "label": "MCP custom event (legacy)",
             "description": "LEGACY — do not use. Superseded by `$mcp_custom`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         "posthog_identify": {
             "label": "MCP identify (legacy)",
             "description": "LEGACY — do not use. Superseded by the canonical `$identify` emitted by @posthog/mcp, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         # Oldest MCP events — LEGACY, DO NOT USE. Predate the `$mcp_*` SDK. The in-tree names have
         # stopped; the mcpcat `mcp tool call` / `mcp tool response` still trickle in from the
@@ -386,31 +400,37 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP init (legacy)",
             "description": "LEGACY — do not use. MCP initialization event from the retired mcpcat library. Superseded by `$mcp_initialize`. Query this only for historical data before 2026-06-16.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         "mcp_mcpcat:identify": {
             "label": "MCP identify — mcpcat (legacy)",
             "description": "LEGACY — do not use. Identify event from the retired mcpcat library. Superseded by the canonical `$identify` emitted by @posthog/mcp. Query this only for historical data before 2026-06-16.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         "mcp_posthog:identify": {
             "label": "MCP identify — in-tree (legacy)",
             "description": "LEGACY — do not use. Identify event from PostHog's retired in-tree MCP analytics path. Superseded by the canonical `$identify` emitted by @posthog/mcp. Query this only for historical data before 2026-06-16.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         "mcp_tool_called": {
             "label": "MCP tool called — in-tree (legacy)",
             "description": "LEGACY — do not use. Tool-call event from PostHog's retired in-tree MCP analytics path. Superseded by `$mcp_tool_call`. Query this only for historical data before 2026-06-16.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         "mcp tool call": {
             "label": "MCP tool call — mcpcat (legacy)",
             "description": "LEGACY — do not use. Tool-call event from the external mcpcat integration (still trickling in until that integration is switched off). Superseded by `$mcp_tool_call`, which covers all traffic from 2026-06-16 on. Query this only for older historical data.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         "mcp tool response": {
             "label": "MCP tool response — mcpcat (legacy)",
             "description": "LEGACY — do not use. Tool-response event from the external mcpcat integration (still trickling in until that integration is switched off). Responses now ride inline on `$mcp_tool_call` (under `$mcp_response`). Query this only for older historical data.",
             "ignored_in_assistant": True,
+            "only_shown_on_exact_search": True,
         },
         "mcp project switched": {
             "label": "MCP project switched",

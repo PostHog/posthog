@@ -4971,6 +4971,10 @@ export interface CoreFilterDefinition {
     used_for_debug?: boolean
     /** Name of a single property on events of this name that UIs should display alongside the event. */
     primary_property?: string
+    /** Hide from TaxonomicFilter search results unless the query exactly matches the name or
+     *  label (case-insensitive). Used for legacy/deprecated definitions so they don't clutter
+     *  fuzzy matches, while staying reachable by typing the full name. */
+    only_shown_on_exact_search?: boolean
 }
 
 export interface TileParams {

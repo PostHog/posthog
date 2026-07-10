@@ -50,7 +50,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
-import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { filterExactSearchOnlyItems, getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CohortType, EventDefinition, GroupTypeIndex, PropertyType } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
@@ -390,21 +390,30 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     const existingResults = values.remoteItems.results
                     cache.abortController = null
 
+                    // Drop legacy/deprecated definitions that only surface on an exact query
+                    // (mirrors the rebuild's fetchTaxonomicListPage). Narrow legacy searches
+                    // return a single page, so filtering here doesn't disturb offset mapping.
+                    const rawResults: any[] = response.results || response
+                    const filteredResults = filterExactSearchOnlyItems(
+                        rawResults,
+                        (item) => values.group?.getName?.(item) ?? (item as { name?: string })?.name,
+                        listGroupType,
+                        searchQuery
+                    )
+                    const removedCount = rawResults.length - filteredResults.length
+                    const rawCount =
+                        response.count ||
+                        (Array.isArray(response) ? response.length : 0) ||
+                        (response.results || []).length
+
                     return {
-                        results: appendAtIndex(
-                            queryChanged ? [] : existingResults,
-                            response.results || response,
-                            offset
-                        ),
+                        results: appendAtIndex(queryChanged ? [] : existingResults, filteredResults, offset),
                         searchQuery,
                         queryChanged,
                         // Only the initial page times the search; "load more" (offset > 0)
                         // would otherwise overwrite it with pagination latency.
                         loadDurationMs: offset === 0 ? Math.floor(performance.now() - start) : undefined,
-                        count:
-                            response.count ||
-                            (Array.isArray(response) ? response.length : 0) ||
-                            (response.results || []).length,
+                        count: Math.max(0, rawCount - removedCount),
                         expandedCount: expandedCountResponse?.count,
                     }
                 },

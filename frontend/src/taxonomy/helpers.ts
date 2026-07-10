@@ -119,6 +119,33 @@ export function getCoreFilterDefinition(
     return null
 }
 
+/**
+ * Drop definitions flagged `only_shown_on_exact_search` (legacy/deprecated events) from a page
+ * of results unless the trimmed query exactly matches the item's name or label. Keeps a fuzzy
+ * search like "mcp" from surfacing every retired MCP variant, while typing the full name still
+ * finds them. Applied at the data-fetch layer of both TaxonomicFilter variants — the legacy
+ * `infiniteListLogic` and the rebuild's `fetchTaxonomicListPage` — so keep the two in sync.
+ */
+export function filterExactSearchOnlyItems<T>(
+    items: T[],
+    getName: (item: T) => string | null | undefined,
+    type: TaxonomicFilterGroupType,
+    searchQuery: string
+): T[] {
+    const query = searchQuery.trim().toLowerCase()
+    return items.filter((item) => {
+        const name = getName(item)
+        const definition = getCoreFilterDefinition(name, type)
+        if (!definition?.only_shown_on_exact_search) {
+            return true
+        }
+        if (!query) {
+            return false
+        }
+        return query === (name ?? '').toString().toLowerCase() || query === definition.label.trim().toLowerCase()
+    })
+}
+
 export function getFirstFilterTypeFor(propertyKey: string): TaxonomicFilterGroupType | null {
     for (const type of Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP) as CoreFilterDefinitionsGroup[]) {
         if (propertyKey in CORE_FILTER_DEFINITIONS_BY_GROUP[type]) {

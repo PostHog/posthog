@@ -10,6 +10,8 @@ import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { ListStorage, TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
+import { filterExactSearchOnlyItems } from '~/taxonomy/helpers'
+
 export interface FetchTaxonomicPageParams {
     group: TaxonomicFilterGroup
     searchQuery: string
@@ -83,8 +85,18 @@ export async function fetchTaxonomicListPage({
             : Promise.resolve(null),
     ])
 
-    const results = primary?.results ?? primary ?? []
-    const count = primary?.count ?? (Array.isArray(primary) ? primary.length : results.length)
+    const rawResults = primary?.results ?? primary ?? []
+    const rawCount = primary?.count ?? (Array.isArray(primary) ? primary.length : rawResults.length)
+
+    // Drop legacy/deprecated definitions that only surface on an exact query (mirrors the
+    // legacy infiniteListLogic loader). This fetches a single page, so no offset mapping to keep.
+    const results = filterExactSearchOnlyItems(
+        rawResults,
+        (item: { name?: string }) => group.getName?.(item) ?? item?.name,
+        group.type,
+        searchQuery
+    )
+    const count = Math.max(0, rawCount - (rawResults.length - results.length))
 
     return {
         results,
