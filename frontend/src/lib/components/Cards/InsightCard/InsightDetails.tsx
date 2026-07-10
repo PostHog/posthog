@@ -126,21 +126,32 @@ function OverrideNote({ source, children }: { source: OverrideSource; children: 
     )
 }
 
-// Match by identity (type/key/operator/value) rather than deep equality: the override round-trips
-// through the backend into the merged query and picks up normalized fields the raw override lacks.
-function samePropertyFilters(a: AnyPropertyFilter[], b: AnyPropertyFilter[]): boolean {
-    const identity = (f: AnyPropertyFilter): string =>
-        JSON.stringify([f.type ?? 'event', f.key, (f as { operator?: string }).operator ?? 'exact', f.value ?? null])
-    return a.length === b.length && a.every((f, i) => identity(f) === identity(b[i]))
+// The override round-trips through the backend into the merged query and picks up normalized fields
+// the raw override lacks, so a deep-equal fails — compare on the fields that actually identify a filter.
+function isSamePropertyFilter(a: AnyPropertyFilter, b: AnyPropertyFilter): boolean {
+    const operatorOf = (f: AnyPropertyFilter): string | undefined => ('operator' in f ? f.operator : undefined)
+    return (
+        (a.type ?? 'event') === (b.type ?? 'event') &&
+        a.key === b.key &&
+        (operatorOf(a) ?? 'exact') === (operatorOf(b) ?? 'exact') &&
+        JSON.stringify(a.value ?? null) === JSON.stringify(b.value ?? null)
+    )
 }
+
+function samePropertyFilters(a: AnyPropertyFilter[], b: AnyPropertyFilter[]): boolean {
+    return a.length === b.length && a.every((f, i) => isSamePropertyFilter(f, b[i]))
+}
+
+// Matches the shape `convertPropertiesToPropertyGroup` accepts: a group, a flat list, or nothing.
+type PropertiesInput = PropertyGroupFilter | AnyPropertyFilter[] | null | undefined
 
 // The query returned for a dashboard tile already has the override's properties ANDed in (as the
 // trailing subgroup/tail), so pull that part out to attribute it rather than list it twice.
 function splitOutOverrideProperties(
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null,
+    properties: PropertiesInput,
     overrideProperties: AnyPropertyFilter[]
-): { base: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null; overrideFound: boolean } {
-    if (!properties) {
+): { base: PropertiesInput; overrideFound: boolean } {
+    if (!properties || overrideProperties.length === 0) {
         return { base: properties, overrideFound: false }
     }
     if (Array.isArray(properties)) {
@@ -438,22 +449,19 @@ export function PropertiesSummary({
     properties,
     override,
 }: {
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null
+    properties: PropertiesInput
     override?: { properties: AnyPropertyFilter[]; source: OverrideSource } | null
 }): JSX.Element {
-    const hasOverride = !!override && override.properties.length > 0
-    const { base, overrideFound } = hasOverride
-        ? splitOutOverrideProperties(properties, override!.properties)
-        : { base: properties, overrideFound: false }
+    const { base, overrideFound } = splitOutOverrideProperties(properties, override?.properties ?? [])
     return (
         <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
             <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(base)} />
-            {/* Guards against showing the override twice when the split above fails to match. */}
-            {hasOverride && overrideFound && (
+            {/* overrideFound means we removed the override from the list above, so show it once here. */}
+            {override && overrideFound && (
                 <>
-                    <OverrideNote source={override!.source}>filters added on top:</OverrideNote>
+                    <OverrideNote source={override.source}>filters added on top:</OverrideNote>
                     <CompactUniversalFiltersDisplay
-                        groupFilter={convertPropertiesToPropertyGroup(override!.properties)}
+                        groupFilter={convertPropertiesToPropertyGroup(override.properties)}
                     />
                 </>
             )}
