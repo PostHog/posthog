@@ -1887,6 +1887,9 @@ class ExperimentService:
 
         # Phase 1 — unlocked: fail obviously-invalid requests before the expensive snapshot build.
         self._validate_freeze_exposure_state(experiment)
+        # Separate checkpoint so scan_ms measures only the ClickHouse scan — the guard above can
+        # lazy-load the flag row, and folding that into scan_ms would misattribute it.
+        scan_started_at = time.monotonic()
 
         # 1. Snapshot the actually-exposed set (bounded by time + count; raises if too large to freeze in-request).
         exposed_person_uuids = self._fetch_exposed_person_uuids(experiment)
@@ -1986,7 +1989,7 @@ class ExperimentService:
             team_id=self.team.pk,
             experiment_id=experiment.pk,
             exposed_count=len(exposed_person_uuids),
-            scan_ms=round((scan_done_at - freeze_started_at) * 1000),
+            scan_ms=round((scan_done_at - scan_started_at) * 1000),
             resolve_ms=round((resolve_done_at - scan_done_at) * 1000),
             cohort_build_ms=round((cohort_build_done_at - resolve_done_at) * 1000),
             flag_save_ms=round((flag_save_done_at - cohort_build_done_at) * 1000),
