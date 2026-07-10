@@ -126,8 +126,8 @@ const sampleStats: SurveyStatsData = {
         'survey dismissed': { total_count: 1830, unique_persons: 1700 },
     },
     rates: {
-        response_rate: 0.255,
-        dismissal_rate: 0.217,
+        response_rate: 25.5,
+        dismissal_rate: 21.7,
     },
     _posthogUrl: 'https://us.posthog.com/project/1/surveys/survey-1',
 }

@@ -104,6 +104,14 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     "EOF occurred in violation of protocol",
     "Connection reset by peer",
     "Connection aborted",
+    # The egress proxy answered our CONNECT with a transient gateway status
+    # (`http.client` raises `OSError("Tunnel connection failed: <code> ...")`).
+    # 502/503/504 are the proxy or its upstream being briefly unreachable or
+    # overloaded, so a fresh attempt recovers. We match only these gateway
+    # codes, not deterministic proxy responses like 407 (auth required).
+    "Tunnel connection failed: 502",
+    "Tunnel connection failed: 503",
+    "Tunnel connection failed: 504",
 )
 
 

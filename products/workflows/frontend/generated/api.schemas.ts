@@ -567,6 +567,10 @@ export interface MessageAssetApi {
     invocation_id: string
     /** The email step (action node) within the workflow that sent this email. */
     action_id: string
+    /** The workflow id that sent this email — used to navigate from a person's Emails tab back into the originating workflow. */
+    function_id: string
+    /** Human-readable workflow name for display. Empty when the workflow has been deleted; clients should fall back to function_id in that case. */
+    function_name: string
     /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
     parent_run_id: string
     /** Asset kind. Currently always 'email'. */
@@ -859,6 +863,15 @@ export interface WorkflowStatsRowApi {
  */
 export type BlastRadiusRequestApiFilters = { [key: string]: unknown }
 
+/**
+ * * `email` - email
+ */
+export type DedupeKeyEnumApi = (typeof DedupeKeyEnumApi)[keyof typeof DedupeKeyEnumApi]
+
+export const DedupeKeyEnumApi = {
+    Email: 'email',
+} as const
+
 export interface BlastRadiusRequestApi {
     /** Property filters to apply */
     filters: BlastRadiusRequestApiFilters
@@ -867,6 +880,10 @@ export interface BlastRadiusRequestApi {
      * @nullable
      */
     group_type_index?: number | null
+    /** When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.
+     *
+     * * `email` - email */
+    dedupe_key?: DedupeKeyEnumApi | null
 }
 
 export interface BlastRadiusApi {
@@ -876,6 +893,10 @@ export interface BlastRadiusApi {
     total: number
     /** Maximum allowed audience size for batch triggers for this team. */
     limit: number
+    /** The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.
+     *
+     * * `email` - email */
+    dedupe_key: DedupeKeyEnumApi | null
 }
 
 export type HogFlowTemplatesListParams = {

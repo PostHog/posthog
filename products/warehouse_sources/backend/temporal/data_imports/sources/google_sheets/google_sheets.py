@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import close_old_connections
 
 import gspread
+import requests
 from cachetools import Cache, TTLCache, cached
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
@@ -179,8 +180,25 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
     while True:
         try:
             return execute()
-        except gspread.exceptions.APIError as e:
-            if not _is_retryable_api_error(e) or attempts >= max_attempts:
+        except (
+            gspread.exceptions.APIError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            requests.exceptions.ChunkedEncodingError,
+        ) as e:
+            # A dropped connection or read timeout is raised by `requests` before gspread can wrap
+            # it in an APIError, so the status-code check never sees it, and the tracked adapter's
+            # transport retries are already spent by the time it reaches us. It's a transient
+            # network blip, so retry inline like a 5xx; APIErrors still gate on their status. Once
+            # the budget is spent, let it bubble so Temporal retries the activity.
+            #
+            # `ChunkedEncodingError` is listed separately because a connection reset mid-download
+            # surfaces as one: `requests` catches the underlying urllib3 `ProtocolError` while
+            # streaming the response body and re-raises it as `ChunkedEncodingError`, which is a
+            # sibling of `ConnectionError` in the `requests` hierarchy (not a subclass), so the
+            # `ConnectionError` entry above would not catch it.
+            is_retryable = _is_retryable_api_error(e) if isinstance(e, gspread.exceptions.APIError) else True
+            if not is_retryable or attempts >= max_attempts:
                 raise
 
             jitter = random.uniform(-jitter_in_seconds, jitter_in_seconds)

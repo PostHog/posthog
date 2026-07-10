@@ -207,7 +207,13 @@ def test_batcher_splits_buffered_list_items():
         ("int64", pa.array([1, 2, 3], type=pa.int64()), 24),
         ("bool_subbyte_is_zero", pa.array([True, False, True], type=pa.bool_()), 0),
         ("nulls_counted_as_zero_payload", pa.array([None, "abc"], type=pa.string()), 3 + 8),
-        ("unsupported_nested_is_zero", pa.array([{"x": 1}], type=pa.struct([("x", pa.int64())])), 0),
+        # Struct now recurses into child fields (int64: 1*8=8; string "aa": 2 value + 1*4 offset = 6) so a
+        # nested Mongo-style document under `data` is bounded by the byte split instead of counting as 0.
+        (
+            "struct_counts_child_payload",
+            pa.array([{"x": 1, "s": "aa"}], type=pa.struct([("x", pa.int64()), ("s", pa.string())])),
+            8 + 6,
+        ),
     ]
 )
 def test_column_payload_bytes(_name: str, array: pa.Array, expected: int):

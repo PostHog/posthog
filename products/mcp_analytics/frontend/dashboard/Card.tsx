@@ -3,14 +3,17 @@ import { Card as QuillCard, CardContent, CardHeader, CardTitle } from '@posthog/
 export function Card({
     children,
     className,
+    flush = false,
     title,
 }: {
     children: React.ReactNode
     className?: string
+    /** Let a full-bleed child (table, chart) reach the card's edges, with no header-to-content gap. */
+    flush?: boolean
     title?: string
 }): JSX.Element {
     return (
-        <QuillCard size="sm" className={className}>
+        <QuillCard size="sm" flush={flush} className={className}>
             {title ? (
                 <CardHeader>
                     <CardTitle>{title}</CardTitle>

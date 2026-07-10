@@ -79,15 +79,6 @@ pub enum Stage1State {
         /// ([`i64::MAX`] when empty).
         earliest_eviction_at_ms: i64,
     },
-    /// A person-property filter: last-write-wins, tie-broken by event-time argMax
-    /// (`argMax(matches, (_timestamp, _offset))`).
-    PersonProperty {
-        matches: bool,
-        /// The argMax key's first component.
-        last_updated_at_ms: i64,
-        /// The argMax key's tiebreaker second component.
-        last_updated_offset: i64,
-    },
 }
 
 impl Stage1State {
@@ -96,13 +87,13 @@ impl Stage1State {
             Self::BehavioralSingle { .. } => StateVariant::BehavioralSingle,
             Self::BehavioralDailyBuckets { .. } => StateVariant::BehavioralDailyBuckets,
             Self::BehavioralCompressedHistory { .. } => StateVariant::BehavioralCompressedHistory,
-            Self::PersonProperty { .. } => StateVariant::PersonProperty,
         }
     }
 
-    /// The eviction deadline (epoch ms) for this state, or [`None`] for `PersonProperty`, which is
-    /// last-write-wins and never time-evicts. A behavioral deadline may be [`i64::MAX`] (permanent
-    /// membership).
+    /// The eviction deadline (epoch ms) for this state. Every `cf_behavioral` variant is behavioral
+    /// and time-bounded (person-property membership lives in `cf_person_records`, which is
+    /// sweep-invariant), so this is always `Some`; the deadline may be [`i64::MAX`] (permanent
+    /// membership). Kept `Option`-returning so the sweep-scheduling call sites read uniformly.
     pub fn eviction_deadline(&self) -> Option<i64> {
         match self {
             Self::BehavioralSingle {
@@ -117,7 +108,6 @@ impl Stage1State {
                 earliest_eviction_at_ms,
                 ..
             } => Some(*earliest_eviction_at_ms),
-            Self::PersonProperty { .. } => None,
         }
     }
 }
@@ -150,9 +140,22 @@ impl AppliedOffsets {
             self.record(partition, offset);
         }
     }
+
+    /// The `(source_partition, high_water_offset)` pairs in ascending partition order — the canonical
+    /// order a binary codec serializes them in.
+    pub fn entries(&self) -> Vec<(i32, i64)> {
+        self.0.iter().map(|(&p, &o)| (p, o)).collect()
+    }
+
+    /// Rebuild from entries already known to be sorted-distinct by partition (a codec verifies this
+    /// before calling). The `BTreeMap` re-imposes the ordering regardless, so a caller that violates
+    /// the precondition loses only canonicality, not correctness.
+    pub fn from_sorted_entries(entries: Vec<(i32, i64)>) -> Self {
+        Self(entries.into_iter().collect())
+    }
 }
 
-/// The persisted `cf_stage1` value: a [`Stage1State`] plus replay-dedup offsets.
+/// The persisted `cf_behavioral` value: a [`Stage1State`] plus replay-dedup offsets.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StatefulRecord {
     pub state: Stage1State,
@@ -269,12 +272,14 @@ mod tests {
         )
     }
 
-    fn person() -> StatefulRecord {
+    /// A second behavioral record with distinct offsets, used by the dedup-routing tests (whose
+    /// invariants are variant-agnostic — they exercise `applied_offsets` / `redirect_dedup` only).
+    fn dedup_record() -> StatefulRecord {
         StatefulRecord::new(
-            Stage1State::PersonProperty {
-                matches: false,
-                last_updated_at_ms: 1_700_000_000_123,
-                last_updated_offset: 99,
+            Stage1State::BehavioralSingle {
+                has_match: true,
+                last_event_at_ms: 1_700_000_000_123,
+                earliest_eviction_at_ms: i64::MAX,
             },
             applied(&[(3, 100)]),
         )
@@ -306,7 +311,7 @@ mod tests {
 
     #[test]
     fn round_trips_every_variant() {
-        for record in [behavioral(), person(), daily(), compressed()] {
+        for record in [behavioral(), dedup_record(), daily(), compressed()] {
             let bytes = record.encode();
             assert_eq!(StatefulRecord::decode(&bytes).unwrap(), record);
         }
@@ -573,10 +578,10 @@ mod tests {
     #[test]
     fn is_replay_for_routes_by_origin() {
         let mut record = StatefulRecord::new(
-            Stage1State::PersonProperty {
-                matches: true,
-                last_updated_at_ms: 1,
-                last_updated_offset: 2,
+            Stage1State::BehavioralSingle {
+                has_match: true,
+                last_event_at_ms: 1,
+                earliest_eviction_at_ms: i64::MAX,
             },
             applied(&[(5, 100)]),
         );
@@ -599,10 +604,10 @@ mod tests {
     #[test]
     fn record_for_routes_by_origin_and_creates_entries_on_demand() {
         let mut record = StatefulRecord::new(
-            Stage1State::PersonProperty {
-                matches: true,
-                last_updated_at_ms: 1,
-                last_updated_offset: 2,
+            Stage1State::BehavioralSingle {
+                has_match: true,
+                last_event_at_ms: 1,
+                earliest_eviction_at_ms: i64::MAX,
             },
             AppliedOffsets::default(),
         );
@@ -626,7 +631,6 @@ mod tests {
     #[test]
     fn variant_reports_the_state_kind() {
         assert_eq!(behavioral().state.variant(), StateVariant::BehavioralSingle);
-        assert_eq!(person().state.variant(), StateVariant::PersonProperty);
         assert_eq!(
             daily().state.variant(),
             StateVariant::BehavioralDailyBuckets
@@ -638,7 +642,7 @@ mod tests {
     }
 
     #[test]
-    fn eviction_deadline_is_some_for_behavioral_and_none_for_person_property() {
+    fn eviction_deadline_is_some_for_every_behavioral_variant() {
         assert_eq!(
             behavioral().state.eviction_deadline(),
             Some(1_700_000_000_000 + 7 * 86_400 * 1000),
@@ -651,7 +655,6 @@ mod tests {
             compressed().state.eviction_deadline(),
             Some(1_700_000_000_000 + 365 * 86_400 * 1000),
         );
-        assert_eq!(person().state.eviction_deadline(), None);
 
         // A permanent membership reports the i64::MAX sentinel.
         let permanent = Stage1State::BehavioralSingle {

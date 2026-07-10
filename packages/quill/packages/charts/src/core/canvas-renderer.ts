@@ -2,7 +2,15 @@ import { type ScaleLinear, type ScaleLogarithmic } from 'd3-scale'
 
 import { barColorAt, mixColors } from './color-utils'
 import { yTickCountForHeight } from './scales'
-import type { BarFillStyle, BoxRect, ChartDimensions, ChartDrawArgs, ChartTheme, DrawHoverResult, ResolvedSeries } from './types'
+import type {
+    BarFillStyle,
+    BoxRect,
+    ChartDimensions,
+    ChartDrawArgs,
+    ChartTheme,
+    DrawHoverResult,
+    ResolvedSeries,
+} from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -599,12 +607,19 @@ export function resolveAxisLineColor(theme: ChartTheme): string | undefined {
 
 export interface DrawAxesOptions {
     axisColor?: string
+    /** Stroke the bottom (x) baseline. Default true. */
+    xLine?: boolean
+    /** Stroke the left (y) baseline. Default true. */
+    yLine?: boolean
+    /** Also stroke the right plot edge — for charts with a right-positioned y-axis. Gated on `yLine`. */
+    rightAxis?: boolean
 }
 
 /** Draws just the L-shaped axis baselines — the left value axis and the bottom category axis —
  *  without any interior grid lines. For charts that want axis framing but a clean, grid-free plot. */
 export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): void {
     const { ctx, dimensions } = drawCtx
+    const { xLine = true, yLine = true } = options
     ctx.strokeStyle = options.axisColor ?? 'rgba(0, 0, 0, 0.15)'
     ctx.lineWidth = 1
     ctx.setLineDash([])
@@ -612,16 +627,27 @@ export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): v
     // zero-value grid line and with drawTickMarks' ticks.
     const axisX = snapToPixel(dimensions.plotLeft)
     const axisY = snapToPixel(dimensions.plotTop + dimensions.plotHeight)
-    // Route both strokes through the shared, snapped corner (axisX, axisY) so the L meets cleanly
-    // even when plotLeft/plotHeight are fractional.
-    ctx.beginPath()
-    ctx.moveTo(axisX, dimensions.plotTop)
-    ctx.lineTo(axisX, axisY)
-    ctx.stroke()
-    ctx.beginPath()
-    ctx.moveTo(axisX, axisY)
-    ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, axisY)
-    ctx.stroke()
+    const rightX = snapToPixel(dimensions.plotLeft + dimensions.plotWidth)
+    // Route the strokes through shared, snapped corners so the lines meet cleanly even when the
+    // plot edges are fractional.
+    if (yLine) {
+        ctx.beginPath()
+        ctx.moveTo(axisX, dimensions.plotTop)
+        ctx.lineTo(axisX, axisY)
+        ctx.stroke()
+    }
+    if (xLine) {
+        ctx.beginPath()
+        ctx.moveTo(axisX, axisY)
+        ctx.lineTo(rightX, axisY)
+        ctx.stroke()
+    }
+    if (yLine && options.rightAxis) {
+        ctx.beginPath()
+        ctx.moveTo(rightX, dimensions.plotTop)
+        ctx.lineTo(rightX, axisY)
+        ctx.stroke()
+    }
 }
 
 /** Length (px) of an axis tick mark, measured outward from the plot edge. */

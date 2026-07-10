@@ -246,8 +246,16 @@ export function TaxonomicFilterMenu({
     triggerVariant = 'button',
     defaultOpenState,
 }: TaxonomicFilterMenuProps): JSX.Element {
-    const { groups, selectItem, inputProps, searchQuery, setSearchQuery, selectingKeyOnly, excludedOperators } =
-        useTaxonomicFilterContext()
+    const {
+        groups,
+        selectItem,
+        inputProps,
+        searchQuery,
+        setSearchQuery,
+        selectingKeyOnly,
+        excludedOperators,
+        excludedProperties,
+    } = useTaxonomicFilterContext()
     const [state, setState] = useState<MenuFilterState>(() =>
         resolveInitialMenuState(defaultOpen, defaultOpenState, selected ?? null)
     )
@@ -347,11 +355,12 @@ export function TaxonomicFilterMenu({
                     recentFilterItems as TaxonomicDefinitionTypes[],
                     taxonomicGroupTypes,
                     excludedOperators,
-                    selectingKeyOnly
+                    selectingKeyOnly,
+                    excludedProperties
                 ) as ShortcutItem[],
                 groups
             ),
-        [recentFilterItems, taxonomicGroupTypes, groups, excludedOperators, selectingKeyOnly]
+        [recentFilterItems, taxonomicGroupTypes, groups, excludedOperators, selectingKeyOnly, excludedProperties]
     )
     const pinnedEntries = useMemo<MenuFilterEntry[]>(
         () =>
@@ -651,6 +660,7 @@ export function TaxonomicFilterMenu({
                         <DropdownMenuTrigger render={triggerEl} data-attr="taxonomic-filter-menu-trigger" />
                     )}
                     <PopoverTrigger
+                        nativeButton={false}
                         render={<span aria-hidden tabIndex={-1} className="absolute inset-0 pointer-events-none" />}
                     />
                     {triggerAccessory}

@@ -7,6 +7,7 @@ from unittest import mock
 from django.test import override_settings
 
 import gspread
+import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
@@ -336,6 +337,55 @@ def test_retry_on_transient_api_error_does_not_retry_non_transient():
         assert fn.call_count == 1
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.exceptions.ConnectionError("Connection aborted."),
+        requests.exceptions.ReadTimeout("Read timed out. (read timeout=120.0)"),
+        requests.exceptions.ConnectTimeout("Connection timed out."),
+        # A connection reset mid-download surfaces as ChunkedEncodingError, which is a sibling of
+        # ConnectionError in the requests hierarchy (not a subclass), so it must be caught explicitly.
+        requests.exceptions.ChunkedEncodingError(
+            "('Connection broken: ConnectionResetError(104, 'Connection reset by peer')', "
+            "ConnectionResetError(104, 'Connection reset by peer'))"
+        ),
+    ],
+)
+def test_retry_on_transient_api_error_retries_network_error_then_succeeds(error):
+    """A dropped connection or read timeout is raised by `requests` before gspread wraps it in an
+    APIError, so the status-code path never sees it. It's a transient blip and must be retried
+    inline rather than failing the read on the first occurrence."""
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"
+    ):
+        fn = mock.MagicMock(side_effect=[error, error, "ok"])
+
+        assert _retry_on_transient_api_error(fn) == "ok"
+        assert fn.call_count == 3
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.exceptions.ConnectionError("Connection aborted."),
+        requests.exceptions.ReadTimeout("Read timed out. (read timeout=120.0)"),
+        requests.exceptions.ChunkedEncodingError("Connection broken: ConnectionResetError(104, ...)"),
+    ],
+)
+def test_retry_on_transient_api_error_bubbles_network_error_after_max_retries(error):
+    """A persistent network error exhausts the inline budget and re-raises so it stays retryable
+    at the activity level (Temporal), rather than being swallowed."""
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"
+    ):
+        fn = mock.MagicMock(side_effect=error)
+
+        with pytest.raises(type(error)):
+            _retry_on_transient_api_error(fn)
+
+        assert fn.call_count == 10
+
+
 def test_google_sheets_source_retries_transient_error_on_data_reads():
     """A transient 5xx on the cell-reading calls (`get_all_values`/`get_all_records`)
     must be retried, not surfaced on the first occurrence. These reads issue their own
@@ -414,6 +464,25 @@ def test_permission_denied_maps_to_auth_appropriate_message(raised_message, expe
     assert message is not None
     assert expected_advice in message
     assert wrong_advice not in message
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        # gspread's bare 403 PermissionError, re-raised with a stable message.
+        pytest.param(PermissionError(_PERMISSION_DENIED_MESSAGE), id="permission_denied"),
+        # Values-read 404s stay a raw APIError (not SpreadsheetNotFound), so str() is
+        # "APIError: [404]: Requested entity was not found." — a deleted/moved/unshared sheet hit mid-read.
+        pytest.param(_api_error(404, "Requested entity was not found.", "NOT_FOUND"), id="entity_not_found_404"),
+    ],
+)
+def test_error_string_matches_a_non_retryable_key(error):
+    """The framework classifies non-retryable errors by substring-matching `str(exc)` against the
+    source's keys. Each error the source surfaces for a permanent failure must match a key, otherwise
+    a deterministic 403/404 gets retried forever."""
+    non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
+
+    assert any(key in str(error) for key in non_retryable_errors)
 
 
 @pytest.mark.parametrize(

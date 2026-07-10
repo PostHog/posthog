@@ -18,7 +18,6 @@ import {
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from './outputs/producers'
-import { SelfLoopGuardMode } from './services/self-loop-guard'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
 // CdpConfig intersects ClickhouseConfig so any consumer reading
@@ -96,7 +95,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
-    CDP_SELF_LOOP_GUARD_MODE: SelfLoopGuardMode
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: CdpProducerName
@@ -107,10 +105,9 @@ export type CdpConfig = ClickhouseConfig & {
     HOG_INVOCATION_RESULTS_ENABLED: boolean
     // Message assets: rendered emails snapshotted to object storage + a metadata
     // row in the message_assets ClickHouse table, surfaced in the workflow
-    // "Assets" tab. Capture is a global ops kill-switch, not a per-team toggle.
+    // "Assets" tab.
     MESSAGE_ASSETS_TOPIC: string
     MESSAGE_ASSETS_PRODUCER: CdpProducerName
-    MESSAGE_ASSETS_CAPTURE_ENABLED: boolean
     HOG_INVOCATION_RERUN_MAX_COUNT: number
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
@@ -217,10 +214,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
-        // Observe-only by default. Values: 'disabled' | 'warn' | 'enforce'. 'warn' detects
-        // and emits cdp_self_loop_guard_total without blocking; 'enforce' bounds true loops
-        // at SELF_LOOP_MAX_DEPTH hops. Roll out warn -> enforce per environment.
-        CDP_SELF_LOOP_GUARD_MODE: 'warn',
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
@@ -238,7 +231,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Same cyclotron Warpstream cluster as hog_invocation_results — ClickHouse
         // consumes message_assets from the warpstream_cyclotron named collection.
         MESSAGE_ASSETS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
-        MESSAGE_ASSETS_CAPTURE_ENABLED: isDevEnv() ? true : false,
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
@@ -274,7 +266,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
 
-        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 5000,
+        // Fallback cap used only when a batch-resolve API caller does not pass max_audience_size.
+        // Django's batch-job model always passes get_hogflow_batch_trigger_limit(team_id), so
+        // production batches use the per-team value from settings; this is only a safety net for
+        // direct callers (tests, admin tools). Match the fleet-wide default in settings.web.py.
+        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 50000,
 
         // Cyclotron Node
         CYCLOTRON_NODE_MAX_CONNECTIONS: 10,

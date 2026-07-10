@@ -16,6 +16,7 @@ import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFi
 import { LegendOptionsFilter } from 'scenes/insights/EditorFilters/LegendOptionsFilter'
 import { LifecyclePercentagesFilter } from 'scenes/insights/EditorFilters/LifecyclePercentagesFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
+import { LineStylePicker } from 'scenes/insights/EditorFilters/LineStylePicker'
 import {
     MetricColorFilter,
     MetricShowChangeFilter,
@@ -276,6 +277,7 @@ export const DisplayOptions = {
     ResultCustomizationBy: { label: () => <ResultCustomizationByPicker /> },
     Unit: { label: () => <UnitPicker /> },
     Scale: { label: () => <ScalePicker /> },
+    LineStyle: { label: () => <LineStylePicker /> },
     ConfidenceInterval: { label: () => <ConfidenceInterval /> },
     ConfidenceLevel: { label: () => <ConfidenceLevelInput /> },
     MovingAverage: { label: () => <MovingAverage /> },

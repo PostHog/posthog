@@ -407,6 +407,39 @@ function fireSelectAllShortcut(element: HTMLElement): void {
     fireEvent.keyDown(element, { key: 'a', metaKey: true })
 }
 
+// jsdom has no URL.createObjectURL, so the debug-log download needs stubs; restore() puts the
+// original (usually absent) properties back so the stubs never leak into other tests.
+function stubNotebookLogDownload(): {
+    createObjectURL: jest.Mock<string, [Blob]>
+    anchorClick: jest.SpyInstance
+    restore: () => void
+} {
+    const originalCreateObjectURL = Object.getOwnPropertyDescriptor(window.URL, 'createObjectURL')
+    const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(window.URL, 'revokeObjectURL')
+    const createObjectURL = jest.fn((_blob: Blob) => 'blob:notebook-debug-log')
+    Object.defineProperty(window.URL, 'createObjectURL', { value: createObjectURL, configurable: true })
+    Object.defineProperty(window.URL, 'revokeObjectURL', { value: jest.fn(), configurable: true })
+    const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    const restoreUrlProperty = (name: 'createObjectURL' | 'revokeObjectURL', descriptor?: PropertyDescriptor): void => {
+        if (descriptor) {
+            Object.defineProperty(window.URL, name, descriptor)
+        } else {
+            delete (window.URL as unknown as Record<string, unknown>)[name]
+        }
+    }
+
+    return {
+        createObjectURL,
+        anchorClick,
+        restore: () => {
+            anchorClick.mockRestore()
+            restoreUrlProperty('createObjectURL', originalCreateObjectURL)
+            restoreUrlProperty('revokeObjectURL', originalRevokeObjectURL)
+        },
+    }
+}
+
 function expectNoDuplicateKeyWarnings(callback: () => void): void {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     let thrownError: unknown
@@ -583,6 +616,29 @@ continued line
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
     })
 
+    it('breaks component tags out of blockquotes instead of degrading them to quote text', () => {
+        const markdown = [
+            '> Quoted intro',
+            '> <Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />',
+            '> > <Python code="print(1)" />',
+            '> Quoted outro',
+        ].join('\n')
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.errors).toEqual([])
+        expect(document.nodes.map((node) => node.type)).toEqual(['blockquote', 'component', 'component', 'blockquote'])
+        expect(document.nodes[1]).toMatchObject({
+            tagName: 'Query',
+            props: { query: { kind: 'SavedInsightNode', shortId: 'abc123' } },
+        })
+        expect(document.nodes[2]).toMatchObject({ tagName: 'Python', props: { code: 'print(1)' } })
+
+        // The rescued components stay standalone and stable across further saves
+        const serialized = serializeMarkdownNotebook(document)
+        expect(serialized).not.toContain('\\<')
+        expect(serializeMarkdownNotebook(parseMarkdownNotebook(serialized))).toEqual(serialized)
+    })
+
     it('round-trips component string props with reversible escaping', () => {
         const props = {
             src: 'https://posthog.com/embed?one=1&two=2',
@@ -727,6 +783,72 @@ continued line
             'deddap llitr laer code comes here,  s'
         )
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
+    })
+
+    it('opens links on modifier-click while editing but not on plain click', () => {
+        const windowOpen = jest.spyOn(window, 'open').mockImplementation(() => null)
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('See [docs](https://posthog.com/docs)') })
+        )
+        const link = container.querySelector('.MarkdownNotebook__text-block a[href]') as HTMLAnchorElement
+        expect(link).toBeInstanceOf(HTMLAnchorElement)
+
+        fireEvent.click(link)
+        expect(windowOpen).not.toHaveBeenCalled()
+
+        fireEvent.click(link, { metaKey: true })
+        expect(windowOpen).toHaveBeenCalledWith('https://posthog.com/docs', '_blank', 'noopener')
+
+        // View mode keeps native navigation: the handler must not add a second open
+        windowOpen.mockClear()
+        const { container: viewContainer } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('See [docs](https://posthog.com/docs)'),
+                mode: 'view',
+            })
+        )
+        const viewLink = viewContainer.querySelector('.MarkdownNotebook__text-block a[href]') as HTMLAnchorElement
+        expect(viewLink).toBeInstanceOf(HTMLAnchorElement)
+        fireEvent.click(viewLink, { metaKey: true })
+        expect(windowOpen).not.toHaveBeenCalled()
+
+        windowOpen.mockRestore()
+    })
+
+    it('opens the link editor automatically when the selection is inside a link, without stealing focus', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('See [docs](https://posthog.com/docs) here') })
+        )
+        const anchor = getBodyTextBlock(container).querySelector('a')
+        expect(anchor).toBeInstanceOf(HTMLAnchorElement)
+
+        selectTextNode(getFirstTextNode(anchor as HTMLElement), 0, 4, true)
+
+        const input = container.querySelector('[aria-label="Link URL"]') as HTMLInputElement
+        expect(input).toBeInstanceOf(HTMLInputElement)
+        expect(input.value).toEqual('https://posthog.com/docs')
+        expect(window.document.activeElement).not.toBe(input)
+    })
+
+    it('applies the link and cancels the keystroke when pressing Enter in the link editor', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Hello world out there'), onChange })
+        )
+
+        selectTextNode(getFirstTextNode(getBodyTextBlock(container)), 0, 5, true)
+
+        const toolbar = container.querySelector('.MarkdownNotebook__format-toolbar') as HTMLElement
+        fireEvent.click(toolbar.querySelector('[aria-label="Link"]') as HTMLButtonElement)
+
+        const input = container.querySelector('[aria-label="Link URL"]') as HTMLInputElement
+        fireEvent.change(input, { target: { value: 'https://posthog.com' } })
+
+        // The keystroke must be cancelled: once focus returns to the editor, an uncancelled
+        // Enter inserts a paragraph over the restored selection and wipes the linked text
+        const enterNotCancelled = fireEvent.keyDown(input, { key: 'Enter' })
+        expect(enterNotCancelled).toBe(false)
+        expect(onChange).toHaveBeenLastCalledWith(withNotebookTitle('[Hello](https://posthog.com) world out there'))
     })
 
     it('groups consecutive text, heading, and list rows into text surfaces', () => {
@@ -2372,11 +2494,7 @@ Intro paragraph
     })
 
     it('records keystrokes, mouse events, and commits into a downloadable debug log', async () => {
-        const createObjectURL = jest.fn((_blob: Blob) => 'blob:notebook-debug-log')
-        const revokeObjectURL = jest.fn()
-        Object.defineProperty(window.URL, 'createObjectURL', { value: createObjectURL, configurable: true })
-        Object.defineProperty(window.URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true })
-        const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+        const { createObjectURL, anchorClick, restore } = stubNotebookLogDownload()
 
         try {
             const { container } = render(
@@ -2423,7 +2541,82 @@ Intro paragraph
             const keydownEntry = entries.find((entry) => entry.type === 'keydown')
             expect(keydownEntry?.key).toEqual('a')
         } finally {
-            anchorClick.mockRestore()
+            restore()
+        }
+    })
+
+    it('downloads the debug log automatically when an uncaught error fires while recording', async () => {
+        const { createObjectURL, anchorClick, restore } = stubNotebookLogDownload()
+
+        try {
+            const { container } = render(
+                createElement(MarkdownNotebook, { value: withNotebookTitle('Hello there'), showDebug: true })
+            )
+            fireEvent.click(container.querySelector('button[aria-label="Edit markdown source"]') as HTMLButtonElement)
+            const logButton = container.querySelector(
+                '[data-attr="markdown-notebook-debug-log-toggle"]'
+            ) as HTMLButtonElement
+            fireEvent.click(logButton)
+            expect(logButton.textContent).toEqual('Stop')
+
+            act(() => {
+                window.dispatchEvent(new ErrorEvent('error', { error: new Error('boom') }))
+            })
+
+            expect(anchorClick).toHaveBeenCalledTimes(1)
+            expect(logButton.textContent).toEqual('Log')
+            const blobText = await createObjectURL.mock.calls[0][0].text()
+            const entries = blobText
+                .trim()
+                .split('\n')
+                .map((line) => JSON.parse(line) as Record<string, unknown>)
+            const crashEntry = entries[entries.length - 1]
+            expect(crashEntry.type).toEqual('crash')
+            expect(crashEntry.error).toEqual('Error: boom')
+            expect(crashEntry.markdown).toEqual(withNotebookTitle('Hello there'))
+        } finally {
+            restore()
+        }
+    })
+
+    it('downloads the debug log when a React commit crash hits the editor', async () => {
+        const { createObjectURL, anchorClick, restore } = stubNotebookLogDownload()
+        const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        try {
+            const { container } = render(
+                createElement(MarkdownNotebook, {
+                    value: withNotebookTitle('1. one\n2. two\n3. three'),
+                    showDebug: true,
+                })
+            )
+            fireEvent.click(container.querySelector('button[aria-label="Edit markdown source"]') as HTMLButtonElement)
+            fireEvent.click(
+                container.querySelector('[data-attr="markdown-notebook-debug-log-toggle"]') as HTMLButtonElement
+            )
+
+            // Reproduce the production crash class: the DOM is restructured behind React's
+            // back, then a model commit makes React unmount an <li> that is no longer where
+            // React left it, throwing a removeChild NotFoundError mid-commit.
+            const listItems = getEditableListItems(container)
+            const li = listItems[1].closest('li') as HTMLElement
+            li.parentNode?.removeChild(li)
+            selectTextAcrossNodes(getFirstTextNode(listItems[0]), 0, getFirstTextNode(listItems[2]), 5)
+
+            expect(() => fireEvent.keyDown(listItems[0], { key: 'Backspace' })).toThrow()
+
+            expect(anchorClick).toHaveBeenCalledTimes(1)
+            const blobText = await createObjectURL.mock.calls[0][0].text()
+            const entries = blobText
+                .trim()
+                .split('\n')
+                .map((line) => JSON.parse(line) as Record<string, unknown>)
+            const crashEntry = entries[entries.length - 1]
+            expect(crashEntry.type).toEqual('crash')
+            expect(String(crashEntry.error)).toContain('not a child of this node')
+        } finally {
+            consoleError.mockRestore()
+            restore()
         }
     })
 
@@ -4192,6 +4385,31 @@ aXbc
 Numbers <ref id="${refId}">look</ref> off here`)
     })
 
+    it('creates a comment thread anchored to a selection inside a code block', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('```js\nconst answer = 42\n```'),
+                onChange,
+            })
+        )
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        selectTextAcrossNodes(getFirstTextNode(codeBlock), 6, getFirstTextNode(codeBlock), 'const answer'.length, true)
+        fireEvent.click(container.querySelector('button[aria-label="Comment on selection"]') as HTMLButtonElement)
+
+        const markdown = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
+        const refId = markdown.match(/<Comment ref="([^"]+)" replies={\[\]} \/>/)?.[1]
+        expect(refId).toBeTruthy()
+        expect(markdown).toEqual(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+<Comment ref="${refId}" replies={[]} />
+
+\`\`\`js ref=${refId}:6-12
+const answer = 42
+\`\`\``)
+    })
+
     it('places a comment on the title row below it, keeping the heading first', () => {
         const onChange = jest.fn()
         const { container } = render(
@@ -4332,6 +4550,135 @@ Body text`)
 > - Second item
 
 > Quote outro`)
+    })
+
+    it('round-trips headings inside blockquotes as quoted headings', () => {
+        const markdown = `> Quote intro
+> ## Quoted heading
+> Quote outro`
+
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes.map((node) => node.type)).toEqual(['blockquote', 'heading', 'blockquote'])
+        expect(document.nodes[1].type === 'heading' && document.nodes[1].level).toEqual(2)
+        expect(document.nodes[1].type === 'heading' && document.nodes[1].blockquote).toBe(true)
+        expect(serializeMarkdownNotebook(document)).toEqual(`> Quote intro
+
+> ## Quoted heading
+
+> Quote outro`)
+    })
+
+    it('keeps quote text that looks like a heading as escaped literal text', () => {
+        const document = parseMarkdownNotebook('> \\## literal marker')
+
+        expect(document.nodes.map((node) => node.type)).toEqual(['blockquote'])
+        expect(serializeMarkdownNotebook(document)).toEqual('> \\## literal marker')
+    })
+
+    it('renders blockquoted headings inside the blockquote group', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('> Quote intro\n> ## Quoted heading'),
+            })
+        )
+        const quotedHeading = container.querySelector('.MarkdownNotebook__blockquote-group h2')
+
+        expect(quotedHeading).toBeInstanceOf(HTMLElement)
+        expect(quotedHeading?.textContent).toEqual('Quoted heading')
+    })
+
+    it('applies a heading style inside a blockquote without leaving the quote', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('> Quoted text'),
+                onChange,
+            })
+        )
+        const quoteBlock = getEditableTextBlocks(container)[1]
+
+        selectTextNode(getFirstTextNode(quoteBlock), 0, 'Quoted'.length, true)
+        fireEvent.click(getFormattingStyleButton(container, 'Heading 2'))
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n> ## Quoted text`)
+    })
+
+    it('shows both the heading and blockquote buttons active for a quoted heading selection', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('> ## Quoted heading') })
+        )
+        const headingBlock = getEditableTextBlocks(container)[1]
+
+        selectTextNode(getFirstTextNode(headingBlock), 0, 'Quoted'.length, true)
+
+        expect(getFormattingStyleButton(container, 'Heading 2').classList.contains('LemonButton--active')).toBe(true)
+        expect(getFormattingStyleButton(container, 'Blockquote').classList.contains('LemonButton--active')).toBe(true)
+    })
+
+    it.each([
+        ['Heading 2', '> Quoted heading'],
+        ['Blockquote', '## Quoted heading'],
+    ])('toggling %s off a quoted heading keeps the other style dimension', (buttonLabel, expectedMarkdown) => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('> ## Quoted heading'), onChange })
+        )
+        const headingBlock = getEditableTextBlocks(container)[1]
+
+        selectTextNode(getFirstTextNode(headingBlock), 0, 'Quoted'.length, true)
+        fireEvent.click(getFormattingStyleButton(container, buttonLabel))
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${expectedMarkdown}`)
+    })
+
+    it('downgrades a quoted heading to quote text with Backspace at its start', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('> ## Quoted heading'),
+                onChange,
+            })
+        )
+        const headingBlock = getEditableTextBlocks(container)[1]
+
+        selectTextInElement(headingBlock, 0, 0)
+        fireEvent.keyDown(headingBlock, { key: 'Backspace' })
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n> Quoted heading`)
+    })
+
+    it.each([
+        ['- ', '> -', 'ul'],
+        ['1. ', '> 1.', 'ol'],
+    ])('converts a list shortcut "%s" typed inside a quote into a quoted list', (shortcut, markdown, listTag) => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('> Quoted text'), onChange })
+        )
+        const quoteBlock = getEditableTextBlocks(container)[1]
+
+        quoteBlock.textContent = shortcut
+        fireEvent.input(quoteBlock)
+
+        const quotedList = container.querySelector(
+            `.MarkdownNotebook__blockquote-group .MarkdownNotebook__list-block ${listTag}`
+        )
+        expect(quotedList).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${markdown}`)
+    })
+
+    it('downgrades a quoted list item to quote text with Backspace at its start', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('> - First item\n> - Second item'), onChange })
+        )
+        const listItems = getEditableListItems(container)
+
+        selectTextInElement(listItems[0], 0, 0)
+        fireEvent.keyDown(listItems[0], { key: 'Backspace' })
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n> First item\n\n> - Second item`)
     })
 
     it('renders blockquoted lists inside the blockquote group', () => {
@@ -5498,6 +5845,75 @@ Keep after`),
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nKeep before\n\nKeep after`)
     })
 
+    it('deletes a fully selected list item through the model when the selection reaches the next item', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('1. one\n2. two\n3. three'), onChange })
+        )
+        const listItems = getEditableListItems(container)
+
+        // A triple-click style selection: the whole first item, ending at the next item's start.
+        selectTextAcrossNodes(getFirstTextNode(listItems[0]), 0, getFirstTextNode(listItems[1]), 0)
+        const event = beforeInputInContentEditable(listItems[0], 'deleteContentBackward')
+
+        // The edit must go through the model: the browser default merges the React-managed
+        // <li> elements in place and the next React commit crashes with a removeChild error.
+        expect(event.defaultPrevented).toBe(true)
+        expect(getEditableListItems(container).map((item) => item.textContent)).toEqual(['', 'two', 'three'])
+        expect(container.querySelectorAll('li')).toHaveLength(3)
+        expect(onChange).toHaveBeenCalled()
+    })
+
+    it('merges a selection spanning list items into one item with Backspace', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('1. alpha\n2. beta\n3. gamma'), onChange })
+        )
+        const listItems = getEditableListItems(container)
+
+        selectTextAcrossNodes(getFirstTextNode(listItems[0]), 2, getFirstTextNode(listItems[2]), 3)
+        fireEvent.keyDown(listItems[0], { key: 'Backspace' })
+
+        expect(getEditableListItems(container).map((item) => item.textContent)).toEqual(['alma'])
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n1. alma`)
+    })
+
+    it('replaces a selection spanning list items with the typed character', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('1. alpha\n2. beta\n3. gamma') })
+        )
+        const listItems = getEditableListItems(container)
+
+        selectTextAcrossNodes(getFirstTextNode(listItems[0]), 2, getFirstTextNode(listItems[2]), 3)
+        const event = fireInsertTextBeforeInput(listItems[0], 'X')
+
+        expect(event.defaultPrevented).toBe(true)
+        expect(getEditableListItems(container).map((item) => item.textContent)).toEqual(['alXma'])
+    })
+
+    it('blocks unclaimed native range edits that cross inline-editable boundaries', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('| a | b |\n| --- | --- |\n| one | two |'),
+                onChange,
+            })
+        )
+        const cells = Array.from(container.querySelectorAll('.MarkdownNotebook__table-cell-content')) as HTMLElement[]
+        const bodyCells = cells.filter((cell) => cell.textContent === 'one' || cell.textContent === 'two')
+        expect(bodyCells).toHaveLength(2)
+
+        onChange.mockClear()
+        selectTextAcrossNodes(getFirstTextNode(bodyCells[0]), 1, getFirstTextNode(bodyCells[1]), 1)
+        const event = beforeInputInContentEditable(bodyCells[0], 'deleteContentBackward')
+
+        // No model handler claims a cross-cell range yet, so the native edit (which would
+        // merge React-managed cells and crash the next commit) must be dropped.
+        expect(event.defaultPrevented).toBe(true)
+        expect(bodyCells.map((cell) => cell.textContent)).toEqual(['one', 'two'])
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     it('deletes a Cmd+A selection that includes component blocks', () => {
         const onChange = jest.fn()
         const registry = createMarkdownNotebookRegistry([
@@ -6081,6 +6497,28 @@ Closing`
         expect(onChange).toHaveBeenLastCalledWith('# Intro  paragraph')
     })
 
+    it('deletes the selected text when cutting a selection across list items', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('- First item\n- Second item'), onChange })
+        )
+        const notebook = container.querySelector('.MarkdownNotebook') as HTMLElement
+        const listItems = getEditableListItems(container)
+
+        selectTextAcrossNodes(
+            getFirstTextNode(listItems[0]),
+            'First'.length,
+            getFirstTextNode(listItems[1]),
+            'Second'.length
+        )
+
+        const clipboardData = { setData: jest.fn() }
+        fireEvent.cut(notebook, { clipboardData })
+
+        expect(clipboardData.setData).toHaveBeenCalledWith('text/markdown', '-  item\n- Second')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- First item`)
+    })
+
     it('lets native copy handle text selected inside a focused component', () => {
         expect.hasAssertions()
         const registry = createMarkdownNotebookRegistry([
@@ -6235,6 +6673,46 @@ Tail with **bold** text`)
 
         expect(textBlock.textContent).toEqual('Hello bold')
         expect(onChange).toHaveBeenLastCalledWith('# Hello **bold**')
+    })
+
+    it('pastes clipboard files through the external converter after the caret block', () => {
+        const onChange = jest.fn()
+        const convertExternalDataTransferToNodes = jest.fn((dataTransfer: DataTransfer) =>
+            dataTransfer.files.length
+                ? [
+                      {
+                          id: 'pasted-image',
+                          type: 'component' as const,
+                          tagName: 'Image',
+                          props: { src: 'https://example.com/pasted.png', alt: 'pasted' },
+                      },
+                  ]
+                : null
+        )
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('First paragraph\n\nSecond paragraph'),
+                onChange,
+                convertExternalDataTransferToNodes,
+            })
+        )
+        const firstParagraph = getBodyTextBlock(container)
+
+        fireEvent.paste(firstParagraph, {
+            clipboardData: {
+                files: [new File([''], 'pasted.png', { type: 'image/png' })],
+                getData: jest.fn(() => ''),
+            },
+        })
+
+        expect(convertExternalDataTransferToNodes).toHaveBeenCalled()
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+First paragraph
+
+![pasted](https://example.com/pasted.png)
+
+Second paragraph`)
     })
 
     it('undoes pasted markdown blocks as one notebook history step', () => {

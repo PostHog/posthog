@@ -33,7 +33,7 @@ class EvaluationReport(UUIDTModel):
         # Count-based: fire every N new eval results, subject to cooldown + daily cap.
         EVERY_N = "every_n"
 
-    TRIGGER_THRESHOLD_MIN = 10
+    TRIGGER_THRESHOLD_MIN = 100
     TRIGGER_THRESHOLD_MAX = 10_000
     TRIGGER_THRESHOLD_DEFAULT = 100
     COOLDOWN_MINUTES_MIN = 60
@@ -51,6 +51,9 @@ class EvaluationReport(UUIDTModel):
         indexes = [
             models.Index(fields=["team", "-created_at", "id"]),
             models.Index(fields=["next_delivery_date", "enabled", "deleted"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["evaluation"], name="unique_evaluation_report_per_evaluation"),
         ]
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)

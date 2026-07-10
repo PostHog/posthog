@@ -4,7 +4,6 @@
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils/url'
 import type { Params } from 'scenes/sceneTypes'
@@ -29,6 +28,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ActivityScope } from '~/types'
+
+import { AlertType } from 'products/alerts/frontend/types'
 
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from '../../products/ai_observability/frontend/clusters/constants'
 import type {
@@ -114,12 +115,15 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/engineering_analytics/frontend/scenes/WorkflowRunDetailScene'),
     EngineeringAnalyticsWorkflowRuns: () =>
         import('../../products/engineering_analytics/frontend/scenes/WorkflowRunsScene'),
+    EngineeringAnalyticsAuthor: () =>
+        import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsAuthorScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
     ErrorTrackingIssueFingerprints: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
+    FeatureFlagsStaffTools: () => import('../../products/feature_flags/frontend/staff/FeatureFlagsStaffToolsScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
     IdentityMatching: () => import('../../products/growth/frontend/IdentityMatchingScene'),
@@ -146,14 +150,18 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
     ReplayVisionObservation: () => import('../../products/replay_vision/frontend/observations/ReplayObservation'),
     ReplayVisionAction: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionScene'),
+    ReplayVisionActionEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ActionEditorScene'),
     ReplayVisionActionRun: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionRunScene'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
+    Subscriptions: () => import('../../products/subscriptions/frontend/scenes/SubscriptionsScene'),
+    Subscription: () => import('../../products/subscriptions/frontend/scenes/SubscriptionScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
+    TracingOperation: () => import('../../products/tracing/frontend/TracingOperationScene'),
     UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
     UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
     UserInterviewResponse: () => import('../../products/user_interviews/frontend/UserInterviewResponse'),
@@ -243,28 +251,30 @@ export const productRoutes: Record<string, [string, string]> = {
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
-    '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
-    '/engineering-analytics/pulls': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
+    '/engineering-analytics/overview': ['EngineeringAnalytics', 'engineeringAnalytics'],
+    '/engineering-analytics/pull-requests': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
     '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
-    '/engineering-analytics/:repoOwner/:repoName/pull/:number': [
+    '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
         'EngineeringAnalyticsPullRequest',
         'engineeringAnalyticsPullRequest',
     ],
-    '/engineering-analytics/:repoOwner/:repoName/actions/runs/:runId': [
+    '/engineering-analytics/repos/:repoOwner/:repoName/actions/runs/:runId': [
         'EngineeringAnalyticsWorkflowRun',
         'engineeringAnalyticsWorkflowRun',
     ],
-    '/engineering-analytics/:repoOwner/:repoName/actions/workflows/:workflowName': [
+    '/engineering-analytics/repos/:repoOwner/:repoName/actions/workflows/:workflowName': [
         'EngineeringAnalyticsWorkflowRuns',
         'engineeringAnalyticsWorkflowRuns',
     ],
+    '/engineering-analytics/authors/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
+    '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/identity-matching': ['IdentityMatching', 'identityMatching'],
@@ -280,6 +290,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
+    '/mcp-analytics/activity': ['MCPAnalytics', 'mcpAnalyticsActivity'],
     '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
     '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
     '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
@@ -291,10 +302,13 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
     '/replay-vision/actions/:actionId/runs/:runId': ['ReplayVisionActionRun', 'replayVisionActionRun'],
+    '/replay-vision/actions/:actionId/edit': ['ReplayVisionActionEditor', 'replayVisionActionEdit'],
     '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
+    '/replay-vision/:scannerId/actions/new': ['ReplayVisionActionEditor', 'replayVisionActionNew'],
     '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
+    '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
@@ -302,8 +316,13 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills': ['Skills', 'skills'],
     '/skills/scouts': ['Skills', 'skillsScouts'],
     '/skills/:name': ['Skill', 'skill'],
+    '/subscriptions': ['Subscriptions', 'subscriptions'],
+    '/subscriptions/new': ['Subscriptions', 'subscriptionNew'],
+    '/subscriptions/:subscriptionId/edit': ['Subscriptions', 'subscriptionEdit'],
+    '/subscriptions/:subscriptionId': ['Subscription', 'subscription'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/tracing': ['Tracing', 'tracing'],
+    '/tracing/operation': ['TracingOperation', 'tracingOperation'],
     '/user_research': ['UserInterviews', 'userInterviews'],
     '/user_research/:topicId/response/:responseId': ['UserInterviewResponse', 'userInterviewResponse'],
     '/user_research/:id': ['UserInterview', 'userInterview'],
@@ -451,10 +470,11 @@ export const productRedirects: Record<
             : '/customer_analytics/dashboard'
         return combineUrl(defaultTab, searchParams, hashParams).url
     },
+    '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
-    '/engineering-analytics/authors': '/engineering-analytics',
-    '/engineering-analytics/author/:handle': '/engineering-analytics',
+    '/engineering-analytics': '/engineering-analytics/overview',
+    '/engineering-analytics/authors': '/engineering-analytics/overview',
     '/error_tracking/configuration': (_params, searchParams, hashParams) => {
         const { tab, ...restSearchParams } = searchParams
         return combineUrl(
@@ -468,7 +488,7 @@ export const productRedirects: Record<
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
         combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
     '/mcp-analytics': (_params, searchParams, hashParams) =>
-        combineUrl(urls.mcpAnalyticsDashboard(), searchParams, hashParams).url,
+        combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/replay-vision/templates': '/replay-vision/new/template',
     '/prompt-management/skills': (_params, searchParams, hashParams) =>
         combineUrl(urls.skills(), searchParams, hashParams).url,
@@ -693,6 +713,13 @@ export const productConfiguration: Record<string, any> = {
         description: "A single workflow's recent runs across the connected repo.",
         iconType: 'health',
     },
+    EngineeringAnalyticsAuthor: {
+        projectBased: true,
+        name: 'Author',
+        layout: 'app-container',
+        description: "One author's pull requests \u2014 a filtered view for finding work, not a ranking.",
+        iconType: 'health',
+    },
     ErrorTracking: {
         projectBased: true,
         name: 'Error tracking',
@@ -702,6 +729,7 @@ export const productConfiguration: Record<string, any> = {
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
+    FeatureFlagsStaffTools: { instanceLevel: true, name: 'Flags staff tools' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
     IdentityMatching: {
@@ -755,7 +783,11 @@ export const productConfiguration: Record<string, any> = {
         activityScope: ActivityScope.LOG,
         layout: 'app-container',
     },
-    ManagedMigration: { name: 'Managed migrations', projectBased: true },
+    ManagedMigration: {
+        name: 'Managed migrations',
+        description: 'Managed migrations provide an automated way to migrate your historical data into PostHog.',
+        projectBased: true,
+    },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
     MCPAnalytics: {
         projectBased: true,
@@ -818,6 +850,12 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'replay_vision',
         layout: 'app-container',
     },
+    ReplayVisionActionEditor: {
+        name: 'Replay vision action editor',
+        projectBased: true,
+        iconType: 'replay_vision',
+        layout: 'app-container',
+    },
     ReplayVisionActionRun: {
         name: 'Replay vision action run',
         projectBased: true,
@@ -851,6 +889,18 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
+    Subscriptions: {
+        projectBased: true,
+        name: 'Subscriptions',
+        iconType: 'inbox',
+        description: 'View and manage scheduled insight and dashboard subscriptions for this project.',
+    },
+    Subscription: {
+        projectBased: true,
+        name: 'Subscription',
+        iconType: 'inbox',
+        description: 'View subscription details and delivery history for this project.',
+    },
     SlackTaskContext: { name: 'Slack task context', projectBased: true },
     Toolbar: {
         name: 'Toolbar',
@@ -864,6 +914,14 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         activityScope: 'Tracing',
         description: 'Monitor and analyze distributed traces to understand service performance and debug issues.',
+        iconType: 'tracing',
+    },
+    TracingOperation: {
+        name: 'Operation',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'Tracing',
+        description: 'Latency distribution and sample traces for a single operation.',
         iconType: 'tracing',
     },
     UserInterviews: {
@@ -994,7 +1052,7 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    dataOps: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-ops'),
+    dataOps: (tab?: string): string => (tab ? `/data-ops?tab=${tab}` : '/data-ops'),
     models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
     nodeDetail: (id: string): string => `/models/${id}`,
     sources: (): string => '/data-management/sources',
@@ -1078,16 +1136,18 @@ export const productUrls = {
         }
         return combineUrl('/endpoints', { tab: 'usage', ...searchParams }).url
     },
-    engineeringAnalytics: (): string => '/engineering-analytics',
-    engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pulls',
+    engineeringAnalytics: (): string => '/engineering-analytics/overview',
+    engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pull-requests',
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
     engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
-        `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull/${number}`,
+        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
     engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>
-        `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
+        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
     engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
-        `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
+        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
+    engineeringAnalyticsAuthor: (handle: string): string =>
+        `/engineering-analytics/authors/${encodeURIComponent(handle)}`,
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string =>
         combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
@@ -1122,6 +1182,7 @@ export const productUrls = {
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlagTemplates: (): string => '/feature_flags/templates',
+    featureFlagsStaffTools: (teamId?: number): string => `/feature_flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
     featureFlagNew: ({
         type,
         sourceId,
@@ -1170,6 +1231,7 @@ export const productUrls = {
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
+    mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
     mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
     mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
     mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
@@ -1203,7 +1265,7 @@ export const productUrls = {
             return urls.sqlEditor({ query: query.query })
         }
         if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-            return urls.sqlEditor({ query: query.source.query })
+            return urls.sqlEditor({ query })
         }
         return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(type ? { insight: type } : {}),
@@ -1283,10 +1345,13 @@ export const productUrls = {
     replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
     replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
+    replayVisionScannerSelfDriving: (id: string): string => `/replay-vision/${id}/self-driving`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
     replayVisionActionRun: (actionId: string, runId: string): string =>
         `/replay-vision/actions/${actionId}/runs/${runId}`,
+    replayVisionActionNew: (scannerId: string): string => `/replay-vision/${scannerId}/actions/new`,
+    replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
     revenueAnalytics: (): string => '/revenue_analytics',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
@@ -1299,6 +1364,10 @@ export const productUrls = {
             version?: number
         }
     ): string => combineUrl(`/skills/${name}`, params).url,
+    subscriptions: (): string => '/subscriptions',
+    subscription: (id: string | number): string => `/subscriptions/${id}`,
+    subscriptionNew: (): string => '/subscriptions/new',
+    subscriptionEdit: (id: string | number): string => `/subscriptions/${id}/edit`,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
@@ -1307,6 +1376,8 @@ export const productUrls = {
     slackTaskContext: (): string => '/slack-task-context',
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
+    tracingOperation: (serviceName: string, spanName: string): string =>
+        combineUrl('/tracing/operation', { service: serviceName, name: spanName }).url,
     userInterviews: (): string => '/user_research',
     userInterview: (id: string): string => `/user_research/${id}`,
     userInterviewResponse: (topicId: string, responseId: string): string =>
@@ -1813,6 +1884,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'EngineeringAnalyticsPullRequest',
             'EngineeringAnalyticsWorkflowRun',
             'EngineeringAnalyticsWorkflowRuns',
+            'EngineeringAnalyticsAuthor',
         ],
     },
     {
@@ -2230,7 +2302,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.TRACING,
         tags: ['alpha'],
         sceneKey: 'Tracing',
-        sceneKeys: ['Tracing'],
+        sceneKeys: ['Tracing', 'TracingOperation'],
     },
     {
         path: 'User research',
@@ -2380,6 +2452,14 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.ingestionWarnings(),
         sceneKey: 'IngestionWarnings',
         sceneKeys: ['IngestionWarnings'],
+    },
+    {
+        path: 'Managed migrations',
+        category: 'Pipeline',
+        iconType: 'data_pipeline_metadata',
+        href: urls.managedMigration(),
+        sceneKey: 'ManagedMigration',
+        sceneKeys: ['ManagedMigration', 'ManagedMigrationNew'],
     },
     {
         path: 'Managed viewsets',
