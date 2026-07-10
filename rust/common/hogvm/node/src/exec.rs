@@ -4,16 +4,13 @@ use std::time::Instant;
 
 use hogvm::{sync_execute, ExecutionContext, Program};
 use napi_derive::napi;
-use rayon::prelude::*;
 use serde_json::Value;
 
 use crate::ext_fns::transformation_ext_fns;
 use crate::logs;
 
-const PARALLEL_CHUNK_SIZE: usize = 500;
-
 // The Node VM has no heap ceiling; the crate's 1MB default trips on real events with large
-// properties. A cap (not a preallocation), and rayon bounds how many contexts run at once.
+// properties. A cap, not a preallocation.
 const MAX_HEAP_SIZE_BYTES: usize = 64 * 1024 * 1024;
 
 #[napi(object)]
@@ -31,7 +28,6 @@ pub struct HogExecResult {
 pub fn run_batch(
     tokens: &[Value],
     events: &[Value],
-    parallel: bool,
     max_steps: Option<usize>,
 ) -> Vec<HogExecResult> {
     if tokens.is_empty() {
@@ -41,18 +37,11 @@ pub fn run_batch(
             .collect();
     }
 
-    if !parallel {
-        return run_chunk(tokens, events, max_steps);
-    }
-
-    events
-        .par_chunks(PARALLEL_CHUNK_SIZE)
-        .flat_map_iter(|chunk| run_chunk(tokens, chunk, max_steps).into_iter())
-        .collect()
+    run_chunk(tokens, events, max_steps)
 }
 
-// Run a slice of events through one reused ExecutionContext (STL and ext fns built once, globals
-// swapped per event).
+// Run the events through one reused ExecutionContext (STL and ext fns built once, globals
+// swapped per event), sequentially on the calling thread.
 fn run_chunk(tokens: &[Value], chunk: &[Value], max_steps: Option<usize>) -> Vec<HogExecResult> {
     let program = match Program::new(tokens.to_vec()) {
         Ok(p) => p,
@@ -166,21 +155,19 @@ mod tests {
         let events: Vec<Value> = (0..1200)
             .map(|i| json!({ "name": i.to_string() }))
             .collect();
-        for parallel in [false, true] {
-            let results = run_batch(&get_global_program("name"), &events, parallel, None);
-            assert_eq!(results.len(), events.len());
-            for (i, r) in results.iter().enumerate() {
-                assert_eq!(r.error, None);
-                assert_eq!(r.result, Some(json!(i.to_string())));
-                assert!(r.duration_us > 0.0);
-            }
+        let results = run_batch(&get_global_program("name"), &events, None);
+        assert_eq!(results.len(), events.len());
+        for (i, r) in results.iter().enumerate() {
+            assert_eq!(r.error, None);
+            assert_eq!(r.result, Some(json!(i.to_string())));
+            assert!(r.duration_us > 0.0);
         }
     }
 
     #[test]
     fn per_event_error_does_not_fail_the_batch() {
         let events = vec![json!({ "name": "ok" }), json!({ "other": 1 })];
-        let results = run_batch(&get_global_program("name"), &events, false, None);
+        let results = run_batch(&get_global_program("name"), &events, None);
         assert_eq!(results[0].result, Some(json!("ok")));
         assert!(results[1].result.is_none());
         assert!(results[1].error.as_deref().unwrap().contains("name"));
@@ -188,12 +175,7 @@ mod tests {
 
     #[test]
     fn invalid_program_errors_every_event() {
-        let results = run_batch(
-            &[json!("not bytecode")],
-            &[json!({}), json!({})],
-            false,
-            None,
-        );
+        let results = run_batch(&[json!("not bytecode")], &[json!({}), json!({})], None);
         assert_eq!(results.len(), 2);
         for r in &results {
             assert!(r.error.as_deref().unwrap().starts_with("invalid program"));
@@ -202,7 +184,7 @@ mod tests {
 
     #[test]
     fn empty_program_errors_every_event() {
-        let results = run_batch(&[], &[json!({})], false, None);
+        let results = run_batch(&[], &[json!({})], None);
         assert!(results[0].error.is_some());
     }
 
@@ -218,7 +200,7 @@ mod tests {
             json!(13),
             json!(38),
         ];
-        let results = run_batch(&gt_true_zero, &[json!({})], false, None);
+        let results = run_batch(&gt_true_zero, &[json!({})], None);
         assert_eq!(results[0].error, None);
         assert_eq!(results[0].result, Some(json!(true)));
 
@@ -232,27 +214,22 @@ mod tests {
             json!(15),
             json!(38),
         ];
-        let results = run_batch(&lt_zero_null, &[json!({})], false, None);
+        let results = run_batch(&lt_zero_null, &[json!({})], None);
         assert_eq!(results[0].error, None);
         assert_eq!(results[0].result, Some(json!(false)));
     }
 
     #[test]
     fn max_steps_budget_is_enforced() {
-        let results = run_batch(&add_program(), &[json!({})], false, Some(1));
+        let results = run_batch(&add_program(), &[json!({})], Some(1));
         assert!(results[0].error.is_some());
-        let results = run_batch(&add_program(), &[json!({})], false, None);
+        let results = run_batch(&add_program(), &[json!({})], None);
         assert_eq!(results[0].result, Some(json!(3)));
     }
 
     #[test]
     fn posthog_capture_errors_like_the_node_executor() {
-        let results = run_batch(
-            &call_fn_program("postHogCapture", "x"),
-            &[json!({})],
-            false,
-            None,
-        );
+        let results = run_batch(&call_fn_program("postHogCapture", "x"), &[json!({})], None);
         assert!(results[0]
             .error
             .as_deref()
@@ -265,7 +242,6 @@ mod tests {
         let results = run_batch(
             &call_fn_program("generateMessagingPreferencesUrl", "x"),
             &[json!({})],
-            false,
             None,
         );
         assert!(results[0]
@@ -281,7 +257,6 @@ mod tests {
         let results = run_batch(
             &call_fn_program("geoipLookup", "89.160.20.129"),
             &[json!({})],
-            false,
             None,
         );
         assert!(results[0]
@@ -299,7 +274,6 @@ mod tests {
         let results = run_batch(
             &call_fn_program("someFunctionNobodyImplements", "x"),
             &[json!({})],
-            false,
             None,
         );
         assert!(results[0]
@@ -308,7 +282,7 @@ mod tests {
             .unwrap()
             .starts_with("Unknown function "));
 
-        let results = run_batch(&get_global_program("missing"), &[json!({})], false, None);
+        let results = run_batch(&get_global_program("missing"), &[json!({})], None);
         assert!(results[0]
             .error
             .as_deref()
@@ -330,7 +304,7 @@ mod tests {
             json!(35),
         ];
         program.extend(add_program().into_iter().skip(2));
-        let results = run_batch(&program, &[json!({})], false, None);
+        let results = run_batch(&program, &[json!({})], None);
         assert_eq!(results[0].error, None);
         assert_eq!(results[0].result, Some(json!(3)));
         assert_eq!(results[0].logs, vec!["x".to_string()]);
@@ -353,42 +327,9 @@ mod tests {
             json!(38),
         ];
         let events = vec![json!({ "g": { "a": 1 } }), json!({ "g": "plain" })];
-        let results = run_batch(&program, &events, false, None);
+        let results = run_batch(&program, &events, None);
         assert_eq!(results[0].logs, vec![r#"{"a":1}"#.to_string()]);
         assert_eq!(results[1].logs, vec!["plain".to_string()]);
-    }
-
-    // print(globals.g) (POP), then return 1+2 — the marker only surfaces through the log buffer.
-    fn print_global_program(name: &str) -> Vec<Value> {
-        let mut program = vec![
-            json!("_H"),
-            json!(1),
-            json!(32),
-            json!(name),
-            json!(1),
-            json!(1),
-            json!(2),
-            json!("print"),
-            json!(1),
-            json!(35),
-        ];
-        program.extend(add_program().into_iter().skip(2));
-        program
-    }
-
-    #[test]
-    fn parallel_execution_does_not_mix_print_logs_across_events() {
-        // Enough events for several PARALLEL_CHUNK_SIZE chunks spread over rayon workers.
-        let events: Vec<Value> = (0..1500)
-            .map(|i| json!({ "g": format!("marker-{i}") }))
-            .collect();
-        let results = run_batch(&print_global_program("g"), &events, true, None);
-        assert_eq!(results.len(), events.len());
-        for (i, r) in results.iter().enumerate() {
-            assert_eq!(r.error, None);
-            assert_eq!(r.logs, vec![format!("marker-{i}")]);
-            assert!(!r.logs_truncated);
-        }
     }
 
     #[test]
@@ -406,7 +347,7 @@ mod tests {
             ]);
         }
         program.extend(add_program().into_iter().skip(2));
-        let results = run_batch(&program, &[json!({})], false, None);
+        let results = run_batch(&program, &[json!({})], None);
         assert_eq!(results[0].error, None);
         assert_eq!(results[0].logs.len(), crate::logs::MAX_CAPTURED_LOGS);
         assert!(results[0].logs_truncated);
@@ -414,7 +355,7 @@ mod tests {
         // Sequential run_batch executes on the calling thread — the same thread-local buffer the
         // truncating execution above just used. Nothing may carry over into the next execution
         // (this is the back-to-back executeSync shape of the primary path).
-        let results = run_batch(&add_program(), &[json!({})], false, None);
+        let results = run_batch(&add_program(), &[json!({})], None);
         assert_eq!(results[0].logs, Vec::<String>::new());
         assert!(!results[0].logs_truncated);
     }
@@ -425,14 +366,12 @@ mod tests {
         let results = run_batch(
             &call_fn_program("isKnownBotUserAgent", "Mozilla/5.0 GoogleBot/2.1"),
             &[json!({})],
-            false,
             None,
         );
         assert_eq!(results[0].result, Some(json!(true)));
         let results = run_batch(
             &call_fn_program("isKnownBotUserAgent", "Mozilla/5.0 Safari"),
             &[json!({})],
-            false,
             None,
         );
         assert_eq!(results[0].result, Some(json!(false)));
@@ -444,14 +383,12 @@ mod tests {
         let results = run_batch(
             &call_fn_program("isKnownBotIp", "1.2.3.4"),
             &[json!({})],
-            false,
             None,
         );
         assert_eq!(results[0].result, Some(json!(true)));
         let results = run_batch(
             &call_fn_program("isKnownBotIp", "1.2.3.40"),
             &[json!({})],
-            false,
             None,
         );
         assert_eq!(results[0].result, Some(json!(false)));
@@ -462,7 +399,6 @@ mod tests {
         let results = run_batch(
             &call_fn_program("cleanNullValues", "unused"),
             &[json!({})],
-            false,
             None,
         );
         // A string arg passes through untouched.
@@ -484,7 +420,6 @@ mod tests {
         let results = run_batch(
             &program,
             &[json!({ "g": { "a": null, "b": 1, "c": [null, 2] } })],
-            false,
             None,
         );
         assert_eq!(results[0].result, Some(json!({ "b": 1, "c": [2] })));
