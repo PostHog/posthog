@@ -25,6 +25,7 @@ import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { hasFrozenExposureStamps } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { getExperimentVariants } from '../utils'
 import { VariantTag } from './VariantTag'
 
 function ConclusionForm(): JSX.Element {
@@ -324,16 +325,14 @@ export function FinishExperimentModal(): JSX.Element {
                                             setSelectedVariantKey(variantKey)
                                         }}
                                         allowClear={true}
-                                        options={
-                                            experiment.feature_flag?.filters.multivariate?.variants?.map(({ key }) => ({
-                                                value: key,
-                                                label: (
-                                                    <div className="deprecated-space-x-2 inline-flex">
-                                                        <VariantTag variantKey={key} />
-                                                    </div>
-                                                ),
-                                            })) || []
-                                        }
+                                        options={getExperimentVariants(experiment).map(({ key }) => ({
+                                            value: key,
+                                            label: (
+                                                <div className="deprecated-space-x-2 inline-flex">
+                                                    <VariantTag variantKey={key} />
+                                                </div>
+                                            ),
+                                        }))}
                                     />
                                 </div>
                             </div>

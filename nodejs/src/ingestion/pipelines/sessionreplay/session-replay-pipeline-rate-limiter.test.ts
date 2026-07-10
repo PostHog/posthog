@@ -265,7 +265,7 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
     }
 
     async function runBatch(sessionId: string, offset: number): Promise<void> {
-        await runSessionReplayPipeline(buildPipeline(), [createMessage(sessionId, offset)])
+        await runSessionReplayPipeline(buildPipeline(), [createMessage(sessionId, offset)], new PromiseScheduler())
     }
 
     // Assert a one-shot fault armed with failNext() actually fired — guards against a silently-inert fault
