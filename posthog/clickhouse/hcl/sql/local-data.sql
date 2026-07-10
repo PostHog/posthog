@@ -129,6 +129,7 @@ CREATE TABLE posthog.distributed_system_processes (
   client_version_major UInt64,
   client_version_minor UInt64,
   client_version_patch UInt64,
+  client_agent LowCardinality(String),
   http_method UInt8,
   http_user_agent String,
   http_referer String,
@@ -256,7 +257,7 @@ CREATE TABLE posthog.groups (
   _timestamp DateTime,
   _offset UInt64,
   is_deleted Bool,
-  INDEX is_deleted_idx is_deleted TYPE minmax GRANULARITY 1
+  INDEX is_deleted_idx (is_deleted) TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.groups', '{replica}-{shard}', _timestamp) ORDER BY (team_id, group_type_index, group_key) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.hog_invocation_results (
   team_id Int64,
@@ -595,7 +596,7 @@ CREATE TABLE posthog.property_definitions (
   group_type_index Nullable(UInt8),
   type UInt8 DEFAULT 1,
   last_seen_at DateTime,
-  version UInt64 MATERIALIZED bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at))
+  version UInt64 MATERIALIZED (bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at)))
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.property_definitions', '{replica}-{shard}', version) ORDER BY (team_id, type, coalesce(event, ''), name, coalesce(group_type_index, 255)) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.property_values_distributed (
   team_id Int64 CODEC(DoubleDelta, ZSTD(1)),
@@ -979,14 +980,14 @@ CREATE TABLE posthog.sharded_events (
   INDEX person_properties_map_custom_values_bf mapValues(person_properties_map_custom) TYPE bloom_filter GRANULARITY 1,
   INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3,
   INDEX minmax_inserted_at coalesce(inserted_at, _timestamp) TYPE minmax GRANULARITY 1,
-  INDEX is_deleted_idx is_deleted TYPE minmax GRANULARITY 1,
+  INDEX is_deleted_idx (is_deleted) TYPE minmax GRANULARITY 1,
   INDEX bloom_filter_$ai_trace_id `mat_$ai_trace_id` TYPE bloom_filter(0.001) GRANULARITY 2,
   INDEX bloom_filter_$ai_session_id `mat_$ai_session_id` TYPE bloom_filter GRANULARITY 1,
   INDEX minmax_$ai_session_id `mat_$ai_session_id` TYPE minmax GRANULARITY 1,
   INDEX set_$ai_is_error `mat_$ai_is_error` TYPE set(7) GRANULARITY 1,
   INDEX bloom_filter_distinct_id distinct_id TYPE bloom_filter GRANULARITY 1,
   INDEX minmax_sharded_events_timestamp timestamp TYPE minmax GRANULARITY 1,
-  INDEX minmax_historical_migration historical_migration TYPE minmax GRANULARITY 1,
+  INDEX minmax_historical_migration (historical_migration) TYPE minmax GRANULARITY 1,
   INDEX bloom_filter_$ai_prompt_name `mat_$ai_prompt_name` TYPE bloom_filter GRANULARITY 1,
   INDEX minmax_$ai_prompt_name `mat_$ai_prompt_name` TYPE minmax GRANULARITY 1,
   INDEX bloom_filter_$ai_experiment_id `mat_$ai_experiment_id` TYPE bloom_filter GRANULARITY 1,
@@ -2599,8 +2600,8 @@ CREATE VIEW posthog.custom_metrics_test AS SELECT
   'Test to check that the metric endpoint is working' AS help,
   'gauge' AS type;
 CREATE VIEW posthog.persons_batch_export AS WITH
-  new_persons AS (SELECT id, max(version) AS version, argMax(_timestamp, person.version) AS _timestamp2 FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (id IN (SELECT id FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY id HAVING (_timestamp2 >= {interval_start: DateTime64}) AND (_timestamp2 < {interval_end: DateTime64})),
-  new_distinct_ids AS (SELECT argMax(person_id, person_distinct_id2.version) AS person_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (distinct_id IN (SELECT distinct_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY distinct_id HAVING (argMax(_timestamp, person_distinct_id2.version) >= {interval_start: DateTime64}) AND (argMax(_timestamp, person_distinct_id2.version) < {interval_end: DateTime64})),
+  new_persons AS (SELECT id, max(version) AS version, argMax(_timestamp, person.version) AS _timestamp2 FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (id IN (SELECT id FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY id HAVING ((_timestamp2 >= {interval_start: DateTime64}) AND (_timestamp2 < {interval_end: DateTime64}))),
+  new_distinct_ids AS (SELECT argMax(person_id, person_distinct_id2.version) AS person_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (distinct_id IN (SELECT distinct_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY distinct_id HAVING ((argMax(_timestamp, person_distinct_id2.version) >= {interval_start: DateTime64}) AND (argMax(_timestamp, person_distinct_id2.version) < {interval_end: DateTime64}))),
   all_new_persons AS (SELECT id, version FROM new_persons UNION ALL SELECT id, max(version) FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (id IN (new_distinct_ids)) GROUP BY id)
 SELECT
   p.team_id AS team_id,

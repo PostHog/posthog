@@ -785,6 +785,9 @@ database "posthog" {
     column "client_version_patch" {
       type = "UInt64"
     }
+    column "client_agent" {
+      type = "LowCardinality(String)"
+    }
     column "http_method" {
       type = "UInt8"
     }
@@ -1568,7 +1571,7 @@ database "posthog" {
       type = "Bool"
     }
     index "is_deleted_idx" {
-      expr        = "is_deleted"
+      expr        = "(is_deleted)"
       type        = "minmax"
       granularity = 1
     }
@@ -3109,7 +3112,7 @@ database "posthog" {
     }
     column "version" {
       type         = "UInt64"
-      materialized = "bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at))"
+      materialized = "(bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at)))"
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.property_definitions"
@@ -5012,7 +5015,7 @@ database "posthog" {
       granularity = 1
     }
     index "is_deleted_idx" {
-      expr        = "is_deleted"
+      expr        = "(is_deleted)"
       type        = "minmax"
       granularity = 1
     }
@@ -5047,7 +5050,7 @@ database "posthog" {
       granularity = 1
     }
     index "minmax_historical_migration" {
-      expr        = "historical_migration"
+      expr        = "(historical_migration)"
       type        = "minmax"
       granularity = 1
     }
@@ -10445,8 +10448,8 @@ SQL
   view "persons_batch_export" {
     query = <<SQL
 WITH
-  new_persons AS (SELECT id, max(version) AS version, argMax(_timestamp, person.version) AS _timestamp2 FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (id IN (SELECT id FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY id HAVING (_timestamp2 >= {interval_start: DateTime64}) AND (_timestamp2 < {interval_end: DateTime64})),
-  new_distinct_ids AS (SELECT argMax(person_id, person_distinct_id2.version) AS person_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (distinct_id IN (SELECT distinct_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY distinct_id HAVING (argMax(_timestamp, person_distinct_id2.version) >= {interval_start: DateTime64}) AND (argMax(_timestamp, person_distinct_id2.version) < {interval_end: DateTime64})),
+  new_persons AS (SELECT id, max(version) AS version, argMax(_timestamp, person.version) AS _timestamp2 FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (id IN (SELECT id FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY id HAVING ((_timestamp2 >= {interval_start: DateTime64}) AND (_timestamp2 < {interval_end: DateTime64}))),
+  new_distinct_ids AS (SELECT argMax(person_id, person_distinct_id2.version) AS person_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (distinct_id IN (SELECT distinct_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY distinct_id HAVING ((argMax(_timestamp, person_distinct_id2.version) >= {interval_start: DateTime64}) AND (argMax(_timestamp, person_distinct_id2.version) < {interval_end: DateTime64}))),
   all_new_persons AS (SELECT id, version FROM new_persons UNION ALL SELECT id, max(version) FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (id IN (new_distinct_ids)) GROUP BY id)
 SELECT
   p.team_id AS team_id,
