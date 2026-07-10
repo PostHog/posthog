@@ -204,6 +204,17 @@ class TestFanOutExtraction:
         )
         assert rows == [{"number": 89, "title": "fix", "status": "queued", "org": "o", "repo": "r"}]
 
+    def test_queued_pull_request_without_number_is_skipped(self, monkeypatch: Any) -> None:
+        # number is part of the (org, repo, number) primary key; a null-keyed row would collapse
+        # every numberless PR in the repo into a single persisted row, so such rows are dropped.
+        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
+            return {"pull_requests": [{"number": 7, "title": "keep"}, {"title": "no number"}]}
+
+        rows = _run_fan_out(
+            "queued_pull_requests", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch
+        )
+        assert [r["title"] for r in rows] == ["keep"]
+
     def test_queue_stats_flattens_depth_object(self, monkeypatch: Any) -> None:
         def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
             return {"depth": {"queued": 8, "processing": 2, "waiting": 6}}
@@ -252,6 +263,25 @@ class TestFanOutExtraction:
             }
         ]
 
+    def test_config_history_entry_without_applied_at_is_skipped(self, monkeypatch: Any) -> None:
+        # applied_at is part of the (org, repo, applied_at) primary key; a null-keyed row would
+        # collapse multiple config changes into one persisted row, so such rows are dropped.
+        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
+            page = (params or {}).get("page", 1)
+            if page == 1:
+                return {
+                    "history": [
+                        {"applied_at": "2022-11-16T17:21:41Z", "commit_sha": "keep"},
+                        {"commit_sha": "no applied_at"},
+                    ]
+                }
+            return {"history": []}
+
+        rows = _run_fan_out(
+            "config_history", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch
+        )
+        assert [r["commit_sha"] for r in rows] == ["keep"]
+
     def test_analytics_fan_out_requests_repo_slug_and_window(self, monkeypatch: Any) -> None:
         # The analytics call is only correct if it forwards repo=org/name plus the incremental window;
         # a regression that dropped either would sync the wrong (or unbounded) data.
@@ -289,23 +319,36 @@ class TestFanOutResume:
         p = params or {}
         return {"depth": {"queued": 1, "processing": 0, "waiting": 1, "_repo": p.get("repo")}}
 
-    def test_saves_bookmark_after_each_repo_except_last(self, monkeypatch: Any) -> None:
-        # The bookmark is saved AFTER a repo's rows are yielded, pointing at the NEXT repo, so a crash
-        # re-processes the crashed repo (merge dedupes) rather than skipping it.
+    def test_marks_each_repo_completed_as_it_finishes(self, monkeypatch: Any) -> None:
+        # State accumulates completed repo keys AFTER each repo's rows are yielded, so a crash resumes
+        # with only the repos still owed (and a crash mid-repo re-processes it, since merge dedupes).
         manager = _FakeResumableManager()
         repos = [{"org": "o", "name": "a"}, {"org": "o", "name": "b"}, {"org": "o", "name": "c"}]
         _run_fan_out("queue_stats", self._fetch_stats, repos, manager, monkeypatch)
-        assert [s.repo_key for s in manager.saved] == ["o/b", "o/c"]
+        assert [s.completed_repo_keys for s in manager.saved] == [
+            ["o/a"],
+            ["o/a", "o/b"],
+            ["o/a", "o/b", "o/c"],
+        ]
 
-    def test_resumes_from_saved_repo_and_skips_earlier_ones(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(AviatorResumeConfig(repo_key="o/b"))
+    def test_resume_skips_completed_repos(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager(AviatorResumeConfig(completed_repo_keys=["o/a"]))
         repos = [{"org": "o", "name": "a"}, {"org": "o", "name": "b"}, {"org": "o", "name": "c"}]
         rows = _run_fan_out("queue_stats", self._fetch_stats, repos, manager, monkeypatch)
         assert [r["repo"] for r in rows] == ["b", "c"]
 
-    def test_resume_from_deleted_repo_restarts_from_first(self, monkeypatch: Any) -> None:
-        # A bookmarked repo removed between runs must not strand the sync; restart from the top.
-        manager = _FakeResumableManager(AviatorResumeConfig(repo_key="o/gone"))
+    def test_resume_processes_repo_added_before_the_resume_point(self, monkeypatch: Any) -> None:
+        # A repo discovered ahead of already-completed ones on retry must NOT be skipped. A positional
+        # bookmark would drop it, and since the watermark only advances at successful job end, that
+        # repo's older analytics would never be fetched outside the trailing lookback window.
+        manager = _FakeResumableManager(AviatorResumeConfig(completed_repo_keys=["o/b"]))
+        repos = [{"org": "o", "name": "new"}, {"org": "o", "name": "b"}, {"org": "o", "name": "c"}]
+        rows = _run_fan_out("queue_stats", self._fetch_stats, repos, manager, monkeypatch)
+        assert [r["repo"] for r in rows] == ["new", "c"]
+
+    def test_resume_with_only_unknown_completed_keys_processes_all(self, monkeypatch: Any) -> None:
+        # A completed repo removed between runs must not strand the sync; every current repo runs.
+        manager = _FakeResumableManager(AviatorResumeConfig(completed_repo_keys=["o/gone"]))
         repos = [{"org": "o", "name": "a"}, {"org": "o", "name": "b"}]
         rows = _run_fan_out("queue_stats", self._fetch_stats, repos, manager, monkeypatch)
         assert [r["repo"] for r in rows] == ["a", "b"]

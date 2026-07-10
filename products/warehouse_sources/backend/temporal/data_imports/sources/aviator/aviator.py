@@ -43,11 +43,13 @@ class AviatorRetryableError(Exception):
 
 @dataclasses.dataclass
 class AviatorResumeConfig:
-    # Stable "org/name" bookmark of the fan-out repository whose rows we still owe. A stable key
-    # (not a positional index) so repos added/removed between a crash and the retry can't resume us
-    # into the wrong repository. None for the non-fan-out `repositories` endpoint, which is a short
-    # full-refresh list re-paginated from the start each run.
-    repo_key: str | None = None
+    # Stable "org/name" keys of the fan-out repositories already fully processed in an earlier
+    # attempt of this job. We resume by processing any repo NOT in this set, so a repo added between
+    # a crash and the retry is picked up (a positional bookmark would silently skip it, and — because
+    # fan-out persists the watermark only at successful job end — that skipped repo's older analytics
+    # would then never be fetched outside the trailing lookback window). Empty for the non-fan-out
+    # `repositories` endpoint, which is a short full-refresh list re-paginated from the start each run.
+    completed_repo_keys: list[str] = dataclasses.field(default_factory=list)
 
 
 def _get_headers(api_token: str) -> dict[str, str]:
@@ -84,7 +86,10 @@ def _fetch(
         raise AviatorRetryableError(f"Aviator API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Aviator API error: status={response.status_code}, body={response.text}, url={url}")
+        # Log only status and URL — never the response body. Aviator error bodies can echo
+        # request-specific data (config-history diffs, token-like values), which must not spill
+        # into application logs where access is broader than the source data itself.
+        logger.error(f"Aviator API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -94,7 +99,7 @@ def validate_credentials(api_token: str) -> bool:
     """Probe the token with the cheapest account-level call. GET /repo needs no extra scope, so a
     200 confirms the token is genuine; a 401 means it is invalid or revoked."""
     try:
-        response = make_tracked_session().get(
+        response = make_tracked_session(redact_values=(api_token,)).get(
             f"{AVIATOR_BASE_URL}/repo", headers=_get_headers(api_token), params={"page": 1}, timeout=10
         )
         return response.status_code == 200
@@ -185,6 +190,11 @@ def _extract_fan_out_rows(
     if endpoint == "queued_pull_requests":
         payload = _fetch(session, url, headers, logger, params={"org": org, "repo": name})
         for pr in payload.get("pull_requests", []):
+            # `number` is part of the (org, repo, number) primary key. A row missing it would merge
+            # under a null key, silently collapsing every such PR in the repo into one row — skip it.
+            if pr.get("number") is None:
+                logger.warning(f"Aviator: skipping queued pull request without a number for {org}/{name}")
+                continue
             pr.pop("repository", None)  # Redundant with the injected org/repo below.
             yield {**pr, "org": org, "repo": name}
         return
@@ -209,11 +219,17 @@ def _extract_fan_out_rows(
             if not history:
                 break
             for change in history:
+                # `applied_at` is part of the (org, repo, applied_at) primary key. A row missing it
+                # would merge under a null key, collapsing multiple config changes into one — skip it.
+                applied_at = change.get("applied_at")
+                if not applied_at:
+                    logger.warning(f"Aviator: skipping config history entry without applied_at for {org}/{name}")
+                    continue
                 applied_by = change.get("applied_by") or {}
                 yield {
                     "org": org,
                     "repo": name,
-                    "applied_at": change.get("applied_at"),
+                    "applied_at": applied_at,
                     "commit_sha": change.get("commit_sha"),
                     "diff": change.get("diff"),
                     "applied_by_email": applied_by.get("email"),
@@ -252,21 +268,22 @@ def _get_fan_out_rows(
 ) -> Iterator[Any]:
     repos = list(_iter_repositories(session, headers, logger))
 
-    # Resolve the saved repo bookmark to the slice still to process. A repo bookmarked before a crash
-    # that no longer exists (deleted between runs) restarts the fan-out from the first repo — merge
-    # dedupes the re-pulled rows on the primary key. Within a repo we always re-fetch from the start,
-    # so the bookmark is at repo granularity only.
-    repo_keys = [f"{repo.get('org')}/{repo.get('name')}" for repo in repos]
+    # Resume by skipping only repos already fully processed in an earlier attempt of this job. Keyed
+    # on stable "org/name" (not a positional index) so a repo added between a crash and the retry is
+    # still processed rather than skipped — skipping it would strand its older rows, since fan-out
+    # persists the watermark only at successful job end. Within a repo we always re-fetch from the
+    # start, so this is at repo granularity only; merge dedupes any re-pulled rows on the primary key.
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start_index = 0
-    if resume is not None and resume.repo_key is not None and resume.repo_key in repo_keys:
-        start_index = repo_keys.index(resume.repo_key)
-        logger.debug(f"Aviator: resuming {endpoint} fan-out from repo={resume.repo_key}")
+    completed_repo_keys = list(resume.completed_repo_keys) if resume is not None else []
+    completed = set(completed_repo_keys)
 
-    remaining = repos[start_index:]
-    for index, repo in enumerate(remaining):
+    for repo in repos:
         org, name = repo.get("org"), repo.get("name")
         if not org or not name:
+            continue
+        repo_key = f"{org}/{name}"
+        if repo_key in completed:
+            logger.debug(f"Aviator: skipping already-processed repo={repo_key} for {endpoint} fan-out")
             continue
 
         for row in _extract_fan_out_rows(
@@ -284,13 +301,11 @@ def _get_fan_out_rows(
             if batcher.should_yield():
                 yield batcher.get_table()
 
-        # Advance the bookmark to the next repo so a crash between repos resumes correctly. Saved AFTER
-        # yielding this repo's batches so a crash re-processes the last repo rather than skipping it.
-        if index + 1 < len(remaining):
-            next_repo = remaining[index + 1]
-            resumable_source_manager.save_state(
-                AviatorResumeConfig(repo_key=f"{next_repo.get('org')}/{next_repo.get('name')}")
-            )
+        # Mark this repo done so a crash resumes with the repos still owed. Saved AFTER yielding this
+        # repo's batches so a crash mid-repo re-processes it (merge dedupes) rather than skipping it.
+        completed_repo_keys.append(repo_key)
+        completed.add(repo_key)
+        resumable_source_manager.save_state(AviatorResumeConfig(completed_repo_keys=list(completed_repo_keys)))
 
 
 def get_rows(
@@ -305,7 +320,8 @@ def get_rows(
     config = AVIATOR_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
     # One session reused across every page and every fan-out repo so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # Register the token for value-based redaction so it can't surface in logged URLs or captured samples.
+    session = make_tracked_session(redact_values=(api_token,))
     batcher = Batcher(logger=logger)
 
     if config.fan_out_over_repos:
