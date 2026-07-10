@@ -24398,6 +24398,18 @@ export namespace Schemas {
       readonly updated: number;
     }
 
+    /**
+     * * `general_brief` - general_brief
+     * * `query_performance` - query_performance
+     */
+    export type MissionEnum = typeof MissionEnum[keyof typeof MissionEnum];
+
+
+    export const MissionEnum = {
+      GeneralBrief: 'general_brief',
+      QueryPerformance: 'query_performance',
+    } as const;
+
     export interface GenerateBriefRequest {
       /**
          * Optional brief config to generate for. Omit for the zero-config default brief.
@@ -24410,6 +24422,11 @@ export namespace Schemas {
          * @maximum 90
          */
       period_days?: number;
+      /** Mission the agent engine runs. Defaults to the general brief; query_performance is internal (staff only) and requires the agent engine.
+       *
+       * * `general_brief` - general_brief
+       * * `query_performance` - query_performance */
+      mission?: MissionEnum;
     }
 
     export type GenerateRequestStepsItem = { [key: string]: unknown };

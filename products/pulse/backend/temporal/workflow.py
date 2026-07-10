@@ -74,8 +74,10 @@ class GenerateProductBriefWorkflow(PostHogWorkflow):
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
         )
-        if not bundle.get("seed_items"):
-            # Quiet-week cheap path: no seeds -> no sandbox, no LLM spend.
+        if not bundle.get("seed_items") and bundle.get("mission", "general_brief") == "general_brief":
+            # Quiet-week cheap path: no seeds -> no sandbox, no LLM spend. Only the general
+            # brief takes it — for query_performance the archive, not the scan, is the data
+            # source, so an empty seed list still warrants the agent run.
             await temporalio.workflow.execute_activity(
                 mark_brief_quiet_activity,
                 MarkBriefFailedInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, error=""),

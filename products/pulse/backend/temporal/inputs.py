@@ -5,11 +5,15 @@ import dataclasses
 GENERATE_BRIEF_WORKFLOW_NAME = "pulse-generate-brief"
 
 
-def pulse_brief_workflow_id(team_id: int, brief_config_id: str | None) -> str:
-    """Single-flight workflow id per team+config: any two generation starts for the same
-    focus (on-demand API, scheduled subscription) collide as WorkflowAlreadyStartedError.
-    Both start sites must mint the id here, never inline."""
-    return f"pulse-brief-{team_id}-{brief_config_id or 'default'}"
+def pulse_brief_workflow_id(team_id: int, brief_config_id: str | None, mission: str = "general_brief") -> str:
+    """Single-flight workflow id per team+config+mission: any two generation starts for the
+    same focus and mission (on-demand API, scheduled subscription) collide as
+    WorkflowAlreadyStartedError, while a query-perf run never 409s against a running general
+    brief. Both start sites must mint the id here, never inline."""
+    # The default mission keeps the historical id shape so in-flight workflows still collide
+    # across a deploy.
+    suffix = f"-{mission}" if mission != "general_brief" else ""
+    return f"pulse-brief-{team_id}-{brief_config_id or 'default'}{suffix}"
 
 
 @dataclasses.dataclass
@@ -21,6 +25,9 @@ class GenerateBriefWorkflowInputs:
     # "synthesize" (single LLM call) or "agent" (sandbox mission). User-facing generation
     # is agent-only; synthesize remains for the eval command and internal callers.
     engine: str = "synthesize"
+    # Key into MISSION_BUILDERS (agent engine only). The generate endpoint staff-gates
+    # non-default missions; workflows never check permissions themselves.
+    mission: str = "general_brief"
 
 
 @dataclasses.dataclass

@@ -389,6 +389,8 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
     // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
     const SERVER_MINT_ONLY_SCOPES = new Set([
+        'clickhouse_test_cluster_perf:read',
+        'clickhouse_test_cluster_perf:write',
         'signal_scout_internal:read',
         'signal_scout_internal:write',
         'signal_scout_report:read',

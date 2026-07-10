@@ -288,6 +288,17 @@ export interface FeedbackVoteRequestApi {
     helpful: boolean | null
 }
 
+/**
+ * * `general_brief` - general_brief
+ * * `query_performance` - query_performance
+ */
+export type MissionEnumApi = (typeof MissionEnumApi)[keyof typeof MissionEnumApi]
+
+export const MissionEnumApi = {
+    GeneralBrief: 'general_brief',
+    QueryPerformance: 'query_performance',
+} as const
+
 export interface GenerateBriefRequestApi {
     /**
      * Optional brief config to generate for. Omit for the zero-config default brief.
@@ -300,6 +311,11 @@ export interface GenerateBriefRequestApi {
      * @maximum 90
      */
     period_days?: number
+    /** Mission the agent engine runs. Defaults to the general brief; query_performance is internal (staff only) and requires the agent engine.
+     *
+     * * `general_brief` - general_brief
+     * * `query_performance` - query_performance */
+    mission?: MissionEnumApi
 }
 
 /**

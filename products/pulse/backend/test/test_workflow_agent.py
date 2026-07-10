@@ -19,6 +19,7 @@ pytestmark = pytest.mark.asyncio
 
 BUNDLE = {"seed_items": [{"fingerprint_hint": "abc:0"}]}
 QUIET_BUNDLE: dict = {"seed_items": []}
+QUERY_PERF_QUIET_BUNDLE: dict = {"seed_items": [], "mission": "query_performance"}
 
 
 def _stub_activities(bundle: dict, calls: list[str]) -> list:
@@ -92,6 +93,11 @@ async def test_agent_engine_runs_prepare_run_persist() -> None:
 
 async def test_quiet_week_skips_the_agent_entirely() -> None:
     assert await _run("agent", QUIET_BUNDLE) == ["prepare", "quiet"]
+
+
+async def test_query_perf_mission_runs_agent_despite_empty_seeds() -> None:
+    # The archive, not the deterministic scan, is query-perf's data source.
+    assert await _run("agent", QUERY_PERF_QUIET_BUNDLE) == ["prepare", "run_agent", "persist"]
 
 
 async def test_synthesize_engine_path_is_unchanged() -> None:

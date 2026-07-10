@@ -165,6 +165,7 @@ class TestPulseAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         workflow_inputs = client.start_workflow.call_args.args[1]
         assert workflow_inputs.engine == "agent"
+        assert workflow_inputs.mission == "general_brief"
         assert client.start_workflow.call_args.kwargs["execution_timeout"] == datetime.timedelta(minutes=45)
 
     def test_generate_returns_429_past_daily_agent_cap(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
@@ -174,6 +175,35 @@ class TestPulseAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/pulse/briefs/generate/")
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert response.json()["detail"] == "Daily agent brief limit reached"
+        mock_connect.assert_not_called()
+
+    def test_query_performance_mission_requires_staff(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/briefs/generate/", {"mission": "query_performance"}
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "internal-only" in str(response.json())
+        assert not ProductBrief.objects.for_team(self.team.pk).exists()
+        mock_connect.assert_not_called()
+
+    def test_staff_can_request_query_performance_mission(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        client = _temporal_client()
+        mock_connect.return_value = client
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/briefs/generate/", {"mission": "query_performance"}
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert client.start_workflow.call_args.args[1].mission == "query_performance"
+        # Mission-suffixed workflow id: a query-perf run must not 409 against a running general brief.
+        assert client.start_workflow.call_args.kwargs["id"].endswith("-query_performance")
+
+    def test_generate_with_unknown_mission_returns_400(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        response = self.client.post(f"/api/projects/{self.team.id}/pulse/briefs/generate/", {"mission": "world_peace"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "mission"
+        assert not ProductBrief.objects.for_team(self.team.pk).exists()
         mock_connect.assert_not_called()
 
     def test_generate_with_soft_deleted_config_returns_400(

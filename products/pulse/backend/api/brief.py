@@ -10,7 +10,7 @@ import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -207,6 +207,15 @@ class GenerateBriefRequestSerializer(serializers.Serializer):
         max_value=90,
         help_text="Number of days the brief should cover. Defaults to 7.",
     )
+    # Choices mirror MISSION_BUILDERS in agent/mission.py (kept literal so the web router
+    # path never imports the agent stack); test_agent_mission pins the registry keys.
+    mission = serializers.ChoiceField(
+        choices=["general_brief", "query_performance"],
+        default="general_brief",
+        help_text=(
+            "Mission the agent engine runs. Defaults to the general brief; query_performance is internal (staff only)."
+        ),
+    )
 
 
 class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -255,6 +264,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         request=GenerateBriefRequestSerializer,
         responses={
             201: ProductBriefSerializer,
+            403: OpenApiResponse(description="The requested mission is internal-only"),
             409: OpenApiResponse(description="A generation for this brief is already in progress"),
             429: OpenApiResponse(description="The team's daily agent brief limit has been reached"),
         },
@@ -289,6 +299,10 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         if runs_today >= AGENT_DAILY_RUN_CAP:
             return Response({"detail": "Daily agent brief limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
+        mission = request_serializer.validated_data["mission"]
+        if mission != "general_brief" and not cast(User, request.user).is_staff:
+            raise PermissionDenied("This mission is internal-only.")
+
         brief = ProductBrief.objects.for_team(self.team_id).create(
             team_id=self.team_id,
             config=config,
@@ -309,10 +323,11 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                         brief_config_id=str(config.id) if config else None,
                         period_days=period_days,
                         engine=engine,
+                        mission=mission,
                     ),
-                    # Keyed on team+config (not brief id) so a second generate while one is
-                    # running for the same focus hits WorkflowAlreadyStartedError.
-                    id=pulse_brief_workflow_id(self.team_id, str(config.id) if config else None),
+                    # Keyed on team+config+mission (not brief id) so a second generate while one
+                    # is running for the same focus and mission hits WorkflowAlreadyStartedError.
+                    id=pulse_brief_workflow_id(self.team_id, str(config.id) if config else None, mission),
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
                     execution_timeout=(
                         _AGENT_WORKFLOW_EXECUTION_TIMEOUT if engine == "agent" else _WORKFLOW_EXECUTION_TIMEOUT
@@ -347,6 +362,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                 "period_days": period_days,
                 "trigger": "on_demand",
                 "engine": engine,
+                "mission": mission,
             },
             team=self.team,
         )
