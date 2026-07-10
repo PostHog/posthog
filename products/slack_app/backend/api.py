@@ -2458,6 +2458,9 @@ def _start_mention_workflow(
     # behavior stay identical for such events.
     queue_workflow_id = derive_slack_app_mention_workflow_id(workflow_inputs)
     if queue_workflow_id is not None and is_slack_app_queue_workflow_enabled(integration, slack_team_id):
+        # Queue-dispatched messages carry per-message identity: the sandbox
+        # JWT and credential rebinds follow each message's actor.
+        workflow_inputs.per_message_identity = True
         # Note: under the queue workflow the slack_mention_workflow_id the
         # task-creation activity persists (derived per message) has no
         # Temporal execution behind it, so the debug-tool Temporal link

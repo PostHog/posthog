@@ -1324,6 +1324,9 @@ class TestQueueWorkflowDispatch(TestCase):
         message = call.kwargs["start_signal_args"][0]
         assert message.user_id == self.user.id
         assert message.event["ts"] == "1234.5678"
+        # Queue-dispatched messages carry per-message identity so the sandbox
+        # JWT and MCP/GitHub rebinds follow each message's actor.
+        assert message.per_message_identity is True
         # The enqueued message is acked with an hourglass on the message itself.
         mock_slack.return_value.client.reactions_add.assert_called_once_with(
             channel="C001", timestamp="1234.5678", name="hourglass"

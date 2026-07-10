@@ -26,11 +26,14 @@ from products.slack_app.backend.api import SlackUserContext
 from products.slack_app.backend.models import SlackThreadTaskMapping
 
 
-def _make_inputs(integration_id: int, slack_team_id: str = "T_SLACK") -> PostHogCodeSlackMentionWorkflowInputs:
+def _make_inputs(
+    integration_id: int, slack_team_id: str = "T_SLACK", per_message_identity: bool = False
+) -> PostHogCodeSlackMentionWorkflowInputs:
     return PostHogCodeSlackMentionWorkflowInputs(
         event={"channel": "C123", "ts": "1234.5678", "user": "U_ALICE", "text": "<@BOT> do something"},
         integration_id=integration_id,
         slack_team_id=slack_team_id,
+        per_message_identity=per_message_identity,
     )
 
 
@@ -705,6 +708,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_resolve.assert_called_once_with(mock_slack_instance, self.integration, "U_BOB", "C123", "1234.5678")
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
+    @patch("products.tasks.backend.facade.api.rebind_sandbox_identity_for_user")
     @patch(
         "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
         return_value="jwt-token",
@@ -713,16 +717,55 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.SlackIntegration")
     def test_cross_user_followup_authorized_prefixes_actor_name(
-        self, mock_slack_cls, mock_resolve, mock_send, mock_token
+        self, mock_slack_cls, mock_resolve, mock_send, mock_token, mock_rebind
     ):
-        # A second user in the same PostHog org and team should be allowed to chip in
-        # on the thread; their message is forwarded under the original author's identity
-        # but their name is prepended so the agent knows who actually spoke.
+        # A second user in the same PostHog org and team chips in on the thread:
+        # we re-bind the sandbox JWT and the PostHog MCP credentials to *them*, so
+        # subsequent agent writes (insights, dashboards) attribute to the live
+        # actor rather than the long-gone task creator. Their name is also
+        # prepended onto the text so the agent knows who spoke.
         self._create_mapping(mentioning_user="U_ALICE")
         bob = User.objects.create(email="bob@test.com", first_name="Bob")
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
+        mock_send.return_value = _command_result(success=True, status_code=200)
+
+        inputs = _make_inputs(self.integration.id, per_message_identity=True)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_BOB", "<@BOT> please retry the build", "1234.5679"
+        )
+
+        assert result is True
+        # JWT is minted for Bob (the live actor), not Alice (the original creator).
+        # The facade forwards user_id/distinct_id positionally to the underlying mint,
+        # so the mock sees args = (run, user_id, distinct_id).
+        assert mock_token.call_args.args[1] == bob.id
+        # The sandbox identity is rebound to Bob before the follow-up is
+        # delivered, so the agent acts as Bob for this turn. The tasks layer
+        # detects the identity transition and bypasses its refresh rate limits.
+        mock_rebind.assert_called_once_with(self.task_run.id, bob.id, auth_token="jwt-token")
+
+    @patch("products.tasks.backend.facade.api.rebind_sandbox_identity_for_user")
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
+        return_value="jwt-token",
+    )
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_legacy_dispatch_keeps_creator_identity(
+        self, mock_slack_cls, mock_resolve, mock_send, mock_token, mock_rebind
+    ):
+        # Messages dispatched by the legacy per-message workflow (queue flag
+        # off) must behave exactly as before: no MCP or GitHub rebind, and the
+        # sandbox JWT stays bound to the task creator even for a cross-user
+        # follow-up. Bob still participates — only via the creator's identity.
+        self._create_mapping(mentioning_user="U_ALICE")
+        bob = User.objects.create(email="bob-legacy@test.com", first_name="Bob")
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+        mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob-legacy@test.com")
         mock_send.return_value = _command_result(success=True, status_code=200)
 
         inputs = _make_inputs(self.integration.id)
@@ -731,6 +774,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
 
         assert result is True
+        assert mock_token.call_args.args[1] == self.task.created_by_id
+        mock_rebind.assert_not_called()
         mock_send.assert_called_once_with(
             self.task_run, "Bob: please retry the build", auth_token="jwt-token", timeout=90
         )
@@ -742,6 +787,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         ]
         assert not post_calls
 
+    @patch("products.tasks.backend.facade.api.rebind_sandbox_identity_for_user")
     @patch(
         "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
         return_value="jwt-token",
@@ -750,7 +796,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.SlackIntegration")
     def test_cross_user_followup_falls_back_to_email_when_no_full_name(
-        self, mock_slack_cls, mock_resolve, mock_send, mock_token
+        self, mock_slack_cls, mock_resolve, mock_send, mock_token, mock_rebind
     ):
         self._create_mapping(mentioning_user="U_ALICE")
         bob = User.objects.create(email="bob@test.com")  # no full name
@@ -762,6 +808,37 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ping", "1234.5679")
 
         mock_send.assert_called_once_with(self.task_run, "bob@test.com: ping", auth_token="jwt-token", timeout=90)
+
+    @patch("products.tasks.backend.facade.api.rebind_sandbox_identity_for_user")
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
+        return_value="jwt-token",
+    )
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_cross_user_followup_proceeds_when_identity_rebind_raises(
+        self, mock_slack_cls, mock_resolve, mock_send, mock_token, mock_rebind
+    ):
+        # The facade rebind is best-effort by contract, but even if it raises
+        # unexpectedly we still deliver the user's message rather than dropping
+        # it on the floor. The cost is that this turn may still attribute to
+        # the previous identity — an accepted downside vs. losing the input.
+        self._create_mapping(mentioning_user="U_ALICE")
+        bob = User.objects.create(email="bob@test.com", first_name="Bob")
+        mock_slack_cls.return_value = MagicMock()
+        mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
+        mock_send.return_value = _command_result(success=True, status_code=200)
+        mock_rebind.side_effect = RuntimeError("refresh failed")
+
+        inputs = _make_inputs(self.integration.id, per_message_identity=True)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ping", "1234.5679"
+        )
+
+        assert result is True
+        mock_rebind.assert_called_once()
+        mock_send.assert_called_once_with(self.task_run, "Bob: ping", auth_token="jwt-token", timeout=90)
 
     @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.models.integration.SlackIntegration")
@@ -825,13 +902,14 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
         assert "still starting up" in call_kwargs["text"]
 
+    @patch("products.tasks.backend.facade.api.rebind_sandbox_identity_for_user")
     @patch(
         "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
         return_value="jwt-token",
     )
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_successful_forwarding(self, mock_slack_cls, mock_send, mock_token):
+    def test_successful_forwarding(self, mock_slack_cls, mock_send, mock_token, mock_rebind):
         mapping = self._create_mapping()
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
@@ -841,13 +919,17 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             data={"result": {"assistant_message": "thanks"}},
         )
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, per_message_identity=True)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
         )
 
         assert result is True
         mock_token.assert_called_once()
+        # Every message rebinds the sandbox identity to its actor — here the
+        # task creator. The tasks layer rate-limits same-identity refreshes,
+        # so this stays cheap; what matters is the actor is always the one authed.
+        mock_rebind.assert_called_once_with(self.task_run.id, self.task.created_by_id, auth_token="jwt-token")
         mock_send.assert_called_once_with(self.task_run, "do something", auth_token="jwt-token", timeout=90)
         # Agent is now working on the message, so the :eyes: reaction stays up — it is
         # not swapped to :hedgehog: until the task genuinely completes.

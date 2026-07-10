@@ -35,6 +35,12 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # cleanup), we must NOT fall through to the new-task path — the user never
     # tagged us, so kicking off a brand-new agent run would be wrong.
     untagged_followup: bool = False
+    # True when the message was dispatched to the per-conversation queue
+    # workflow (slack-app-queue-workflow flag). Gates per-message identity:
+    # the sandbox JWT and credential rebinds follow the message's actor
+    # instead of the task creator. The legacy per-message workflow leaves
+    # this False and keeps creator-bound credentials throughout.
+    per_message_identity: bool = False
 
 
 def coerce_mention_workflow_inputs(inputs: object) -> PostHogCodeSlackMentionWorkflowInputs:

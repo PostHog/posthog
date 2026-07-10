@@ -563,12 +563,14 @@ def forward_posthog_code_followup_activity(
     slack = SlackIntegration(integration)
 
     followup_user_text_prefix: str | None = None
+    actor_user = mapping.task.created_by
     if slack_user_id != mapping.mentioning_slack_user_id:
-        # The follow-up is from a different Slack user than the one who started the
-        # thread. Try to resolve them to a PostHog user with access to the same team
-        # — if so, let them participate; the message is still relayed in the original
-        # author's name (their sandbox token, their identity to the agent), with the
-        # actual sender's name prefixed onto the text so the agent sees who spoke.
+        # Follow-up from someone other than the original mentioner. Resolve them to a
+        # PostHog user with access to the same team; if they qualify, they participate
+        # under their own identity — the sandbox JWT and the PostHog MCP OAuth token
+        # are both rebound to them via send_refresh_session below, so their actions
+        # (insights, dashboards, etc.) attribute to them rather than the task creator.
+        # The actor's name is still prefixed onto the text so the agent sees who spoke.
         resolved = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts)
         if not resolved:
             logger.info(
@@ -584,6 +586,7 @@ def forward_posthog_code_followup_activity(
         # into the LLM-forwarded prefix when both name and slack_email are absent.
         actor_name = resolved.user.get_full_name() or resolved.slack_email or resolved.user.email
         followup_user_text_prefix = f"{actor_name}: "
+        actor_user = resolved.user
         logger.info(
             "posthog_code_followup_cross_user_authorized",
             channel=channel,
@@ -682,13 +685,37 @@ def forward_posthog_code_followup_activity(
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
 
+    # Per-message identity applies only to queue-dispatched messages
+    # (slack-app-queue-workflow flag); the legacy per-message workflow keeps
+    # every credential bound to the task creator, exactly as before.
+    identity_user = actor_user if inputs.per_message_identity else mapping.task.created_by
+
     auth_token = None
-    created_by = mapping.task.created_by
-    if created_by and created_by.id:
-        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
+    if identity_user and identity_user.id:
+        distinct_id = identity_user.distinct_id or f"user_{identity_user.id}"
         auth_token = tasks_facade.create_sandbox_connection_token(
-            task_run.id, user_id=created_by.id, distinct_id=distinct_id
+            task_run.id, user_id=identity_user.id, distinct_id=distinct_id
         )
+
+        # Rebind the sandbox to the message's actor *before* sending it, so
+        # this turn's actions attribute to whoever actually spoke, not
+        # whoever spoke last. The tasks layer owns which credentials that
+        # covers, tracks the sandbox's current identity, bypasses its refresh
+        # rate limits on any transition (including switching *back* to the
+        # task creator), and is best-effort by contract — a rebind failure is
+        # logged there and never blocks the message. The belt-and-braces
+        # except covers facade-level surprises for the same reason: deliver
+        # the message under the previous identity rather than dropping it.
+        if inputs.per_message_identity:
+            try:
+                tasks_facade.rebind_sandbox_identity_for_user(task_run.id, identity_user.id, auth_token=auth_token)
+            except Exception:
+                logger.exception(
+                    "slack_app_followup_identity_rebind_failed",
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    actor_user_id=identity_user.id,
+                )
 
     result = tasks_facade.send_user_message(task_run.id, user_text, auth_token=auth_token, timeout=90)
     if not result.success and result.retryable and result.status_code != 504:
