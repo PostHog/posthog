@@ -1,3 +1,5 @@
+import dagster
+
 from posthog import redis
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
@@ -10,7 +12,7 @@ from products.web_analytics.dags.clear_oom_pins import web_analytics_clear_preco
 TEAMS = (901901, 901902)
 
 
-def _run(config: dict) -> object:
+def _run(config: dict) -> dagster.ExecuteInProcessResult:
     return web_analytics_clear_precompute_oom_pins_job.execute_in_process(
         run_config={"ops": {"clear_precompute_oom_pins_op": {"config": config}}},
         raise_on_error=False,
