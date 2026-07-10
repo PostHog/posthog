@@ -8,7 +8,7 @@ from django.apps import apps
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 migration_module = importlib.import_module(
-    "products.warehouse_sources.backend.migrations.0063_backfill_externaldatasource_api_version"
+    "products.warehouse_sources.backend.migrations.0064_backfill_externaldatasource_api_version"
 )
 backfill_api_version = migration_module.backfill_api_version
 
