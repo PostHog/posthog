@@ -9,13 +9,13 @@ import { isOkResult } from './results'
 export type GroupingFunction<TInput, TKey> = (input: TInput) => TKey
 
 /**
- * A batch pipeline that groups inputs by a key and processes each group concurrently.
+ * A chunk pipeline that groups inputs by a key and processes each group concurrently.
  * Within each group, items are processed sequentially through the provided pipeline.
  *
  * Ordering guarantees:
  * - Items within the same group are always processed in order, even across multiple next() calls
  * - If new items arrive for a group that's currently processing, they're queued and processed
- *   after the current batch completes
+ *   after the current chunk completes
  * - Results are returned unordered between groups - as each group completes processing,
  *   its results are made available
  *
@@ -30,7 +30,7 @@ export type GroupingFunction<TInput, TKey> = (input: TInput) => TKey
  * completion signal so a parked drain wakes when ANY group finishes — including
  * a group that was started after the drain parked.
  */
-export class ConcurrentlyGroupingBatchPipeline<
+export class ConcurrentlyGroupingChunkPipeline<
     TInput,
     TIntermediate,
     TOutput,
@@ -44,11 +44,11 @@ export class ConcurrentlyGroupingBatchPipeline<
     // Queue of items waiting to be processed for each group
     private groupQueues: Map<TKey, PipelineResultWithContext<TIntermediate, COutput, RPrev | RStep>[]> = new Map()
 
-    // Promise for the currently processing batch for each group (if any)
+    // Promise for the currently processing chunk for each group (if any)
     private activeProcessing: Map<TKey, Promise<PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[]>> =
         new Map()
 
-    // Completed result batches ready to be returned
+    // Completed result chunks ready to be returned
     private completedResults: PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[][] = []
 
     // Resolved whenever any group finishes (pushing to completedResults or
@@ -88,7 +88,7 @@ export class ConcurrentlyGroupingBatchPipeline<
         return this.inner.next()
     }
 
-    /** Pull one upstream batch, route it into per-key queues, and start available groups. */
+    /** Pull one upstream chunk, route it into per-key queues, and start available groups. */
     private async routeFromPrevious(): Promise<PullOutcome<TOutput, COutput, RPrev | RStep>> {
         const previousResults = await this.previousPipeline.next()
         if (previousResults === null) {

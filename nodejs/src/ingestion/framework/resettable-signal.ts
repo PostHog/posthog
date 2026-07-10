@@ -5,7 +5,7 @@
  * fresh promise for the next park.
  *
  * Used by pipeline stages that park awaiting in-flight work but must also react
- * to a concurrent feed() delivering new input (see ConcurrentlyGroupingBatchPipeline
+ * to a concurrent feed() delivering new input (see ConcurrentlyGroupingChunkPipeline
  * and FilterMapBatchPipeline).
  */
 export class ResettableSignal {

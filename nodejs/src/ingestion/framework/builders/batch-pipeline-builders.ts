@@ -8,9 +8,9 @@ import { BufferingChunkPipeline } from '~/ingestion/framework/buffering-chunk-pi
 import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 import { ConcurrentChunkProcessingPipeline } from '~/ingestion/framework/concurrent-chunk-pipeline'
 import {
-    ConcurrentlyGroupingBatchPipeline,
+    ConcurrentlyGroupingChunkPipeline,
     GroupingFunction,
-} from '~/ingestion/framework/concurrently-grouping-batch-pipeline'
+} from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
 import { FilterMapBatchPipeline, FilterMapMappingFunction } from '~/ingestion/framework/filter-map-batch-pipeline'
 import { GatheringChunkPipeline } from '~/ingestion/framework/gathering-chunk-pipeline'
 import { IngestionWarningHandlingBatchPipeline } from '~/ingestion/framework/ingestion-warning-handling-batch-pipeline'
@@ -158,7 +158,7 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
         return callback(
             new GroupProcessingBuilder(
                 <U2, R2 extends string>(processor: Pipeline<TOutput, U2, COutput, R2>) =>
-                    new ConcurrentlyGroupingBatchPipeline(groupingFn, processor, this.pipeline, options?.maxConcurrency)
+                    new ConcurrentlyGroupingChunkPipeline(groupingFn, processor, this.pipeline, options?.maxConcurrency)
             )
         )
     }
