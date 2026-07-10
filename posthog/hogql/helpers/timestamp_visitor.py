@@ -1,6 +1,5 @@
-import re
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 from posthog.hogql import ast
@@ -10,17 +9,33 @@ from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.errors import NotImplementedError
 from posthog.hogql.visitor import Visitor
 
-# ISO 8601 datetime strings that carry a zone designator — a trailing 'Z' (UTC) or a numeric offset
-# like '+02:00'. ClickHouse's DateTime64 text reader (used by both the implicit String cast and by
-# toDateTime64) rejects these: it parses up to the offset and then throws "Cannot parse ... syntax
-# error at position N". Python's ``datetime.isoformat`` / ``orjson.OPT_UTC_Z`` produce exactly this
-# form (e.g. '2026-06-30T09:59:12.988000Z') when a server-side value round-trips back into a query,
-# so such a constant must be routed through parseDateTime64BestEffort instead of a strict parser.
-ZONED_DATETIME_STRING_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$")
 
+def parse_zoned_datetime_string(value: object) -> Optional[datetime]:
+    """Parse an ISO 8601 datetime string carrying a zone designator (trailing 'Z' or a numeric offset)
+    into an aware datetime; return None for anything else, including naive datetime strings.
 
-def is_zoned_datetime_string(value: object) -> bool:
-    return isinstance(value, str) and ZONED_DATETIME_STRING_RE.match(value) is not None
+    ClickHouse's strict DateTime64 reader (the implicit String cast and toDateTime64) rejects zone
+    designators, which is exactly what Python's ``datetime.isoformat`` / ``orjson.OPT_UTC_Z`` produce
+    when a server-side value round-trips back into a query. Callers replace such a string constant
+    with the parsed datetime, which the printer inlines as a strict toDateTime64 literal with the
+    instant already converted, so nothing has to be parsed at query time. Strings that only look like
+    zoned datetimes (month 13, impossible offsets) return None and keep the strict path's clear error.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    try:
+        # Instants within an offset of datetime.min/max overflow on conversion; the printer would
+        # hit the same overflow when converting to the team timezone, so treat them as unparseable.
+        parsed.astimezone(UTC)
+    except (OverflowError, ValueError):
+        return None
+    return parsed
 
 
 def is_simple_timestamp_field_expression(

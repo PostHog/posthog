@@ -16,7 +16,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickh
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
-from posthog.hogql.helpers.timestamp_visitor import is_zoned_datetime_string
+from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
@@ -83,6 +83,19 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
 # 'true'/'false' the property-group map stores booleans as. The printer refuses to inline anything else, so the flag can
 # never be turned into an unparameterized read of arbitrary (e.g. user-supplied) text.
 INLINE_SENTINEL_LITERALS = frozenset({"", "null", "true", "false", '^"|"$'})
+
+# Comparison ops where a zoned datetime string constant against a DateTime field is coerced to a
+# datetime literal. Pattern and set-membership ops keep their string operand untouched.
+ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.NotEq,
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+    }
+)
 
 
 class ClickHousePrinter(BasePrinter):
@@ -552,8 +565,8 @@ class ClickHousePrinter(BasePrinter):
         return []
 
     @staticmethod
-    def _is_zoned_datetime_string_constant(node: ast.Expr) -> bool:
-        return isinstance(node, ast.Constant) and is_zoned_datetime_string(node.value)
+    def _parse_zoned_datetime_constant(node: ast.Expr) -> datetime | None:
+        return parse_zoned_datetime_string(node.value) if isinstance(node, ast.Constant) else None
 
     def _resolves_to_datetime(self, node: ast.Expr) -> bool:
         if node.type is None:
@@ -562,7 +575,7 @@ class ClickHousePrinter(BasePrinter):
             constant_type = node.type.resolve_constant_type(self.context)
         except Exception:
             return False
-        return isinstance(constant_type, ast.DateTimeType | ast.DateType)
+        return isinstance(constant_type, ast.DateTimeType)
 
     def _is_events_table_timestamp_field(self, node: ast.Expr) -> bool:
         traverser = GetFieldsTraverser(node)
@@ -633,13 +646,20 @@ class ClickHousePrinter(BasePrinter):
             not_nullable = True
 
         # A zoned ISO 8601 datetime string (trailing 'Z' or numeric offset) compared against a
-        # DateTime/Date field can't be implicitly cast by ClickHouse, so coerce it through
-        # parseDateTime64BestEffort. Mirrors property.py's _force_datetime, but catches the paths
-        # that slip a raw string constant straight through to the printer without pre-parsing it.
-        if self._is_zoned_datetime_string_constant(node.left) and self._resolves_to_datetime(node.right):
-            left = f"parseDateTime64BestEffort({left}, 6, 'UTC')"
-        elif self._is_zoned_datetime_string_constant(node.right) and self._resolves_to_datetime(node.left):
-            right = f"parseDateTime64BestEffort({right}, 6, 'UTC')"
+        # DateTime field can't be cast by ClickHouse's strict reader, so inline it as a datetime
+        # literal with the instant already converted, the same way visit_constant prints datetime
+        # values. Range comparisons inside WHERE are normally rewritten earlier by PropertySwapper;
+        # this catches equality and any comparison the transform doesn't reach. Pattern ops need the
+        # string operand, and Date fields keep the strict error rather than a time-of-day comparison.
+        if node.op in ZONED_DATETIME_COERCIBLE_COMPARE_OPS:
+            if (
+                zoned_left := self._parse_zoned_datetime_constant(node.left)
+            ) is not None and self._resolves_to_datetime(node.right):
+                left = self._print_escaped_string(zoned_left)
+            elif (
+                zoned_right := self._parse_zoned_datetime_constant(node.right)
+            ) is not None and self._resolves_to_datetime(node.left):
+                right = self._print_escaped_string(zoned_right)
 
         constant_lambda = None
         value_if_one_side_is_null = False

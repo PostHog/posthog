@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta, timezone
+
 import unittest
 
 from parameterized import parameterized
@@ -17,7 +19,7 @@ from posthog.hogql.helpers.timestamp_visitor import (
     is_start_of_day_constant,
     is_start_of_hour_constant,
     is_time_or_interval_constant,
-    is_zoned_datetime_string,
+    parse_zoned_datetime_string,
 )
 
 
@@ -587,27 +589,54 @@ class TestIsSimpleTimestampFieldExpression(unittest.TestCase):
         )
 
 
-class TestIsZonedDatetimeString(unittest.TestCase):
+class TestParseZonedDatetimeString(unittest.TestCase):
     @parameterized.expand(
         [
-            # Zone designator present -> ClickHouse's strict DateTime64 reader rejects these.
-            ("iso_utc_micros", "2026-06-30T09:59:12.988000Z", True),
-            ("iso_utc_no_micros", "2026-06-30T09:59:12Z", True),
-            ("space_sep_utc", "2026-06-30 09:59:12Z", True),
-            ("offset_with_colon", "2026-06-30T09:59:12+02:00", True),
-            ("offset_no_colon", "2026-06-30T09:59:12-0800", True),
-            ("offset_with_micros", "2026-06-30T09:59:12.5+02:00", True),
-            # No zone designator -> ClickHouse parses these fine, must stay untouched.
-            ("mysql_style", "2026-06-30 09:59:12", False),
-            ("iso_no_zone", "2026-06-30T09:59:12", False),
-            ("date_only", "2026-06-30", False),
-            ("with_micros_no_zone", "2026-06-30 09:59:12.988000", False),
+            # Zone designator present and valid -> parsed to the exact aware instant.
+            (
+                "iso_utc_micros",
+                "2026-06-30T09:59:12.988000Z",
+                datetime(2026, 6, 30, 9, 59, 12, 988000, tzinfo=UTC),
+            ),
+            ("iso_utc_no_micros", "2026-06-30T09:59:12Z", datetime(2026, 6, 30, 9, 59, 12, tzinfo=UTC)),
+            ("space_sep_utc", "2026-06-30 09:59:12Z", datetime(2026, 6, 30, 9, 59, 12, tzinfo=UTC)),
+            (
+                "offset_with_colon",
+                "2026-06-30T09:59:12+02:00",
+                datetime(2026, 6, 30, 9, 59, 12, tzinfo=timezone(timedelta(hours=2))),
+            ),
+            (
+                "offset_no_colon",
+                "2026-06-30T09:59:12-0800",
+                datetime(2026, 6, 30, 9, 59, 12, tzinfo=timezone(timedelta(hours=-8))),
+            ),
+            (
+                "offset_with_micros",
+                "2026-06-30T09:59:12.5+02:00",
+                datetime(2026, 6, 30, 9, 59, 12, 500000, tzinfo=timezone(timedelta(hours=2))),
+            ),
+            (
+                "sub_microsecond_precision_truncated",
+                "2026-06-30T09:59:12.988000123Z",
+                datetime(2026, 6, 30, 9, 59, 12, 988000, tzinfo=UTC),
+            ),
+            # No zone designator -> ClickHouse parses these in the field timezone, must stay untouched.
+            ("mysql_style", "2026-06-30 09:59:12", None),
+            ("iso_no_zone", "2026-06-30T09:59:12", None),
+            ("date_only", "2026-06-30", None),
+            ("with_micros_no_zone", "2026-06-30 09:59:12.988000", None),
+            # Shaped like a zoned datetime but not a real instant -> None keeps the strict path's clear error
+            # instead of a silently-empty or silently-shifted result.
+            ("month_out_of_range", "2026-13-45T99:99:99Z", None),
+            ("day_month_swapped", "2026-30-06T00:00:00Z", None),
+            ("impossible_offset", "2026-06-30T09:59:12+99:00", None),
+            ("overflows_timezone_conversion", "0001-01-01T00:00:00+14:00", None),
             # Not a datetime at all.
-            ("arbitrary_string_ending_z", "some_value_Z", False),
-            ("empty", "", False),
-            ("non_string", 12345, False),
-            ("none", None, False),
+            ("arbitrary_string_ending_z", "some_value_Z", None),
+            ("empty", "", None),
+            ("non_string", 12345, None),
+            ("none", None, None),
         ]
     )
-    def test_is_zoned_datetime_string(self, _name: str, value: object, expected: bool) -> None:
-        self.assertEqual(is_zoned_datetime_string(value), expected)
+    def test_parse_zoned_datetime_string(self, _name: str, value: object, expected: datetime | None) -> None:
+        self.assertEqual(parse_zoned_datetime_string(value), expected)

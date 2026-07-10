@@ -2251,27 +2251,40 @@ class TestPrinter(BaseTest):
         )
 
     @parameterized.expand([("=",), ("!=",), (">",), ("<",), (">=",), ("<=",)])
-    def test_zoned_datetime_string_compared_to_timestamp_is_best_effort_parsed(self, op: str):
-        # ClickHouse's DateTime64 text reader throws on a trailing 'Z'/offset (the Python isoformat +
+    def test_zoned_datetime_string_compared_to_timestamp_is_inlined_as_datetime(self, op: str):
+        # ClickHouse's strict DateTime64 reader throws on a trailing 'Z'/offset (the Python isoformat +
         # orjson OPT_UTC_Z round-trip form), so a zoned ISO string compared against the DateTime
-        # timestamp column must be routed through a best-effort parse rather than left as a bare
-        # literal for CH to cast. Equality is coerced by the printer; range comparisons get rewritten
-        # onto the constant side by PropertySwapper — both must end up best-effort parsed.
+        # timestamp column is parsed in Python and inlined as a strict datetime literal, leaving
+        # nothing to parse at query time. Equality is inlined by the printer; range comparisons get
+        # their constant rewritten by PropertySwapper. Both must produce the same literal.
         printed = self._select(f"SELECT count() FROM events WHERE timestamp {op} '2026-06-30T09:59:12.988000Z'")
-        assert "parseDateTime64BestEffort" in printed, printed
+        assert "toDateTime64('2026-06-30 09:59:12.988000', 6, 'UTC')" in printed, printed
+        assert "BestEffort" not in printed, printed
+
+    def test_zoned_datetime_string_instant_converted_to_team_timezone(self):
+        # The zone designator fixes the instant; the inlined literal must express that same instant
+        # in the team timezone, not echo the string's wall-clock digits.
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        printed = self._select("SELECT count() FROM events WHERE timestamp > '2026-06-30T09:59:12.988000Z'")
+        assert "toDateTime64('2026-06-30 02:59:12.988000', 6, 'US/Pacific')" in printed, printed
 
     @parameterized.expand(
         [
-            ("timestamp = '2026-06-30 09:59:12'",),  # no zone designator — CH casts it fine, leave bare
-            ("timestamp = '2026-06-30'",),
-            ("event = '2026-06-30T09:59:12.988000Z'",),  # String column — must not be treated as datetime
+            ("events", "timestamp = '2026-06-30 09:59:12'"),  # no zone designator: CH casts it in the field tz
+            ("events", "timestamp = '2026-06-30'"),
+            ("events", "event = '2026-06-30T09:59:12.988000Z'"),  # String column: not a datetime comparison
+            ("events", "timestamp = '2026-30-06T00:00:00Z'"),  # zoned shape but invalid: keep the strict error
+            ("exchange_rate", "date = '2026-06-30T09:59:12.988000Z'"),  # Date column: no time-of-day comparison
         ]
     )
-    def test_datetime_string_comparison_stays_bare(self, where: str):
-        # Guard against churn / over-broad coercion: only zoned strings against a datetime-typed field
-        # get wrapped. Plain casts CH already handles, and String columns, must stay untouched.
-        printed = self._select(f"SELECT count() FROM events WHERE {where}")
-        assert "parseDateTime64BestEffort" not in printed, printed
+    def test_datetime_string_comparison_stays_bare(self, table: str, where: str):
+        # Guard against over-broad coercion: only valid zoned strings against a DateTime-typed field
+        # get inlined. Everything else keeps its parameterized string constant so naive literals stay
+        # interpreted in the field timezone and shaped-but-invalid values keep the loud strict error.
+        printed = self._select(f"SELECT count() FROM {table} WHERE {where}")
+        assert "2026" not in printed, printed
+        assert "BestEffort" not in printed, printed
 
     def test_print_timezone_gibberish(self):
         self.team.timezone = "Europe/PostHogLandia"
