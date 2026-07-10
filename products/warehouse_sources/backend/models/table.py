@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
+    reconstruct_ordered_columns,
     remove_named_tuples,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
@@ -195,6 +196,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         blank=True,
         help_text="Dict of all columns with Clickhouse type (including Nullable())",
     )
+    # Postgres jsonb does not preserve `columns` key order, so this records the physical column
+    # order captured at write time (for materialized-view backing tables, the view's SELECT order).
+    # Null on rows saved before this field existed and on non-materialized tables (they fall back
+    # to jsonb key order). Internal only, not exposed through the API.
+    column_order = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="Ordered column names capturing physical/SELECT order (columns jsonb loses key order). Not user-facing.",
+    )
 
     options = models.JSONField(default=dict, blank=True)
 
@@ -302,6 +313,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
         return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
+
+    def set_columns(self, columns: dict[str, Any]) -> None:
+        """Assign ``columns`` and record its order together.
+
+        The single chokepoint for persisting columns: the caller passes an ordered dict (DESCRIBE /
+        SELECT order), and both the jsonb payload and the ordered names are set here so they can
+        never drift. Never assign ``self.columns`` directly at a persist site.
+        """
+        self.columns = columns
+        self.column_order = list(columns.keys())
 
     def get_columns(
         self,
@@ -561,7 +582,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
         fields: dict[str, FieldOrTable] = {}
         structure = []
-        for column, type in columns.items():
+        for column, type in reconstruct_ordered_columns(columns, self.column_order):
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type
