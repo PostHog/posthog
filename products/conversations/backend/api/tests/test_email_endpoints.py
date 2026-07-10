@@ -22,7 +22,7 @@ from products.conversations.backend.mailgun import (
     MailgunPermanentError,
     MailgunTransientError,
 )
-from products.conversations.backend.models import EmailChannel, EmailOutboxMessage
+from products.conversations.backend.models import EmailChannel, EmailMessageMapping, EmailOutboxMessage
 from products.conversations.backend.models.ticket import Ticket
 
 
@@ -821,6 +821,51 @@ class TestEmailInboundMultiConfig(BaseTest):
 
         ticket = Ticket.objects.get(team=self.team)
         assert ticket.email_config_id == config2.id
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_handles_message_id_over_255_chars(self, _mock_sig: MagicMock):
+        # A Message-Id longer than the old CharField(255) used to raise an uncaught DataError,
+        # 500 the webhook, and silently drop the customer's email without creating a ticket.
+        self._create_config("support@example.com", "aaa111")
+        long_message_id = "<" + ("x" * 400) + "@test.com>"
+
+        response = self.client.post(
+            "/api/conversations/v1/email/inbound",
+            {
+                "recipient": "team-aaa111@mg.posthog.com",
+                "from": "customer@test.com",
+                "Message-Id": long_message_id,
+                "subject": "Help",
+                "stripped-text": "I need help",
+            },
+        )
+        assert response.status_code == 200
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert EmailMessageMapping.objects.get(team=self.team, ticket=ticket).message_id == long_message_id
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_handles_sender_address_over_column_limit(self, _mock_sig: MagicMock):
+        # A malformed, overlong From address must not overflow email_from (EmailField, 254)
+        # and drop the ticket — it's capped so a ticket is still created.
+        self._create_config("support@example.com", "aaa111")
+        long_sender = ("y" * 300) + "@test.com"
+
+        response = self.client.post(
+            "/api/conversations/v1/email/inbound",
+            {
+                "recipient": "team-aaa111@mg.posthog.com",
+                "from": long_sender,
+                "Message-Id": "<long-sender@test.com>",
+                "subject": "Help",
+                "stripped-text": "I need help",
+            },
+        )
+        assert response.status_code == 200
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from is not None
+        assert len(ticket.email_from) <= 254
 
 
 class TestSendEmailReplyMultiConfig(BaseTest):
