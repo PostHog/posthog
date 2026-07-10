@@ -469,11 +469,6 @@
         "params": [],
         "scope": "project"
     },
-    "codeBasedVerificationVerify": {
-        "template": "/login/verify",
-        "params": [],
-        "scope": "global"
-    },
     "embedded": {
         "template": "/embedded/{token}",
         "params": ["token"],
