@@ -9,7 +9,6 @@ import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { PaginatedResponse } from 'lib/api'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
-import { AlertType } from 'lib/components/Alerts/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
@@ -79,6 +78,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -506,6 +506,7 @@ export interface PluginAccess {
 export interface PersonalAPIKeyType {
     id: string
     label: string
+    description?: string | null
     value?: string
     is_legacy_hashing: boolean
     mask_value?: string | null
@@ -1657,6 +1658,8 @@ export type SearchResultType = {
     type: SearchableEntity
     rank: number | null
     extra_fields: Record<string, unknown>
+    /** Resolved access level the user has for this object ('none' means no access); null when access controls don't apply */
+    user_access_level?: AccessControlLevel | null
 }
 
 export type SearchResponse = {
@@ -5362,6 +5365,8 @@ export interface SubscriptionType {
     enabled?: boolean
     summary_enabled?: boolean
     summary_prompt_guide?: string
+    /** Write-only. When false, creating the subscription skips the immediate confirmation send (the schedule is unaffected). */
+    send_test_now?: boolean
 }
 
 export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
@@ -5454,8 +5459,10 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 // `invalid_scope`. Move entries into SlackIntegrationScope once Slack approves the public app.
 export enum SlackIntegrationScopeInReview {
     ASSISTANT_WRITE = 'assistant:write',
+    CANVASES_WRITE = 'canvases:write',
     CHANNELS_MANAGE = 'channels:manage',
     COMMANDS = 'commands',
+    FILES_WRITE = 'files:write',
     IM_HISTORY = 'im:history',
     MPIM_READ = 'mpim:read',
 }
@@ -6949,6 +6956,7 @@ export type CyclotronJobInputSchemaType = {
         | 'posthog_business_hours'
         | 'non_failure_status_codes'
         | 'customer_analytics_account_properties'
+        | 'customer_analytics_account_relationships'
     key: string
     label: string
     choices?: { value: string; label: string }[]

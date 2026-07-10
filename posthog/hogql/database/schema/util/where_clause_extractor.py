@@ -153,9 +153,19 @@ class WhereClauseExtractor(CloningVisitor):
     def visit_not(self, node: ast.Not) -> ast.Expr:
         if self.is_join:
             return ast.Constant(value=True)
-        response = self.visit(node.expr)
+        # Unliftable predicates fail safe to True; negating that (`NOT (a OR b)` -> `NOT True` = False)
+        # would prune every row. Buffered timestamp bounds are over-approximations too, so ignore them
+        # here. Only negate an operand that lifts exactly; otherwise fail safe to True.
+        previous_capture = self.capture_timestamp_comparisons
+        self.capture_timestamp_comparisons = False
+        try:
+            response = self.visit(node.expr)
+        finally:
+            self.capture_timestamp_comparisons = previous_capture
         if has_tombstone(response, self.tombstone_string):
             return ast.Constant(value=self.tombstone_string)
+        if contains_boolean_constant(response):
+            return ast.Constant(value=True)
         return ast.Not(expr=response)
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
@@ -166,6 +176,9 @@ class WhereClauseExtractor(CloningVisitor):
         elif node.name == "not":
             if self.is_join:
                 return ast.Constant(value=True)
+            # Route the `not(...)` call form through visit_not for the same guard as the `ast.Not` form.
+            if len(node.args) == 1:
+                return self.visit_not(ast.Not(expr=node.args[0]))
 
         elif node.name in HOGQL_COMPARISON_MAPPING:
             op = HOGQL_COMPARISON_MAPPING[node.name]
@@ -713,6 +726,26 @@ class HasTombstoneVisitor(TraversingVisitor):
     def visit_constant(self, node: ast.Constant):
         if node.value == self.tombstone_string:
             self.has_tombstone = True
+
+
+class _BooleanConstantFinder(TraversingVisitor):
+    """Finds a boolean True/False constant anywhere in an expression - usually the sentinel this extractor
+    substitutes for a predicate it can't lift, marking an over-approximation that must not be negated. A
+    literal `true`/`false` in the query matches too; that's fine, since it only skips the NOT pushdown."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_constant(self, node: ast.Constant) -> None:
+        if isinstance(node.value, bool):
+            self.found = True
+
+
+def contains_boolean_constant(expr: ast.Expr) -> bool:
+    finder = _BooleanConstantFinder()
+    finder.visit(expr)
+    return finder.found
 
 
 def rewrite_timestamp_field(expr: ast.Expr, timestamp_field: ast.Expr, context: HogQLContext) -> ast.Expr:

@@ -6,8 +6,9 @@ import {
     sanitizeResourceName,
 } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
 
-import { AlertType } from '~/lib/components/Alerts/types'
 import { HogFunctionType, InsightModel } from '~/types'
+
+import { AlertType } from 'products/alerts/frontend/types'
 
 import { generateAlertHCL } from './alertHclExporter'
 import { FieldMapping, HclExportOptions, HclExportResult, ResourceExporter, generateHCL } from './hclExporter'

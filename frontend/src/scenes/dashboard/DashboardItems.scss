@@ -22,6 +22,11 @@
         /* Skip rendering for off-screen tiles during resize/reflow */
         content-visibility: auto;
         contain-intrinsic-size: auto 30rem;
+
+        /* content-visibility paint-clips the resize handles revealed on border hover; lift it while one shows */
+        &:has(> .handle) {
+            content-visibility: visible;
+        }
     }
 }
 

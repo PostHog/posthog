@@ -24,7 +24,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy
-from products.metrics.backend.facade.enums import FilterOp
+from products.metrics.backend.facade.enums import FilterOp, MetricType
 
 AttributeScope = Literal["resource", "attribute", "auto"]
 
@@ -136,6 +136,10 @@ _ALLOWED_AGGREGATIONS: frozenset[str] = frozenset(
     {"sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"}
 )
 
+# Derived from the contract enum (whose values match what the ingest writes,
+# rust/capture-logs `flatten_metric`) so the two can't silently diverge.
+_ALLOWED_METRIC_TYPES: frozenset[str] = frozenset(t.value for t in MetricType)
+
 
 def _histogram_quantile(quantile: float, bounds: list[float], counts: list[float]) -> float:
     """Prometheus-style quantile from explicit-bounds bucket counts.
@@ -245,9 +249,12 @@ class MetricQueryRunner:
         group_by: Sequence[MetricGroupBy] = (),
         interval: str | None = None,
         quantile: float | None = None,
+        metric_type: str | None = None,
     ) -> None:
         if aggregation not in _ALLOWED_AGGREGATIONS:
             raise ValueError(f"Unsupported aggregation: {aggregation!r}")
+        if metric_type is not None and metric_type not in _ALLOWED_METRIC_TYPES:
+            raise ValueError(f"Unknown metric_type: {metric_type!r}")
         if date_to <= date_from:
             raise ValueError("date_to must be after date_from")
         if date_to - date_from > MAX_QUERY_SPAN:
@@ -274,6 +281,7 @@ class MetricQueryRunner:
         self.group_by = tuple(group_by)
         self.interval = interval or _pick_interval(date_from, date_to)
         self.quantile = quantile
+        self.metric_type = metric_type
 
     def run(self) -> list[dict[str, Any]]:
         """Bucketed rows: `{"time", "value", "labels"}`. `labels` carries one
@@ -366,6 +374,16 @@ class MetricQueryRunner:
             query.select.insert(1 + index, ast.Alias(alias=f"group_{index}", expr=label_expr))
             query.group_by.append(ast.Field(chain=[f"group_{index}"]))
 
+    def _type_filter_expr(self) -> ast.Expr:
+        """Constrains rows to one metric type. A name can exist as several
+        types (a counter and a gauge); their series are distinct and must not
+        blend into one aggregate. TRUE when no type was requested."""
+        if self.metric_type is None:
+            return ast.Constant(value=True)
+        return parse_expr(
+            "metric_type = {metric_type}", placeholders={"metric_type": ast.Constant(value=self.metric_type)}
+        )
+
     def _build_simple_query(self) -> ast.SelectQuery:
         # `metrics` is only registered under the `posthog.` HogQL namespace
         # (see posthog/hogql/database/database.py).
@@ -379,6 +397,7 @@ class MetricQueryRunner:
                   AND timestamp >= {date_from}
                   AND timestamp < {date_to}
                   AND {filters}
+                  AND {type_filter}
                 GROUP BY time
                 ORDER BY time ASC
                 LIMIT {row_limit}
@@ -390,6 +409,7 @@ class MetricQueryRunner:
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
                 "filters": _filters_expr(self.filters),
+                "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )
@@ -451,6 +471,7 @@ class MetricQueryRunner:
                           AND timestamp >= {date_from}
                           AND timestamp < {date_to}
                           AND {filters}
+                          AND {type_filter}
                     )
                 )
                 GROUP BY time
@@ -464,6 +485,7 @@ class MetricQueryRunner:
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
                 "filters": _filters_expr(self.filters),
+                "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )
@@ -516,6 +538,7 @@ class MetricQueryRunner:
                           AND timestamp < {date_to}
                           AND notEmpty(histogram_counts)
                           AND {filters}
+                          AND {type_filter}
                     )
                 )
                 GROUP BY time
@@ -528,6 +551,7 @@ class MetricQueryRunner:
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
                 "filters": _filters_expr(self.filters),
+                "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )

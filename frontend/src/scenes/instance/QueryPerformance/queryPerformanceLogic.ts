@@ -17,6 +17,16 @@ export interface PrecomputationTeam {
 
 export type ExperimentsTab = 'slowest_queries' | 'precompute_overview' | 'cache_health'
 
+// ClickHouse exit codes we see on experiment queries and precompute builds, in UI copy.
+export const EXCEPTION_CODE_LABELS: Record<string, string> = {
+    '307': 'byte limit',
+    '159': 'timeout',
+    '241': 'out of memory',
+    '202': 'cluster busy',
+    '164': 'readonly',
+    '47': 'unknown identifier',
+}
+
 export interface PrecomputePathStats {
     reads: number
     failed_reads: number
@@ -37,6 +47,9 @@ export interface PrecomputeBuildStats {
     failed: number
     total_duration_ms: number
     total_read_bytes: number
+    // Optional: responses served by a backend from before these fields existed omit them.
+    failed_duration_ms?: number
+    failed_read_bytes?: number
     by_table: Record<string, { succeeded: number; failed: number }>
     failures_by_code: Record<string, number>
 }
@@ -59,6 +72,21 @@ export interface PrecomputeOverviewResponse {
     }
     builds: PrecomputeBuildStats
     jobs: PrecomputeJobStats
+}
+
+export interface PrecomputeTimeseriesResponse {
+    hours: number
+    interval: 'hour' | 'day'
+    buckets: string[] // ISO timestamps; all arrays below align to this axis (zero-filled)
+    reads: {
+        total: number[]
+        precomputed: number[]
+        fallback: number[]
+    }
+    builds: {
+        failed_by_code: Record<string, number[]>
+        failed_read_bytes: number[]
+    }
 }
 
 export interface CachePartitionStats {
@@ -137,6 +165,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setExceptionCodeFilter: (exceptionCode: string) => ({ exceptionCode }),
         setExperimentsTab: (tab: ExperimentsTab) => ({ tab }),
         setOverviewHoursBack: (hours: number) => ({ hours }),
+        setTimeseriesHoursBack: (hours: number) => ({ hours }),
     }),
     reducers({
         search: [
@@ -187,6 +216,12 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                 setOverviewHoursBack: (_, { hours }) => hours,
             },
         ],
+        timeseriesHoursBack: [
+            336,
+            {
+                setTimeseriesHoursBack: (_, { hours }) => hours,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         precomputationTeams: [
@@ -227,6 +262,16 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             {
                 loadPrecomputeOverview: async () => {
                     return await api.get(`api/debug_ch_queries/precompute_overview/?hours=${values.overviewHoursBack}`)
+                },
+            },
+        ],
+        precomputeTimeseries: [
+            null as PrecomputeTimeseriesResponse | null,
+            {
+                loadPrecomputeTimeseries: async () => {
+                    return await api.get(
+                        `api/debug_ch_queries/precompute_timeseries/?hours=${values.timeseriesHoursBack}`
+                    )
                 },
             },
         ],
@@ -299,6 +344,10 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         },
         setOverviewHoursBack: () => {
             actions.loadPrecomputeOverview()
+            actions.loadPrecomputeTimeseries()
+        },
+        setTimeseriesHoursBack: () => {
+            actions.loadPrecomputeTimeseries()
         },
     })),
     afterMount(({ actions }) => {
@@ -307,6 +356,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             actions.loadSlowestQueries()
             actions.loadCacheHealth()
             actions.loadPrecomputeOverview()
+            actions.loadPrecomputeTimeseries()
         }
     }),
 ])
