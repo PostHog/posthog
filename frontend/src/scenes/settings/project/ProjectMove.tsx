@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Dispatch, SetStateAction, useState } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -96,6 +96,10 @@ export function ProjectMove(): JSX.Element {
     const targetOrgRestrictionReason =
         targetOrganization && notAdminOfOrg(targetOrganization) ? NOT_ADMIN_OF_TARGET_REASON : null
 
+    // A disabled target org only explains itself on hover, which leaves members staring at a greyed-out option with no
+    // visible reason. Surface the requirement inline whenever at least one org is blocked by the admin/owner rule.
+    const hasBlockedTargetOrg = otherOrganizations.some(notAdminOfOrg)
+
     return (
         <>
             <p>
@@ -135,6 +139,12 @@ export function ProjectMove(): JSX.Element {
                     Move {currentProject?.name || 'the current project'}
                 </LemonButton>
             </div>
+            {hasBlockedTargetOrg && (
+                <LemonBanner type="info" className="mt-2">
+                    You can only move a project into an organization where you're an admin or owner. Organizations where
+                    you're a member are unavailable.
+                </LemonBanner>
+            )}
             {targetOrganization && (
                 <MoveProjectModal
                     isOpen={isModalVisible}

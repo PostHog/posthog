@@ -1796,7 +1796,9 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 )
 
         except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
-            raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
+            raise exceptions.ValidationError(
+                "You must be an admin or owner of both the source and target organizations to move a project."
+            )
 
         if project.organization_id == target_organization_id:
             raise exceptions.ValidationError("Project is already in the target organization.")
