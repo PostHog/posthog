@@ -1,4 +1,4 @@
-import { EventType, eventWithTime, fullSnapshotEvent } from 'posthog-js/rrweb-types'
+import { EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from 'posthog-js/rrweb-types'
 
 import { transformEventToWeb } from '../mobile'
 import { noOpTelemetry, ReplayTelemetry } from '../telemetry'
@@ -32,6 +32,9 @@ export const createWindowIdRegistry = (): RegisterWindowIdCallback => {
 
 export type ProcessingCache = {
     snapshots: Record<SourceKey, RecordingSnapshot[]>
+    // Sources processed while viewport data was unavailable (meta patch failed). They are left out of
+    // `snapshots` so a later pass — e.g. once events land — can re-process them with a viewport.
+    viewportGaps?: Set<SourceKey>
 }
 
 function extractImgNodeFromMobileIncremental(snapshot: RecordingSnapshot): any | undefined {
@@ -130,7 +133,12 @@ export async function processAllSnapshots(
         seenFullByWindow: {},
         previousTimestamp: null,
         seenHashes: new Set<number>(),
+        sourceHadViewportGap: false,
     }
+
+    // Reset each pass: any source with a gap was left uncached, so it re-processes below and
+    // re-registers its gap if the viewport is still unavailable.
+    processingCache.viewportGaps = new Set<SourceKey>()
 
     const YIELD_AFTER_MS = 50
     let lastYield = performance.now()
@@ -157,6 +165,7 @@ export async function processAllSnapshots(
         }
 
         context.sourceResult = []
+        context.sourceHadViewportGap = false
         const sortedSnapshots = sourceSnapshots.sort((a, b) => a.timestamp - b.timestamp)
         context.seenHashes = new Set<number>()
         const pushPatchedMeta = createPushPatchedMeta(
@@ -185,10 +194,16 @@ export async function processAllSnapshots(
             }
         }
 
-        processingCache.snapshots[sourceKey] = context.sourceResult
+        if (context.sourceHadViewportGap) {
+            // Don't freeze a meta-less result in the cache — a later pass (once viewport-defining
+            // events load) must be able to re-process this source and patch the missing meta.
+            processingCache.viewportGaps.add(sourceKey)
+        } else {
+            processingCache.snapshots[sourceKey] = context.sourceResult
 
-        if (snapshotsBySource[sourceKey]) {
-            snapshotsBySource[sourceKey].snapshots = []
+            if (snapshotsBySource[sourceKey]) {
+                snapshotsBySource[sourceKey].snapshots = []
+            }
         }
     }
 
@@ -205,6 +220,8 @@ type ProcessSnapshotContext = {
     seenFullByWindow: Record<number, boolean>
     previousTimestamp: number | null
     seenHashes: Set<number>
+    // Set when a meta patch failed because no viewport was available for the current source
+    sourceHadViewportGap: boolean
 }
 
 function createPushPatchedMeta(
@@ -251,6 +268,7 @@ function createPushPatchedMeta(
             })
             return true
         }
+        context.sourceHadViewportGap = true
         throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
             telemetry.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
                 throttleCaptureKey: `${sessionRecordingId}-no-viewport-found`,
@@ -315,6 +333,30 @@ function processSnapshot(
 
         context.result.push(syntheticFull)
         context.sourceResult.push(syntheticFull)
+    }
+
+    // Like the FullSnapshot guard below: decompressEvent fails open, so a Mutation or StyleSheetRule
+    // incremental whose compressed fields didn't decompress still carries strings where rrweb expects
+    // arrays and would throw inside the Replayer at play time. Drop it rather than crash playback.
+    if (snapshot.type === EventType.IncrementalSnapshot && isObject(snapshot.data)) {
+        const data = snapshot.data as Record<string, unknown>
+        const compressedFields =
+            data.source === IncrementalSource.Mutation
+                ? ['adds', 'removes', 'texts', 'attributes']
+                : data.source === IncrementalSource.StyleSheetRule
+                  ? ['adds', 'removes']
+                  : []
+        if (compressedFields.some((field) => typeof data[field] === 'string')) {
+            throttleCapture(`${sessionRecordingId}-undecodable-incremental-snapshot`, () => {
+                telemetry.captureException(new Error('Incremental snapshot could not be decoded'), {
+                    sessionRecordingId,
+                    sourceKey,
+                    source: data.source,
+                    feature: 'session-recording-incremental-snapshot-decoding',
+                })
+            })
+            return
+        }
     }
 
     if (snapshot.type === EventType.FullSnapshot) {

@@ -154,6 +154,10 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         setRecordingReportedLoaded: true,
         processSnapshotsAsync: true,
         setProcessedSnapshots: (snapshots: RecordingSnapshot[]) => ({ snapshots }),
+        // Terminal: snapshot processing kept throwing and all retries are exhausted. The player maps
+        // this to an error state — without it the affected sources stay unpromoted forever and the
+        // player buffers with no error surfaced.
+        snapshotProcessingFailed: true,
     }),
     reducers(() => ({
         reportedLoaded: [
@@ -187,6 +191,11 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         loadEventsSuccess: () => {
             actions.reportUsageIfFullyLoaded()
+            // Events carry the viewport data used to patch missing meta events. Sources processed
+            // before events loaded were left uncached (viewportGaps) — re-run so they get their meta.
+            if (cache.processingCache?.viewportGaps?.size) {
+                actions.processSnapshotsAsync()
+            }
         },
 
         // loadFullEventData shares the sessionEventsData loader, so while it is in flight
@@ -217,13 +226,15 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
             const sources = values.snapshotSources
             const snapshotsBySource = {} as Record<string, { snapshots: RecordingSnapshot[] }>
-            // fetched sources this pass will cover — promoted to loaded on completion, including empty ones that contribute no snapshots
-            const coveredIndexes: number[] = []
+            // fetched sources this pass will cover — promoted to loaded on completion, including empty
+            // ones that contribute no snapshots. Tracked by key, not index: a setSources refresh during
+            // the await below re-indexes entries, and promoting stale indexes would flip the wrong source.
+            const coveredKeys: string[] = []
             if (sources) {
                 for (let i = 0; i < sources.length; i++) {
                     const entry = values.snapshotStore.getEntry(i)
                     if (entry?.state === 'fetched') {
-                        coveredIndexes.push(i)
+                        coveredKeys.push(keyForSource(sources[i]))
                     }
                     if (entry?.state !== 'unloaded' && entry?.processedSnapshots?.length) {
                         snapshotsBySource[keyForSource(sources[i])] = {
@@ -250,6 +261,10 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 if (cache.processingFailureCount <= 3) {
                     await breakpoint(cache.processingFailureCount * 1000)
                     actions.processSnapshotsAsync()
+                } else {
+                    // Give up loudly: nothing re-triggers processing from here, so surface a terminal
+                    // error instead of leaving the player buffering forever.
+                    actions.snapshotProcessingFailed()
                 }
                 return
             }
@@ -257,14 +272,24 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
             breakpoint()
 
+            const keyToIndex = new Map((values.snapshotSources ?? []).map((s, i) => [keyForSource(s), i]))
+            const coveredIndexes = coveredKeys.map((k) => keyToIndex.get(k)).filter((i): i is number => i !== undefined)
+
             // Promotion is what makes these sources count as playable — the oracle, segments, and planner all key on it, so it must land with the processed snapshots.
             const promoted = values.snapshotStore.markProcessed(coveredIndexes)
             // processAllSnapshots may synthesize full snapshots (e.g. for mobile recordings).
             // Sync them back to the store so canPlayAt() and the load planner work correctly.
             const synced = values.snapshotStore.syncFullSnapshotTimestamps(result)
 
-            // Release raw snapshot arrays from the store — only the metadata (fullSnapshots, state) is still needed.
-            values.snapshotStore.clearSnapshotData()
+            // Release raw snapshot arrays from the store — only the metadata (fullSnapshots, state) is
+            // still needed. Sources processed without viewport data keep their raw snapshots so the
+            // loadEventsSuccess re-run below can re-process them with a viewport.
+            const viewportGapIndexes = new Set(
+                [...(cache.processingCache.viewportGaps ?? [])]
+                    .map((k) => keyToIndex.get(k))
+                    .filter((i): i is number => i !== undefined)
+            )
+            values.snapshotStore.clearSnapshotData(viewportGapIndexes)
 
             if (promoted || synced) {
                 actions.storeUpdated()

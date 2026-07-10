@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { IncrementalSource } from 'posthog-js/rrweb-types'
 
 import { hasAnyWireframes, keyForSource, processAllSnapshots } from '@posthog/replay-shared'
 
@@ -320,6 +321,18 @@ describe('process all snapshots', () => {
             const result = await parseEncodedSnapshots(mockCompressedData, sessionId)
 
             expect(result).toHaveLength(0)
+        })
+
+        it('rejects when a length-prefixed block fails to decompress', async () => {
+            // Resolving to [] here would record a corrupt source as successfully-fetched-but-empty
+            // and the player would buffer forever with no error surfaced.
+            const mockCompressedData = createLengthPrefixedData([new Uint8Array([9, 9, 9])])
+
+            mockWorkerManager.decompress.mockRejectedValue(new Error('Decompression failed'))
+
+            await expect(parseEncodedSnapshots(mockCompressedData, 'test-session')).rejects.toThrow(
+                'Decompression failed'
+            )
         })
 
         it('filters out empty lines in decompressed data', async () => {
@@ -995,6 +1008,55 @@ describe('process all snapshots', () => {
 
             expect(result.some((e) => e.type === 2)).toBe(false)
             expect(result.some((e) => e.type === 3)).toBe(true)
+        })
+    })
+
+    describe('undecodable incremental snapshot', () => {
+        // The incremental analogue of the full-snapshot case above: compressed fields that failed to
+        // decompress arrive as strings where rrweb expects arrays and must be dropped, not replayed.
+        const sessionId = '1234'
+        const source = { source: 'blob_v2', blob_key: '0' } as SessionRecordingSnapshotSource
+        const key = keyForSource(source)
+        const viewport = (): { width: string; height: string; href: string } => ({
+            width: '100',
+            height: '100',
+            href: 'https://example.com',
+        })
+
+        it.each([
+            [
+                'mutation with string texts',
+                { source: IncrementalSource.Mutation, texts: 'H4sI_truncated', attributes: [], removes: [], adds: [] },
+            ],
+            [
+                'mutation with string adds',
+                { source: IncrementalSource.Mutation, texts: [], attributes: [], removes: [], adds: 'H4sI_truncated' },
+            ],
+            ['stylesheet rule with string adds', { source: IncrementalSource.StyleSheetRule, adds: 'H4sI_truncated' }],
+        ])('drops a %s without throwing', async (_label, badData) => {
+            const snapshots = [
+                { windowId: 1, timestamp: 1000, type: 4, data: { width: 100, height: 100, href: 'x' } },
+                { windowId: 1, timestamp: 1001, cv: '2024-10', type: 3, data: badData },
+                {
+                    windowId: 1,
+                    timestamp: 1002,
+                    type: 3,
+                    data: { source: IncrementalSource.Scroll, id: 1, x: 0, y: 5 },
+                },
+            ] as unknown as RecordingSnapshot[]
+
+            const result = await processAllSnapshots(
+                [source],
+                { [key]: { snapshots } },
+                { snapshots: {} },
+                viewport,
+                sessionId
+            )
+
+            expect(result.filter((e) => e.type === 3 && (e.data as any)?.source === badData.source)).toHaveLength(0)
+            expect(
+                result.filter((e) => e.type === 3 && (e.data as any)?.source === IncrementalSource.Scroll)
+            ).toHaveLength(1)
         })
     })
 })
