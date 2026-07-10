@@ -17,11 +17,11 @@
         "@posthog/agent-ingress": "workspace:*",
         "@posthog/agent-janitor": "workspace:*",
         "@posthog/agent-runner": "workspace:*",
+        "esbuild": "^0.28.1",
         "node-rdkafka": "^3.4.0"
     },
     "devDependencies": {
         "@types/node": "catalog:",
-        "esbuild": "^0.25.10",
         "tsx": "^4.7.0",
         "typescript": "catalog:"
     },
