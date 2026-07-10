@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     ACCOUNT_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+    STRIPE_API_VERSION_ACACIA,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import WEBHOOK_ONLY_ENDPOINTS
@@ -320,6 +321,7 @@ def test_subscription_list_uses_expand_for_discounts():
                 db_incremental_field_earliest_value=None,
                 logger=mock.MagicMock(),
                 resumable_source_manager=resumable_manager,
+                api_version=STRIPE_API_VERSION_ACACIA,
                 should_use_incremental_field=False,
             )
         )
@@ -354,6 +356,7 @@ def test_webhook_only_endpoint_yields_no_rows(endpoint):
                 db_incremental_field_earliest_value=None,
                 logger=mock.MagicMock(),
                 resumable_source_manager=resumable_manager,
+                api_version=STRIPE_API_VERSION_ACACIA,
                 should_use_incremental_field=False,
             )
         )
