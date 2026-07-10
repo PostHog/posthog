@@ -98,6 +98,7 @@ depends_on = [
     "products.logs",
     "products.marketing_analytics",
     "products.messaging",
+    "products.metrics",
     "products.notebooks",
     "products.notifications",
     "products.posthog_ai",
@@ -781,6 +782,16 @@ expose = [
 ]
 from = [
     "products.user_interviews",
+]
+
+# streamlit_apps exposes the HogQL bridge view, routed directly from posthog/urls.py.
+
+[[interfaces]]
+expose = [
+    "backend\\.presentation\\.bridge_views.*",
+]
+from = [
+    "products.streamlit_apps",
 ]
 
 # Legacy leaks — core (posthog/ee) imports these internals directly.

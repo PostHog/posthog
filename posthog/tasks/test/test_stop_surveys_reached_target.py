@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
+from uuid import UUID
 
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events, snapshot_clickhouse_queries
@@ -55,8 +56,11 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
     @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     def test_stop_surveys_with_enough_responses(self) -> None:
+        # Fixed ids: the survey id list is inlined into the snapshotted ClickHouse SQL,
+        # so random ids would make the snapshot depend on test execution order.
         surveys = [
             Survey.objects.create(
+                id=UUID("00000000-0000-0000-0000-000000000001"),
                 name="1",
                 team=self.team1,
                 created_by=self.user,
@@ -64,6 +68,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
                 responses_limit=1,
             ),
             Survey.objects.create(
+                id=UUID("00000000-0000-0000-0000-000000000002"),
                 name="2",
                 team=self.team1,
                 created_by=self.user,
@@ -71,6 +76,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
                 responses_limit=1,
             ),
             Survey.objects.create(
+                id=UUID("00000000-0000-0000-0000-000000000003"),
                 name="3",
                 team=self.team2,
                 created_by=self.user,

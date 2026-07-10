@@ -102,6 +102,27 @@ RUN set -eux; \
 
 ENV AGENTSH_SERVER=http://127.0.0.1:18080
 
+# Install rtk (https://github.com/rtk-ai/rtk), a proxy that compresses the output of
+# common dev commands before it reaches the model. The agent auto-detects it on PATH
+# and routes eligible Bash commands through it; POSTHOG_RTK=0 (set per run from the
+# task processing context) opts a run out.
+ARG RTK_VERSION=0.43.0
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) rtk_asset="rtk-x86_64-unknown-linux-musl.tar.gz"; \
+             rtk_sha256="ff8a1e7766496e175291a85aeca1dc97c9ff6df33e51e5893d1fbc78fea2a609" ;; \
+      arm64) rtk_asset="rtk-aarch64-unknown-linux-gnu.tar.gz"; \
+             rtk_sha256="5519f7ca12e5c143a609f0d28a0a77b97413a8dce31c2681f1a41c24519a8731" ;; \
+      *) echo "Unsupported architecture for rtk: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/rtk.tar.gz \
+      "https://github.com/rtk-ai/rtk/releases/download/v${RTK_VERSION}/${rtk_asset}" && \
+    echo "${rtk_sha256}  /tmp/rtk.tar.gz" | sha256sum -c - && \
+    tar -xzf /tmp/rtk.tar.gz -C /usr/local/bin rtk && \
+    rm /tmp/rtk.tar.gz && \
+    rtk --version
+
 ###
 # Agent SDK
 ###

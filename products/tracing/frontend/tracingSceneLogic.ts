@@ -12,12 +12,16 @@ import { Breadcrumb } from '~/types'
 
 import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
 import {
+    DEFAULT_CUSTOM_COMPARISON,
     DEFAULT_DATE_RANGE,
     DEFAULT_ORDER_BY,
     DEFAULT_ORDER_DIRECTION,
     DEFAULT_SERVICE_NAMES,
     DEFAULT_VIEW_MODE,
+    parseComparison,
+    serializeComparison,
     TRACING_SCENE_VIEWER_ID,
+    type TracingComparison,
     tracingFiltersLogic,
 } from './tracingFiltersLogic'
 import type { tracingSceneLogicType } from './tracingSceneLogicType'
@@ -54,7 +58,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'isDurationMode',
             ],
             tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }),
-            ['filters', 'utcDateRange', 'sparklineWindowMs', 'currentWindowMs', 'previousWindowMs'],
+            ['filters', 'utcDateRange', 'sparklineWindowMs', 'currentWindowMs', 'previousWindowMs', 'compareActive'],
         ],
         actions: [
             tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }),
@@ -74,8 +78,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'setFilterGroup',
                 'setSort',
                 'setViewMode',
-                'setCompareMode',
-                'setOverlayWindows',
+                'setComparison',
+                'updateComparisonWindows',
                 'setFilters',
             ],
         ],
@@ -206,8 +210,16 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             posthog.capture('tracing filter changed', { filter_type: filterType, ...extraProps })
             actions.syncUrlAndRunQuery()
             // Keep the Operations aggregate in sync with filters/date while that tab is active.
+            // Full range: the Operations view always covers the whole selected range, even while
+            // a (traces-tab) comparison is active.
+            //
+            // This MUST stay after syncUrlAndRunQuery. When a comparison is active, that call
+            // synchronously runs runQuery, whose listener fires a windowed fetchAggregation();
+            // every fetchAggregation aborts the previous one, so the last dispatched wins. Keeping
+            // the full-range fetch last makes it beat the windowed one deterministically —
+            // otherwise the Operations table would divide by the narrow compare sub-window.
             if (values.activeTracingTab === 'operations') {
-                actions.fetchAggregation()
+                actions.fetchAggregation({ fullRange: true })
             }
         },
         setDateRange: () => actions.handleFilterChange('date_range'),
@@ -216,8 +228,13 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         setSort: ({ orderBy, orderDirection }) =>
             actions.handleFilterChange('sort', { column: orderBy, direction: orderDirection }),
         setViewMode: ({ viewMode }) => actions.handleFilterChange('view_mode', { mode: viewMode }),
-        setCompareMode: ({ compareMode }) => actions.handleFilterChange('compare_mode', { enabled: compareMode }),
-        setOverlayWindows: () => {
+        setComparison: ({ comparison }) =>
+            actions.handleFilterChange('comparison', {
+                enabled: comparison !== null,
+                mode: comparison?.mode ?? null,
+                preset: comparison?.mode === 'time' ? comparison.preset : null,
+            }),
+        updateComparisonWindows: () => {
             // Overlay drags only refetch the aggregation — the sparkline canvas range
             // stays fixed while the user moves windows around within it. If the compare-flame
             // modal is open we also refetch its tree so it doesn't display stale windows.
@@ -234,6 +251,10 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         },
         setActiveTracingTab: ({ tab }) => {
             if (tab === 'operations') {
+                actions.fetchAggregation({ fullRange: true })
+            } else if (values.compareActive) {
+                // Returning to the traces tab with a comparison active: the aggregation state
+                // holds the operations full-range data — refetch the windowed compare version.
                 actions.fetchAggregation()
             }
         },
@@ -302,9 +323,28 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 }
             }
 
-            const compareFromUrl = searchParams.compare === 'true' || searchParams.compare === true
-            if (compareFromUrl !== values.filters.compareMode) {
-                filtersFromUrl.compareMode = compareFromUrl
+            // Legacy `compare=true` links map to the custom-windows preset; everything else
+            // round-trips through parse/serializeComparison so future modes don't touch this file.
+            const legacyComparisonFromUrl: TracingComparison | null =
+                searchParams.compare === 'true' || searchParams.compare === true ? DEFAULT_CUSTOM_COMPARISON : null
+            let comparisonFromUrl = legacyComparisonFromUrl
+            // A malformed (or unknown future-mode) comparison param falls back to the legacy
+            // param, and failing that is ignored rather than clearing an active comparison —
+            // matching how the dateRange/filterGroup handlers treat malformed JSON.
+            let comparisonParamInvalid = false
+            if (searchParams.comparison) {
+                const parsed = parseComparison(searchParams.comparison)
+                if (parsed) {
+                    comparisonFromUrl = parsed
+                } else if (!legacyComparisonFromUrl) {
+                    comparisonParamInvalid = true
+                }
+            }
+            if (
+                !comparisonParamInvalid &&
+                serializeComparison(comparisonFromUrl) !== serializeComparison(values.filters.comparison)
+            ) {
+                filtersFromUrl.comparison = comparisonFromUrl
                 hasChanges = true
             }
 
@@ -375,8 +415,9 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             if (values.filters.orderDirection !== DEFAULT_ORDER_DIRECTION) {
                 searchParams.orderDirection = values.filters.orderDirection
             }
-            if (values.filters.compareMode) {
-                searchParams.compare = 'true'
+            const comparisonParam = serializeComparison(values.filters.comparison)
+            if (comparisonParam) {
+                searchParams.comparison = comparisonParam
             }
             if (values.filters.viewMode !== DEFAULT_VIEW_MODE) {
                 searchParams.view = values.filters.viewMode

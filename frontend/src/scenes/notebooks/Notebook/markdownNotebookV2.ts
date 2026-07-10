@@ -689,6 +689,11 @@ function isBlockquotableRichContentNode(node: JSONContent, serialized: string): 
     if (nodeType === 'paragraph' || nodeType === 'text') {
         return true
     }
+    // Blockquoted headings parse back (`> ## Heading`), but only as a single line — a heading
+    // whose content spilled onto extra lines splits out of the quote instead.
+    if (nodeType === 'heading') {
+        return !serialized.includes('\n')
+    }
     // Blockquoted lists parse back (`> - item`), but only while every line is a list line — a
     // list that spilled block content into standalone blocks splits out of the quote with them.
     if (LIST_NODE_TYPES.has(nodeType ?? '')) {

@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
@@ -12,6 +12,7 @@ import {
     IconPlusSmall,
     IconRefresh,
     IconTrash,
+    IconUnlock,
 } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -47,10 +48,11 @@ import {
     confirmArchiveExperiment,
     confirmDeleteExperiment,
     confirmFreezeExposure,
+    confirmUnfreezeExposure,
     hasFrozenExposureStamps,
 } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
-import { isExperimentPaused } from '../experimentsLogic'
+import { isExperimentExposureFrozen, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { isLegacyExperiment } from '../utils'
 
@@ -72,6 +74,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         isExperimentStopped,
         isCreatingExperimentDashboard,
         freezeExposureLoading,
+        unfreezeExposureLoading,
         showDebugPanel,
     } = useValues(experimentLogic)
     const {
@@ -80,9 +83,10 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         createExposureCohort,
         createExperimentDashboard,
         resetRunningExperiment,
-        freezeExposure,
         toggleDebugPanel,
     } = useActions(experimentLogic)
+    // Promise-returning dispatch so the confirm dialogs can await completion (shouldAwaitSubmit).
+    const { freezeExposure, unfreezeExposure } = useAsyncActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
@@ -301,13 +305,25 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                                 {showFreezeExposure && (
                                     <SceneMenuBarItem
                                         opensFloatingUi
-                                        onClick={() => confirmFreezeExposure(freezeExposure)}
+                                        onClick={() => confirmFreezeExposure(() => freezeExposure())}
                                         disabled={freezeExposureLoading}
                                         tooltip={freezeExposureLoading ? 'Freezing exposure…' : undefined}
                                         data-attr={`${RESOURCE_TYPE}-menubar-freeze-exposure`}
                                     >
                                         <IconLock />
                                         Freeze exposure
+                                    </SceneMenuBarItem>
+                                )}
+                                {isExperimentExposureFrozen(experiment) && (
+                                    <SceneMenuBarItem
+                                        opensFloatingUi
+                                        onClick={() => confirmUnfreezeExposure(() => unfreezeExposure())}
+                                        disabled={unfreezeExposureLoading}
+                                        tooltip={unfreezeExposureLoading ? 'Unfreezing exposure…' : undefined}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-unfreeze-exposure`}
+                                    >
+                                        <IconUnlock />
+                                        Unfreeze exposure
                                     </SceneMenuBarItem>
                                 )}
                                 <SceneMenuBarItem

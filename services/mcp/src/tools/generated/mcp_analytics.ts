@@ -217,6 +217,25 @@ const DateRange = z.object({
         .nullable()
         .describe('End of the date range. Same format as date_from. Omit or null for "now".')
         .optional(),
+    daysOfWeek: z
+        .union([
+            z.array(
+                z.union([
+                    z.literal(1),
+                    z.literal(2),
+                    z.literal(3),
+                    z.literal(4),
+                    z.literal(5),
+                    z.literal(6),
+                    z.literal(7),
+                ])
+            ),
+            z.null(),
+        ])
+        .describe(
+            'Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.'
+        )
+        .optional(),
     explicitDate: z.coerce
         .boolean()
         .nullable()
@@ -428,6 +447,14 @@ const LogPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const MetricPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('metric_attribute').default('metric_attribute'),
+    value: PropertyFilterValue.optional(),
+})
+
 const SpanPropertyFilterType = z.enum(['span', 'span_attribute', 'span_resource_attribute'])
 
 const SpanPropertyFilter = z.object({
@@ -473,6 +500,7 @@ const AnyPropertyFilter = z.union([
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
     SpanPropertyFilter,
     RevenueAnalyticsPropertyFilter,
     WorkflowVariablePropertyFilter,
