@@ -148,6 +148,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "baa_signed_ai_disabled": "68",
     "integration_access_requested": "70",
     "posthog_ai_access_requested": "72",
+    "wizard_pr_ready": "74",
 }
 
 
@@ -203,7 +204,9 @@ def _send_via_http(
                     "message_data": properties,
                 }
 
-                response = requests.post(f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload)
+                response = requests.post(
+                    f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload, timeout=30
+                )
 
                 if response.status_code != 200:
                     raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")

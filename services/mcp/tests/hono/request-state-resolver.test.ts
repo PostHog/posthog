@@ -70,7 +70,7 @@ vi.mock('@/hono/request-context', () => {
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
-import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
+import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { Env } from '@/tools/types'
 
@@ -92,13 +92,6 @@ function makeProps(overrides: Partial<RequestProperties> = {}): RequestPropertie
 function makeResolver(): RequestStateResolver {
     const catalog = {
         getFilteredTools: vi.fn(() => []),
-    }
-    return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
-}
-
-function makeResolverWithTools(toolNames: string[]): RequestStateResolver {
-    const catalog = {
-        getFilteredTools: vi.fn(() => toolNames.map((name) => ({ name }))),
     }
     return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
 }
@@ -258,24 +251,11 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(mockSessionStore.get('mcpVendorClient')).toBe('ClaudeCode')
     })
 
-    it('puts Claude web/desktop in single-exec when the render-ui flag is on', async () => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-render-ui': true })
+    it('puts Claude web/desktop in single-exec and enables render-ui', async () => {
         const props = makeProps({ mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' })
         const result = await makeResolver().resolve(props)
 
         expect(result.renderUiEnabled).toBe(true)
-        expect(result.useSingleExec).toBe(true)
-        expect(props.mode).toBe('cli')
-    })
-
-    it('keeps Claude web/desktop in single-exec via the Claude-User user agent even when the render-ui flag is off', async () => {
-        // Anthropic clients always run in CLI (single-exec) mode, so the
-        // User-Agent-only path is single-exec regardless of the render-ui flag — the
-        // flag only gates whether the `render-ui` tool itself is advertised.
-        const props = makeProps({ mcpClientName: 'Claude Desktop', clientUserAgent: 'Claude-User' })
-        const result = await makeResolver().resolve(props)
-
-        expect(result.renderUiEnabled).toBe(false)
         expect(result.useSingleExec).toBe(true)
         expect(props.mode).toBe('cli')
     })
@@ -295,39 +275,34 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
-    it('does not enable render-ui for Claude Code even when the flag is on', async () => {
-        // Claude Code pools the same `mcp-render-ui` flag value as Claude web/desktop, but
-        // it isn't an MCP Apps host — it can't mount the iframe. It must stay in single-exec
-        // (it's a CLI client) while `renderUiEnabled` resolves to false, so the tool-executor
-        // never advertises or accepts `render-ui` for it.
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-render-ui': true })
+    it('does not enable render-ui for Claude Code', async () => {
+        // Claude Code is a single-exec CLI client but not an MCP Apps host — it can't
+        // mount the iframe. It must stay in single-exec while `renderUiEnabled` resolves
+        // to false, so the tool-executor never advertises or accepts `render-ui` for it.
         const props = makeProps({ mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeCode' })
         const result = await makeResolver().resolve(props)
 
         expect(result.renderUiEnabled).toBe(false)
         expect(result.useSingleExec).toBe(true)
-        expect(result.toolFeatureFlags?.['mcp-render-ui']).toBe(true)
     })
 
-    it('detects Claude web/desktop via the Claude-User user agent', async () => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-render-ui': true })
+    it('detects Claude web/desktop via the Claude-User user agent and enables render-ui', async () => {
         const props = makeProps({ mcpClientName: 'Claude Desktop', clientUserAgent: 'Claude-User' })
         const result = await makeResolver().resolve(props)
 
+        expect(result.renderUiEnabled).toBe(true)
         expect(result.useSingleExec).toBe(true)
         expect(props.mode).toBe('cli')
     })
 
     it('honors a dev/test flag override even when evaluation returns nothing', async () => {
         // Evaluation stays empty (analytics client disabled, as in local dev/evals);
-        // the override seam is what flips the flag on.
-        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ 'mcp-render-ui': true })
+        // the override seam is what flips a tool flag on so it reaches the tool layer.
+        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ 'dev-forced-flag': true })
         const props = makeProps({ mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' })
         const result = await makeResolver().resolve(props)
 
-        expect(result.renderUiEnabled).toBe(true)
-        expect(result.useSingleExec).toBe(true)
-        expect(result.toolFeatureFlags?.['mcp-render-ui']).toBe(true)
+        expect(result.toolFeatureFlags?.['dev-forced-flag']).toBe(true)
     })
 
     it('captures consumer from a later request when initialize omitted the header', async () => {
@@ -350,27 +325,5 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.requestContext.mcpConsumer).toBe('posthog-code')
         expect(result.sessionContext?.mcpConsumer).toBe('posthog-code')
         expect(mockSessionStore.get('mcpConsumer')).toBe('posthog-code')
-    })
-})
-
-describe('RequestStateResolver SQL schema-discovery flag', () => {
-    beforeEach(() => {
-        mockSessionStore.clear()
-        mockTokenStore.clear()
-        vi.mocked(evaluateFeatureFlags).mockResolvedValue({})
-    })
-
-    // The flag steers discovery instructions toward SQL but is prompt-only — it must NOT
-    // remove read-data-warehouse-schema from the tool set. Guards against re-introducing
-    // tool gating here; the tool stays advertised/callable whether the flag is on or off.
-    it.each([true, false])('keeps read-data-warehouse-schema available when the flag is %s', async (flagOn) => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-sql-schema-discovery': flagOn })
-        const resolver = makeResolverWithTools(['read-data-warehouse-schema', 'execute-sql'])
-
-        const result = await resolver.resolve(makeProps())
-
-        const names = result.allTools.map((t) => t.name)
-        expect(names).toContain('read-data-warehouse-schema')
-        expect(names).toContain('execute-sql')
     })
 })
