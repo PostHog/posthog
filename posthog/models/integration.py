@@ -3562,11 +3562,8 @@ def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: st
     batch exports; see `get_credentials_using_user_aws_role` in
     `s3_batch_export.py`.
     """
-    same_aws_role_integrations = (
-        Integration.objects.select_related("team__organization")
-        .filter(kind=Integration.IntegrationKind.AWS_S3, config__aws_role_arn=aws_role_arn)
-        # If private key is present, then we are not impersonating
-        .exclude(sensitive_config__has_key="private_key")
+    same_aws_role_integrations = Integration.objects.select_related("team__organization").filter(
+        kind=Integration.IntegrationKind.AWS_S3, config__aws_role_arn=aws_role_arn
     )
     for integration in same_aws_role_integrations:
         if str(integration.team.organization.id) != organization_id:
