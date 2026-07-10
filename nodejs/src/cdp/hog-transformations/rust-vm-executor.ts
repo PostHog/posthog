@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
+import { logger } from '~/common/utils/logger'
+
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { createAddLogFunction, sanitizeLogMessage } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
@@ -53,9 +55,23 @@ export class RustVmExecutor {
             return null
         }
 
-        const [rust] = await module_.executeBatch(invocation.hogFunction.bytecode, [invocation.state.globals], {
-            maxSteps: RUST_MAX_STEPS,
-        })
+        let rust
+        try {
+            ;[rust] = await module_.executeBatch(invocation.hogFunction.bytecode, [invocation.state.globals], {
+                maxSteps: RUST_MAX_STEPS,
+            })
+        } catch (error) {
+            // A throw here is the FFI boundary, not the program — e.g. globals containing NaN or
+            // Infinity, which serde_json can't represent. The Node VM takes the JS objects
+            // directly and can run these, so fall back rather than fail the transformation.
+            rustVmExecution.inc({ outcome: 'fallback_exception' })
+            logger.warn('🦀', 'Rust HogVM invocation threw, falling back to the node vm', {
+                functionId: invocation.functionId,
+                teamId: invocation.teamId,
+                error: String(error),
+            })
+            return null
+        }
         if (!rust) {
             rustVmExecution.inc({ outcome: 'fallback_unavailable' })
             return null

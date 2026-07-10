@@ -104,6 +104,13 @@ describe('RustVmExecutor', () => {
         await expect(executor.execute(createExampleInvocation(), [])).resolves.toBeNull()
     })
 
+    it('falls back to the node vm when the ffi boundary throws instead of returning an error', async () => {
+        // e.g. globals containing NaN/Infinity, which serde_json can't represent.
+        mockHogvmNode.executeBatch.mockRejectedValue(new Error('Failed to convert js number to serde_json::Number'))
+
+        await expect(executor.execute(createExampleInvocation(), [])).resolves.toBeNull()
+    })
+
     it('falls back to the node vm when the native addon is unavailable', async () => {
         mockHogvmNode.init.mockImplementation(() => {
             throw new Error('addon not built')
