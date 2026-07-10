@@ -13,7 +13,7 @@ import {
     visionScannersPromptSuggestionsGenerateCreate,
 } from '../generated/api'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from './scannerQualityLogic'
+import { DEFAULT_TEST_SESSIONS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from './scannerQualityLogic'
 
 jest.mock('../generated/api', () => ({
     environmentVisionQuotaRetrieve: jest.fn(),
@@ -196,7 +196,7 @@ describe('scannerQualityLogic', () => {
         logic.actions.evaluateSuggestion('sug-1')
         await expectLogic(logic).toDispatchActions(['evaluateSuggestionSuccess'])
 
-        // Defaults to every allowed session: min(cap 10, rated 3).
+        // The default test size (10) clamps to the 3 rated sessions.
         expect(visionScannersPromptSuggestionsEvaluateCreate).toHaveBeenCalledWith(TEAM_ID, 'scan-1', 'sug-1', {
             session_limit: 3,
         })
@@ -216,12 +216,24 @@ describe('scannerQualityLogic', () => {
         })
     })
 
+    it('a fresh tab plans the default test size, not everything allowed', async () => {
+        ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockResolvedValue({
+            suggestion: PENDING_SUGGESTION,
+            stale: false,
+            rated_count: 71,
+            evaluation_session_cap: 100,
+        })
+        await mountLogic()
+
+        expect(logic.values.plannedTestSessions).toBe(DEFAULT_TEST_SESSIONS)
+    })
+
     it.each<[string, number, number | null, number]>([
         // [case, rated_count, chosen limit, planned]
-        ['defaults to every allowed session', 3, null, 3],
+        ['clearing the limit plans every allowed session', 3, null, 3],
         ['a chosen limit lowers the plan', 3, 2, 2],
         ['the rated count caps the plan', 3, 50, 3],
-        ['the session cap bounds large rated sets', 25, null, 10],
+        ['the session cap bounds a cleared limit', 25, null, 10],
     ])('plannedTestSessions %s', async (_name, ratedCount, limit, expected) => {
         ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockResolvedValue({
             suggestion: PENDING_SUGGESTION,

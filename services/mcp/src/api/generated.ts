@@ -21114,7 +21114,7 @@ export namespace Schemas {
 
     export interface EvaluatePromptSuggestionRequest {
       /**
-         * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run consumes one observation of the monthly Replay Vision quota. Defaults to `evaluation_session_cap`, which is also the maximum.
+         * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run consumes one observation of the monthly Replay Vision quota. Defaults to 10. The maximum is `evaluation_session_cap`.
          * @minimum 1
          * @maximum 100
          */

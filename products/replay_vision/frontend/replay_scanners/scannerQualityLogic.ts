@@ -30,6 +30,9 @@ export type RatedFilterValue = 'all' | 'unrated' | 'rated'
 
 export const QUALITY_PAGE_SIZE = 20
 export const LABEL_CHART_DAYS = 30
+// How many rated sessions a test re-runs unless the user picks a size. Mirrors the backend
+// serializer default, keeping the default quota spend small while the cap allows far more.
+export const DEFAULT_TEST_SESSIONS = 10
 
 export interface ScannerQualityLogicProps {
     scannerId: string
@@ -179,9 +182,9 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 loadCurrentSuggestionSuccess: (_, { current }) => current.evaluation_session_cap ?? 0,
             },
         ],
-        // The user's chosen test size; null means "as many as allowed".
+        // The user's chosen test size, starting at the small default. Null means "as many as allowed".
         testSessionLimit: [
-            null as number | null,
+            DEFAULT_TEST_SESSIONS as number | null,
             {
                 setTestSessionLimit: (_, { limit }) => limit,
             },

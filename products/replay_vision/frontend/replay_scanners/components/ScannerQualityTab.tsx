@@ -240,7 +240,10 @@ function SuggestionEvaluationPanel({
         return (
             <div className="border rounded p-3 flex items-center gap-2 text-sm text-muted">
                 <Spinner />
-                Testing against rated sessions… {evaluation.results.length} of {evaluation.total || '?'} done
+                {/* The endpoint stamps a total of 0 and the workflow's first activity writes the real one. */}
+                {evaluation.total
+                    ? `Testing against rated sessions… ${evaluation.results.length} of ${evaluation.total} done`
+                    : 'Starting the test against your rated sessions…'}
             </div>
         )
     }

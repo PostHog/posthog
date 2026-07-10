@@ -14,6 +14,8 @@ from products.replay_vision.backend.temporal.constants import EVALUATE_PROMPT_SU
 
 # Each evaluated session is a full scanner run, so keep the bill bounded.
 EVALUATION_SESSION_CAP = 100
+# What a test run re-runs unless the caller picks a size, keeping the default spend small.
+EVALUATION_SESSION_DEFAULT = 10
 
 _EVALUATION_USAGE_NAMESPACE = uuid.UUID("8f6f5e56-9f0b-4c5a-9a3e-2b7d1c4e8a90")
 

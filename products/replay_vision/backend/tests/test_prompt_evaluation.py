@@ -20,6 +20,7 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
 )
 from products.replay_vision.backend.prompt_evaluation import (
     EVALUATION_SESSION_CAP,
+    EVALUATION_SESSION_DEFAULT,
     classify_outcome,
     primary_outcome,
     select_evaluation_observations,
@@ -289,8 +290,8 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         self.assertEqual(resp.json()["evaluation"]["status"], "running")
         client.start_workflow.assert_awaited_once()
         self.assertIn(str(suggestion.id), client.start_workflow.await_args.kwargs["id"])
-        # Without an explicit session_limit the test runs up to the cap.
-        self.assertEqual(client.start_workflow.await_args.args[1].session_limit, EVALUATION_SESSION_CAP)
+        # Without an explicit session_limit the test runs the small default, not the full cap.
+        self.assertEqual(client.start_workflow.await_args.args[1].session_limit, EVALUATION_SESSION_DEFAULT)
 
     def test_evaluate_while_running_does_not_restart(self) -> None:
         self._create_rated()
