@@ -55,6 +55,7 @@ from posthog.schema import (
     TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
+    TrendsQueryResponse,
 )
 
 from posthog.hogql import ast
@@ -528,7 +529,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _run_days_of_week_query(
         self, interval: IntervalType, days_of_week: list[int], date_from: str, date_to: str
-    ) -> Any:
+    ) -> TrendsQueryResponse:
         query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
             dateRange=DateRange(date_from=date_from, date_to=date_to, daysOfWeek=days_of_week),
@@ -643,6 +644,19 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Jan 20 WAU window [Jan 14–20] has no Monday events (Tue Jan 14 is filtered) → count=0.
         assert response.results[0]["days"] == ["2020-01-13", "2020-01-20"]
         assert response.results[0]["data"] == [1, 0]
+
+    def test_days_of_week_with_smoothing_is_rejected(self):
+        # Smoothing would average the excluded days in as zeros; the runner must refuse the
+        # combination instead of returning silently understated values
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2020-01-06", date_to="2020-01-12", daysOfWeek=[1, 2]),
+            interval=IntervalType.DAY,
+            trendsFilter=TrendsFilter(smoothingIntervals=7),
+        )
+
+        with self.assertRaises(DRFValidationError):
+            TrendsQueryRunner(team=self.team, query=query).calculate()
 
     def test_trends_days(self):
         self._create_test_events()

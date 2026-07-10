@@ -1,7 +1,7 @@
 import threading
 from collections.abc import Sequence
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from math import ceil
 from operator import itemgetter
 from typing import Any, Optional, Union
@@ -58,6 +58,7 @@ from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.insights.trends.trend_validation_rules import (
+    DisallowDaysOfWeekWithSmoothing,
     DisallowUnsupportedPropertyMathForHistogramBreakdown,
     ValidateDataWarehouseBreakdown,
 )
@@ -155,6 +156,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             DisallowUnsupportedDataWarehouseSettings(),
             ValidateDataWarehouseBreakdown(),
             DisallowUnsupportedPropertyMathForHistogramBreakdown(),
+            DisallowDaysOfWeekWithSmoothing(),
         )
 
     def _refresh_frequency(self):
@@ -537,18 +539,22 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         # weekend date buckets from the response so the chart x-axis shows weekdays.
         # For week and longer intervals we keep all buckets since they span multiple days.
         # For hour/minute intervals we skip bucket removal to avoid discarding all data on weekends.
+        allowed_days: Optional[set[int]] = None
         if (
             self.query.trendsFilter
             and self.query.trendsFilter.hideWeekends
             and self.query_date_range.interval_name not in ("hour", "minute", "week", "month", "quarter", "year")
         ):
-            final_result = self._filter_buckets_to_days(final_result, {1, 2, 3, 4, 5})
+            allowed_days = {1, 2, 3, 4, 5}
 
         # daysOfWeek filters events at the query level; for day interval also drop the
         # deselected day buckets so the chart doesn't show a row of zeros for them
         days_of_week = self.query_date_range.days_of_week()
         if days_of_week and self.query_date_range.interval_name == "day":
-            final_result = self._filter_buckets_to_days(final_result, set(days_of_week))
+            allowed_days = set(days_of_week) if allowed_days is None else allowed_days & set(days_of_week)
+
+        if allowed_days is not None:
+            final_result = self._filter_buckets_to_days(final_result, allowed_days)
 
         return final_result, has_more
 
@@ -731,6 +737,20 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return res
 
     def _filter_buckets_to_days(self, results: list[dict], allowed_iso_days: set[int]) -> list[dict]:
+        # All series in a response usually share the same days axis, so cache the kept
+        # indices per axis instead of re-parsing every date string for every series
+        kept_indices_by_axis: dict[tuple, list[int]] = {}
+
+        def compute_kept_indices(days: list) -> list[int]:
+            kept_indices = []
+            for i, day_str in enumerate(days):
+                try:
+                    if date.fromisoformat(day_str[:10]).isoweekday() in allowed_iso_days:
+                        kept_indices.append(i)
+                except (ValueError, TypeError):
+                    kept_indices.append(i)  # Keep unparseable entries
+            return kept_indices
+
         filtered = []
         for series_result in results:
             days = series_result.get("days")
@@ -738,14 +758,11 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 filtered.append(series_result)
                 continue
 
-            kept_indices = []
-            for i, day_str in enumerate(days):
-                try:
-                    dt = datetime.strptime(day_str[:10], "%Y-%m-%d")
-                    if dt.isoweekday() in allowed_iso_days:
-                        kept_indices.append(i)
-                except (ValueError, TypeError):
-                    kept_indices.append(i)  # Keep unparseable entries
+            axis = tuple(days)
+            kept_indices = kept_indices_by_axis.get(axis)
+            if kept_indices is None:
+                kept_indices = compute_kept_indices(days)
+                kept_indices_by_axis[axis] = kept_indices
 
             if len(kept_indices) == len(days):
                 filtered.append(series_result)
