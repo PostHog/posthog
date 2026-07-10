@@ -1370,10 +1370,6 @@ export type EncodedRecordingSnapshot = _EncodedRecordingSnapshot
 export type RecordingSnapshot = _RecordingSnapshot
 export type SessionRecordingSnapshotSource = _SessionRecordingSnapshotSource
 export type SessionRecordingSnapshotSourceResponse = _SessionRecordingSnapshotSourceResponse
-// Type-only re-export: a value re-export would be this file's single surviving runtime import,
-// dragging replay-shared (and its rrweb/hls graph) into every bundle that touches ~/types —
-// including the toolbar. Import the enum from '@posthog/replay-shared' where you need its values.
-export type { SnapshotSourceType } from '@posthog/replay-shared'
 
 export type SessionRecordingSnapshotParams = (
     | {
