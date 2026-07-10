@@ -16,7 +16,7 @@ import {
 import { Lettermark, LettermarkColor, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
+import { convertPropertiesToPropertyGroup, formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconCalculate } from 'lib/lemon-ui/icons'
@@ -32,6 +32,8 @@ import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyEntityNode,
     BreakdownFilter,
@@ -49,6 +51,7 @@ import {
     TrendsQuery,
     AnyDataWarehouseNode,
     DashboardFilter,
+    DashboardFilterConflict,
     TileFilters,
 } from '~/queries/schema/schema-general'
 import {
@@ -367,13 +370,46 @@ export function FormulaSummary({ query }: { query: TrendsQuery }): JSX.Element |
 
 export function PropertiesSummary({
     properties,
+    dashboardFilterConflicts,
 }: {
     properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null
+    dashboardFilterConflicts?: DashboardFilterConflict[] | null
 }): JSX.Element {
     return (
         <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
             <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(properties)} />
+            {dashboardFilterConflicts?.length ? (
+                <DashboardFilterConflictsNotice conflicts={dashboardFilterConflicts} />
+            ) : null}
         </InsightDetailSectionDisplay>
+    )
+}
+
+export function DashboardFilterConflictsNotice({ conflicts }: { conflicts: DashboardFilterConflict[] }): JSX.Element {
+    const { cohortsById } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    const formatFilter = (item: AnyPropertyFilter): string =>
+        formatPropertyLabel(
+            item,
+            cohortsById,
+            (s) => formatPropertyValueForDisplay(item.key, s)?.toString() || '?'
+        ).trim()
+
+    return (
+        <Tooltip title="Filters that contradict the dashboard's filters are ignored, and the dashboard's filters are used instead.">
+            <div className="text-warning italic">
+                {conflicts.map((conflict, index) => (
+                    <div key={index} className="flex items-center gap-1">
+                        <IconWarning className="shrink-0" />
+                        <span>
+                            "{formatFilter(conflict.insight_filter)}" replaced by the dashboard's "
+                            {formatFilter(conflict.dashboard_filter)}"
+                        </span>
+                    </div>
+                ))}
+            </div>
+        </Tooltip>
     )
 }
 
@@ -515,11 +551,20 @@ interface InsightDetailsProps {
     filtersOverride?: DashboardFilter | null
     tileFiltersOverride?: TileFilters | null
     hasDataWarehouseSeries?: boolean
+    dashboardFilterConflicts?: DashboardFilterConflict[] | null
 }
 
 export const InsightDetails = React.memo(
     React.forwardRef<HTMLDivElement, InsightDetailsProps>(function InsightDetailsInternal(
-        { query, footerInfo, variablesOverride, filtersOverride, tileFiltersOverride, hasDataWarehouseSeries },
+        {
+            query,
+            footerInfo,
+            variablesOverride,
+            filtersOverride,
+            tileFiltersOverride,
+            hasDataWarehouseSeries,
+            dashboardFilterConflicts,
+        },
         ref
     ): JSX.Element {
         const hasPropertyOverrides = !!filtersOverride?.properties?.length || !!tileFiltersOverride?.properties?.length
@@ -549,6 +594,7 @@ export const InsightDetails = React.memo(
                                         ? query.source.filters?.properties
                                         : query.source.properties
                                 }
+                                dashboardFilterConflicts={dashboardFilterConflicts}
                             />
                         )}
                         {hasDataWarehouseSeries && hasIgnoredBreakdownOverrides ? (

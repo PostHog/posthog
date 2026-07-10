@@ -192,7 +192,6 @@ export function InsightMeta({
         resolvedDateRange: insightData?.resolved_date_range,
         dateFromOverride: tileFiltersOverride?.date_from ?? filtersOverride?.date_from,
         dateToOverride: tileFiltersOverride?.date_to ?? filtersOverride?.date_to,
-        dashboardFilterConflicts: insight.dashboard_filter_conflicts,
     }
 
     const summary = useSummarizeInsight()(insight.query)
@@ -351,6 +350,7 @@ export function InsightMeta({
             filtersOverride={filtersOverride}
             tileFiltersOverride={tileFiltersOverride ?? null}
             hasDataWarehouseSeries={hasDataWarehouseSeries}
+            dashboardFilterConflicts={insight.dashboard_filter_conflicts}
         />
     ) : null
 

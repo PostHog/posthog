@@ -3,7 +3,7 @@ import { dateFilterToText } from 'lib/utils/dateFilters'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
-import { DashboardFilterConflict, Node, NodeKind, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
+import { Node, NodeKind, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
     dateRangeFor,
@@ -13,7 +13,6 @@ import {
     isInsightVizNode,
 } from '~/queries/utils'
 
-import { DashboardFilterConflictWarning } from './DashboardFilterConflictWarning'
 import { InsightFreshness } from './InsightFreshness'
 import { TileOverridesWarning } from './TileOverridesWarning'
 
@@ -36,7 +35,6 @@ export function TopHeading({
     showDate = true,
     dateFromOverride,
     dateToOverride,
-    dashboardFilterConflicts,
 }: {
     query: Node | null
     lastRefresh?: string | null
@@ -46,7 +44,6 @@ export function TopHeading({
     showDate?: boolean
     dateFromOverride?: string | null
     dateToOverride?: string | null
-    dashboardFilterConflicts?: DashboardFilterConflict[] | null
 }): JSX.Element {
     const insightType = getInsightType(query)
 
@@ -88,9 +85,6 @@ export function TopHeading({
             {/* Freshness clock lives in the date row — without a date it would hold the row open on its own. */}
             {dateLabel && lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
             {hasTileOverrides ? <TileOverridesWarning /> : null}
-            {dashboardFilterConflicts?.length ? (
-                <DashboardFilterConflictWarning conflicts={dashboardFilterConflicts} />
-            ) : null}
         </CardTopHeadingRow>
     )
 }
