@@ -29,6 +29,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
@@ -142,6 +143,42 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     def _run(self, query: WebStatsTableQuery):
         return WebStatsTableQueryRunner(team=self.team, query=query).calculate()
+
+    def test_failed_lazy_read_clears_stale_tag(self):
+        from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags, tag_queries
+
+        from products.web_analytics.backend.hogql_queries import stats_table as stats_table_mod
+
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+        reset_query_tags()
+
+        def tag_then_fail(*args, **kwargs):
+            tag_queries(precompute_stale=True)
+            return None
+
+        try:
+            with (
+                patch.object(stats_table_mod, "can_use_paths_lazy_precompute", return_value=True),
+                patch.object(stats_table_mod, "execute_paths_lazy_precomputed_read", side_effect=tag_then_fail),
+            ):
+                assert runner._maybe_calculate_via_lazy_precompute() is None
+            assert get_query_tag_value("precompute_stale") is None, (
+                "a failed lazy read must not leave the stale tag to mislabel the fallback"
+            )
+        finally:
+            reset_query_tags()
+
+    @parameterized.expand([("stale_tagged", True, True), ("fresh", False, None)])
+    def test_lazy_response_stamps_precompute_stale(self, _name, tag_set, expected):
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+        reset_query_tags()
+        try:
+            if tag_set:
+                tag_queries(precompute_stale=True)
+            response = runner._build_response_from_lazy_rows([], limit=10, offset=0)
+        finally:
+            reset_query_tags()
+        assert response.preComputeStale is expected
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_unfiltered_round_trip_creates_precompute_job(self):

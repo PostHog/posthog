@@ -158,6 +158,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "RunSnapshot",
         "TicketAssignment",
         # --- Internal config / OneToOne settings ---
+        # OneToOne extension of Organization, read via the org relation
+        # (enrichment_record), never looked up by user-supplied ID.
+        "OrganizationEnrichment",
         # Model kept to avoid a deletion migration but has no API endpoint
         "ErrorTrackingAutoCaptureControls",
         "DuckLakeBackfill",
