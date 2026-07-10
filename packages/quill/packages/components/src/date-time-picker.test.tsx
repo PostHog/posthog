@@ -1,8 +1,8 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { CUSTOM_RANGE, type DateTimeRange } from './date-time-ranges'
 import { DateTimePicker } from './date-time-picker'
+import { CUSTOM_RANGE, type DateTimeRange } from './date-time-ranges'
 
 // The day grid wraps each Button in a div carrying the data-is-* range flags.
 const dayCell = (label: string): HTMLElement => {
@@ -98,9 +98,7 @@ describe('DateTimePicker', () => {
 
     it('renders only the vertical quick-ranges list with showCalendar={false}', () => {
         const ranges: DateTimeRange[] = [{ id: 1, name: 'This month', rangeSetter: (d) => d }]
-        render(
-            <DateTimePicker value={VALUE} maxDate={MAX} onApply={jest.fn()} ranges={ranges} showCalendar={false} />
-        )
+        render(<DateTimePicker value={VALUE} maxDate={MAX} onApply={jest.fn()} ranges={ranges} showCalendar={false} />)
 
         expect(screen.getByTitle('This month')).toBeTruthy()
         expect(screen.queryByLabelText('Select Jan 10, 2023')).toBeNull()

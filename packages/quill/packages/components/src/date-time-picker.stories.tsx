@@ -15,8 +15,8 @@ import * as React from 'react'
 
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill-primitives'
 
-import { CUSTOM_RANGE, type DateTimeRange } from './date-time-ranges'
 import { DateTimePicker, type DateTimeValue } from './date-time-picker'
+import { CUSTOM_RANGE, type DateTimeRange } from './date-time-ranges'
 import { quickRanges } from './date-time-ranges'
 import { Day } from './use-calendar'
 
@@ -162,9 +162,19 @@ export const WithSettingsLink: Story = {
 
 const calendarRanges: DateTimeRange[] = [
     { id: 1, name: 'This month', rangeSetter: (d) => startOfMonth(d) },
-    { id: 2, name: 'Last month', rangeSetter: (d) => startOfMonth(subMonths(d, 1)), endSetter: (d) => endOfMonth(subMonths(d, 1)) },
+    {
+        id: 2,
+        name: 'Last month',
+        rangeSetter: (d) => startOfMonth(subMonths(d, 1)),
+        endSetter: (d) => endOfMonth(subMonths(d, 1)),
+    },
     { id: 3, name: 'This quarter', rangeSetter: (d) => startOfQuarter(d) },
-    { id: 4, name: 'Last quarter', rangeSetter: (d) => startOfQuarter(subQuarters(d, 1)), endSetter: (d) => endOfQuarter(subQuarters(d, 1)) },
+    {
+        id: 4,
+        name: 'Last quarter',
+        rangeSetter: (d) => startOfQuarter(subQuarters(d, 1)),
+        endSetter: (d) => endOfQuarter(subQuarters(d, 1)),
+    },
     { id: 5, name: 'Year to date', rangeSetter: (d) => startOfYear(d) },
 ]
 

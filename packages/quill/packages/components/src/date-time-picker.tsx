@@ -68,9 +68,11 @@ export interface DateTimePickerProps {
     /** Hide the calendar column: the picker renders as a narrow vertical quick-ranges list.
      * For presets-first hosts that reveal the calendar on demand (e.g. behind a "Custom range" action). */
     showCalendar?: boolean
+    /** Host content pinned full-width below the calendar + rail, sharing the picker's card and chrome
+     * (e.g. day-of-week chips, an "exclude incomplete period" toggle). Each direct child is a band. */
+    footer?: React.ReactNode
     className?: string
 }
-
 
 export function DateTimePicker({
     value,
@@ -88,6 +90,7 @@ export function DateTimePicker({
     showHeader = true,
     showTime = true,
     showCalendar = true,
+    footer,
     className,
 }: DateTimePickerProps): React.ReactElement {
     const presetRanges = ranges.filter((r) => r.id !== CUSTOM_RANGE.id)
@@ -229,178 +232,239 @@ export function DateTimePicker({
             {!compact && !railOnly && showHeader && (
                 <div className={hasRail ? 'hidden lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]' : 'hidden lg:grid'}>
                     <div className="flex items-center gap-2 px-2 py-1 bg-muted/30 border-b border-border rounded-tl-lg">
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Choose date range</span>
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                            Choose date range
+                        </span>
                         {(minDate || hasExplicitMaxDate) && (
                             <div className="flex items-center gap-1 ml-auto">
-                                {minDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Min: {format(minDate, 'MMM d, yy')}</Badge>}
-                                {minDate && hasExplicitMaxDate && <span className="text-[10px] text-muted-foreground"><ArrowRight className="size-3" /></span>}
-                                {hasExplicitMaxDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Max: {format(maxDate, 'MMM d, yy')}</Badge>}
+                                {minDate && (
+                                    <Badge variant="default" className="text-[10px] px-1.5 py-0">
+                                        Min: {format(minDate, 'MMM d, yy')}
+                                    </Badge>
+                                )}
+                                {minDate && hasExplicitMaxDate && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                        <ArrowRight className="size-3" />
+                                    </span>
+                                )}
+                                {hasExplicitMaxDate && (
+                                    <Badge variant="default" className="text-[10px] px-1.5 py-0">
+                                        Max: {format(maxDate, 'MMM d, yy')}
+                                    </Badge>
+                                )}
                             </div>
                         )}
                     </div>
                     {hasRail && (
                         <div className="flex justify-start px-2 py-1 bg-muted/30 border-b border-l border-border rounded-tr-lg">
-                            <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Quick ranges</span>
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                                Quick ranges
+                            </span>
                         </div>
                     )}
                 </div>
             )}
 
             {/* Body */}
-            <div className={compact || railOnly || !hasRail
-                ? 'flex flex-col'
-                : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]'
-            }>
+            <div
+                className={
+                    compact || railOnly || !hasRail
+                        ? 'flex flex-col'
+                        : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]'
+                }
+            >
                 {/* Calendars column */}
                 {!railOnly && (
-                <div className={compact ? 'order-1' : 'order-1 lg:order-none'}>
-                    {/* Inputs */}
-                    {!compact && (
-                        <div className="hidden lg:flex justify-center items-center px-3 pt-3 pb-1">
-                            <div className="flex items-center gap-1.5">
-                                {onDateTimeSettings && (
-                                    <Button
-                                        size="icon-xs"
-                                        onClick={onDateTimeSettings}
-                                        aria-label="Date and time settings"
-                                        title="Date and time settings"
-                                        className="text-muted-foreground hover:text-foreground"
-                                    >
-                                        <SettingsIcon />
-                                    </Button>
-                                )}
-                                <SegmentedDateInput date={start} maxDate={maxDate} onChange={handleStartChange} dateFormat={dateFormat} showTime={showTime} />
-                                <span className="text-xs text-muted-foreground">to</span>
-                                <SegmentedDateInput date={end} maxDate={maxDate} onChange={handleEndChange} dateFormat={dateFormat} showTime={showTime} />
-                                {showTime && (
-                                    <Button
-                                        variant="link"
-                                        size="xs"
-                                        onClick={handleNow}
-                                        aria-label="Set end to now"
-                                        title="Set end to now"
-                                    >
-                                        Now
-                                    </Button>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Calendars */}
-                    <div className={compact
-                        ? 'flex flex-col justify-between'
-                        : 'flex flex-col lg:flex-row justify-between'
-                    }>
+                    <div className={compact ? 'order-1' : 'order-1 lg:order-none'}>
+                        {/* Inputs */}
                         {!compact && (
-                            <div className="p-2 hidden lg:block">
+                            <div className="hidden lg:flex justify-center items-center px-3 pt-3 pb-1">
+                                <div className="flex items-center gap-1.5">
+                                    {onDateTimeSettings && (
+                                        <Button
+                                            size="icon-xs"
+                                            onClick={onDateTimeSettings}
+                                            aria-label="Date and time settings"
+                                            title="Date and time settings"
+                                            className="text-muted-foreground hover:text-foreground"
+                                        >
+                                            <SettingsIcon />
+                                        </Button>
+                                    )}
+                                    <SegmentedDateInput
+                                        date={start}
+                                        maxDate={maxDate}
+                                        onChange={handleStartChange}
+                                        dateFormat={dateFormat}
+                                        showTime={showTime}
+                                    />
+                                    <span className="text-xs text-muted-foreground">to</span>
+                                    <SegmentedDateInput
+                                        date={end}
+                                        maxDate={maxDate}
+                                        onChange={handleEndChange}
+                                        dateFormat={dateFormat}
+                                        showTime={showTime}
+                                    />
+                                    {showTime && (
+                                        <Button
+                                            variant="link"
+                                            size="xs"
+                                            onClick={handleNow}
+                                            aria-label="Set end to now"
+                                            title="Set end to now"
+                                        >
+                                            Now
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Calendars */}
+                        <div
+                            className={
+                                compact ? 'flex flex-col justify-between' : 'flex flex-col lg:flex-row justify-between'
+                            }
+                        >
+                            {!compact && (
+                                <div className="p-2 hidden lg:block">
+                                    <Calendar
+                                        defaultViewing={leftViewing}
+                                        startDate={start}
+                                        endDate={end}
+                                        minDate={minDate}
+                                        maxDate={maxDate}
+                                        onSelect={handleSelect}
+                                        onViewChange={setLeftViewing}
+                                        siblingViewing={rightViewing}
+                                        weekStartsOn={weekStartsOn}
+                                    />
+                                </div>
+                            )}
+                            <div className="p-2">
                                 <Calendar
-                                    defaultViewing={leftViewing}
+                                    defaultViewing={rightViewing}
                                     startDate={start}
                                     endDate={end}
                                     minDate={minDate}
                                     maxDate={maxDate}
                                     onSelect={handleSelect}
-                                    onViewChange={setLeftViewing}
-                                    siblingViewing={rightViewing}
+                                    onViewChange={setRightViewing}
+                                    siblingViewing={twoCalendars ? leftViewing : undefined}
                                     weekStartsOn={weekStartsOn}
                                 />
                             </div>
-                        )}
-                        <div className="p-2">
-                            <Calendar
-                                defaultViewing={rightViewing}
-                                startDate={start}
-                                endDate={end}
-                                minDate={minDate}
-                                maxDate={maxDate}
-                                onSelect={handleSelect}
-                                onViewChange={setRightViewing}
-                                siblingViewing={twoCalendars ? leftViewing : undefined}
-                                weekStartsOn={weekStartsOn}
-                            />
                         </div>
                     </div>
-                </div>
                 )}
 
                 {/* Quick ranges column */}
                 {hasRail && (
-                <div className={compact && !railOnly
-                    ? 'order-0 border-b border-border'
-                    : railOnly
-                      ? 'flex flex-col'
-                      : 'order-0 lg:order-none lg:flex lg:flex-col lg:border-l lg:border-border border-b border-border lg:border-b-0'
-                }>
-                    {hasPresets && (
-                        <div className={compact || railOnly ? undefined : 'lg:relative lg:flex-1 lg:min-h-0'}>
-                            <ScrollArea className={compact || railOnly ? 'w-full' : 'w-full lg:absolute lg:inset-0'}>
-                                <ul className={railOnly
-                                    ? 'flex flex-col p-2 gap-px max-h-[320px]'
-                                    : compact
-                                      ? 'flex flex-row p-2 gap-px max-h-[320px]'
-                                      : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
-                                }>
-                                    {presetRanges.map((quick) => (
-                                        <li key={quick.id} className={railOnly ? 'w-full' : compact ? undefined : 'lg:w-full'}>
-                                            <Button
-                                                variant="default"
-                                                size="sm"
-                                                left
-                                                className={railOnly
-                                                    ? 'whitespace-nowrap w-full justify-start'
-                                                    : compact
-                                                      ? 'whitespace-nowrap'
-                                                      : 'whitespace-nowrap lg:w-full lg:justify-start'
-                                                }
-                                                aria-selected={range.id === quick.id}
-                                                aria-label={`Choose ${quick.name.toLowerCase()}`}
-                                                title={quick.name}
-                                                onClick={() => handleQuickRange(quick)}
-                                                data-attr={`date-time-picker-quick-range-${quick.name.toLowerCase().replace(/\s+/g, '-')}`}
+                    <div
+                        className={
+                            compact && !railOnly
+                                ? 'order-0 border-b border-border'
+                                : railOnly
+                                  ? 'flex flex-col'
+                                  : 'order-0 lg:order-none lg:flex lg:flex-col lg:border-l lg:border-border border-b border-border lg:border-b-0'
+                        }
+                    >
+                        {hasPresets && (
+                            <div className={compact || railOnly ? undefined : 'lg:relative lg:flex-1 lg:min-h-0'}>
+                                <ScrollArea
+                                    className={compact || railOnly ? 'w-full' : 'w-full lg:absolute lg:inset-0'}
+                                >
+                                    <ul
+                                        className={
+                                            railOnly
+                                                ? 'flex flex-col p-2 gap-px max-h-[320px]'
+                                                : compact
+                                                  ? 'flex flex-row p-2 gap-px max-h-[320px]'
+                                                  : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
+                                        }
+                                    >
+                                        {presetRanges.map((quick) => (
+                                            <li
+                                                key={quick.id}
+                                                className={railOnly ? 'w-full' : compact ? undefined : 'lg:w-full'}
                                             >
-                                                {quick.name}
-                                            </Button>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </ScrollArea>
-                        </div>
-                    )}
-                    {rangesFooter != null && (
-                        <div className={hasPresets ? 'border-t border-border p-2' : 'p-2'}>{rangesFooter}</div>
-                    )}
-                </div>
+                                                <Button
+                                                    variant="default"
+                                                    size="sm"
+                                                    left
+                                                    className={
+                                                        railOnly
+                                                            ? 'whitespace-nowrap w-full justify-start'
+                                                            : compact
+                                                              ? 'whitespace-nowrap'
+                                                              : 'whitespace-nowrap lg:w-full lg:justify-start'
+                                                    }
+                                                    aria-selected={range.id === quick.id}
+                                                    aria-label={`Choose ${quick.name.toLowerCase()}`}
+                                                    title={quick.name}
+                                                    onClick={() => handleQuickRange(quick)}
+                                                    data-attr={`date-time-picker-quick-range-${quick.name.toLowerCase().replace(/\s+/g, '-')}`}
+                                                >
+                                                    {quick.name}
+                                                </Button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </ScrollArea>
+                            </div>
+                        )}
+                        {rangesFooter != null && (
+                            <div className={hasPresets ? 'border-t border-border p-2' : 'p-2'}>{rangesFooter}</div>
+                        )}
+                    </div>
                 )}
             </div>
 
+            {/* Host footer: full-width bands sharing the card, below the calendar + rail */}
+            {footer != null && (
+                <div className="border-t border-border *:not-first:border-t *:border-border">{footer}</div>
+            )}
+
             {/* Rail-only with instant presets has nothing to stage, so no footer chrome */}
             {!(railOnly && applyOnRangeSelect) && (
-            <>
-            <Separator />
+                <>
+                    <Separator />
 
-            {/* Actions */}
-            <div className="flex justify-end px-3 py-2 items-center gap-2 bg-muted/30">
-                <span className="text-[10px] text-muted-foreground flex items-center gap-1 tabular-nums mr-auto">
-                    {range.id === CUSTOM_RANGE.id ? <>{presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}</> : range.name}
-                </span>
-                {onCancel ? (
-                    <Button variant="outline" size="sm" onClick={onCancel} aria-label="Cancel" data-attr="date-time-picker-cancel">
-                        Cancel
-                    </Button>
-                ) : null}
-                <Button
-                    variant="primary"
-                    size="sm"
-                    aria-label="Apply date range"
-                    title="Apply date range"
-                    onClick={() => onApply({ start, end, range })}
-                    data-attr="date-time-picker-apply-date-range"
-                >
-                    Apply
-                </Button>
-            </div>
-            </>
+                    {/* Actions */}
+                    <div className="flex justify-end px-3 py-2 items-center gap-2">
+                        <span className="text-xs text-muted-foreground flex items-center gap-1 tabular-nums mr-auto">
+                            {range.id === CUSTOM_RANGE.id ? (
+                                <>
+                                    {presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}
+                                </>
+                            ) : (
+                                range.name
+                            )}
+                        </span>
+                        {onCancel ? (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={onCancel}
+                                aria-label="Cancel"
+                                data-attr="date-time-picker-cancel"
+                            >
+                                Cancel
+                            </Button>
+                        ) : null}
+                        <Button
+                            variant="primary"
+                            size="sm"
+                            aria-label="Apply date range"
+                            title="Apply date range"
+                            onClick={() => onApply({ start, end, range })}
+                            data-attr="date-time-picker-apply-date-range"
+                        >
+                            Apply
+                        </Button>
+                    </div>
+                </>
             )}
         </div>
     )
