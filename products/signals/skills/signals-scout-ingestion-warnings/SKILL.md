@@ -44,7 +44,7 @@ Cycle between these moves; skip what's not useful.
 - `signals-scout-scratchpad-search` (`text=ingestion-warnings`) — durable steering from past runs. `pattern:` entries record this project's baseline types and rates; `noise:` marks chronic types the team accepts; `dedupe:` gates causes already surfaced; `report:` points at the live report covering a cause; `reviewer:` caches an instrumentation owner.
 - `signals-scout-runs-list` (last 7d) — what prior runs found and ruled out. Pull `-runs-retrieve` only for a summary you're about to build on.
 - `ingestion-warnings-list` (24h, then `since=-7d` for anything interesting) — the stream itself, grouped by type with category, severity, count, sparkline, and samples.
-- `inbox-reports-list` (`ordering=-updated_at`, `search`=the warning type or root cause) — reports already in the inbox, yours and the health-checks scout's. A cause you've reported that's still live is an **edit**, not a fresh report; pull close matches with `inbox-reports-retrieve` before authoring.
+- `inbox-reports-list` (`ordering=-updated_at`, `search`=the warning type or root cause, then `ingestion_warning` for health-checks overlap) — reports already in the inbox, yours and the health-checks scout's. A cause that's still live is an **edit**, not a fresh report; pull close matches with `inbox-reports-retrieve` before authoring.
 
 ### Profile shape
 
