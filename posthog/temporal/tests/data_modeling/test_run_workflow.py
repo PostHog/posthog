@@ -10,6 +10,7 @@ import unittest.mock
 from freezegun.api import freeze_time
 
 from django.conf import settings
+from django.db import OperationalError
 from django.test import override_settings
 
 import pyarrow as pa
@@ -49,6 +50,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     materialize_model,
     run_dag_activity,
     start_run_activity,
+    update_table_row_count,
 )
 from posthog.temporal.ducklake.types import DuckLakeCopyModelInput
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, truncate_table
@@ -1890,3 +1892,30 @@ async def test_create_default_modifiers_for_team_in_async_context(ateam):
             create_default_modifiers_for_team(team)
         # wrapped doesn't raise
         await database_sync_to_async(create_default_modifiers_for_team)(team)
+
+
+@pytest.mark.parametrize(
+    "raised_error,expect_captured",
+    [
+        # Transient pooled-connection drops are already recovered from, so they must not be reported as issues.
+        (OperationalError("server closed the connection unexpectedly"), False),
+        # Any other unexpected failure should still surface to error tracking.
+        (ValueError("something genuinely wrong"), True),
+    ],
+)
+async def test_update_table_row_count_only_reports_unexpected_errors(raised_error, expect_captured):
+    saved_query = unittest.mock.MagicMock(spec=DataWarehouseSavedQuery)
+    saved_query.table_id = uuid.uuid4()
+    saved_query.name = "some_model"
+    logger = unittest.mock.AsyncMock()
+
+    with (
+        unittest.mock.patch(
+            "posthog.temporal.data_modeling.run_workflow.DataWarehouseTable.objects.get",
+            side_effect=raised_error,
+        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.capture_exception") as mock_capture,
+    ):
+        await update_table_row_count(saved_query, 42, logger)
+
+    assert mock_capture.called is expect_captured
