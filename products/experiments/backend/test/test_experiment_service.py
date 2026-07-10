@@ -2217,9 +2217,26 @@ class TestExperimentService(APIBaseTest):
         assert dup.feature_flag.id != source.feature_flag.id
         assert dup.feature_flag.aggregation_group_type_index == group_index
 
-    def test_duplicate_experiment_inherits_rollout_percentage(self):
+    # Only groups[0]'s rollout percentage clones; property targeting and extra groups do not, matching
+    # the experiment input surface that restricts groups to a single empty-properties entry.
+    @parameterized.expand(
+        [
+            ("single_group", [{"properties": [], "rollout_percentage": 20}]),
+            (
+                "targeting_and_extra_groups_dropped",
+                [
+                    {
+                        "properties": [{"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"}],
+                        "rollout_percentage": 20,
+                    },
+                    {"properties": [], "rollout_percentage": 55},
+                ],
+            ),
+        ]
+    )
+    def test_duplicate_experiment_inherits_rollout_percentage(self, _name: str, source_groups: list[dict]):
         flag = self._create_flag(key="dup-rollout-source")
-        flag.filters = {**flag.filters, "groups": [{"properties": [], "rollout_percentage": 20}]}
+        flag.filters = {**flag.filters, "groups": source_groups}
         flag.save()
         service = self._service()
         source = service.create_experiment(name="Rollout Source", feature_flag_key="dup-rollout-source")
@@ -2228,7 +2245,11 @@ class TestExperimentService(APIBaseTest):
         dup = service.duplicate_experiment(source, feature_flag_key="dup-rollout-target")
 
         assert dup.feature_flag.id != source.feature_flag.id
-        assert dup.feature_flag.filters["groups"][0]["rollout_percentage"] == 20
+        clone_groups = dup.feature_flag.filters["groups"]
+        # Inherits groups[0]'s percentage but nothing else: one group, no property targeting.
+        assert len(clone_groups) == 1
+        assert clone_groups[0]["rollout_percentage"] == 20
+        assert clone_groups[0]["properties"] == []
 
     # ------------------------------------------------------------------
     # Launch experiment
