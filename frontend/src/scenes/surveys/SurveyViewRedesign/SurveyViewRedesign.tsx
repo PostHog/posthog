@@ -92,7 +92,8 @@ export function SurveyViewRedesign(): JSX.Element {
     const { location, searchParams, hashParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
-    const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
+    const isPlaceholderSurvey = survey.id === NEW_SURVEY.id
+    const isInitialSurveyLoad = surveyLoading && isPlaceholderSurvey
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
     const surveyIdForTransfer = survey?.id && survey.id !== 'new' ? survey.id : null
@@ -169,10 +170,7 @@ export function SurveyViewRedesign(): JSX.Element {
     }, [isRemovingSidePanel, openSidePanel, setPanelTab, setScenePanelOpen])
 
     useEffect(() => {
-        // The NEW_SURVEY placeholder has no start_date, so isDraft is true while the real survey
-        // loads. Acting on it would auto-open the panel for launched surveys too, and race the
-        // side panel's Info tab registration (flipping it to the Max/AI panel). Wait it out.
-        if (survey.id === NEW_SURVEY.id) {
+        if (isPlaceholderSurvey) {
             return
         }
 
@@ -212,6 +210,7 @@ export function SurveyViewRedesign(): JSX.Element {
         }
     }, [
         isDraft,
+        isPlaceholderSurvey,
         isRemovingSidePanel,
         closeSidePanel,
         openSidePanel,
