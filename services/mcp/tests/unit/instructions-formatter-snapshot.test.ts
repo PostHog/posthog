@@ -142,7 +142,9 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const state = {
             allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
-            toolFeatureFlags: { 'mcp-feedback-tool': true },
+            // Every prompt-gating flag on, so the worst case includes all gated lines
+            // (agent feedback, the connected-servers pointer).
+            toolFeatureFlags: { 'mcp-feedback-tool': true, MCP_GATEWAY: true },
             renderUiEnabled: true,
             metadata: worstCaseMetadata,
             groupTypes: worstCaseGroupTypes,

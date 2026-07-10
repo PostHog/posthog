@@ -1,0 +1,1 @@
+Tool names containing `/` (e.g. `linear/create_issue`) come from MCP servers connected to this PostHog project: `search` lists them, `info`/`schema` inspect them, and `call` always requires `--confirm` for them.

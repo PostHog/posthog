@@ -219,6 +219,20 @@ describe('InstructionsFormatter', () => {
             }
         })
 
+        it('includes the connected-servers line only when the MCP_GATEWAY flag is on', () => {
+            const formatter = new InstructionsFormatter()
+            const marker = 'come from MCP servers connected to this PostHog project'
+
+            // fullCtx has no MCP_GATEWAY flag — the line must not leak to ungated users.
+            expect(formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false })).not.toContain(marker)
+            expect(
+                formatter.buildExecCommandReference(
+                    { ...fullCtx, featureFlags: { ...fullCtx.featureFlags, MCP_GATEWAY: true } },
+                    { stripEnvContext: false }
+                )
+            ).toContain(marker)
+        })
+
         it('includes the rendering section only when render-ui is available for the client', () => {
             const formatter = new InstructionsFormatter()
             for (const stripEnvContext of [true, false]) {

@@ -3,10 +3,18 @@ import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import { ToolInputValidationError } from '@/lib/errors'
+import { ConnectedToolError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
+import {
+    type GatewayCallResult,
+    type GatewayClient,
+    type GatewayTool,
+    isGatewayToolName,
+    renderGatewayCallContent,
+    unknownGatewayToolMessage,
+} from './gateway'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
@@ -42,6 +50,12 @@ export interface ExecInnerCallProperties {
     input_tokens?: number
     output_tokens?: number
     input?: Record<string, unknown>
+    /**
+     * Set to `'gateway'` when the inner call executed a connected external MCP
+     * server's tool through the MCP gateway, so the canonical `$mcp_tool_call`
+     * event can carry `$mcp_source: "gateway"` alongside the namespaced name.
+     */
+    source?: 'gateway'
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
@@ -55,6 +69,13 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    /**
+     * MCP gateway access to the tools of external MCP servers connected to the
+     * project. Only set when the `MCP_GATEWAY` feature flag is on for the
+     * caller — when unset, tool names containing `/` behave exactly as before
+     * (unknown tools) and `search` output is unchanged.
+     */
+    gateway?: GatewayClient
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -128,6 +149,12 @@ export function createExecInnerToolCallResolver(
         if (!innerName) {
             return
         }
+        // Namespaced `<server>/<tool>` names target connected external MCP
+        // servers through the gateway — they never appear in the PostHog
+        // catalog, so attribute them by name directly.
+        if (isGatewayToolName(innerName)) {
+            return { name: innerName, description: 'Connected MCP server tool (via the PostHog MCP gateway)' }
+        }
         const tool = allTools.find((t) => t.name === innerName)
         return tool ? { name: tool.name, description: tool.description } : undefined
     }
@@ -195,6 +222,38 @@ function schemaHasOutputFormat(schema: ZodObjectAny): boolean {
     return schema instanceof z.ZodObject && 'output_format' in schema.shape
 }
 
+/** One search-result line per connected-server tool — first line of the
+ *  upstream description, capped so a verbose server can't flood the output. */
+const MAX_CONNECTED_DESCRIPTION_LENGTH = 160
+
+interface ConnectedServerSearchExtras {
+    connected_server_tools: { name: string; server: string; description: string }[]
+    connected_server_hint: string
+}
+
+function summarizeConnectedDescription(description: string): string {
+    const firstLine = description.split('\n', 1)[0] ?? ''
+    if (firstLine.length <= MAX_CONNECTED_DESCRIPTION_LENGTH) {
+        return firstLine
+    }
+    return `${firstLine.slice(0, MAX_CONNECTED_DESCRIPTION_LENGTH - 1)}…`
+}
+
+function buildConnectedServerSearchExtras(gatewayTools: GatewayTool[]): ConnectedServerSearchExtras | undefined {
+    if (gatewayTools.length === 0) {
+        return undefined
+    }
+    return {
+        connected_server_tools: gatewayTools.map((t) => ({
+            name: t.name,
+            server: t.server.display_name || t.server.slug,
+            description: summarizeConnectedDescription(t.description),
+        })),
+        connected_server_hint:
+            'These tools come from MCP servers connected to this PostHog project. Inspect one with "info <server/tool>"; call it with "call --confirm <server/tool> <json_input>" (--confirm is always required for connected-server tools).',
+    }
+}
+
 /**
  * Exec mode owns output encoding through the `--json` call flag, so tools must
  * not also advertise their `output_format` input — an agent passing
@@ -210,6 +269,85 @@ function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<
     }
     const { output_format: _omitted, ...rest } = properties
     return { ...jsonSchema, properties: rest }
+}
+
+function parseCallJsonInput(jsonBody: string): Record<string, unknown> {
+    if (!jsonBody) {
+        return {}
+    }
+    try {
+        return JSON.parse(jsonBody) as Record<string, unknown>
+    } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err)
+        throw new Error(`Invalid JSON input: ${detail}`)
+    }
+}
+
+/**
+ * Dispatch an exec `call` for a connected-server (`<server>/<tool>`) tool
+ * through the MCP gateway. External tools are treated as potentially
+ * destructive by default, so `--confirm` is always required. There is no
+ * client-side schema to validate against — the Django execution plane and the
+ * upstream server own input validation.
+ */
+async function callGatewayTool(args: {
+    gateway: GatewayClient
+    toolName: string
+    jsonBody: string
+    forceJson: boolean
+    confirmed: boolean
+    trackInnerCall: ExecInnerCallTracker | undefined
+}): Promise<string> {
+    const { gateway, toolName, jsonBody, forceJson, confirmed, trackInnerCall } = args
+    if (!confirmed) {
+        throw new Error(
+            `Tool "${toolName}" runs on a connected MCP server and requires confirmation. Re-run with "call --confirm ${toolName} ..." after verifying the arguments. Use "info ${toolName}" to inspect the tool first.`
+        )
+    }
+    const input = parseCallJsonInput(jsonBody)
+    const outputFormat = forceJson ? 'json' : 'text'
+
+    const startedAt = Date.now()
+    let result: GatewayCallResult
+    try {
+        result = await gateway.callTool(toolName, input)
+    } catch (err) {
+        trackInnerCall?.(toolName, {
+            duration_ms: Date.now() - startedAt,
+            success: false,
+            output_format: outputFormat,
+            error_message: err instanceof Error ? err.message : String(err),
+            input,
+            source: 'gateway',
+        })
+        throw err
+    }
+    const durationMs = Date.now() - startedAt
+
+    if (result.is_error) {
+        const message = `Connected server tool "${toolName}" returned an error: ${renderGatewayCallContent(result)}`
+        trackInnerCall?.(toolName, {
+            duration_ms: durationMs,
+            success: false,
+            output_format: outputFormat,
+            error_message: message,
+            input,
+            source: 'gateway',
+        })
+        throw new ConnectedToolError(message)
+    }
+
+    const outputText = forceJson ? JSON.stringify(result) : renderGatewayCallContent(result)
+    trackInnerCall?.(toolName, {
+        duration_ms: durationMs,
+        success: true,
+        output_format: outputFormat,
+        input_tokens: estimateTokens(input),
+        output_tokens: estimateTokens(outputText),
+        input,
+        source: 'gateway',
+    })
+    return outputText
 }
 
 function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny> {
@@ -295,6 +433,20 @@ export function createExecTool(
                             .filter((t): t is ScopeGatedTool => t !== undefined)
                     }
 
+                    // Merge in tools from connected external MCP servers (flag-gated:
+                    // `options.gateway` is only set when the gateway is enabled).
+                    // Best-effort — a gateway failure must never break tool search —
+                    // and additive: with no gateway or no connected matches, every
+                    // response shape below is byte-identical to the gateway-less one.
+                    let connectedExtras: ConnectedServerSearchExtras | undefined
+                    if (options.gateway) {
+                        try {
+                            connectedExtras = buildConnectedServerSearchExtras(await options.gateway.searchTools(rest))
+                        } catch {
+                            connectedExtras = undefined
+                        }
+                    }
+
                     if (gatedMatches.length > 0) {
                         const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
                         return JSON.stringify({
@@ -306,9 +458,13 @@ export function createExecTool(
                             hint:
                                 `These tools also match but are hidden because the API key is missing the ` +
                                 `required scope(s): ${requiredScopes.join(', ')}. The user needs to re-authenticate the MCP or connector, if the harness supports OAuth, or add the scopes to the personal API key to use these tools.`,
+                            ...connectedExtras,
                         })
                     }
                     if (matches.length === 0) {
+                        if (connectedExtras) {
+                            return JSON.stringify({ matches: [], ...connectedExtras })
+                        }
                         return JSON.stringify({
                             matches: [],
                             hint: `No tools matched "${rest}". Run "tools" to see all available tool names.`,
@@ -319,7 +475,11 @@ export function createExecTool(
                             matches,
                             truncated: true,
                             hint: `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
+                            ...connectedExtras,
                         })
+                    }
+                    if (connectedExtras) {
+                        return JSON.stringify({ matches, ...connectedExtras })
                     }
                     return JSON.stringify(matches)
                 }
@@ -333,8 +493,6 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new Error('Usage: info [--json] <tool_name>')
                     }
-                    const tool = findTool(allTools, infoArgs)
-                    const fullSchema = stripOutputFormatProperty(z.toJSONSchema(tool.schema) as Record<string, unknown>)
                     // YAML for the top shape, but inputSchema stays as a JSON
                     // string dumped inside the YAML — JSON Schema is conventionally
                     // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
@@ -345,11 +503,34 @@ export function createExecTool(
                         return stringifyYaml({ ...payload, inputSchema: JSON.stringify(schema) }, { lineWidth: 0 })
                     }
 
-                    const topShape = {
-                        name: tool.name,
-                        title: tool.title,
-                        description: tool.description,
-                        annotations: tool.annotations,
+                    let topShape: Record<string, unknown>
+                    let fullSchema: Record<string, unknown>
+                    let hintToolName: string
+                    if (options.gateway && isGatewayToolName(infoArgs)) {
+                        const gatewayTool = await options.gateway.getTool(infoArgs)
+                        if (!gatewayTool) {
+                            throw new Error(unknownGatewayToolMessage(infoArgs))
+                        }
+                        topShape = {
+                            name: gatewayTool.name,
+                            title: `${gatewayTool.tool_name} (connected MCP server: ${gatewayTool.server.display_name})`,
+                            description: gatewayTool.description,
+                            // Surfaced so the agent knows a `needs_approval` tool will be
+                            // rejected at call time and can ask the user first.
+                            approval_state: gatewayTool.approval_state,
+                        }
+                        fullSchema = gatewayTool.input_schema
+                        hintToolName = gatewayTool.name
+                    } else {
+                        const tool = findTool(allTools, infoArgs)
+                        fullSchema = stripOutputFormatProperty(z.toJSONSchema(tool.schema) as Record<string, unknown>)
+                        topShape = {
+                            name: tool.name,
+                            title: tool.title,
+                            description: tool.description,
+                            annotations: tool.annotations,
+                        }
+                        hintToolName = tool.name
                     }
                     const fullOutput = serialize(topShape, fullSchema)
 
@@ -361,7 +542,7 @@ export function createExecTool(
                     // Each complex field's `hint` carries the imperative to run
                     // `schema` before populating it, so no separate directive is
                     // needed here.
-                    const summary = summarizeSchema(fullSchema as Record<string, unknown>, tool.name)
+                    const summary = summarizeSchema(fullSchema, hintToolName)
                     return serialize(topShape, summary)
                 }
 
@@ -370,10 +551,22 @@ export function createExecTool(
                         throw new Error('Usage: schema <tool_name> [field_path]')
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
-                    const schemaTool = findTool(allTools, schemaToolName)
-                    const fullJsonSchema = stripOutputFormatProperty(
-                        z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
-                    )
+                    let fullJsonSchema: Record<string, unknown>
+                    if (options.gateway && isGatewayToolName(schemaToolName)) {
+                        const gatewayTool = await options.gateway.getTool(schemaToolName)
+                        if (!gatewayTool) {
+                            throw new Error(unknownGatewayToolMessage(schemaToolName))
+                        }
+                        // The upstream server's schema is passed through untouched —
+                        // `output_format` stripping only applies to PostHog's own
+                        // formatter-toggle convention.
+                        fullJsonSchema = gatewayTool.input_schema
+                    } else {
+                        const schemaTool = findTool(allTools, schemaToolName)
+                        fullJsonSchema = stripOutputFormatProperty(
+                            z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
+                        )
+                    }
 
                     if (!fieldPath) {
                         // The bare `schema <tool>` view is always a summary. Any
@@ -418,23 +611,25 @@ export function createExecTool(
                         throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
+
+                    if (options.gateway && isGatewayToolName(toolName)) {
+                        return callGatewayTool({
+                            gateway: options.gateway,
+                            toolName,
+                            jsonBody,
+                            forceJson,
+                            confirmed,
+                            trackInnerCall,
+                        })
+                    }
+
                     const tool = findTool(allTools, toolName)
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new Error(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`
                         )
                     }
-                    let input: Record<string, unknown>
-                    if (!jsonBody) {
-                        input = {}
-                    } else {
-                        try {
-                            input = JSON.parse(jsonBody) as Record<string, unknown>
-                        } catch (err) {
-                            const detail = err instanceof Error ? err.message : String(err)
-                            throw new Error(`Invalid JSON input: ${detail}`)
-                        }
-                    }
+                    let input = parseCallJsonInput(jsonBody)
 
                     // `output_format` is hidden from exec-mode schemas — `--json` owns output
                     // encoding. Honor a stray `output_format: "json"` as `--json` instead of

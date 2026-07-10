@@ -1,15 +1,16 @@
 import guidelines from '@shared/guidelines.md'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
-import { ToolInputValidationError } from '@/lib/errors'
+import { ConnectedToolError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import { createExecTool, type ExecInnerCallProperties, parseExecCallInnerToolName } from '@/tools/exec'
+import { createGatewayClient, type GatewayClient, type GatewayCallResult, type GatewayTool } from '@/tools/gateway'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -970,6 +971,315 @@ describe('exec tool', () => {
             const exec = createExec([makeMockTool()])
             await expect(exec.handler(mockContext, { command: 'search [invalid' })).rejects.toThrow(
                 /invalid regex pattern/i
+            )
+        })
+    })
+
+    describe('connected-server (gateway) tools', () => {
+        function makeGatewayTool(overrides: Partial<GatewayTool> = {}): GatewayTool {
+            return {
+                name: 'linear/create_issue',
+                server: { slug: 'linear', display_name: 'Linear', installation_id: 'inst-1', scope: 'shared' },
+                tool_name: 'create_issue',
+                description: 'Create a Linear issue\nSecond line that must not surface in search results.',
+                input_schema: {
+                    type: 'object',
+                    properties: {
+                        title: { type: 'string' },
+                        assignee: { type: 'object', properties: { id: { type: 'string' } } },
+                    },
+                    required: ['title'],
+                },
+                approval_state: 'approved',
+                ...overrides,
+            }
+        }
+
+        function makeCallResult(overrides: Partial<GatewayCallResult> = {}): GatewayCallResult {
+            return {
+                content: [{ type: 'text', text: 'Created ABC-1' }],
+                is_error: false,
+                server_slug: 'linear',
+                tool_name: 'create_issue',
+                duration_ms: 42,
+                ...overrides,
+            }
+        }
+
+        function makeGateway(overrides: Partial<GatewayClient> = {}): GatewayClient {
+            return {
+                searchTools: async () => [],
+                getTool: async () => undefined,
+                callTool: async () => {
+                    throw new Error('callTool not stubbed')
+                },
+                ...overrides,
+            }
+        }
+
+        function createExecWithGateway(
+            tools: Tool<ZodObjectAny>[],
+            gateway: GatewayClient,
+            tracker?: (toolName: string, properties: ExecInnerCallProperties) => void
+        ): Tool<any> {
+            return createExecTool(tools, mockContext, 'desc', 'cmd', undefined, tracker, [], { gateway })
+        }
+
+        it.each(['call linear/create_issue {"title":"t"}', 'info linear/create_issue', 'schema linear/create_issue'])(
+            'treats namespaced names as unknown tools when the gateway is not enabled ("%s")',
+            async (command) => {
+                const exec = createExec([makeMockTool()])
+                await expect(exec.handler(mockContext, { command })).rejects.toThrow(
+                    /Unknown tool: "linear\/create_issue"/
+                )
+            }
+        )
+
+        it.each([
+            ['reports no connected tools', async (): Promise<GatewayTool[]> => []],
+            [
+                'fails',
+                async (): Promise<GatewayTool[]> => {
+                    throw new Error('gateway down')
+                },
+            ],
+        ])('keeps the plain search output byte-identical when the gateway %s', async (_label, searchTools) => {
+            const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
+            const exec = createExecWithGateway([flagTool], makeGateway({ searchTools }))
+            const result = await exec.handler(mockContext, { command: 'search feature-flag' })
+            expect(result).toBe(JSON.stringify(['feature-flag-get-all']))
+        })
+
+        it('merges connected-server matches into search results, labeled with their server', async () => {
+            const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
+            const queries: string[] = []
+            const gateway = makeGateway({
+                searchTools: async (query) => {
+                    queries.push(query)
+                    return [makeGatewayTool()]
+                },
+            })
+            const exec = createExecWithGateway([flagTool], gateway)
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search feature-flag' })) as string)
+            expect(queries).toEqual(['feature-flag'])
+            expect(result.matches).toEqual(['feature-flag-get-all'])
+            expect(result.connected_server_tools).toEqual([
+                { name: 'linear/create_issue', server: 'Linear', description: 'Create a Linear issue' },
+            ])
+            expect(result.connected_server_hint).toContain('--confirm')
+        })
+
+        it('surfaces connected-server matches without a no-match hint when no PostHog tool matches', async () => {
+            const exec = createExecWithGateway(
+                [makeMockTool()],
+                makeGateway({ searchTools: async () => [makeGatewayTool()] })
+            )
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search linear' })) as string)
+            expect(result.matches).toEqual([])
+            expect(result.hint).toBeUndefined()
+            expect(result.connected_server_tools).toHaveLength(1)
+        })
+
+        it('routes info for a namespaced name to the gateway and renders its schema', async () => {
+            const exec = createExecWithGateway(
+                [makeMockTool()],
+                makeGateway({ getTool: async () => makeGatewayTool() })
+            )
+            const result = (await exec.handler(mockContext, { command: 'info linear/create_issue' })) as string
+            const envelope = parseYaml(result) as { name: string; approval_state: string; inputSchema: string }
+            expect(envelope.name).toBe('linear/create_issue')
+            expect(envelope.approval_state).toBe('approved')
+            const schema = JSON.parse(envelope.inputSchema)
+            expect(schema.properties.title.type).toBe('string')
+        })
+
+        it('drills into a gateway tool schema with the existing summarize/drill-down helpers', async () => {
+            const exec = createExecWithGateway(
+                [makeMockTool()],
+                makeGateway({ getTool: async () => makeGatewayTool() })
+            )
+            const bare = JSON.parse(
+                (await exec.handler(mockContext, { command: 'schema linear/create_issue' })) as string
+            )
+            expect(Object.keys(bare.properties)).toEqual(['title', 'assignee'])
+            const drilled = JSON.parse(
+                (await exec.handler(mockContext, { command: 'schema linear/create_issue assignee' })) as string
+            )
+            expect(drilled.field).toBe('assignee')
+            expect(drilled.schema.properties.id.type).toBe('string')
+        })
+
+        it.each(['info linear/nope', 'schema linear/nope'])(
+            'reports an unknown connected-server tool actionably for "%s"',
+            async (command) => {
+                const exec = createExecWithGateway([makeMockTool()], makeGateway())
+                await expect(exec.handler(mockContext, { command })).rejects.toThrow(
+                    /Unknown connected-server tool: "linear\/nope"/
+                )
+            }
+        )
+
+        it('requires --confirm before calling a connected-server tool', async () => {
+            let called = false
+            const gateway = makeGateway({
+                callTool: async () => {
+                    called = true
+                    return makeCallResult()
+                },
+            })
+            const exec = createExecWithGateway([makeMockTool()], gateway)
+            await expect(
+                exec.handler(mockContext, { command: 'call linear/create_issue {"title":"t"}' })
+            ).rejects.toThrow(/call --confirm linear\/create_issue/)
+            expect(called).toBe(false)
+        })
+
+        it('dispatches a confirmed call through the gateway, renders the result, and tracks the gateway source', async () => {
+            const received: { name: string; args: Record<string, unknown> }[] = []
+            const calls: { toolName: string; properties: ExecInnerCallProperties }[] = []
+            const gateway = makeGateway({
+                callTool: async (name, args) => {
+                    received.push({ name, args })
+                    return makeCallResult({
+                        content: [
+                            { type: 'text', text: 'Created ABC-1' },
+                            { type: 'image', data: 'aGk=' },
+                        ],
+                    })
+                },
+            })
+            const exec = createExecWithGateway([makeMockTool()], gateway, (toolName, properties) => {
+                calls.push({ toolName, properties })
+            })
+            const result = await exec.handler(mockContext, {
+                command: 'call --confirm linear/create_issue {"title":"t"}',
+            })
+            expect(received).toEqual([{ name: 'linear/create_issue', args: { title: 't' } }])
+            // Text blocks render verbatim; non-text blocks are noted, not dumped.
+            expect(result).toBe('Created ABC-1\n[image content omitted]')
+            expect(calls).toHaveLength(1)
+            expect(calls[0]!.toolName).toBe('linear/create_issue')
+            expect(calls[0]!.properties.success).toBe(true)
+            expect(calls[0]!.properties.source).toBe('gateway')
+        })
+
+        it('surfaces an is_error CallToolResult as the upstream tool error', async () => {
+            const calls: { toolName: string; properties: ExecInnerCallProperties }[] = []
+            const gateway = makeGateway({
+                callTool: async () =>
+                    makeCallResult({ is_error: true, content: [{ type: 'text', text: 'issue not found' }] }),
+            })
+            const exec = createExecWithGateway([makeMockTool()], gateway, (toolName, properties) => {
+                calls.push({ toolName, properties })
+            })
+            const error: unknown = await exec
+                .handler(mockContext, { command: 'call --confirm linear/create_issue {}' })
+                .then(
+                    () => null,
+                    (e: unknown) => e
+                )
+            expect(error).toBeInstanceOf(ConnectedToolError)
+            expect((error as Error).message).toContain('issue not found')
+            expect(calls[0]!.properties.success).toBe(false)
+            expect(calls[0]!.properties.source).toBe('gateway')
+        })
+
+        // End-to-end through the real API-backed client, mocking only the HTTP
+        // boundary — pins the documented wire contract with the Django gateway.
+        function makeApiContext(request: ReturnType<typeof vi.fn>): Context {
+            return {
+                api: { request },
+                stateManager: { getProjectId: async () => '123' },
+                getDistinctId: async () => 'test-distinct-id',
+            } as unknown as Context
+        }
+
+        it('POSTs gateway calls to the project-scoped call endpoint with the documented body', async () => {
+            const request = vi.fn(async () => makeCallResult({ content: [{ type: 'text', text: 'ok' }] }))
+            const context = makeApiContext(request)
+            const gateway = createGatewayClient(context, 'posthog-cli')
+            const exec = createExecTool([makeMockTool()], context, 'desc', 'cmd', undefined, undefined, [], {
+                gateway,
+            })
+            const result = await exec.handler(context, {
+                command: 'call --confirm linear/create_issue {"title":"t"}',
+            })
+            expect(result).toBe('ok')
+            expect(request).toHaveBeenCalledWith({
+                method: 'POST',
+                path: '/api/projects/123/mcp_gateway/call/',
+                body: { tool: 'linear/create_issue', arguments: { title: 't' }, consumer: 'posthog-cli' },
+            })
+        })
+
+        it('queries the gateway tools endpoint for search and exact-name lookups', async () => {
+            const request = vi.fn(async () => ({ results: [makeGatewayTool()] }))
+            const context = makeApiContext(request)
+            const gateway = createGatewayClient(context)
+            const exec = createExecTool([makeMockTool()], context, 'desc', 'cmd', undefined, undefined, [], {
+                gateway,
+            })
+
+            await exec.handler(context, { command: 'search linear' })
+            expect(request).toHaveBeenCalledWith({
+                method: 'GET',
+                path: '/api/projects/123/mcp_gateway/tools/',
+                query: { search: 'linear', limit: 10 },
+            })
+
+            await exec.handler(context, { command: 'info linear/create_issue' })
+            expect(request).toHaveBeenLastCalledWith({
+                method: 'GET',
+                path: '/api/projects/123/mcp_gateway/tools/',
+                query: { name: 'linear/create_issue' },
+            })
+        })
+
+        it.each([
+            {
+                case: 'a 403 tool_needs_approval with its approval URL',
+                status: 403,
+                body: {
+                    code: 'tool_needs_approval',
+                    approval_url: 'https://us.posthog.com/settings/environment-mcp-servers',
+                },
+                expected: /needs approval.*https:\/\/us\.posthog\.com\/settings\/environment-mcp-servers/,
+            },
+            {
+                case: 'a 403 tool_blocked',
+                status: 403,
+                body: { code: 'tool_blocked' },
+                expected: /blocked \("do not use"\)/,
+            },
+            {
+                case: 'a 404 unknown tool',
+                status: 404,
+                body: { detail: 'Not found.' },
+                expected: /Unknown connected-server tool: "linear\/create_issue"/,
+            },
+            {
+                case: 'a 502 upstream failure',
+                status: 502,
+                body: { detail: 'upstream timed out' },
+                expected: /failed while executing "linear\/create_issue": upstream timed out/,
+            },
+        ])('maps $case to an actionable error', async ({ status, body, expected }) => {
+            const request = vi.fn(async () => {
+                throw new PostHogApiError({
+                    status,
+                    statusText: 'error',
+                    body: JSON.stringify(body),
+                    url: 'https://us.posthog.com/api/projects/123/mcp_gateway/call/',
+                    method: 'POST',
+                })
+            })
+            const context = makeApiContext(request)
+            const gateway = createGatewayClient(context)
+            const exec = createExecTool([makeMockTool()], context, 'desc', 'cmd', undefined, undefined, [], {
+                gateway,
+            })
+            await expect(exec.handler(context, { command: 'call --confirm linear/create_issue {}' })).rejects.toThrow(
+                expected
             )
         })
     })

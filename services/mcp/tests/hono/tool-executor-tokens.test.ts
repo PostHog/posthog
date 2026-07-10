@@ -263,5 +263,73 @@ describe('ToolExecutor token estimates', () => {
             const trackEvent = state.reqCtx.trackEvent as ReturnType<typeof vi.fn>
             expect(trackEvent.mock.calls.some((call) => call[0] === 'mcp_tool_call')).toBe(false)
         })
+
+        it('attributes gateway calls to the namespaced tool with $mcp_source: "gateway" when the flag is on', async () => {
+            const tools = catalog
+                .getFilteredTools({ scopes: ['*'] })
+                .filter((tool) => tool.name === 'execute-sql' || tool.name === 'organization-get')
+            const request = vi.fn().mockResolvedValue({
+                content: [{ type: 'text', text: 'Created ABC-1' }],
+                is_error: false,
+                server_slug: 'linear',
+                tool_name: 'create_issue',
+                duration_ms: 42,
+            })
+            const state = makeState(tools, {
+                useSingleExec: true,
+                toolFeatureFlags: { MCP_GATEWAY: true },
+                context: {
+                    api: { request },
+                    cache: {},
+                    env: {},
+                    stateManager: { getProjectId: vi.fn().mockResolvedValue('123') },
+                    sessionManager: {},
+                    getDistinctId: vi.fn(),
+                    trackEvent: vi.fn(),
+                } as any,
+            })
+
+            await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'call --confirm linear/create_issue {"title":"t"}' } },
+                state
+            )
+
+            expect(request).toHaveBeenCalledTimes(1)
+            const gatewayCall = mockTrackToolCall.mock.calls.find((call) => call[0] === 'linear/create_issue')!
+            expect(gatewayCall).toBeTruthy()
+            expect(gatewayCall[2]).toBe(false)
+            expect(gatewayCall[4].$mcp_source).toBe('gateway')
+        })
+
+        it('never reaches the gateway when the MCP_GATEWAY flag is off', async () => {
+            const tools = catalog
+                .getFilteredTools({ scopes: ['*'] })
+                .filter((tool) => tool.name === 'execute-sql' || tool.name === 'organization-get')
+            const request = vi.fn()
+            const state = makeState(tools, {
+                useSingleExec: true,
+                toolFeatureFlags: { MCP_GATEWAY: false },
+                context: {
+                    api: { request },
+                    cache: {},
+                    env: {},
+                    stateManager: { getProjectId: vi.fn().mockResolvedValue('123') },
+                    sessionManager: {},
+                    getDistinctId: vi.fn(),
+                    trackEvent: vi.fn(),
+                } as any,
+            })
+
+            const response = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'call --confirm linear/create_issue {"title":"t"}' } },
+                state
+            )) as any
+
+            // Flag off ⇒ identical to today: the namespaced name is just an unknown tool.
+            expect(request).not.toHaveBeenCalled()
+            expect(response.isError).toBe(true)
+            expect(joinedText(response)).toContain('Unknown tool')
+            expect(mockTrackToolCall.mock.calls.some((call) => call[4]?.$mcp_source === 'gateway')).toBe(false)
+        })
     })
 })

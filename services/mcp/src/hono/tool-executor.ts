@@ -6,7 +6,9 @@ import {
     isToolCallPayload,
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
+import { MCP_GATEWAY_FLAG } from '@/lib/constants'
 import {
+    ConnectedToolError,
     handleToolError,
     MissingOrganizationContextError,
     MissingProjectContextError,
@@ -19,6 +21,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getPostHogClient } from '@/lib/posthog'
 import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
+import { createGatewayClient } from '@/tools/gateway'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import type { Context, ZodObjectAny } from '@/tools/types'
@@ -39,6 +42,8 @@ interface ResolvedTool {
 
 interface ExecMetricState {
     innerToolName: string | undefined
+    /** `'gateway'` when the inner call ran a connected external MCP server's tool. */
+    innerToolSource: 'gateway' | undefined
 }
 
 export class ToolExecutor {
@@ -275,7 +280,7 @@ export class ToolExecutor {
         state: ResolvedState,
         intentMeta?: ToolCallIntentMeta
     ): Promise<unknown> {
-        const execMetrics: ExecMetricState = { innerToolName: undefined }
+        const execMetrics: ExecMetricState = { innerToolName: undefined, innerToolSource: undefined }
         const resolved = this.resolveExecTool(state, execMetrics, intentMeta)
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
@@ -299,6 +304,11 @@ export class ToolExecutor {
         // it. Non-`call` verbs (tools/info/search/schema) resolve no inner tool and stay
         // attributed to `exec`.
         const execToolName = (): string => execMetrics.innerToolName ?? 'exec'
+        // Gateway calls override the default `$mcp_source` so dashboards can split
+        // connected-server executions from PostHog's own tools. Evaluated after the
+        // handler runs — the tracker sets the source during inner dispatch.
+        const execSourceProperties = (): Record<string, unknown> =>
+            execMetrics.innerToolSource === 'gateway' ? { $mcp_source: 'gateway' } : {}
 
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
@@ -323,6 +333,7 @@ export class ToolExecutor {
                 {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
+                    ...execSourceProperties(),
                 },
                 intentMeta
             )
@@ -340,7 +351,7 @@ export class ToolExecutor {
                 Date.now() - startMs,
                 true,
                 state,
-                errorAnalyticsProperties(classification),
+                { ...errorAnalyticsProperties(classification), ...execSourceProperties() },
                 intentMeta
             )
 
@@ -367,6 +378,7 @@ export class ToolExecutor {
             // event (now relabelled to the inner tool name, with the inner tool's category
             // derived from it) already carries this call, so a second emit would double-count.
             execMetrics.innerToolName = toolName
+            execMetrics.innerToolSource = properties.source
             const status = properties.success ? 'success' : properties.validation_error ? 'validation_error' : 'error'
             toolCallsTotal.inc({ tool: toolName, status })
             // Mirror the native path: schema rejections never start a handler, so
@@ -403,6 +415,11 @@ export class ToolExecutor {
                 : tool
         )
 
+        // Connected external MCP servers are only reachable through exec when the
+        // `MCP_GATEWAY` flag is on for this user — flag off means no gateway client,
+        // which keeps every exec verb byte-identical to today.
+        const gatewayEnabled = state.toolFeatureFlags?.[MCP_GATEWAY_FLAG] === true
+
         const execTool = createExecTool(
             execTools,
             state.context,
@@ -411,7 +428,10 @@ export class ToolExecutor {
             clientContext.mcpConsumer,
             trackInnerCall,
             state.scopeGatedTools,
-            { isInlineExecUiHost: state.clientProfile.isInlineExecUiHost() }
+            {
+                isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                ...(gatewayEnabled ? { gateway: createGatewayClient(state.context, clientContext.mcpConsumer) } : {}),
+            }
         )
 
         return {
@@ -477,6 +497,7 @@ type ToolErrorType =
     | 'rate_limited'
     | 'api_5xx'
     | 'api_4xx'
+    | 'upstream_tool'
     | 'internal'
 
 interface ToolErrorClassification {
@@ -504,6 +525,11 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
     }
     if (error instanceof ToolInputValidationError) {
         return { errorType: 'validation' }
+    }
+    // A connected MCP server's tool returned an error result (gateway path) —
+    // not a PostHog API failure, so it gets its own bucket.
+    if (error instanceof ConnectedToolError) {
+        return { errorType: 'upstream_tool' }
     }
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }

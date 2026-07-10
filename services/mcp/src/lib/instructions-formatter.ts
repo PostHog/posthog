@@ -1,4 +1,5 @@
 import type { GroupType } from '@/api/client'
+import { MCP_GATEWAY_FLAG } from '@/lib/constants'
 import {
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
@@ -11,6 +12,7 @@ import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
+import CLI_CONNECTED_SERVERS from '@/templates/sections/cli-connected-servers.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
@@ -103,6 +105,9 @@ export class InstructionsFormatter {
     ): string {
         const sections = [
             CLI_SYNTAX,
+            // One line, flag-gated: the serialized exec entry has a hard size
+            // budget (see below) and the gateway is invisible when the flag is off.
+            ...(this.mcpGatewayEnabled(ctx.featureFlags) ? [CLI_CONNECTED_SERVERS] : []),
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,
             CLI_EXAMPLES,
@@ -137,6 +142,12 @@ export class InstructionsFormatter {
      *  in `resolveToolFeatureFlags`. */
     private agentFeedbackEnabled(featureFlags: EvaluatedFlags | undefined): boolean {
         return featureFlags?.['mcp-feedback-tool'] === true
+    }
+
+    /** Connected-server (MCP gateway) tools only surface through exec when the
+     *  `MCP_GATEWAY` flag is on for the caller — the one-line pointer follows it. */
+    private mcpGatewayEnabled(featureFlags: EvaluatedFlags | undefined): boolean {
+        return featureFlags?.[MCP_GATEWAY_FLAG] === true
     }
 
     private compose(sections: string[], ctx: InstructionsContext, opts: { compact: boolean }): string {

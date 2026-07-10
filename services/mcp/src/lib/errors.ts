@@ -135,6 +135,20 @@ export class ToolInputValidationError extends Error {
     }
 }
 
+/**
+ * Thrown when a connected external MCP server's tool (called through the
+ * MCP gateway) returns a CallToolResult with `is_error: true`. That is the
+ * upstream tool telling the agent its input was wrong — an agent-recoverable
+ * failure, not a PostHog bug — so `handleToolError` returns the upstream
+ * message verbatim and skips exception capture, mirroring the 4xx path.
+ */
+export class ConnectedToolError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ConnectedToolError'
+    }
+}
+
 export interface PostHogApiErrorOptions {
     status: number
     statusText: string
@@ -415,6 +429,22 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
     // an agent slip-up, not a bug. The message already names the offending
     // field(s); skip exception capture like the API 4xx branch below.
     if (error instanceof ToolInputValidationError) {
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Error: [${toolName}]: ${error.message}`,
+                },
+            ],
+            isError: true,
+        }
+    }
+
+    // Recoverable: a connected MCP server's tool reported an error result. The
+    // message carries the upstream tool's own error text for the agent to act
+    // on; capturing it as an exception would file upstream-tool failures as
+    // PostHog issues.
+    if (error instanceof ConnectedToolError) {
         return {
             content: [
                 {
