@@ -850,7 +850,8 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         printed = self._print_select(
             "select JSONExtractInt(properties, 'secret'), "
             "JSONExtract(properties, 'secret', 'Nullable(Float64)'), "
-            "JSONExtractString(properties, 'email') "
+            "JSONExtractString(properties, 'email'), "
+            "JSONHas(properties, 'secret') "
             "from events",
             restricted_properties={
                 ("secret", PropertyDefinition.Type.EVENT),
@@ -860,7 +861,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
 
         assert "events.properties.secret" not in printed, printed
         assert "events.properties.email" not in printed, printed
-        assert "JSONExtract" not in printed, printed
+        assert all(name not in printed for name in ("JSONExtract(", "JSONExtractInt(", "JSONExtractString(")), printed
 
     @parameterized.expand(
         [

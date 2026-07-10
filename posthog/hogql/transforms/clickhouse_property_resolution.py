@@ -135,7 +135,7 @@ def resolve_materialized_property_source(
         raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
     field_name = field.name
 
-    if json_source := resolve_json_subcolumn_source(table_name, field_name, property_name, context):
+    if json_source := resolve_json_subcolumn_source(field_type, table_name, field_name, property_name, context):
         return json_source
 
     if context.modifiers.materializationMode == "disabled":
@@ -170,8 +170,10 @@ def resolve_materialized_property_source(
 
 
 def resolve_json_subcolumn_source(
-    table_name: str, field_name: str, property_name: str, context: HogQLContext
+    field_type: ast.FieldType, table_name: str, field_name: str, property_name: str, context: HogQLContext
 ) -> MaterializedPropertySource | None:
+    if property_name in restricted_property_keys_for_table_type(field_type.table_type, context):
+        return None
     if not context.uses_new_events_schema():
         return None
     if table_name not in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
@@ -1009,7 +1011,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                 raise QueryError("JSONHas on events JSON properties only supports constant string property keys")
             keys.append(arg.value)
         source = resolve_json_subcolumn_source(
-            table_type.table.to_printed_clickhouse(self.context), field.name, keys[0], self.context
+            field_type, table_type.table.to_printed_clickhouse(self.context), field.name, keys[0], self.context
         )
         if source is None:
             return None
