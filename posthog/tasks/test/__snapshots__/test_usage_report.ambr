@@ -2328,18 +2328,6 @@
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.50]
   '''
   
-  SELECT team_id,
-         count(distinct uuid) as count
-  FROM events_json
-  WHERE event = '$recording_observed'
-    AND timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.51]
-  '''
-  
   SELECT distinct_id as team,
          sum(JSONExtractInt(toJSONString(properties), 'count')) as sum
   FROM events_json
@@ -2351,7 +2339,7 @@
   GROUP BY team
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.52]
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.51]
   '''
   
   SELECT distinct_id as team,
@@ -2365,7 +2353,7 @@
   GROUP BY team
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.53]
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.52]
   '''
   
   SELECT team_id,
@@ -2386,6 +2374,23 @@
                     WHEN COALESCE(replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$survey_submission_id'), '^"|"$', ''), '') = '' THEN toString(uuid)
                     ELSE replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$survey_submission_id'), '^"|"$', '')
                 END)
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.53]
+  '''
+  
+  SELECT team_id,
+         COUNT() - uniqExactIf(request_id, verified
+                               AND request_id != '') as count
+  FROM
+    (SELECT team_id,
+            JSONExtractBool(toJSONString(properties), '$ai_gateway_verified') as verified,
+            if(verified, JSONExtractString(toJSONString(properties), '$ai_gateway_request_id'), '') as request_id
+     FROM events_json
+     WHERE event IN ['$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+       AND timestamp >= '2022-01-10 00:00:00'
+       AND timestamp < '2022-01-10 23:59:59')
   GROUP BY team_id
   '''
 # ---
