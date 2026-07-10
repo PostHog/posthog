@@ -623,7 +623,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         # Assemble the flag's native write shape from the changed deprecated keys. The service owns
         # this translation (it is the reverse of the read projection) so both the HTTP path and direct
         # service callers build the config identically.
-        return ExperimentService._feature_flag_config_from_parameters(changed)
+        config = ExperimentService._feature_flag_config_from_parameters(changed)
+        # Surface to update_experiment that a real flag-config write (not a faithful echo) came from
+        # the deprecated `parameters` surface, for the "experiment updated" deprecation-bake telemetry.
+        self._deprecated_flag_config_changed = config is not None
+        return config
 
     @staticmethod
     def _flag_config_echo_matches(key: str, sent: Any, projected: Any) -> bool:
@@ -765,6 +769,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             feature_flag_config=feature_flag_config,
             serializer_context=self.context,
             allow_unknown_events=allow_unknown_events,
+            deprecated_flag_config_changed=getattr(self, "_deprecated_flag_config_changed", False),
         )
 
 
