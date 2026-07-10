@@ -156,7 +156,10 @@ class BatchImportAdmin(admin.ModelAdmin):
             inflight.get("total_size") if inflight.get("total_size") is not None else "unknown",
         )
 
-    @admin.action(description="Resume (keep progress) - continue paused import from its saved offset")
+    @admin.action(
+        description="Resume (keep progress) - continue paused import from its saved offset",
+        permissions=["change"],
+    )
     def resume(self, request, queryset):
         """Resume paused jobs from their saved progress: for transient pauses and
         unchanged source data. See the 'Worker state' section on the detail page
@@ -174,7 +177,8 @@ class BatchImportAdmin(admin.ModelAdmin):
                 )
 
     @admin.action(
-        description="Resume + re-import in-flight part - reset paused import's current date range to offset 0"
+        description="Resume + re-import in-flight part - reset paused import's current date range to offset 0",
+        permissions=["change"],
     )
     def resume_with_inflight_part_reset(self, request, queryset):
         """Recover a paused job whose committed byte offset no longer matches the
