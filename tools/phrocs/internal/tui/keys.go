@@ -389,7 +389,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		key.Matches(msg, m.keys.ScrollUp)
 
 	if m.isForwardingInput() && !isControlKey {
-		// ctrl+g always leaves explicit input mode without touching the proc.
+		// esc always leaves explicit input mode without touching the proc.
 		if m.inputMode && key.Matches(msg, m.keys.ExitInput) {
 			m.inputMode = false
 			m.inputBuffer = ""

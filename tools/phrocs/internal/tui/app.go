@@ -93,7 +93,7 @@ type Model struct {
 	// Buffered text for PTY input when the output pane is focused
 	inputBuffer string
 	// Explicit input mode: forward keystrokes to the proc's PTY regardless of
-	// the HasPrompt() heuristic. Toggled on with enter, off with ctrl+g.
+	// the HasPrompt() heuristic. Toggled on with enter, off with esc.
 	inputMode bool
 
 	// Show-all mode: display registry processes not in the current intent config

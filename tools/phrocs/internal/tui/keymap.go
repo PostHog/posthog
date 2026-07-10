@@ -132,11 +132,11 @@ func defaultKeyMap() keyMap {
 		),
 		InputMode: key.NewBinding(
 			key.WithKeys("enter"),
-			key.WithHelp("↵:", "input"),
+			key.WithHelp("↵:", "input (esc to leave)"),
 		),
 		ExitInput: key.NewBinding(
-			key.WithKeys("ctrl+g"),
-			key.WithHelp("^g:", "leave input"),
+			key.WithKeys("esc"),
+			key.WithHelp("esc:", "leave input"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),

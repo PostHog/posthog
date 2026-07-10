@@ -236,9 +236,9 @@ func TestInputMode_enterAndExit(t *testing.T) {
 	if !m.inputMode {
 		t.Error("enter should activate input mode on a running proc")
 	}
-	m = update(m, tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
+	m = update(m, specialKey(tea.KeyEscape))
 	if m.inputMode {
-		t.Error("ctrl+g should leave input mode")
+		t.Error("esc should leave input mode")
 	}
 }
 

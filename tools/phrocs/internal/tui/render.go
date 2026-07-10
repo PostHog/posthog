@@ -355,7 +355,7 @@ func (m Model) renderFooter() string {
 			lipgloss.NewStyle().Foreground(colorBlue).Render(hint),
 		)
 	} else if p := m.activeProc(); m.inputMode && m.focusedPane == focusOutput && p != nil && p.IsRunning() {
-		hint := "-- INPUT --  type to send to the process  ↵: send  ⌫: delete  ^g: leave"
+		hint := "-- INPUT --  type to send to the process  ↵: send  ⌫: delete  esc: leave"
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorGreen).Render(hint),
 		)
