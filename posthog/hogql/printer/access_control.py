@@ -1,8 +1,38 @@
-from typing import Optional
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Optional
+
+import humanize
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
+
+from posthog.rbac.user_access_control import resource_to_display_name
+
+if TYPE_CHECKING:
+    from posthog.schema import AccessControlFilterWarning
+
+    from posthog.scopes import APIScopeObject
+
+
+def build_access_control_warning(resources: Iterable["APIScopeObject"]) -> Optional["AccessControlFilterWarning"]:
+    """Turn the restricted resources a query referenced into the single user-facing warning.
+
+    We can't tell whether rows were actually excluded — the guard is pushed into SQL, so the DB never
+    returns them — only that the user has restrictions on these resources. Hence "may exclude".
+    """
+    from posthog.schema import (
+        AccessControlFilterWarning,  # noqa: PLC0415 — keeps posthog.schema off django.setup() via this module
+    )
+
+    sorted_resources = sorted(resources)
+    if not sorted_resources:
+        return None
+    display_names = humanize.natural_list([resource_to_display_name(r) for r in sorted_resources])
+    return AccessControlFilterWarning(
+        resources=[str(r) for r in sorted_resources],
+        message=f"Results may exclude {display_names} you don't have access to",
+    )
 
 
 def build_access_control_guard(
@@ -31,6 +61,11 @@ def build_access_control_guard(
     blocked_ids = context.database.user_access_control.blocked_resource_ids_by_scope.get(resource, set())
     if not blocked_ids:
         return None
+
+    # Surface that this query is subject to filtering so callers don't mistake a possibly-partial
+    # result for the full set. Note the guard applying doesn't mean rows were actually excluded —
+    # the user's blocked objects may not have matched the query anyway.
+    context.access_control_restricted_resources.add(resource)
 
     return ast.CompareOperation(
         op=ast.CompareOperationOp.NotIn,
