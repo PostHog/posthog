@@ -1089,6 +1089,11 @@ class ConcurrentS3Consumer(Consumer):
             # Finalize the current/last file
             await self._finalize_current_file()
 
+        except Exception:
+            # Cleanup on error
+            await self._abort()
+            raise
+
         finally:
             self._finalized = True
             # Final cleanup
