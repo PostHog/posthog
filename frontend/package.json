@@ -133,6 +133,7 @@
         "@posthog/products-workflows": "workspace:*",
         "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
+        "@posthog/quill-components": "workspace:*",
         "@posthog/react": "catalog:",
         "@posthog/replay-shared": "workspace:*",
         "@posthog/tailwind": "workspace:*",

@@ -1,7 +1,14 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 
-import { MetricCard, useChartTheme } from '@posthog/quill-charts'
+import { useChartTheme } from '@posthog/quill-charts'
+import {
+    Metric as QuillMetric,
+    MetricDelta,
+    MetricSparkline,
+    MetricSubtitle,
+    MetricValue,
+} from '@posthog/quill-components/metric'
 
 import { dayjs } from 'lib/dayjs'
 import { hexToRGBA } from 'lib/utils/colors'
@@ -89,14 +96,10 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
 
     return (
         <div className={clsx('Metric ph-no-capture flex flex-col w-full p-2', inCardView && 'flex-1')}>
-            <MetricCard
-                className={inCardView ? 'flex-1' : undefined}
+            <QuillMetric
+                className={clsx('px-0', inCardView && 'flex-1')}
                 sparklineFill={inCardView}
-                // No title — the insight/card header already shows the name.
-                title={null}
                 value={headlineValue}
-                changeSize="md"
-                changeInline
                 change={change}
                 changeTooltip={changeTooltip}
                 hoverChangeFromPreviousPoint
@@ -112,9 +115,16 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
                 }
                 sparklineDashedFromIndex={dashedFromIndex}
                 sparklineHeight={120}
-                sparklineClassName="mt-4 -mx-2"
                 dataAttr="metric-value"
-            />
+            >
+                {/* No title — the insight/card header already shows the name; the pill sits inline. */}
+                <div className="flex items-center justify-between gap-2">
+                    <MetricValue />
+                    <MetricDelta size="md" />
+                </div>
+                <MetricSubtitle className="mt-1" />
+                <MetricSparkline className="mt-4 -mx-2" />
+            </QuillMetric>
         </div>
     )
 }

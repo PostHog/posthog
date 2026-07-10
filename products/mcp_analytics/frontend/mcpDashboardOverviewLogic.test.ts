@@ -348,6 +348,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 previousValue: 5,
                 deltaPct: 500,
                 sparkline: [10, 20], // current sorted by bucket
+                sparklineLabels: ['2024-01-08', '2024-01-09'],
                 goodDirection: 'up',
             })
             expect(kpis.toolCalls).toMatchObject({
@@ -470,6 +471,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 previousValue: 30,
                 deltaPct: 40,
                 sparkline: [],
+                sparklineLabels: [],
                 goodDirection: 'up',
             })
         })

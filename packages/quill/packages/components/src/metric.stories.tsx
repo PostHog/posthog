@@ -309,3 +309,38 @@ export const GridNoSparkline: Story = {
         )
     },
 }
+
+// The metric insight's layout: no title, an inline `size="md"` pill beside the headline, and
+// user-configured `positiveColor`/`negativeColor` overriding the Badge variants.
+export const InsightLayout: Story = {
+    render: () => {
+        const theme = useChartTheme()
+        const total = REVENUE.reduce((a, b) => a + b, 0)
+        return (
+            <Card flush className="h-[320px] w-[360px]">
+                <Metric
+                    value={total}
+                    data={REVENUE}
+                    labels={MONTHS}
+                    theme={theme}
+                    color="#8b5cf6"
+                    change={{ value: 12.4 }}
+                    changeTooltip="Comparing this period's total to the previous period's total."
+                    hoverChangeFromPreviousPoint
+                    positiveColor={{ background: 'rgb(139 92 246 / 10%)', foreground: '#8b5cf6' }}
+                    negativeColor={{ background: 'rgb(219 55 7 / 10%)', foreground: '#db3707' }}
+                    restingSubtitle="Total"
+                    sparklineFill
+                    formatValue={(v) => `US$${Math.round(v).toLocaleString()}`}
+                >
+                    <div className="flex items-center justify-between gap-2">
+                        <MetricValue />
+                        <MetricDelta size="md" />
+                    </div>
+                    <MetricSubtitle className="mt-1" />
+                    <MetricSparkline />
+                </Metric>
+            </Card>
+        )
+    },
+}

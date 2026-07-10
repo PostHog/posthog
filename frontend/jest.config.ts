@@ -214,6 +214,7 @@ const config: Config = {
         '^@posthog/quill-charts/testing$': '<rootDir>/../packages/quill/packages/charts/src/testing/index.ts',
         '^@posthog/quill-charts/story-helpers$': '<rootDir>/../packages/quill/packages/charts/src/story-helpers.tsx',
         '^@posthog/quill-components$': '<rootDir>/../packages/quill/packages/components/src/index.ts',
+        '^@posthog/quill-components/metric$': '<rootDir>/../packages/quill/packages/components/src/metric.tsx',
         '^@posthog/quill-primitives$': '<rootDir>/../packages/quill/packages/primitives/src/index.ts',
         '^@posthog/quill-tokens$': '<rootDir>/../packages/quill/packages/tokens/src/index.ts',
         '^@posthog/shared-onboarding/(.*)$': '<rootDir>/../docs/onboarding/$1',

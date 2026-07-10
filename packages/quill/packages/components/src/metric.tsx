@@ -2,6 +2,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react'
 import * as React from 'react'
 
 import {
+    type ChangeColor,
     ChartErrorBoundary,
     computeFallbackChangePercent,
     type MetricChange,
@@ -13,9 +14,9 @@ import {
     useHoverIntent,
 } from '@posthog/quill-charts'
 import type { ChartTheme } from '@posthog/quill-charts'
-import { Badge, cn, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill-primitives'
+import { Badge, cn, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@posthog/quill-primitives'
 
-export type { MetricChange }
+export type { ChangeColor, MetricChange }
 
 // What the root computes once and every part reads. Parts stay dumb: they render a slice of this.
 interface MetricContextValue {
@@ -30,6 +31,8 @@ interface MetricContextValue {
         positive: boolean
         /** Change is in the desired direction — drives the Badge color (success vs destructive). */
         good: boolean
+        /** Custom pill colors resolved from `positiveColor`/`negativeColor`; overrides the Badge variant. */
+        colors?: ChangeColor
         tooltip?: string
     } | null
     /** Sparkline wiring, or null when no series was supplied. */
@@ -88,7 +91,12 @@ export interface MetricProps {
     change?: MetricChange | null
     /** Which direction is "good" — drives the pill color. Defaults to `up`. */
     goodDirection?: 'up' | 'down'
-    /** Tooltip shown on hover over the change pill (requires a `TooltipProvider` at the app root). */
+    /** Custom pill colors for a change in the good direction (e.g. user-configured insight colors).
+     *  Overrides the Badge `success` variant; omit to keep the semantic variants. */
+    positiveColor?: ChangeColor
+    /** Custom pill colors for a change in the bad direction. Overrides the Badge `destructive` variant. */
+    negativeColor?: ChangeColor
+    /** Tooltip shown on hover over the change pill. */
     changeTooltip?: string
     /** Caption shown at rest and on hover. Always wins over `restingSubtitle` and hovered labels. */
     subtitle?: React.ReactNode
@@ -150,6 +158,8 @@ function MetricInner({
     showChange = true,
     change,
     goodDirection = 'up',
+    positiveColor,
+    negativeColor,
     changeTooltip,
     subtitle,
     restingSubtitle,
@@ -212,6 +222,7 @@ function MetricInner({
                           delta,
                           positive,
                           good,
+                          colors: good ? positiveColor : negativeColor,
                           // The tooltip describes the resting comparison, so hide it on the per-point delta.
                           tooltip: usePrevPointHover ? undefined : changeTooltip,
                       }
@@ -242,6 +253,8 @@ function MetricInner({
         formatChange,
         changeTooltip,
         goodDirection,
+        positiveColor,
+        negativeColor,
         formatValue,
         animatedValue,
         subtitle,
@@ -291,9 +304,17 @@ export function MetricValue({ className, children, ...props }: React.ComponentPr
     )
 }
 
-/** Change pill — a `Badge` (success/destructive by `goodDirection`) with a directional chevron.
- *  Renders nothing when there is no resolved delta. */
-export function MetricDelta({ className }: { className?: string }): React.ReactElement | null {
+/** Change pill — a `Badge` (success/destructive by `goodDirection`, or the root's custom
+ *  `positiveColor`/`negativeColor`) with a directional chevron. Renders nothing when there is no
+ *  resolved delta. Carries its own `TooltipProvider`, so `changeTooltip` needs no app-root setup. */
+export function MetricDelta({
+    className,
+    size = 'sm',
+}: {
+    className?: string
+    /** `md` renders the larger pill the metric insight uses inline next to the headline. */
+    size?: 'sm' | 'md'
+}): React.ReactElement | null {
     const { change } = useMetric('MetricDelta')
     if (change == null) {
         return null
@@ -301,8 +322,18 @@ export function MetricDelta({ className }: { className?: string }): React.ReactE
     const Chevron = change.positive ? ChevronUp : ChevronDown
     const badge = (
         <Badge
-            variant={change.good ? 'success' : 'destructive'}
-            className={cn('gap-0.5 rounded-full tabular-nums', className)}
+            variant={change.colors != null ? 'default' : change.good ? 'success' : 'destructive'}
+            className={cn(
+                'gap-0.5 rounded-full tabular-nums',
+                size === 'md' && 'h-auto gap-1 px-2.5 py-1 text-sm [&>svg]:size-3!',
+                className
+            )}
+            // Dynamic user-configured colors can't be Tailwind classes; inline style wins over the variant.
+            style={
+                change.colors != null
+                    ? { background: change.colors.background, color: change.colors.foreground }
+                    : undefined
+            }
             data-attr="metric-change-pill"
         >
             <Chevron className="size-3" />
@@ -312,11 +343,14 @@ export function MetricDelta({ className }: { className?: string }): React.ReactE
     if (change.tooltip == null) {
         return badge
     }
+    // Badge isn't a forwardRef component, so it can't be the `render` target — anchor on a span.
     return (
-        <Tooltip>
-            <TooltipTrigger render={badge} />
-            <TooltipContent>{change.tooltip}</TooltipContent>
-        </Tooltip>
+        <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger render={<span className="inline-flex" />}>{badge}</TooltipTrigger>
+                <TooltipContent>{change.tooltip}</TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
     )
 }
 

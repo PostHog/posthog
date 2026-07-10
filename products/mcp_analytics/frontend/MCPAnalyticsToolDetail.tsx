@@ -5,11 +5,19 @@ import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
-    MetricCard,
     type Series,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
+import {
+    Metric,
+    MetricDelta,
+    MetricHeader,
+    MetricSparkline,
+    MetricSubtitle,
+    MetricTitle,
+    MetricValue,
+} from '@posthog/quill-components/metric'
 import {
     Card,
     CardContent,
@@ -39,7 +47,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
-import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
+import { formatBucketLabel, formatMs, formatMsAsSeconds } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import {
@@ -64,6 +72,7 @@ function StatTile({
     value,
     formatValue,
     data,
+    labels,
     theme,
     color,
     goodDirection,
@@ -73,33 +82,42 @@ function StatTile({
     value: number
     formatValue: (n: number) => string
     data?: number[]
+    labels?: string[]
     theme: ChartTheme
     color?: string
     goodDirection?: 'up' | 'down'
     loading: boolean
 }): JSX.Element {
+    const hasSparkline = data != null && data.length > 0
     return (
-        <Card size="sm" className="flex-1">
+        <Card size="sm" flush={hasSparkline} className="flex-1">
             {loading ? (
                 <CardContent className="flex flex-col gap-2">
                     <Skeleton className="h-3 w-16" />
                     <Skeleton className="h-7 w-20" />
                 </CardContent>
             ) : (
-                <CardContent>
-                    <MetricCard
-                        className="text-primary"
-                        title={label}
-                        value={value}
-                        data={data}
-                        theme={theme}
-                        color={color}
-                        formatValue={formatValue}
-                        goodDirection={goodDirection}
-                        sparklineHeight={40}
-                        sparklineClassName="mt-2 -mx-3 -mb-3"
-                    />
-                </CardContent>
+                <Metric
+                    className="px-3 text-primary"
+                    value={value}
+                    data={data}
+                    labels={labels}
+                    theme={theme}
+                    color={color}
+                    formatValue={formatValue}
+                    goodDirection={goodDirection}
+                    // Resting caption only — hovering a sparkline point swaps in that day's label.
+                    restingSubtitle="Last 7 days"
+                    sparklineHeight={40}
+                >
+                    <MetricHeader>
+                        <MetricTitle>{label}</MetricTitle>
+                        <MetricDelta />
+                    </MetricHeader>
+                    <MetricValue className="mt-2" />
+                    <MetricSubtitle className="mt-1" />
+                    <MetricSparkline className="mt-2 -mx-3" />
+                </Metric>
             )}
         </Card>
     )
@@ -260,6 +278,7 @@ function StatTiles({
     const errors = summary?.errors ?? 0
     const errorRate = calls ? (errors / calls) * 100 : 0
     const errorRateDaily = daily.calls.map((c, i) => (c ? (daily.errors[i] / c) * 100 : 0))
+    const sparkLabels = daily.labels.slice(-SPARKLINE_DAYS).map(formatBucketLabel)
 
     return (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6" data-quill>
@@ -269,6 +288,7 @@ function StatTiles({
                 value={calls}
                 formatValue={humanFriendlyNumber}
                 data={spark(daily.calls)}
+                labels={sparkLabels}
                 theme={theme}
                 color={theme.colors[0]}
                 goodDirection="up"
@@ -279,6 +299,7 @@ function StatTiles({
                 value={errorRate}
                 formatValue={(n) => `${n.toFixed(1)}%`}
                 data={spark(errorRateDaily)}
+                labels={sparkLabels}
                 theme={theme}
                 color={theme.colors[4]}
                 goodDirection="down"
@@ -289,6 +310,7 @@ function StatTiles({
                 value={summary?.p50_ms ?? 0}
                 formatValue={formatMs}
                 data={spark(daily.p50)}
+                labels={sparkLabels}
                 theme={theme}
                 color={theme.colors[0]}
                 goodDirection="down"
@@ -299,6 +321,7 @@ function StatTiles({
                 value={summary?.p95_ms ?? 0}
                 formatValue={formatMs}
                 data={spark(daily.p95)}
+                labels={sparkLabels}
                 theme={theme}
                 color={theme.colors[0]}
                 goodDirection="down"
@@ -309,6 +332,7 @@ function StatTiles({
                 value={summary?.users ?? 0}
                 formatValue={humanFriendlyNumber}
                 data={spark(daily.users)}
+                labels={sparkLabels}
                 theme={theme}
                 color={theme.colors[0]}
                 goodDirection="up"
@@ -319,6 +343,7 @@ function StatTiles({
                 value={summary?.conversations ?? 0}
                 formatValue={humanFriendlyNumber}
                 data={spark(daily.sessions)}
+                labels={sparkLabels}
                 theme={theme}
                 color={theme.colors[6]}
                 goodDirection="up"

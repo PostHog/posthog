@@ -1,12 +1,21 @@
 import { Link } from '@posthog/lemon-ui'
-import { type ChartTheme, MetricCard } from '@posthog/quill-charts'
+import { type ChartTheme } from '@posthog/quill-charts'
+import {
+    Metric,
+    MetricDelta,
+    MetricHeader,
+    MetricSparkline,
+    MetricSubtitle,
+    MetricTitle,
+    MetricValue,
+} from '@posthog/quill-components/metric'
 import { Card, CardContent, Skeleton } from '@posthog/quill-primitives'
 
 import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { type KPIData, KPIMetric } from '../mcpDashboardOverviewLogic'
-import { formatMs, formatNumber } from './formatters'
+import { formatBucketLabel, formatMs, formatNumber } from './formatters'
 
 interface TileSpec {
     label: string
@@ -27,31 +36,41 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
 
     return (
         <Link to={tile.href} subtle className="group/tile flex h-full">
-            <Card size="sm" className="flex-1 transition-transform group-hover/tile:-translate-y-0.5">
+            <Card
+                size="sm"
+                flush={hasSparkline}
+                className="flex-1 transition-transform group-hover/tile:-translate-y-0.5"
+            >
                 {tile.loading ? (
                     <CardContent className="flex flex-col gap-2">
                         <Skeleton className="h-3 w-16" />
                         <Skeleton className="h-7 w-20" />
                     </CardContent>
                 ) : (
-                    <CardContent>
-                        <MetricCard
-                            className="text-primary"
-                            title={tile.label}
-                            value={metric.value}
-                            data={hasSparkline ? metric.sparkline : undefined}
-                            theme={theme}
-                            color={tile.color}
-                            goodDirection={metric.goodDirection}
-                            formatValue={tile.format}
-                            subtitle={
-                                tile.subtitle ??
-                                (hasComparison ? `vs. ${tile.format(metric.previousValue)} prior` : undefined)
-                            }
-                            sparklineHeight={50}
-                            sparklineClassName="mt-3 -mx-3 -mb-3"
-                        />
-                    </CardContent>
+                    <Metric
+                        className="px-3 text-primary"
+                        value={metric.value}
+                        data={hasSparkline ? metric.sparkline : undefined}
+                        labels={hasSparkline ? metric.sparklineLabels.map(formatBucketLabel) : undefined}
+                        theme={theme}
+                        color={tile.color}
+                        goodDirection={metric.goodDirection}
+                        formatValue={tile.format}
+                        // Resting caption only — hovering a sparkline point swaps in that bucket's label.
+                        restingSubtitle={
+                            tile.subtitle ??
+                            (hasComparison ? `vs. ${tile.format(metric.previousValue)} prior` : undefined)
+                        }
+                        sparklineHeight={50}
+                    >
+                        <MetricHeader>
+                            <MetricTitle>{tile.label}</MetricTitle>
+                            <MetricDelta />
+                        </MetricHeader>
+                        <MetricValue className="mt-2" />
+                        <MetricSubtitle className="mt-1" />
+                        <MetricSparkline className="mt-3 -mx-3" />
+                    </Metric>
                 )}
             </Card>
         </Link>
