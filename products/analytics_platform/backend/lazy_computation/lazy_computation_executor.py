@@ -87,6 +87,9 @@ PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else "auto"
 # a broken quorum cost two seconds instead of ten minutes. A false positive is
 # cheap: the part is already written, the retry re-insert is idempotent under
 # ReplacingMergeTree, and the caller falls back to the live query meanwhile.
+# A quorum-wait expiry raises code 319 UNKNOWN_STATUS_OF_INSERT ("client must
+# retry"), which is deliberately absent from NON_RETRYABLE_CLICKHOUSE_ERROR_CODES —
+# distinct from 159 TIMEOUT_EXCEEDED (max_execution_time), which stays non-retryable.
 PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS = 2 * 1000
 
 
