@@ -2670,33 +2670,37 @@ jobs:
                   name: junit-results-backend-${{ matrix.artifact_key }}
                   path: junit-*.xml
 
-            # Quarantine gate: uploads junit to Trunk and gates the job. Exit 0 when every
-            # failure is an already-quarantined flake, non-zero otherwise (falls back to the
-            # raw test outcome if Trunk is unreachable). Runs the token only on internal PRs,
-            # master, and the merge queue — never on fork PRs or Dependabot, which have no
-            # secret.
+            # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
+            # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
+            # secret); cli-version pinned, not 'latest' (skips the release redirect).
             - name: Quarantine gate (Core)
+              id: quarantine_gate_core
+              continue-on-error: true
               if: ${{ !cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-core.xml
                   org-slug: posthog-inc
+                  cli-version: '0.13.7'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             - name: Quarantine gate (Temporal)
+              id: quarantine_gate_temporal
+              continue-on-error: true
               if: ${{ !cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-temporal.xml
                   org-slug: posthog-inc
+                  cli-version: '0.13.7'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-temporal-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
-            # No Trunk secret on fork PRs and Dependabot; fall back to the raw test outcome so
-            # a genuine failure still goes red exactly as before.
-            - name: Fail on test failure (no quarantine gate)
-              if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' && (steps.run-core-tests.outcome == 'failure' || steps.run-temporal-tests.outcome == 'failure') && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
+            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
+            # also covers the skipped gate on fork/Dependabot. Passing shards never red here.
+            - name: Fail on test failure
+              if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && steps.quarantine_gate_core.outcome != 'success') || (steps.run-temporal-tests.outcome == 'failure' && steps.quarantine_gate_temporal.outcome != 'success')) }}
               shell: bash
               run: exit 1
 

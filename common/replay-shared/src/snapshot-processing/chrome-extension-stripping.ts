@@ -4,6 +4,7 @@ import { EventType } from 'posthog-js/rrweb-types'
 import { serializedNodeWithId } from 'posthog-js/rrweb-types'
 
 import { RecordingSnapshot } from '../types'
+import { isObject } from '../utils'
 
 export const CHROME_EXTENSION_DENY_LIST: Record<string, string> = {
     'dji-sru': 'snap and read',
@@ -138,6 +139,12 @@ export function stripChromeExtensionDataFromNode(
     needles: string[],
     matchedExtensions: Set<string>
 ): boolean {
+    // Guard against a non-object node (e.g. a full snapshot that failed to decompress): the `'childNodes' in node`
+    // check below throws on undefined, and the safelyCheck* helpers already no-op on non-objects anyway.
+    if (!isObject(node)) {
+        return false
+    }
+
     let stripped = false
 
     if (safelyCheckCSSAttribute(node, 'textContent', needles, matchedExtensions)) {

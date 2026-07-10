@@ -17,6 +17,7 @@ import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schem
 
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { getDefaultAnomalyDetectorConfig } from 'products/alerts/frontend/logic/detectorConfigDefaults'
 import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
 import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
 import { fractionToPercentInput, rescaleFunnelBound } from 'products/alerts/frontend/logic/thresholdPercent'
@@ -27,7 +28,7 @@ import {
     isHogQLAlertConfig,
     isTrendsAlertConfig,
 } from 'products/alerts/frontend/types'
-import { DetectorSelector, getDefaultWindow } from 'products/alerts/frontend/views/DetectorSelector'
+import { DetectorSelector } from 'products/alerts/frontend/views/DetectorSelector'
 import { SimulationSummary } from 'products/alerts/frontend/views/SimulationSummary'
 
 import { FunnelsDefinitionFields, HogQLDefinitionFields, TrendsDefinitionFields } from './AlertDefinitionFields'
@@ -71,7 +72,7 @@ export interface AlertDefinitionSectionProps {
     trends: TrendsDefinitionProps
     funnel: FunnelDefinitionProps
     hogql: HogQLDefinitionProps
-    anomalyDetectionEnabled: boolean
+    supportsAnomalyDetection: boolean
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
@@ -96,7 +97,7 @@ export function AlertDefinitionSection({
     trends,
     funnel,
     hogql,
-    anomalyDetectionEnabled,
+    supportsAnomalyDetection,
     investigationAgentEnabled,
     simulationResult,
     simulationResultLoading,
@@ -151,18 +152,16 @@ export function AlertDefinitionSection({
                 />
             ) : null}
 
-            {anomalyDetectionEnabled && (
+            {supportsAnomalyDetection && (
                 <LemonSegmentedButton
                     fullWidth
                     value={alertMode}
                     onChange={(value) => {
                         if (value === 'detector') {
-                            onSetAlertFormValue('detector_config', {
-                                type: 'zscore',
-                                threshold: 0.95,
-                                window: getDefaultWindow(alertForm.calculation_interval),
-                                preprocessing: { diffs_n: 1 },
-                            })
+                            onSetAlertFormValue(
+                                'detector_config',
+                                getDefaultAnomalyDetectorConfig(alertForm.calculation_interval)
+                            )
                         } else {
                             onSetAlertFormValue('detector_config', null)
                         }
@@ -177,7 +176,7 @@ export function AlertDefinitionSection({
                             value: 'detector',
                             label: 'Anomaly detection',
                             tooltip:
-                                'Automatically detect unusual changes using AI (ohhh fancy, jk its just good old stats and ml stuff). No manual thresholds needed.',
+                                'Automatically detect unusual changes using statistical models. No fixed value threshold is required.',
                         },
                     ]}
                 />
