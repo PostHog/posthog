@@ -57,7 +57,7 @@ class Migration(migrations.Migration):
                 "db_table": "posthog_duckgresdailystorageusage",
                 "constraints": [
                     models.UniqueConstraint(
-                        fields=("date", "organization_id", "team_id"),
+                        fields=("date", "team_id"),
                         name="duckgres_daily_storage_key",
                     )
                 ],
@@ -93,7 +93,6 @@ class Migration(migrations.Migration):
                     models.UniqueConstraint(
                         fields=(
                             "date",
-                            "organization_id",
                             "team_id",
                             "query_source",
                             "cpu",
