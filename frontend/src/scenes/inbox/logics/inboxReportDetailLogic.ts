@@ -12,6 +12,7 @@ import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskType
 import {
     signalsReportArtefactsDiff,
     signalsReportArtefactsReviewComments,
+    signalsReportsSignalsRetrieve,
 } from 'products/signals/frontend/generated/api'
 import type { CommitDiffResponseApi, ReviewCommentsResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -134,7 +135,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as SignalNode[] | null,
             {
                 loadReportSignals: async () => {
-                    const response = await api.signalReports.getReportSignals(props.reportId)
+                    const response = await signalsReportsSignalsRetrieve(
+                        String(teamLogic.values.currentTeamId),
+                        props.reportId
+                    )
                     return response.signals
                 },
             },

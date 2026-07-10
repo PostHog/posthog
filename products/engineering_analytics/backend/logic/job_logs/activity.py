@@ -18,6 +18,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.egress.github.limiter import acquire_github_installation
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -67,7 +68,9 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
     github_token, installation_id, log_ingest_token = await database_sync_to_async(
         _resolve_credentials, thread_sensitive=False
     )(inputs.team_id, inputs.integration_id)
-    if not await acquire_github_installation(installation_id, source="job_logs"):
+    # Deferrable bulk: BATCH is shed first as the installation's budget fills, and the raise below
+    # hands the retry to Temporal.
+    if not await acquire_github_installation(installation_id, priority=Priority.BATCH, source="job_logs"):
         # Over budget — raise so Temporal retries with backoff instead of blocking a worker.
         raise ApplicationError("GitHub egress budget exhausted", type="GithubEgressBudgetExhausted")
     archive = await asyncio.to_thread(fetch_job_log, inputs.repo, inputs.job_id, github_token)
@@ -120,9 +123,12 @@ class FetchGithubJobLogWorkflow(PostHogWorkflow):
             fetch_and_emit_job_log_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=5),
+            # The BATCH lane can stay shed for the remainder of an hourly budget window, so the
+            # retry horizon must outlive a worst-case shed — otherwise the job's logs are dropped
+            # forever (the workflow_job webhook never refires).
             retry_policy=RetryPolicy(
-                maximum_attempts=5,
+                maximum_attempts=10,
                 initial_interval=timedelta(seconds=30),
-                maximum_interval=timedelta(minutes=5),
+                maximum_interval=timedelta(minutes=15),
             ),
         )

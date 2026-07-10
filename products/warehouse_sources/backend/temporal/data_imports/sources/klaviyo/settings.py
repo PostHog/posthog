@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
@@ -19,8 +20,14 @@ class KlaviyoEndpointConfig:
     default_lookback_days: Optional[int] = None  # Limit first sync to last N days instead of full history
     primary_keys: list[str] = field(default_factory=lambda: ["id"])  # Primary key columns for dedup
     should_sync_default: bool = True  # Whether the table is selected for sync by default in the UI
-    # Fan out over every synced list, following /lists/{list_id}/relationships/profiles to materialize
-    # the otherwise-unqueryable many-to-many list<->profile membership as {list_id, profile_id} rows.
+    # Extra query params merged into every request, e.g. a fields[...] sparse fieldset.
+    extra_params: dict[str, str] = field(default_factory=dict)
+    # Safety overlap subtracted from the incremental watermark on every run, re-pulling a window of
+    # rows that merge dedupes on the primary key. Composes additively with the per-schema
+    # incremental_field_lookback_seconds the framework applies before the value reaches the source.
+    incremental_lookback: Optional[timedelta] = None
+    # Fan out over every synced list, following the per-list profiles endpoint to materialize the
+    # otherwise-unqueryable many-to-many list<->profile membership as one row per member.
     # When True, `path` is a template with a `{list_id}` placeholder.
     fan_out_over_lists: bool = False
 
@@ -149,14 +156,33 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
             },
         ],
     ),
-    # Klaviyo only exposes list membership as JSON:API relationship links on the profile/list
-    # objects (API endpoints that can't be called from HogQL), so the many-to-many can't be joined.
-    # This table follows those links to produce a flat {list_id, profile_id} join table. It fans out
-    # one paginated request per list, so it's opt-in (off by default) to avoid the extra API cost.
+    # Klaviyo only exposes list membership through per-list endpoints (which can't be called from
+    # HogQL), so the many-to-many can't be joined. This table fans out one paginated request per list
+    # to produce a flat {list_id, profile_id, joined_group_at} join table; it's opt-in (off by
+    # default) to avoid the extra API cost.
+    #
+    # Incremental sync filters on `joined_group_at` (updated on re-join, so re-joins are picked up),
+    # but Klaviyo has no removal timestamp: profiles removed from a list only disappear on a full
+    # refresh. The 24h lookback re-pulls joins that landed in already-fetched lists mid-run; merge
+    # dedupes them on the primary key. No partition_key: the partitioned merge predicate includes
+    # partition equality, and a re-join moves the row's joined_group_at to a new partition, which
+    # would leave the old row behind as a duplicate.
     "list_profiles": KlaviyoEndpointConfig(
         name="list_profiles",
-        path="/lists/{list_id}/relationships/profiles",
-        incremental_fields=[],
+        path="/lists/{list_id}/profiles",
+        default_incremental_field="joined_group_at",
+        page_size=100,
+        sort="-joined_group_at",
+        extra_params={"fields[profile]": "joined_group_at"},
+        incremental_lookback=timedelta(hours=24),
+        incremental_fields=[
+            {
+                "label": "joined_group_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "joined_group_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
         primary_keys=["list_id", "profile_id"],
         should_sync_default=False,
         fan_out_over_lists=True,

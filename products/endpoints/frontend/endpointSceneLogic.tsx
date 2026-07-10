@@ -2,19 +2,29 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    EndpointRunRequest,
+    InsightVizNode,
+    Node,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { Breadcrumb, EndpointType, EndpointVersionType } from '~/types'
+import { Breadcrumb, ChartDisplayType, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
+import { endpointsMaterializationSuggestionCreate } from './generated/api'
+import type { EndpointMaterializationSuggestionApi } from './generated/api.schemas'
 
 // Default data freshness when none is set on the endpoint version (must match backend DEFAULT_DATA_FRESHNESS_SECONDS)
 const DEFAULT_DATA_FRESHNESS_SECONDS = 86400
@@ -22,15 +32,30 @@ const DEFAULT_DATA_FRESHNESS_SECONDS = 86400
 // Query types that support user-configurable breakdown filtering
 const BREAKDOWN_SUPPORTED_QUERY_TYPES = new Set([NodeKind.TrendsQuery, NodeKind.RetentionQuery])
 
-function getSingleBreakdownProperty(breakdownFilter: any): string | null {
-    if (breakdownFilter?.breakdown) {
-        return breakdownFilter.breakdown
+export function extractBreakdownPropertyNames(query: unknown): string[] {
+    // Single source of truth for reading breakdown property names out of a query on the
+    // frontend — mirrors the backend's canonical extractor, including the legacy list form.
+    if (!query || typeof query !== 'object') {
+        return []
     }
-    const breakdowns = breakdownFilter?.breakdowns || []
-    if (breakdowns.length === 1) {
-        return breakdowns[0]?.property
+    const breakdownFilter = (
+        query as { breakdownFilter?: { breakdown?: unknown; breakdowns?: { property?: unknown }[] } | null }
+    ).breakdownFilter
+    if (!breakdownFilter) {
+        return []
     }
-    return null
+    // Numeric entries (e.g. legacy cohort breakdowns) are stringified like the backend's str(name)
+    const asName = (value: unknown): string | null =>
+        (typeof value === 'string' || typeof value === 'number') && value ? String(value) : null
+    const legacy = breakdownFilter.breakdown
+    if (Array.isArray(legacy)) {
+        return legacy.map(asName).filter((p): p is string => p !== null)
+    }
+    const legacyName = asName(legacy)
+    if (legacyName !== null) {
+        return [legacyName]
+    }
+    return (breakdownFilter.breakdowns ?? []).map((b) => asName(b?.property)).filter((p): p is string => p !== null)
 }
 
 export function generateEndpointPayload(endpoint: EndpointVersionType | null): Record<string, any> {
@@ -65,10 +90,10 @@ export function generateEndpointPayload(endpoint: EndpointVersionType | null): R
 
         // Only include breakdown for query types that support it
         if (queryKind && BREAKDOWN_SUPPORTED_QUERY_TYPES.has(queryKind as NodeKind)) {
-            const breakdownFilter = (query as any).breakdownFilter || {}
-            const breakdown = getSingleBreakdownProperty(breakdownFilter)
-            if (breakdown) {
-                variablesValues[breakdown] = ''
+            const breakdownNames = extractBreakdownPropertyNames(query)
+            // The legacy playground payload only supports a single breakdown variable.
+            if (breakdownNames.length === 1) {
+                variablesValues[breakdownNames[0]] = ''
             }
         }
 
@@ -136,11 +161,17 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setViewingVersion: (version: EndpointVersionType | null) => ({ version }),
         setBucketOverride: (column: string, bucketFn: string) => ({ column, bucketFn }),
         resetBucketOverrides: (overrides: Record<string, string>) => ({ overrides }),
+        toggleBreakdownOptional: (property: string) => ({ property }),
+        resetOptionalBreakdownProperties: (props: string[]) => ({ props }),
         setDebugMode: (debugMode: boolean) => ({ debugMode }),
         setDebugInfoExpanded: (debugInfoExpanded: boolean) => ({ debugInfoExpanded }),
         loadMaterializationPreview: true,
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
         toggleMaterializationFromMenu: true,
+        openMaterializationSuggestionModal: true,
+        closeMaterializationSuggestionModal: true,
+        regenerateMaterializationSuggestion: true,
+        applyMaterializationSuggestion: true,
     }),
     reducers({
         localQuery: [
@@ -225,6 +256,15 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 loadEndpointSuccess: (_, { endpoint }) => endpoint?.bucket_overrides ?? {},
             },
         ],
+        optionalBreakdownProperties: [
+            [] as string[],
+            {
+                toggleBreakdownOptional: (state, { property }) =>
+                    state.includes(property) ? state.filter((p) => p !== property) : [...state, property],
+                resetOptionalBreakdownProperties: (_, { props }) => props,
+                loadEndpointSuccess: (_, { endpoint }) => endpoint?.optional_breakdown_properties ?? [],
+            },
+        ],
         // Clear stale playground results when switching endpoints
         endpointResult: [
             null as string | null,
@@ -240,8 +280,39 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 loadEndpoint: () => null,
             },
         ],
+        materializationSuggestionModalOpen: [
+            false,
+            {
+                openMaterializationSuggestionModal: () => true,
+                closeMaterializationSuggestionModal: () => false,
+                loadEndpoint: () => false,
+            },
+        ],
+        // Cached across modal open/close (each request is a full LLM round-trip); cleared when
+        // switching endpoints or when the endpoint is updated (the saved query may have changed)
+        materializationSuggestion: [
+            null as EndpointMaterializationSuggestionApi | null,
+            {
+                loadEndpoint: () => null,
+                updateEndpointSuccess: () => null,
+            },
+        ],
     }),
     loaders(({ values }) => ({
+        materializationSuggestion: {
+            __default: null as EndpointMaterializationSuggestionApi | null,
+            loadMaterializationSuggestion: async () => {
+                const endpoint = values.endpoint
+                if (!endpoint?.name) {
+                    return null
+                }
+                return await endpointsMaterializationSuggestionCreate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    endpoint.name,
+                    {}
+                )
+            },
+        },
         materializationPreview: {
             __default: null as MaterializationPreview | null,
             loadMaterializationPreview: async () => {
@@ -284,6 +355,15 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 endpoint: EndpointType | null,
                 viewingVersion: EndpointVersionType | null
             ): Node | null => localQuery || viewingVersion?.query || endpoint?.query || null,
+        ],
+        suggestionMatchesCurrentQuery: [
+            (s) => [s.materializationSuggestion, s.currentQuery],
+            (suggestion: EndpointMaterializationSuggestionApi | null, currentQuery: Node | null): boolean => {
+                if (!suggestion?.suggested_query || !currentQuery || !isHogQLQuery(currentQuery)) {
+                    return false
+                }
+                return suggestion.suggested_query.trim() === (currentQuery.query || '').trim()
+            },
         ],
         queryToRender: [
             (s) => [s.currentQuery],
@@ -346,6 +426,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             const initialPayload = generateInitialPayloadJson(endpoint)
             actions.setPayloadJson(initialPayload)
             actions.setDataFreshness(endpoint?.data_freshness_seconds ?? DEFAULT_DATA_FRESHNESS_SECONDS)
+            actions.resetOptionalBreakdownProperties(endpoint?.optional_breakdown_properties ?? [])
 
             const { searchParams, hashParams } = router.values
 
@@ -390,6 +471,58 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setBucketOverride: () => {
             actions.loadMaterializationPreview()
         },
+        openMaterializationSuggestionModal: () => {
+            // Reuse a cached suggestion — the saved query can't have changed while it's valid
+            // (updates clear it), and each request is a full LLM round-trip
+            if (!values.materializationSuggestion && !values.materializationSuggestionLoading) {
+                actions.loadMaterializationSuggestion()
+            }
+        },
+        regenerateMaterializationSuggestion: () => {
+            actions.loadMaterializationSuggestion()
+        },
+        applyMaterializationSuggestion: () => {
+            const suggestion = values.materializationSuggestion
+            const current = values.currentQuery
+            if (!suggestion?.suggested_query || !current || !isHogQLQuery(current)) {
+                return
+            }
+            if (values.suggestionMatchesCurrentQuery) {
+                lemonToast.info('Your query already matches the suggestion — nothing to apply')
+                actions.closeMaterializationSuggestionModal()
+                return
+            }
+
+            actions.setActiveTab(EndpointTab.QUERY)
+            if (values.endpoint?.name) {
+                const { searchParams, hashParams } = router.values
+                const { tab: _tab, ...nextSearchParams } = searchParams
+                router.actions.replace(urls.endpoint(values.endpoint.name), nextSearchParams, hashParams)
+            }
+
+            // Always target the latest version's editor: apply is only reachable on the latest
+            // version, and cache.sqlEditorTabId can still point at an old version's editor when
+            // the Query tab was last mounted while browsing that version.
+            const editorTabId = 'endpoint-query-latest'
+            actions.keepSqlEditorMounted(editorTabId)
+            const editorLogic = sqlEditorLogic.findMounted({ tabId: editorTabId, mode: SQLEditorMode.Embedded })
+
+            // If the editor was never initialized (e.g. the user came straight to Configuration and
+            // the Query tab never mounted), seed it with the saved query first so the suggestion
+            // always renders as an accept/reject diff. The seeded state also keeps the query tab's
+            // init effect from re-initializing and clobbering the diff.
+            if (editorLogic && !editorLogic.values.queryInput?.trim()) {
+                editorLogic.actions.setQueryInput(current.query || '')
+                editorLogic.actions.setSourceQuery({
+                    kind: NodeKind.DataVisualizationNode,
+                    source: { ...current },
+                    display: ChartDisplayType.ActionsLineGraph,
+                } as DataVisualizationNode)
+            }
+            editorLogic?.actions.setSuggestedQueryInput(suggestion.suggested_query, 'materialization_fix')
+            lemonToast.success('Review the suggested changes in the editor — accept to apply them')
+            actions.closeMaterializationSuggestionModal()
+        },
         toggleMaterializationFromMenu: () => {
             if (!values.endpoint?.name) {
                 return
@@ -415,6 +548,11 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
 
             // Reset bucket overrides to viewed version's values
             actions.resetBucketOverrides(version?.bucket_overrides ?? values.endpoint?.bucket_overrides ?? {})
+
+            // Reset optional breakdowns to viewed version's value (or endpoint's if going back to current)
+            actions.resetOptionalBreakdownProperties(
+                version?.optional_breakdown_properties ?? values.endpoint?.optional_breakdown_properties ?? []
+            )
 
             // Reset data freshness to viewed version's value (or endpoint's if going back to current)
             actions.setDataFreshness(

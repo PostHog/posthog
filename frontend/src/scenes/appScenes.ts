@@ -110,8 +110,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.PipelineStatus]: () => import('./health/pipelineStatus/PipelineStatusScene'),
     [Scene.SdkHealth]: () => import('./onboarding/shared/sdkHealth/SdkHealthScene'),
     [Scene.Exports]: () => import('./exports/ExportsScene'),
-    [Scene.Subscriptions]: () => import('./subscriptions/SubscriptionsScene'),
-    [Scene.Subscription]: () => import('./subscriptions/SubscriptionScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),
@@ -131,6 +129,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.EventFiltering]: () => import('./data-pipelines/event-filtering/EventFilterScene'),
     [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
     [Scene.CodeCanvasLink]: () => import('./code-canvas/CodeCanvasLink'),
+    [Scene.CodeChannelLink]: () => import('./code-canvas/CodeChannelLink'),
     [Scene.VercelConnect]: () => import('./authentication/vercel/VercelConnect'),
     [Scene.VercelLinkError]: () => import('./authentication/vercel/VercelLinkError'),
     [Scene.AgenticAccountMismatch]: () => import('./authentication/account/AgenticAccountMismatch'),

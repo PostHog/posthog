@@ -21,6 +21,7 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
@@ -154,6 +155,11 @@ class TestPromptBuilder(BaseTest):
         assert "(v1)" in prompt
         # The agent needs to know its own run id to attribute emits and memories.
         assert "00000000-0000-0000-0000-000000000abc" in prompt
+        # Calling convention is stated up front: bare tool names resolve only
+        # through the exec interface, so the agent doesn't burn opening moves
+        # trying to invoke them directly.
+        assert "How to call tools" in prompt
+        assert "mcp__posthog__exec" in prompt
         # Bootstrap section directs the agent to read the skill via MCP, not
         # from the prompt. Skill body + file manifest are deliberately NOT
         # inlined — they're discovered at run time.
@@ -508,6 +514,11 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
             "products.signals.backend.scout_harness.runner.resolve_scout_model",
             return_value=resolved,
         ),
+        # No `signals-pipeline-models` runtime pin: the scouts-glm model gate drives the run.
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_agent_runtime",
+            return_value=AgentRuntime(),
+        ),
         patch(
             "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
             return_value="env-id",
@@ -521,6 +532,46 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
 
     assert captured["context"].model == expected_model
     assert captured["context"].runtime_adapter == expected_runtime_adapter
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_codex_runtime_pin_overrides_scout_model(ateam, aerrors_skill):
+    # A runtime pin replaces the scouts-glm gated model wholesale (runtime/model move as a set).
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_scout_model",
+            return_value="@cf/zai-org/glm-5.2",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_agent_runtime",
+            return_value=AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="high"),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    ctx = captured["context"]
+    assert ctx.runtime_adapter == "codex"
+    assert ctx.model == "gpt-5.5"
+    assert ctx.reasoning_effort == "high"
 
 
 @pytest.mark.asyncio

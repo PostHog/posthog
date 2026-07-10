@@ -9,5 +9,6 @@ pub mod config;
 pub mod consumer;
 pub mod event;
 pub mod filter_team_index;
+pub mod ledger;
 pub mod observability;
 pub mod producer;

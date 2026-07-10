@@ -32,7 +32,7 @@ source of truth for freshness.
 
 Force-refresh is used deliberately. The DEFAULT execution mode gates on the
 HogQL query result cache (6h staleness), which is the wrong clock for a
-precompute warmer whose buckets expire on a much shorter TTL (2h for
+precompute warmer whose buckets expire on a much shorter TTL (4h for
 today's bucket) — it would skip tiles whose Redis result is still "fresh"
 while the precompute they feed has gone cold. Force-refresh always recomputes,
 so every tick re-enters the precompute path. Crucially it goes through `run()`
@@ -45,7 +45,7 @@ harmless; the user-facing replay warming is `cache_warming.py`'s job.
 Why this exists
 ---------------
 The lazy precompute path caches per-day buckets in `web_*_preaggregated`
-tables with a 2h TTL. For high-traffic teams the dashboard's main tiles
+tables with a 4h TTL on the today window. For high-traffic teams the dashboard's main tiles
 are requested constantly — there is no reason to compute them reactively.
 Running the same query set ahead of every reasonable visit keeps the
 cache perpetually warm, so user requests turn into pure reads.
@@ -312,9 +312,9 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
             # Self-check the warm actually did its job: the tile must resolve to a
             # precompute read, not fall through to raw. `preComputeStrategy == LAZY_PRECOMPUTE` is only
             # True when the read passed the lazy executor's TTL freshness filter
-            # (`created_at + TTL >= now`; per LAZY_TTL_SECONDS the TTL ranges from 2h for
+            # (`created_at + TTL >= now`; per LAZY_TTL_SECONDS the TTL ranges from 4h for
             # today's window up to 14d for the oldest windows), so True is a
-            # guarantee the precomputed value is well within the current 2h TTL. A tile
+            # guarantee the precomputed value is well within the current 4h TTL. A tile
             # that comes back `not True` warmed nothing useful — surface it loudly so a
             # stale/missing precompute or a non-precomputable breakdown can't hide.
             if getattr(response, "preComputeStrategy", None) != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE:
@@ -532,7 +532,7 @@ def web_analytics_eager_baseline_warming_job():
     # holds, delete this schedule + job. Left running (not `default_status`
     # STOPPED) so the stop is an explicit operational toggle, not a silent
     # code-deploy behavior change.
-    # Hourly. The lazy cache's 2h TTL absorbs a single missed cycle, so
+    # Hourly. The lazy cache's 4h today-TTL absorbs missed cycles, so
     # there's no need to align with shorter cadences. Offset by 5 min from
     # the top of the hour to avoid colliding with the existing
     # `web_analytics_cache_warming_schedule` (`0 * * * *`).

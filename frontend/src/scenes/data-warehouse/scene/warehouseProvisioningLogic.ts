@@ -9,6 +9,7 @@ import { Region } from '~/types'
 
 import {
     dataWarehouseCheckDatabaseNameRetrieve,
+    dataWarehouseDeleteOrgDestroy,
     dataWarehouseDeprovisionCreate,
     dataWarehouseEnableBackfillCreate,
     dataWarehouseProvisionCreate,
@@ -39,6 +40,12 @@ const TABLE_NAME_REGEX = /^[a-z0-9_]{1,63}$/
 const databaseNameStorageKey = (teamId: number | null): string =>
     `warehouse-provisioning-database-name-${teamId ?? 'unknown'}`
 
+// Status is polled every 10s. Deprovision teardown has no terminal `failed` state (the
+// provisioner retries indefinitely), so a genuinely stuck teardown sits in `deleting` forever.
+// After this many consecutive `deleting` polls (~3 min) we surface a "still working" affordance
+// instead of spinning silently. It's advisory only; polling continues.
+const DELETING_POLL_WARN_THRESHOLD = 18
+
 const currentProjectId = (): string => String(teamLogic.values.currentTeamId)
 
 export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
@@ -53,6 +60,8 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
         provisionWarehouseComplete: true,
         deprovisionWarehouse: true,
         deprovisionWarehouseComplete: true,
+        deleteOrg: true,
+        deleteOrgComplete: (success: boolean) => ({ success }),
         resetPassword: true,
         resetPasswordComplete: true,
         setInitialPassword: (password: string) => ({ password }),
@@ -100,6 +109,46 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             {
                 deprovisionWarehouse: () => true,
                 deprovisionWarehouseComplete: () => false,
+            },
+        ],
+        // Consecutive `deleting` status reads, to detect a teardown that's stuck (no terminal
+        // failed state exists, so it would otherwise poll forever). Reset whenever the state
+        // isn't `deleting` and when a fresh deprovision starts.
+        deletingPollCount: [
+            0,
+            {
+                loadWarehouseStatusSuccess: (state, { warehouseStatus }) =>
+                    warehouseStatus?.state === 'deleting' ? state + 1 : 0,
+                deprovisionWarehouse: () => 0,
+            },
+        ],
+        // In-flight flag for the automatic delete-org call. Doubles as the fire guard: while a
+        // delete-org is running we don't start another, but once it settles (success or failure)
+        // the next `deleted` poll can retry.
+        isDeletingOrg: [
+            false,
+            {
+                deleteOrg: () => true,
+                deleteOrgComplete: () => false,
+            },
+        ],
+        // Latched once delete-org succeeds so a status read still reporting `deleted` (provisioner
+        // propagation lag before the record 404s) can't trigger a second delete against the now-gone
+        // org. Cleared on a fresh deprovision so a later cycle can delete again.
+        orgDeletionSucceeded: [
+            false,
+            {
+                deleteOrgComplete: (state, { success }) => success || state,
+                deprovisionWarehouse: () => false,
+            },
+        ],
+        // Whether the last delete-org attempt failed, so we notify the user once per failure
+        // streak instead of on every 10s retry. Cleared on success and on a new deprovision.
+        orgDeletionFailed: [
+            false,
+            {
+                deleteOrgComplete: (_, { success }) => !success,
+                deprovisionWarehouse: () => false,
             },
         ],
         pollingActive: [
@@ -203,6 +252,13 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 }
                 return status.state === 'pending' || status.state === 'provisioning' || status.state === 'deleting'
             },
+        ],
+        // True once teardown has sat in `deleting` past the warn threshold, so the UI can show a
+        // "still working" note rather than an indefinite spinner.
+        deprovisionTakingLong: [
+            (s) => [s.warehouseStatus, s.deletingPollCount],
+            (status, deletingPollCount): boolean =>
+                status?.state === 'deleting' && deletingPollCount >= DELETING_POLL_WARN_THRESHOLD,
         ],
         isValidDatabaseName: [(s) => [s.databaseName], (name): boolean => WAREHOUSE_NAME_REGEX.test(name)],
         // DNS zone for the connection host, resolved from the deployment region (null when unknown).
@@ -335,17 +391,40 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 actions.loadWarehouseStatus()
             },
 
+            deleteOrg: async () => {
+                try {
+                    // Teardown is done (status is `deleted`); remove the now-empty org record so
+                    // its database_name is freed. On success the next status read 404s and the UI
+                    // returns to the provisioning form.
+                    await dataWarehouseDeleteOrgDestroy(currentProjectId())
+                    actions.loadWarehouseStatus()
+                    actions.deleteOrgComplete(true)
+                } catch (e: any) {
+                    // Polling stays active while `deleted`, so the next tick retries this; notify
+                    // once per failure streak rather than on every retry.
+                    if (!values.orgDeletionFailed) {
+                        lemonToast.error(`Failed to finish removing the warehouse: ${e.message || 'Unknown error'}`)
+                    }
+                    actions.deleteOrgComplete(false)
+                }
+            },
+
             loadWarehouseStatusSuccess: ({ warehouseStatus }) => {
-                if (warehouseStatus?.state === 'deleted') {
+                const state = warehouseStatus?.state
+                if (state === 'deleted') {
                     actions.setLastRequestedDatabaseName(null)
                     window.localStorage.removeItem(databaseNameStorageKey(teamLogic.values.currentTeamId))
+                    // Teardown finished, so remove the org row to free the name. Skip if a delete is
+                    // already in flight or has already succeeded (a stale `deleted` read during
+                    // propagation lag must not re-delete); a failed attempt retries on the next poll.
+                    if (!values.isDeletingOrg && !values.orgDeletionSucceeded) {
+                        actions.deleteOrg()
+                    }
                 }
-                if (
-                    warehouseStatus &&
-                    (warehouseStatus.state === 'pending' ||
-                        warehouseStatus.state === 'provisioning' ||
-                        warehouseStatus.state === 'deleting')
-                ) {
+                // Keep polling while teardown is in flight, and while the org record still needs
+                // removing (`deleted`) so a failed delete-org retries on the next tick. A
+                // successful delete-org 404s the next read, which falls through to stopPolling.
+                if (state === 'pending' || state === 'provisioning' || state === 'deleting' || state === 'deleted') {
                     actions.pollStatus()
                 } else {
                     actions.stopPolling()

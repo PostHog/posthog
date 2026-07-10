@@ -15,7 +15,7 @@ import {
     startDevServer,
 } from '@posthog/esbuilder'
 
-import { getToolbarBuildConfig } from './toolbar-config.mjs'
+import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -104,7 +104,7 @@ await buildInParallel(
             ...common,
         },
         {
-            ...getToolbarBuildConfig(__dirname),
+            ...getToolbarAppBuildConfig(__dirname),
             ...common,
         },
     ],
@@ -141,6 +141,10 @@ await buildInParallel(
 
             if (config.name === 'Render Query') {
                 writeRenderQueryHtml(chunks, entrypoints)
+            }
+
+            if (config.name === 'Toolbar') {
+                await finalizeToolbarBuild(__dirname, buildResponse)
             }
 
             createHashlessEntrypoints(__dirname, entrypoints)

@@ -111,6 +111,25 @@ async def test_retryable_setup_error_is_reraised():
     handle_mock.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_unparseable_config_routes_through_handler():
+    # A corrupt / double-encoded stored config makes parse_config raise deterministically before
+    # source setup. It must be treated as non-retryable instead of crash-looping on every attempt.
+    error = ValueError("invalid literal for int() with base 10: 'not-an-int'")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.side_effect = error
+    source.get_non_retryable_errors.return_value = {}
+
+    with _patched_activity(source) as handle_mock:
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await import_data_activity_sync(_inputs())
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args.args[3] is error
+    source.source_for_pipeline.assert_not_called()
+
+
 def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:
     schema = mock.MagicMock()
     schema.should_use_incremental_field = True

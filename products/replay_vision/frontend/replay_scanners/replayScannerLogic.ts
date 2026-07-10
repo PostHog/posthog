@@ -33,6 +33,7 @@ import { requestObservationRetry } from '../logics/observationRetry'
 import { refreshVisionQuota } from '../logics/visionQuotaLogic'
 import { type UrlSorting, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import type { replayScannerLogicType } from './replayScannerLogicType'
+import { SCANNER_EDITOR_STEPS, scannerEditorSceneLogic, scannerStepUrl } from './scannerEditorSceneLogic'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
     ScannerConfig,
@@ -118,7 +119,7 @@ const RESULT_ORDER_KEY_BY_TYPE: Partial<Record<ScannerType, string>> = {
     monitor: 'result_verdict',
 }
 
-function resolveOrderByKey(columnKey: string, scannerType: ScannerType | undefined): string | null {
+export function resolveOrderByKey(columnKey: string, scannerType: ScannerType | undefined): string | null {
     if (columnKey === 'result') {
         return (scannerType && RESULT_ORDER_KEY_BY_TYPE[scannerType]) ?? null
     }
@@ -280,13 +281,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
             submit: async (scanner: ReplayScanner) => {
-                // Mid-wizard Enter (default 'save' intent) must advance, not create; pathname is project-prefixed, hence endsWith.
-                const onConfigureStep = router.values.location.pathname.endsWith(
-                    urls.replayVisionScannerConfigure(props.id)
+                // Advance to the next visible step instead of persisting, when the footer asked to (intent
+                // 'advance') or a new scanner submitted mid-wizard via Enter on any non-final step. The step
+                // order and self-driving visibility live in the editor scene, so read visibleSteps from there;
+                // findMounted keeps this usable in isolation (tests), falling back to the full order.
+                const steps = scannerEditorSceneLogic.findMounted()?.values.visibleSteps ?? SCANNER_EDITOR_STEPS
+                const currentStep = steps.find((step) =>
+                    router.values.location.pathname.endsWith(scannerStepUrl(step, props.id))
                 )
-                if (values.submitIntent === 'advance' || (values.isNew && onConfigureStep)) {
+                const nextStep = currentStep ? steps[steps.indexOf(currentStep) + 1] : undefined
+                if (nextStep && (values.submitIntent === 'advance' || values.isNew)) {
                     actions.setSubmitIntent('save')
-                    router.actions.push(urls.replayVisionScannerTriggers(props.id))
+                    router.actions.push(scannerStepUrl(nextStep, props.id))
                     return
                 }
                 const teamId = teamLogic.values.currentTeamId
@@ -795,6 +801,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     const response = await visionScannersEstimateCreate(String(teamId), {
                         query: scanner.query ?? undefined,
                         sampling_rate: scanner.sampling_rate,
+                        // The proposed model prices the credit estimate.
+                        model: scanner.model,
+                        sampling_mode: scanner.sampling_mode,
                         // Exclude the edited scanner from the others-sum so the forecast doesn't double-count it.
                         scanner_id: props.id !== 'new' ? props.id : null,
                     })

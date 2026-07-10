@@ -21,13 +21,22 @@ class ScannerType(models.TextChoices):
     SUMMARIZER = "summarizer", "Summarizer"
 
 
+class SamplingMode(models.TextChoices):
+    FOCUSED = "focused", "Focused"
+    BALANCED = "balanced", "Balanced"
+    COMPREHENSIVE = "comprehensive", "Comprehensive"
+
+
 class ScannerProvider(models.TextChoices):
     GOOGLE = "google", "Google"
 
 
 class ScannerModel(models.TextChoices):
+    """Priced per observation in `billing.OBSERVATION_CREDITS_BY_MODEL`; new members need a price there."""
+
+    GEMINI_2_5_FLASH = "gemini-2.5-flash", "Gemini 2.5 Flash"
     GEMINI_3_FLASH = "gemini-3-flash-preview", "Gemini 3 Flash"
-    GEMINI_3_FLASH_LITE = "gemini-3.1-flash-lite-preview", "Gemini 3 Flash Lite"
+    GEMINI_3_5_FLASH = "gemini-3.5-flash", "Gemini 3.5 Flash"
 
 
 def initial_watermark() -> "datetime":
@@ -62,6 +71,12 @@ class ReplayScanner(UUIDModel):
         default=1.0,
         validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
         help_text="0..1 random downsample applied after the query matches.",
+    )
+    sampling_mode = models.CharField(
+        max_length=20,
+        choices=SamplingMode.choices,
+        default=SamplingMode.COMPREHENSIVE,
+        help_text="Quality pre-filter applied before random sampling. focused = top sessions by surfacing score, balanced = drops the lowest-quality sessions, comprehensive = no filter.",
     )
 
     provider = models.CharField(max_length=32, choices=ScannerProvider.choices, default=ScannerProvider.GOOGLE)
@@ -121,12 +136,13 @@ class ReplayScanner(UUIDModel):
         "scanner_config",
         "query",
         "sampling_rate",
+        "sampling_mode",
         "provider",
         "model",
         "emits_signals",
     )
     # Fields the persisted volume estimate is computed from; changing them marks the estimate stale.
-    _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate"})
+    _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate", "sampling_mode"})
 
     def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")

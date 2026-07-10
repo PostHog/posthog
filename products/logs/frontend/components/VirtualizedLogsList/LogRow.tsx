@@ -17,6 +17,7 @@ export interface LogRowProps {
     pinned: boolean
     showPinnedWithOpacity: boolean
     wrapBody: boolean
+    hasMessageColumn: boolean
     onTogglePin: (log: ParsedLogMessage) => void
     onClick?: () => void
     rowWidth?: number
@@ -27,6 +28,9 @@ export interface LogRowProps {
     isPrettified?: boolean
     onTogglePrettify?: (log: ParsedLogMessage) => void
     minHeight?: number
+    /** Plays the one-shot arrival highlight; tracked outside the log object so live-tail polls
+     * don't have to clone every existing log to clear the previous batch's flag. */
+    isNew?: boolean
 }
 
 export function LogRow({
@@ -38,6 +42,7 @@ export function LogRow({
     pinned,
     showPinnedWithOpacity,
     wrapBody,
+    hasMessageColumn,
     onTogglePin,
     onClick,
     rowWidth,
@@ -46,9 +51,8 @@ export function LogRow({
     isPrettified = false,
     onTogglePrettify,
     minHeight = 32,
+    isNew = false,
 }: LogRowProps): JSX.Element {
-    const isNew = 'new' in log && log.new
-
     const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>): void => {
         // Only handle shift+click here to prevent text selection during range select
         if (e.shiftKey && onShiftClick) {
@@ -101,7 +105,9 @@ export function LogRow({
                     isPrettified={isPrettified}
                     onTogglePin={onTogglePin}
                     onTogglePrettify={onTogglePrettify}
-                    showScrollButtons={!wrapBody}
+                    // Scroll buttons drive the message cell's inner scroll — pointless without
+                    // a message column or when wrapping already shows everything
+                    showScrollButtons={!wrapBody && hasMessageColumn}
                 />
             </div>
             {isExpanded && <ExpandedLogContent log={log} />}

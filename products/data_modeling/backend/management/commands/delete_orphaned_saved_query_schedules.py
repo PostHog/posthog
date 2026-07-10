@@ -130,6 +130,11 @@ class Command(BaseCommand):
         valid_uuids: set[str] = set()
 
         for sid in target_ids:
+            if ":" in sid:
+                # "{dag_id}:{interval_seconds}" is a v2 cadence-tier execute-dag schedule,
+                # not a saved-query schedule — never sweep it as an orphan.
+                logger.warning("v2 cadence-tier schedule id, skipping", schedule_id=sid)
+                continue
             try:
                 UUID(sid)
                 valid_uuids.add(sid)
