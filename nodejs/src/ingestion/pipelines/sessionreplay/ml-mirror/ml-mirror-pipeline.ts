@@ -17,7 +17,6 @@ import { MessageContext } from '~/ingestion/pipelines/sessionreplay/pipeline-typ
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
 import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
 import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-batch-mark-seen-step'
-import { createProjectReplayOutputStep } from '~/ingestion/pipelines/sessionreplay/session-batch-post-process-step'
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
 import { createAttachSessionBatchStep } from '~/ingestion/pipelines/sessionreplay/session-batch-step'
 import { createTrackAndGateStep } from '~/ingestion/pipelines/sessionreplay/session-batch-track-and-gate-step'
@@ -123,7 +122,7 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
                                                         })),
                                                     ])
                                                 )
-                                                const recorded = parsed.pipe(
+                                                return parsed.pipe(
                                                     topHogWrapper(
                                                         createRecordSessionEventStep({
                                                             isDebugLoggingEnabled,
@@ -144,8 +143,6 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
                                                         ]
                                                     )
                                                 )
-                                                // Narrow to the declared output; the batching pipeline requires an exact output type.
-                                                return recorded.pipe(createProjectReplayOutputStep())
                                             })
                                             .gather()
                                     )

@@ -28,7 +28,6 @@ import { MessageContext } from './pipeline-types'
 import { createRecordSessionEventStep } from './record-session-event-step'
 import { SessionBatchContext } from './session-batch-context'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
-import { createProjectReplayOutputStep } from './session-batch-post-process-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
 import { createAttachSessionBatchStep } from './session-batch-step'
 import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
@@ -226,8 +225,6 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                             ]
                                                         )
                                                     )
-                                                    // Narrow to the declared output; the batching pipeline requires an exact output type.
-                                                    .pipe(createProjectReplayOutputStep())
                                             )
                                             .gather()
                                     )
