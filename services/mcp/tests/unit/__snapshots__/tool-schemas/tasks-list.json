@@ -6,6 +6,10 @@
             "enum": ["true", "false", "all"],
             "type": "string"
         },
+        "channel": {
+            "description": "Filter tasks to a channel's feed.",
+            "type": "string"
+        },
         "created_by": {
             "description": "Filter by creator user ID",
             "type": "number"

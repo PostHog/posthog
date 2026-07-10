@@ -10,7 +10,12 @@ from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.constants import MAX_SOURCES, VALIDATOR_MODEL
-from products.conversations.backend.temporal.ai_reply.llms import anthropic_text, create_message, strip_json_fence
+from products.conversations.backend.temporal.ai_reply.llms import (
+    anthropic_text,
+    create_message,
+    strip_json_fence,
+    tracing_kwargs,
+)
 from products.conversations.backend.temporal.ai_reply.schemas import ReviewReplyInput, ReviewReplyOutput
 
 logger = structlog.get_logger(__name__)
@@ -76,7 +81,15 @@ class ReplyReviewResult(BaseModel):
 async def support_review_reply_activity(input: ReviewReplyInput) -> ReviewReplyOutput:
     """Screen the final reply for data exfiltration / PII leakage before persisting."""
     async with Heartbeater():
-        return await _review_reply(input.team_id, input.ticket_context, input.reply, input.sources, input.ticket_type)
+        return await _review_reply(
+            input.team_id,
+            input.ticket_context,
+            input.reply,
+            input.sources,
+            input.ticket_type,
+            input.trace_id,
+            input.ticket_id,
+        )
 
 
 async def _review_reply(
@@ -85,6 +98,8 @@ async def _review_reply(
     reply: str,
     sources: list[dict[str, str]] | None = None,
     ticket_type: str = "how_to",
+    trace_id: str = "",
+    ticket_id: str = "",
 ) -> ReviewReplyOutput:
     sources_text = ""
     for s in (sources or [])[:MAX_SOURCES]:
@@ -108,6 +123,7 @@ TICKET TYPE: {ticket_type}"""
         max_tokens=512,
         system=REPLY_REVIEW_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
+        **tracing_kwargs(trace_id, ticket_id),
     )
     content = anthropic_text(message)
 

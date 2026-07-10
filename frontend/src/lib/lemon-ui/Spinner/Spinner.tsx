@@ -35,6 +35,7 @@ export interface SpinnerProps {
     speed?: `${number}s` // Seconds
     captureTime?: boolean
     size?: 'small' | 'medium' | 'large'
+    frozen?: boolean
 }
 
 /** Smoothly animated spinner for loading states. It does not indicate progress, only that something's happening. */
@@ -44,6 +45,7 @@ export function Spinner({
     speed = '1s',
     captureTime = false,
     size = 'small',
+    frozen = false,
 }: SpinnerProps): JSX.Element {
     useTimingCapture(captureTime)
     const ref = useCancelAnimationsOnUnmount<SVGSVGElement>()
@@ -57,6 +59,7 @@ export function Spinner({
                 'LemonIcon Spinner',
                 textColored && `Spinner--textColored`,
                 size && `Spinner--${size}`,
+                frozen && 'Spinner--frozen',
                 className
             )}
             viewBox="0 0 48 48"

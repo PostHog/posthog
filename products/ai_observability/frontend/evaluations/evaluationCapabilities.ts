@@ -1,6 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
-import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-
 import type { EvaluationConfig, EvaluationOutputType, EvaluationType, LLMJudgeEvaluation } from './types'
 
 export function isBooleanEvaluationOutput(outputType: EvaluationOutputType | null | undefined): boolean {
@@ -29,6 +26,25 @@ export function evaluationTypeUsesProviderKey(evaluationType: EvaluationType | n
     return evaluationTypeUsesModelConfiguration(evaluationType)
 }
 
+export function evaluationCanResolveModel(
+    evaluation: Pick<EvaluationConfig, 'evaluation_type' | 'model_configuration'>,
+    requiresProviderKey: boolean,
+    isTrialGrandfathered: boolean
+): boolean {
+    if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
+        return true
+    }
+    if (evaluation.model_configuration?.provider_key_id) {
+        return true
+    }
+    // An explicit keyless config never falls back to the team's active key at runtime —
+    // it only resolves via PostHog-funded inference while the team is still grandfathered.
+    if (evaluation.model_configuration) {
+        return isTrialGrandfathered
+    }
+    return !requiresProviderKey
+}
+
 export function evaluationTypeDefaultsToBooleanOutput(evaluationType: EvaluationType | null | undefined): boolean {
     return evaluationType === 'llm_judge' || evaluationType === 'hog'
 }
@@ -39,11 +55,4 @@ export function evaluationTypeHasEditableCriteria(evaluationType: EvaluationType
 
 export function evaluationTypeSupportsSignalEmission(evaluationType: EvaluationType | null | undefined): boolean {
     return evaluationType === 'llm_judge'
-}
-
-export function evaluationTypeCanBeCreated(
-    evaluationType: EvaluationType,
-    featureFlags: FeatureFlagsSet | null | undefined
-): boolean {
-    return evaluationType !== 'sentiment' || !!featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT]
 }

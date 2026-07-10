@@ -146,6 +146,424 @@ export interface PatchedSignalReportContentUpdateApi {
 }
 
 /**
+ * * `session_replay` - session_replay
+ * * `llm_analytics` - llm_analytics
+ * * `github` - github
+ * * `linear` - linear
+ * * `zendesk` - zendesk
+ * * `conversations` - conversations
+ * * `error_tracking` - error_tracking
+ * * `endpoints` - endpoints
+ * * `pganalyze` - pganalyze
+ * * `signals_scout` - signals_scout
+ * * `logs` - logs
+ * * `health_checks` - health_checks
+ * * `replay_vision` - replay_vision
+ */
+export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
+
+export const SignalSourceProductApi = {
+    SessionReplay: 'session_replay',
+    LlmAnalytics: 'llm_analytics',
+    Github: 'github',
+    Linear: 'linear',
+    Zendesk: 'zendesk',
+    Conversations: 'conversations',
+    ErrorTracking: 'error_tracking',
+    Endpoints: 'endpoints',
+    Pganalyze: 'pganalyze',
+    SignalsScout: 'signals_scout',
+    Logs: 'logs',
+    HealthChecks: 'health_checks',
+    ReplayVision: 'replay_vision',
+} as const
+
+/**
+ * * `session_analysis_cluster` - session_analysis_cluster
+ * * `session_problem` - session_problem
+ * * `evaluation` - evaluation
+ * * `evaluation_report` - evaluation_report
+ * * `issue` - issue
+ * * `ticket` - ticket
+ * * `issue_created` - issue_created
+ * * `issue_reopened` - issue_reopened
+ * * `issue_spiking` - issue_spiking
+ * * `endpoint_execution_failed` - endpoint_execution_failed
+ * * `endpoint_breakdown_limit_exceeded` - endpoint_breakdown_limit_exceeded
+ * * `cross_source_issue` - cross_source_issue
+ * * `alert_state_change` - alert_state_change
+ * * `health_issue` - health_issue
+ * * `scanner_finding` - scanner_finding
+ */
+export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
+
+export const SignalSourceTypeApi = {
+    SessionAnalysisCluster: 'session_analysis_cluster',
+    SessionProblem: 'session_problem',
+    Evaluation: 'evaluation',
+    EvaluationReport: 'evaluation_report',
+    Issue: 'issue',
+    Ticket: 'ticket',
+    IssueCreated: 'issue_created',
+    IssueReopened: 'issue_reopened',
+    IssueSpiking: 'issue_spiking',
+    EndpointExecutionFailed: 'endpoint_execution_failed',
+    EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
+    CrossSourceIssue: 'cross_source_issue',
+    AlertStateChange: 'alert_state_change',
+    HealthIssue: 'health_issue',
+    ScannerFinding: 'scanner_finding',
+} as const
+
+export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
+
+export const ProblemTypeEnumApi = {
+    Confusion: 'confusion',
+    Abandonment: 'abandonment',
+    BlockingException: 'blocking_exception',
+    NonBlockingException: 'non_blocking_exception',
+    Failure: 'failure',
+} as const
+
+export interface SessionProblemEventEntryApi {
+    event: string
+    timestamp: string
+    current_url?: string | null
+    event_type?: string | null
+    interaction_text?: string | null
+}
+
+export interface SessionProblemSignalExtraApi {
+    session_id: string
+    segment_title: string
+    start_time: string
+    end_time: string
+    problem_type: ProblemTypeEnumApi
+    distinct_id: string
+    session_start_time?: string | null
+    session_end_time?: string | null
+    session_duration?: number | null
+    session_active_seconds?: number | null
+    exported_asset_id?: number | null
+    event_history?: SessionProblemEventEntryApi[] | null
+}
+
+export interface LlmEvalSignalExtraApi {
+    evaluation_id: string
+    target_event_id?: string | null
+    target_event_type?: string | null
+    trace_id: string
+    model?: string | null
+    provider?: string | null
+}
+
+export interface LlmEvalReportSignalExtraApi {
+    evaluation_id: string
+    evaluation_name: string
+    evaluation_description: string
+    report_id: string
+    report_run_id: string
+    period_start: string
+    period_end: string
+}
+
+export interface ZendeskTicketSignalExtraApi {
+    url: string
+    type: string | null
+    tags: string[]
+    created_at: string
+    priority: string | null
+    status: string
+}
+
+export interface GithubIssueSignalExtraApi {
+    html_url: string
+    number: number
+    labels: string[]
+    created_at: string
+    updated_at: string
+    locked: boolean
+    state: string
+}
+
+export interface LinearIssueSignalExtraApi {
+    url: string
+    identifier: string
+    number: number
+    priority: number
+    priority_label: string
+    labels: string[]
+    state_name: string | null
+    state_type: string | null
+    team_name: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface ConversationsTicketSignalExtraApi {
+    ticket_number: number
+    channel_source: string
+    channel_detail: string | null
+    status: string
+    priority: string | null
+    created_at: string
+    email_subject: string | null
+}
+
+export interface ErrorTrackingSignalExtraApi {
+    fingerprint: string
+}
+
+export interface PgAnalyzeIssueReferenceApi {
+    kind?: string | null
+    name?: string | null
+    url?: string | null
+    queryText?: string | null
+}
+
+export interface PgAnalyzeIssueSignalExtraApi {
+    severity: string | null
+    references: PgAnalyzeIssueReferenceApi[]
+    database_id: string | null
+    server_human_id: string | null
+    server_name: string | null
+    synced_at: string
+}
+
+export interface EndpointExecutionFailedSignalExtraApi {
+    endpoint_name: string
+    endpoint_version: number | null
+    materialized: boolean
+    saved_query_id: string | null
+    error_class: string
+    error_message: string
+}
+
+export interface EndpointBreakdownLimitExceededSignalExtraApi {
+    endpoint_name: string
+    breakdown_limit: number
+}
+
+export type ReportPriorityApi = (typeof ReportPriorityApi)[keyof typeof ReportPriorityApi]
+
+export const ReportPriorityApi = {
+    P0: 'P0',
+    P1: 'P1',
+    P2: 'P2',
+    P3: 'P3',
+    P4: 'P4',
+} as const
+
+export interface SignalsScoutEvidenceEntryApi {
+    source_product: string
+    entity_id?: string | null
+    summary: string
+}
+
+export interface SignalsScoutTimeRangeApi {
+    date_from: string
+    date_to: string
+}
+
+export interface SignalsScoutSignalExtraApi {
+    scout_run_id: string
+    task_run_id: string
+    task_id?: string | null
+    finding_id: string
+    skill_name: string
+    skill_version: number
+    confidence: number
+    severity?: ReportPriorityApi | null
+    hypothesis?: string | null
+    evidence: SignalsScoutEvidenceEntryApi[]
+    dedupe_keys?: string[] | null
+    tags?: string[] | null
+    time_range?: SignalsScoutTimeRangeApi | null
+    mcp_trace_id?: string | null
+}
+
+export type LogsAlertStateChangeSignalExtraActionEnumApi =
+    (typeof LogsAlertStateChangeSignalExtraActionEnumApi)[keyof typeof LogsAlertStateChangeSignalExtraActionEnumApi]
+
+export const LogsAlertStateChangeSignalExtraActionEnumApi = {
+    Firing: 'firing',
+    Broken: 'broken',
+} as const
+
+export type LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi =
+    (typeof LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi)[keyof typeof LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi]
+
+export const LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+export type LogsAlertStateChangeSignalExtraApiFilters = { [key: string]: unknown }
+
+export interface LogsAlertStateChangeSignalExtraApi {
+    alert_id: string
+    alert_name: string
+    action: LogsAlertStateChangeSignalExtraActionEnumApi
+    threshold_count: number
+    threshold_operator: LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi
+    window_minutes: number
+    result_count: number | null
+    consecutive_failures: number
+    filters: LogsAlertStateChangeSignalExtraApiFilters
+    url: string
+}
+
+export interface ReplayVisionScannerFindingSignalExtraApi {
+    scanner_id: string
+    scanner_name: string
+    scanner_type: string
+    observation_id: string
+    session_id: string
+    confidence: number
+    problem_type: string
+    start_time: number
+    end_time: number
+    url: string
+    exported_asset_id: number
+    distinct_id?: string | null
+    recording_start_time?: string | null
+    recording_end_time?: string | null
+    recording_duration?: number | null
+    recording_active_seconds?: number | null
+}
+
+export type HealthCheckSignalExtraSeverityEnumApi =
+    (typeof HealthCheckSignalExtraSeverityEnumApi)[keyof typeof HealthCheckSignalExtraSeverityEnumApi]
+
+export const HealthCheckSignalExtraSeverityEnumApi = {
+    Critical: 'critical',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+export type HealthCheckSignalExtraApiPayload = { [key: string]: unknown }
+
+export interface HealthCheckSignalExtraApi {
+    kind: string
+    severity: HealthCheckSignalExtraSeverityEnumApi
+    issue_id: string
+    title: string
+    summary: string
+    link: string
+    url: string
+    payload: HealthCheckSignalExtraApiPayload
+}
+
+export type SignalExtraApi =
+    | SessionProblemSignalExtraApi
+    | LlmEvalSignalExtraApi
+    | LlmEvalReportSignalExtraApi
+    | ZendeskTicketSignalExtraApi
+    | GithubIssueSignalExtraApi
+    | LinearIssueSignalExtraApi
+    | ConversationsTicketSignalExtraApi
+    | ErrorTrackingSignalExtraApi
+    | PgAnalyzeIssueSignalExtraApi
+    | EndpointExecutionFailedSignalExtraApi
+    | EndpointBreakdownLimitExceededSignalExtraApi
+    | SignalsScoutSignalExtraApi
+    | LogsAlertStateChangeSignalExtraApi
+    | ReplayVisionScannerFindingSignalExtraApi
+    | HealthCheckSignalExtraApi
+
+export interface SpecificityMetadataApi {
+    /** Title of the PR the specificity gate evaluated. */
+    pr_title: string
+    /** Whether the report passed the PR-specificity gate. */
+    specific_enough: boolean
+    /** The gate's reasoning. */
+    reason: string
+}
+
+export interface MatchedMetadataApi {
+    /** Signal already in the report that this one matched. */
+    parent_signal_id: string
+    /** Query used to find the parent signal. */
+    match_query: string
+    /** Why the signals were judged to describe the same issue. */
+    reason: string
+    /** PR-specificity gate result, when the gate ran. */
+    specificity?: SpecificityMetadataApi | null
+}
+
+export interface NoMatchMetadataApi {
+    /** Why no existing report matched. */
+    reason: string
+    /** Candidate signals that were considered and rejected. */
+    rejected_signal_ids: string[]
+    /** PR-specificity gate result that caused a rejection, when present. */
+    specificity_rejection?: SpecificityMetadataApi | null
+}
+
+export type SignalMatchMetadataApi = MatchedMetadataApi | NoMatchMetadataApi
+
+export interface SignalNodeApi {
+    /** ClickHouse document id of the signal. */
+    signal_id: string
+    /** The signal's human-readable description. */
+    content: string
+    /** Product that emitted the signal.
+     *
+     * * `session_replay` - session_replay
+     * * `llm_analytics` - llm_analytics
+     * * `github` - github
+     * * `linear` - linear
+     * * `zendesk` - zendesk
+     * * `conversations` - conversations
+     * * `error_tracking` - error_tracking
+     * * `endpoints` - endpoints
+     * * `pganalyze` - pganalyze
+     * * `signals_scout` - signals_scout
+     * * `logs` - logs
+     * * `health_checks` - health_checks
+     * * `replay_vision` - replay_vision */
+    source_product: SignalSourceProductApi
+    /** Signal type within the source product.
+     *
+     * * `session_analysis_cluster` - session_analysis_cluster
+     * * `session_problem` - session_problem
+     * * `evaluation` - evaluation
+     * * `evaluation_report` - evaluation_report
+     * * `issue` - issue
+     * * `ticket` - ticket
+     * * `issue_created` - issue_created
+     * * `issue_reopened` - issue_reopened
+     * * `issue_spiking` - issue_spiking
+     * * `endpoint_execution_failed` - endpoint_execution_failed
+     * * `endpoint_breakdown_limit_exceeded` - endpoint_breakdown_limit_exceeded
+     * * `cross_source_issue` - cross_source_issue
+     * * `alert_state_change` - alert_state_change
+     * * `health_issue` - health_issue
+     * * `scanner_finding` - scanner_finding */
+    source_type: SignalSourceTypeApi
+    /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
+    source_id: string
+    /** Signal weight in [0, 1]; drives report ranking. */
+    weight: number
+    /** Emission timestamp. */
+    timestamp: string
+    /** Product-specific payload; shape depends on (source_product, source_type). */
+    extra: SignalExtraApi
+    /** Clustering match/no-match metadata, when present. */
+    match_metadata?: SignalMatchMetadataApi | null
+}
+
+/**
+ * Response body for GET /api/projects/:id/signals/reports/:id/signals/.
+ */
+export interface ReportSignalsResponseApi {
+    /** The report these signals were clustered into. */
+    report: SignalReportApi
+    /** All signals contributing to the report. */
+    signals: SignalNodeApi[]
+}
+
+/**
  * * `suppressed` - suppressed
  * * `potential` - potential
  */
@@ -665,6 +1083,16 @@ export interface ExternalDataSourceEntryApi {
      * @nullable
      */
     created_at: string | null
+    /**
+     * ISO-8601 timestamp of the most recent completed sync job, or null if this source has never completed a sync. Use this to tell a healthy source apart from one stuck in `Running` that has imported zero rows — `status` alone conflates the two.
+     * @nullable
+     */
+    last_run_at: string | null
+    /**
+     * Newest schema-level sync error for this source, or null if no schema is erroring.
+     * @nullable
+     */
+    latest_error: string | null
 }
 
 /**
@@ -1099,26 +1527,28 @@ export interface RecentActionsApi {
  * One row in `inventory.top_events`.
  */
 export interface TopEventEntryApi {
+    /** Rolling lookback window (in days) that every count and timestamp on this row is measured over — these are windowed figures, NOT lifetime totals. A capture gap can collapse a real, high-volume project's in-window counts to near-zero, so a thin `count` here does not by itself mean the project is low-volume: rule out an ingestion gap (compare against a trailing baseline via a direct `execute-sql`) before closing out a surface as unused. */
+    window_days: number
     /** Event name as captured. */
     event: string
-    /** Number of occurrences in the lookback window (last 7 days). */
+    /** Number of occurrences within the last `window_days` (windowed, not lifetime). */
     count: number
     /** `uniq(person_id)` over the window — reach. Distinguishes a high-count event firing on one power user from one firing on many users. */
     distinct_users: number
-    /** Count in just the last 24 hours. Compare to `count / 7` to spot bursts: a ratio well above 1/7 means the event is concentrated in the last day. */
+    /** Count in just the last 24 hours. Compare to `count / window_days` to spot bursts: a ratio well above `1 / window_days` means the event is concentrated in the last day. */
     recent_24h_count: number
     /** `uniq(person_id)` over just the last 24 hours. A burst across many users is qualitatively different from one user in a loop. */
     recent_24h_users: number
     /**
-     * ISO-8601 timestamp of the earliest occurrence within the lookback window. Compare to the window start to spot new event types: `first_seen` close to `now` ⇒ likely new or recently bursting; close to the window edge ⇒ has been around at least that long (the window can't tell you when the event *truly* first appeared).
+     * ISO-8601 timestamp of the earliest occurrence within the `window_days` window. Compare to the window start to spot new event types: close to `now` ⇒ likely new or recently bursting; close to the window edge ⇒ has been around at least that long (the window can't tell you when the event *truly* first appeared).
      * @nullable
      */
-    first_seen: string | null
+    first_seen_in_window: string | null
     /**
-     * ISO-8601 timestamp of the most recent occurrence within the lookback window.
+     * ISO-8601 timestamp of the most recent occurrence within the `window_days` window.
      * @nullable
      */
-    last_seen: string | null
+    last_seen_in_window: string | null
 }
 
 /**
@@ -1145,7 +1575,7 @@ export interface ProjectProfileInventoryApi {
     emit_eligibility: EmitEligibilityApi
     /** Counts of reports already in the inbox, grouped by status. */
     existing_inbox_reports: ExistingInboxReportsApi
-    /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */
+    /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`. */
     recent_activity: RecentActivityApi
     /** Recent human edits to report reviewer lists (before/after GitHub logins). The strongest ownership precedent available — check it before setting `suggested_reviewers` and fold what it shows into `reviewer:` memory keys. */
     recent_reviewer_corrections: RecentReviewerCorrectionsApi
@@ -1170,7 +1600,7 @@ export interface ProjectProfileInventoryApi {
     /** Action orientation: total + the 5 most recently updated actions — useful to anchor agent reasoning about what the team treats as a meaningful interaction. */
     recent_actions: RecentActionsApi
     /**
-     * Top ~50 events by count over the last 7 days, with first/last seen timestamps within the window. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen` and `now` to spot new event types or recent bursts.
+     * Top ~50 events by count over a recent rolling window (each row carries `window_days`), with first/last seen timestamps within that window. These are WINDOWED counts, not lifetime totals: a capture gap can collapse a real, high-volume project's counts to near-zero here, so rule out an ingestion gap (compare against a trailing baseline via a direct `execute-sql`) before reading thinness as a genuinely low-volume project. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen_in_window` and `now` to spot new event types or recent bursts.
      * @nullable
      */
     top_events: TopEventEntryApi[] | null
@@ -1797,9 +2227,10 @@ export interface ForgetResponseApi {
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
  */
-export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
+export type SignalSourceConfigSourceProductEnumApi =
+    (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
 
-export const SourceProductEnumApi = {
+export const SignalSourceConfigSourceProductEnumApi = {
     SessionReplay: 'session_replay',
     LlmAnalytics: 'llm_analytics',
     Github: 'github',
@@ -1853,7 +2284,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
 
 export interface SignalSourceConfigApi {
     readonly id: string
-    source_product: SourceProductEnumApi
+    source_product: SignalSourceConfigSourceProductEnumApi
     source_type: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
     config?: unknown
@@ -1874,7 +2305,7 @@ export interface PaginatedSignalSourceConfigListApi {
 
 export interface PatchedSignalSourceConfigApi {
     readonly id?: string
-    source_product?: SourceProductEnumApi
+    source_product?: SignalSourceConfigSourceProductEnumApi
     source_type?: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
     config?: unknown

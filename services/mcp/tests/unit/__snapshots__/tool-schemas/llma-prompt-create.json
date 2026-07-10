@@ -8,6 +8,18 @@
         },
         "prompt": {
             "description": "Prompt payload as JSON or string data."
+        },
+        "version_description": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional note describing what changed in this version. Set when the version is published."
         }
     },
     "required": ["name", "prompt"],

@@ -658,6 +658,7 @@ mod tests {
             exception_handled: None,
             exception_releases: HashMap::new(),
             fingerprint: None,
+            fingerprint_version: None,
             proposed_fingerprint: None,
             fingerprint_record: None,
             issue_id,
@@ -669,6 +670,8 @@ mod tests {
             timestamp: String::new(),
             team_id,
             issue: None,
+            legacy_order_exception_list: None,
+            legacy_order_resolved: None,
         })
     }
 

@@ -88,6 +88,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 from products.signals.backend.serializers import (
     CheckRunsResponseSerializer,
     CommitDiffResponseSerializer,
+    ReportSignalsResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
@@ -1313,7 +1314,11 @@ class SignalReportViewSet(
 
         return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        summary="List a report's signals",
+        description="Fetch all signals for a report from ClickHouse, including full metadata.",
+        responses={200: ReportSignalsResponseSerializer},
+    )
     @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
     def signals(self, request, pk=None, **kwargs):
         """Fetch all signals for a report from ClickHouse, including full metadata."""
@@ -1438,6 +1443,9 @@ class SignalReportViewSet(
                 if hasattr(report, "prefetched_dismissal_artefacts"):
                     del report.prefetched_dismissal_artefacts
 
+        # A dismissal (transition into SUPPRESSED) closes the linked implementation PR — handled
+        # centrally by the post_save receiver (receivers.close_pr_when_report_dismissed), so this
+        # method doesn't special-case it. Restore/snooze to "potential" leaves the PR alone.
         return SignalReportBulkStateOutcome.TRANSITIONED
 
     @extend_schema(
@@ -1544,6 +1552,20 @@ class SignalReportViewSet(
         return Response({"status": "reingestion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
 
 
+# `report_id` addresses a report's UUID primary key. Agents whose prompt only carries a
+# `signal_id` sometimes pass that (e.g. `sig_praise`) here instead, so make the constraint
+# explicit in the schema — a non-UUID value can never match a report.
+_REPORT_ID_PARAMETER = OpenApiParameter(
+    name="report_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    description=(
+        "UUID of the report whose artefacts you're addressing. This must be a report id (the "
+        "report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
+    ),
+)
+
+
 @extend_schema_view(
     list=extend_schema(
         summary="List a report's artefacts",
@@ -1554,12 +1576,14 @@ class SignalReportViewSet(
             "and log entries (code references, commits, task runs, notes). "
             "`suggested_reviewers` content is enriched with PostHog user info at read time."
         ),
+        parameters=[_REPORT_ID_PARAMETER],
         responses={200: SignalReportArtefactSerializer(many=True)},
         operation_id="signals_report_artefacts_list",
     ),
     retrieve=extend_schema(
         summary="Get a single artefact",
         description="Get one artefact by id, content parsed (and reviewers enriched) the same way as the list.",
+        parameters=[_REPORT_ID_PARAMETER],
         responses={200: SignalReportArtefactSerializer},
         operation_id="signals_report_artefacts_retrieve",
     ),
@@ -1601,11 +1625,22 @@ class SignalReportArtefactViewSet(
     queryset = SignalReportArtefact.objects.select_related("created_by").order_by("-created_at")
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
+    def _validated_report_id(self) -> str:
+        # `report_id` addresses a report's UUID primary key. Agents sometimes pass a signal id
+        # (e.g. `sig_praise`) instead, which the ORM can't coerce to a UUID — left to reach the
+        # query it surfaces as a 500. Reject it up front as a clean 404 the caller can recover from.
+        report_id = self.parents_query_dict["report_id"]
+        try:
+            uuid.UUID(str(report_id))
+        except (ValueError, TypeError):
+            raise NotFound()
+        return report_id
+
     def safely_get_queryset(self, queryset):
         # Mirror SignalReportViewSet: a deleted parent report is unreachable, so
         # its artefacts must be too (otherwise a known UUID would bypass deletion).
         return queryset.filter(
-            report_id=self.parents_query_dict["report_id"],
+            report_id=self._validated_report_id(),
             team=self.team,
         ).exclude(report__status=SignalReport.Status.DELETED)
 
@@ -1845,6 +1880,7 @@ class SignalReportArtefactViewSet(
             404: OpenApiResponse(description="Report not found for this project."),
         },
         parameters=[
+            _REPORT_ID_PARAMETER,
             OpenApiParameter(
                 name=TASK_ID_HEADER,
                 type=OpenApiTypes.UUID,
@@ -1867,7 +1903,7 @@ class SignalReportArtefactViewSet(
         operation_id="signals_report_artefacts_create",
     )
     def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        report_id = self.parents_query_dict["report_id"]
+        report_id = self._validated_report_id()
         # A deleted / foreign report is unreachable — don't let a known report_id attach
         # artefacts to it. Mirrors the team-scoped filter in `safely_get_queryset`.
         report_exists = (
@@ -1962,6 +1998,7 @@ class SignalReportArtefactViewSet(
             "changes the report's canonical status (latest-wins); to re-assess while keeping history, "
             "append a new artefact instead. Attribution is creation-time only — edits don't reassign it."
         ),
+        parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_partial_update",
     )
     def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
@@ -1992,6 +2029,7 @@ class SignalReportArtefactViewSet(
             "Delete an artefact, addressed by id. Deleting the latest row of a status type reverts "
             "the report's canonical status to the previous version (latest-wins over what remains)."
         ),
+        parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_destroy",
     )
     def destroy(self, request, *args, **kwargs) -> Response:
@@ -2015,6 +2053,7 @@ class SignalReportArtefactViewSet(
             "branch via the team's GitHub integration — using the branch's current tip so the diff "
             "reflects the latest state of the work, not just the single recorded commit."
         ),
+        parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_diff",
     )
     @action(detail=True, methods=["get"], url_path="diff", required_scopes=["task:read"])

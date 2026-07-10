@@ -9,7 +9,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import { signalsReportArtefactsChecks, signalsReportArtefactsDiff } from 'products/signals/frontend/generated/api'
+import {
+    signalsReportArtefactsChecks,
+    signalsReportArtefactsDiff,
+    signalsReportsSignalsRetrieve,
+} from 'products/signals/frontend/generated/api'
 import type { CheckRunsResponseApi, CommitDiffResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
@@ -131,7 +135,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as SignalNode[] | null,
             {
                 loadReportSignals: async () => {
-                    const response = await api.signalReports.getReportSignals(props.reportId)
+                    const response = await signalsReportsSignalsRetrieve(
+                        String(teamLogic.values.currentTeamId),
+                        props.reportId
+                    )
                     return response.signals
                 },
             },

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCard, LemonInput } from '@posthog/lemon-ui'
+import { LemonCard, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { resolveCategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -26,6 +26,7 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { DurationType, RecordingDurationFilter, RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
 import { replayScannerLogic } from '../replayScannerLogic'
+import { SAMPLING_MODE_OPTIONS, SamplingMode } from '../types'
 import { ScannerQuotaForecast } from './ScannerQuotaForecast'
 
 // Mirrors the recordings list taxonomy, including suggested filters so the search bar surfaces them.
@@ -101,6 +102,27 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
 
     return (
         <div className="space-y-6">
+            <LemonField
+                name="sampling_mode"
+                label="Session coverage"
+                info="How many of your matching sessions this scanner watches. Every recording gets a score for how much is happening in it (activity, errors, navigation). Focused and Balanced skip the quiet ones, so your observation budget goes to sessions worth watching."
+            >
+                {({ value, onChange }) => {
+                    const mode = (value ?? 'comprehensive') as SamplingMode
+                    const option = SAMPLING_MODE_OPTIONS.find((o) => o.value === mode)
+                    return (
+                        <div className="space-y-1">
+                            <LemonSegmentedButton
+                                value={mode}
+                                onChange={onChange}
+                                options={SAMPLING_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                            />
+                            <div className="text-xs text-muted">{option?.description}</div>
+                        </div>
+                    )
+                }}
+            </LemonField>
+
             <LemonField name="sampling_rate">
                 {({ value, onChange }) => {
                     const ratio = typeof value === 'number' ? value : 0

@@ -34,7 +34,12 @@ if TYPE_CHECKING:
     from posthog.models.integration import GitHubIntegration
 
 from posthog.egress.github.transport import GitHubRateLimitError
-from posthog.helpers.trigram_search import TrigramSearchField, apply_trigram_search, normalize_search_term
+from posthog.helpers.trigram_search import (
+    TrigramSearchField,
+    apply_trigram_search,
+    drop_similar_when_exact_exists,
+    normalize_search_term,
+)
 from posthog.models.github_integration_base import GitHubIntegrationError
 
 from .classifier import SnapshotClassifier
@@ -171,7 +176,7 @@ def get_or_create_artifact(
 ) -> tuple[Artifact, bool]:
     # Resolve team_id from the repo when not provided by the caller.
     if team_id is None:
-        # nosemgrep: rules.idor-lookup-without-team — resolving team_id from repo
+        # nosemgrep: idor-lookup-without-team — resolving team_id from repo
         team_id = Repo.objects.values_list("team_id", flat=True).get(id=repo_id)
 
     return Artifact.objects.get_or_create(
@@ -228,7 +233,7 @@ def write_artifact_bytes(
 
     # Resolve team_id from the repo when not provided by the caller.
     if team_id is None:
-        # nosemgrep: rules.idor-lookup-without-team — resolving team_id from repo
+        # nosemgrep: idor-lookup-without-team — resolving team_id from repo
         team_id = Repo.objects.values_list("team_id", flat=True).get(id=repo_id)
 
     artifact, _ = Artifact.objects.get_or_create(
@@ -303,13 +308,15 @@ def list_runs_for_team(
         extra_exact_q = Q(commit_sha__istartswith=term)
         if term.isdigit():
             extra_exact_q |= Q(pr_number=int(term))
-        return apply_trigram_search(
-            qs,
-            term,
-            span_prefix="visual_review.runs.search",
-            fields=RUN_SEARCH_FIELDS,
-            extra_exact_q=extra_exact_q,
-            tiebreakers=("-created_at",),
+        return drop_similar_when_exact_exists(
+            apply_trigram_search(
+                qs,
+                term,
+                span_prefix="visual_review.runs.search",
+                fields=RUN_SEARCH_FIELDS,
+                extra_exact_q=extra_exact_q,
+                tiebreakers=("-created_at",),
+            )
         )
     return qs.order_by("-created_at")
 

@@ -138,8 +138,8 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
                         message,
                         team,
                         warnings: [
-                            { type: 'test_warning', details: { field: 'value' } },
-                            { type: 'another_warning', details: { error: 'something' } },
+                            { type: 'client_ingestion_warning', details: { field: 'value' } },
+                            { type: 'ignored_invalid_timestamp', details: { error: 'something' } },
                         ],
                     }
                 ),
@@ -156,20 +156,14 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             expect(results![0].context.sideEffects).toHaveLength(2)
 
             expect(mockEmitIngestionWarning).toHaveBeenCalledTimes(2)
-            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
-                mockOutputs,
-                team.id,
-                'test_warning',
-                { field: 'value' },
-                { key: undefined, alwaysSend: undefined }
-            )
-            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
-                mockOutputs,
-                team.id,
-                'another_warning',
-                { error: 'something' },
-                { key: undefined, alwaysSend: undefined }
-            )
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, team.id, {
+                type: 'client_ingestion_warning',
+                details: { field: 'value' },
+            })
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, team.id, {
+                type: 'ignored_invalid_timestamp',
+                details: { error: 'something' },
+            })
         })
 
         it('should handle warning with alwaysSend flag', async () => {
@@ -182,7 +176,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
                     {
                         message,
                         team,
-                        warnings: [{ type: 'critical_warning', details: { urgent: true }, alwaysSend: true }],
+                        warnings: [{ type: 'merge_race_condition', details: { urgent: true }, alwaysSend: true }],
                     }
                 ),
             ]
@@ -193,13 +187,11 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             pipeline.feed(batch)
             const results = await pipeline.next()
 
-            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
-                mockOutputs,
-                team.id,
-                'critical_warning',
-                { urgent: true },
-                { key: undefined, alwaysSend: true }
-            )
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, team.id, {
+                type: 'merge_race_condition',
+                details: { urgent: true },
+                alwaysSend: true,
+            })
             expect(results![0].context.warnings).toEqual([])
         })
 
@@ -217,7 +209,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
                         message,
                         team,
                         sideEffects: [existingSideEffect1, existingSideEffect2],
-                        warnings: [{ type: 'test_warning', details: { test: true } }],
+                        warnings: [{ type: 'client_ingestion_warning', details: { test: true } }],
                     }
                 ),
             ]
@@ -251,7 +243,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
                     {
                         message: messages[0],
                         team,
-                        warnings: [{ type: 'warning_1', details: { idx: 1 } }],
+                        warnings: [{ type: 'message_size_too_large', details: { idx: 1 } }],
                     }
                 ),
                 createOkContext(
@@ -268,8 +260,8 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
                         message: messages[2],
                         team,
                         warnings: [
-                            { type: 'warning_3a', details: { idx: 3 } },
-                            { type: 'warning_3b', details: { idx: 3, extra: true } },
+                            { type: 'group_key_too_long', details: { idx: 3 } },
+                            { type: 'event_dropped_too_old', details: { idx: 3, extra: true } },
                         ],
                     }
                 ),
@@ -303,7 +295,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
                     {
                         message: messages[0],
                         team: team1,
-                        warnings: [{ type: 'warning_team1', details: { team: 1 } }],
+                        warnings: [{ type: 'cookieless_missing_ip', details: { team: 1 } }],
                     }
                 ),
                 createOkContext(
@@ -311,7 +303,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
                     {
                         message: messages[1],
                         team: team2,
-                        warnings: [{ type: 'warning_team2', details: { team: 2 } }],
+                        warnings: [{ type: 'cookieless_missing_host', details: { team: 2 } }],
                     }
                 ),
             ]
@@ -322,20 +314,14 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             pipeline.feed(batch)
             await pipeline.next()
 
-            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
-                mockOutputs,
-                team1.id,
-                'warning_team1',
-                { team: 1 },
-                { key: undefined, alwaysSend: undefined }
-            )
-            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
-                mockOutputs,
-                team2.id,
-                'warning_team2',
-                { team: 2 },
-                { key: undefined, alwaysSend: undefined }
-            )
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, team1.id, {
+                type: 'cookieless_missing_ip',
+                details: { team: 1 },
+            })
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, team2.id, {
+                type: 'cookieless_missing_host',
+                details: { team: 2 },
+            })
         })
     })
 
@@ -360,7 +346,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
                     createContext(ok({ message: messages[0], team }), {
                         message: messages[0],
                         team,
-                        warnings: [{ type: 'upstream_warning', details: { source: 'previous' } }],
+                        warnings: [{ type: 'schema_validation_failed', details: { source: 'previous' } }],
                     }),
                     createContext(ok({ message: messages[1], team }), {
                         message: messages[1],
@@ -370,7 +356,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
                     createContext(ok({ message: messages[2], team }), {
                         message: messages[2],
                         team,
-                        warnings: [{ type: 'another_upstream_warning', details: { source: 'previous' } }],
+                        warnings: [{ type: 'invalid_heatmap_data', details: { source: 'previous' } }],
                     }),
                 ]),
             }
