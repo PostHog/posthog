@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Protocol, TypedDict
 
 from posthog.models.team import Team
@@ -6,35 +7,60 @@ from posthog.models.team import Team
 from products.pulse.backend.models import BriefConfig
 
 
+class EvidenceType(StrEnum):
+    INSIGHT = "insight"
+    DASHBOARD = "dashboard"
+    ANNOTATION = "annotation"
+    EVENT = "event"
+
+
+class SourceItemKind(StrEnum):
+    MOVEMENT = "movement"
+    HEALTH = "health"
+
+
 class EvidenceRef(TypedDict):
-    type: str  # "insight" | "dashboard" | "annotation" | ...
+    type: str  # one of EvidenceType
     ref: str
     label: str
-
-
-def format_evidence_ref(evidence: EvidenceRef) -> str:
-    """Render an evidence ref as the "type:ref" token the LLM sees and cites back."""
-    return f"{evidence['type']}:{evidence['ref']}"
-
-
-def parse_evidence_ref(ref: str) -> EvidenceRef:
-    """Inverse of format_evidence_ref, for LLM citations that match no gathered item."""
-    prefix, sep, rest = ref.partition(":")
-    return EvidenceRef(type=prefix, ref=rest if sep else prefix, label="")
+    url: str  # deep link into the app; "" when the ref has no navigable target
 
 
 @dataclass(frozen=True)
 class SourceItem:
     source: str
-    kind: str  # "movement" | "health" | ... (only "movement" for now)
+    kind: str  # one of SourceItemKind
     title: str
     description: str
-    numbers: dict[str, float | int | str] = field(default_factory=dict)
+    # `metrics`, not `numbers`: these are the source's computed metric values (pct_change,
+    # totals, ...) that the LLM may reference and that become the opportunity baseline snapshot.
+    metrics: dict[str, float | int | str] = field(default_factory=dict)
     evidence: list[EvidenceRef] = field(default_factory=list)
     fingerprint_hint: str = ""
+
+
+def build_evidence_index(items: list[SourceItem]) -> dict[str, EvidenceRef]:
+    """Assign stable citation ids (c1..cN) to the distinct evidence refs across all items.
+
+    Deduped by (type, ref) in item then evidence order, so the same physical resource cited by
+    two items shares one id. Both synthesize (rendering ids for the LLM) and persist (resolving
+    the ids the LLM cited back to structured refs) call this on the same items, so the ids match
+    deterministically without passing the index across the Temporal boundary.
+    """
+    index: dict[str, EvidenceRef] = {}
+    seen: dict[tuple[str, str], str] = {}
+    for item in items:
+        for evidence in item.evidence:
+            key = (evidence["type"], evidence["ref"])
+            if key in seen:
+                continue
+            citation_id = f"c{len(seen) + 1}"
+            seen[key] = citation_id
+            index[citation_id] = evidence
+    return index
 
 
 class BriefSource(Protocol):
     name: str
 
-    def gather(self, team: Team, config: BriefConfig | None, period_days: int) -> list[SourceItem]: ...
+    def gather(self, team: Team, config: BriefConfig | None, lookback_days: int) -> list[SourceItem]: ...
