@@ -371,6 +371,7 @@ the row lists both.
 | todoist                 | HTTP                        | requests                                                        | ✅                          |
 | trello                  | HTTP                        | requests                                                        | ✅                          |
 | tremendous              | HTTP                        | requests                                                        | ✅                          |
+| trigger_dev             | HTTP                        | requests                                                        | ✅                          |
 | twilio                  | HTTP                        | requests                                                        | ✅                          |
 | typeform                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                 | HTTP                        | requests                                                        | ✅                          |
@@ -806,7 +807,6 @@ doesn't conflict with concurrent PRs.
 - toggl
 - track_pms
 - tremendous
-- trigger_dev
 - trustpilot
 - turso
 - tvmaze
