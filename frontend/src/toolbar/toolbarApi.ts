@@ -94,6 +94,37 @@ export interface ToolbarApiOptions {
     urlConstruction?: 'full' | 'use-as-provided'
 }
 
+/**
+ * Recognize the routine, transient network conditions a `fetch` rejects with when the request
+ * never reaches the server — user offline, an ad blocker, a request aborted by page navigation,
+ * a cross-region hiccup. These are expected on background loads and are not worth reporting as
+ * exceptions; genuinely-unexpected failures (a customer page that replaced `window.fetch` and
+ * threw something else) still fall through to capture.
+ *
+ * Browsers word these differently: Chrome "Failed to fetch", Firefox "NetworkError when
+ * attempting to fetch resource", Safari "Load failed", plus region-suffixed variants. Aborted
+ * requests surface as a DOMException named "AbortError".
+ */
+export function isExpectedNetworkError(error: unknown): boolean {
+    if (typeof DOMException !== 'undefined' && error instanceof DOMException && error.name === 'AbortError') {
+        return true
+    }
+    if (error instanceof Error && error.name === 'AbortError') {
+        return true
+    }
+    const message = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
+    if (!message) {
+        return false
+    }
+    const normalized = message.toLowerCase()
+    return (
+        normalized.includes('failed to fetch') ||
+        normalized.includes('networkerror') ||
+        normalized.includes('load failed') ||
+        normalized.includes('network request failed')
+    )
+}
+
 /** Pull a human-readable message out of a (possibly DRF) error body. */
 export function extractErrorDetail(body: unknown, status: number, fallback: string): string {
     if (status === 401 || status === 403) {
@@ -164,7 +195,9 @@ async function request<T>(
             isNetworkError: true,
         }
         toolbarLogger.error('api', `Request failed (network): ${context}`, { context, method, pathname })
-        if (captureOnError) {
+        // Transient network conditions (offline, ad blocker, aborted navigation, cross-region)
+        // are expected and would flood error tracking with noise — log them but don't report.
+        if (captureOnError && !isExpectedNetworkError(e)) {
             captureToolbarException(e, context, { reason: 'network' })
         }
         emitToast(toastOnError, error)
