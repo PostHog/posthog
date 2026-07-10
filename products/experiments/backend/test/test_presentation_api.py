@@ -5519,7 +5519,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(pause_response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs", return_value=0)
+    @patch(
+        "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+        return_value=0,
+    )
     @patch(
         "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
         new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
@@ -5548,7 +5551,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
         self.assertEqual(get_response.json()["status"], "exposure_frozen")
 
-    @patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs", return_value=0)
+    @patch(
+        "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+        return_value=0,
+    )
     @patch(
         "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
         new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
@@ -5568,7 +5574,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(second_freeze.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs", return_value=0)
+    @patch(
+        "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+        return_value=0,
+    )
     @patch(
         "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
         new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],

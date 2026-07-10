@@ -3134,7 +3134,8 @@ class TestExperimentService(APIBaseTest):
                 new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
             ),
             patch(
-                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs", return_value=0
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+                return_value=0,
             ) as mock_insert,
         ):
             yield mock_insert
@@ -3470,7 +3471,10 @@ class TestExperimentService(APIBaseTest):
                     (index + 1, person_uuid) for index, person_uuid in enumerate(batch[unresolved:])
                 ],
             ),
-            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs", return_value=0),
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+                return_value=0,
+            ),
         ):
             if expect_rejection:
                 with self.assertRaises(ValidationError) as ctx:
@@ -3616,7 +3620,10 @@ class TestExperimentService(APIBaseTest):
                 "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
                 new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
             ),
-            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs", return_value=0),
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+                return_value=0,
+            ),
         ):
             with self.assertRaises(ValidationError) as ctx:
                 self._service().freeze_exposure(experiment, request=self._make_request())
@@ -3651,7 +3658,10 @@ class TestExperimentService(APIBaseTest):
                 "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
                 new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
             ),
-            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs", return_value=0),
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+                return_value=0,
+            ),
         ):
             frozen = self._service().freeze_exposure(experiment, request=self._make_request())
 

@@ -359,12 +359,12 @@ class TestCohort(BaseTest):
         cohort_person_uuids = {str(_require_person_by_id(self.team.id, pid).uuid) for pid in member_ids}
         assert cohort_person_uuids == set(uuids)
 
-    def test_insert_users_list_by_id_uuid_pairs(self):
+    def test_insert_users_list_by_id_uuid_pairs_skip_validation(self):
         persons = [create_person(team=self.team) for _ in range(5)]
         pairs = [(person.id, str(person.uuid)) for person in persons]
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
 
-        cohort.insert_users_list_by_id_uuid_pairs(pairs, team_id=self.team.id)
+        cohort.insert_users_list_by_id_uuid_pairs_skip_validation(pairs, team_id=self.team.id)
 
         cohort.refresh_from_db()
         assert cohort.count == 5

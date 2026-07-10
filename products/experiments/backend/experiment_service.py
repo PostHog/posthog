@@ -2158,7 +2158,9 @@ class ExperimentService:
         try:
             # raise_on_error: the batching helper otherwise swallows mid-batch failures and returns
             # normally, and a partially populated snapshot would evict every user missing from it.
-            cohort.insert_users_list_by_id_uuid_pairs(id_uuid_pairs, team_id=self.team.id, raise_on_error=True)
+            cohort.insert_users_list_by_id_uuid_pairs_skip_validation(
+                id_uuid_pairs, team_id=self.team.id, raise_on_error=True
+            )
         except Exception:
             # The cohort row exists but isn't referenced by anything yet — drop it so a failed
             # population doesn't leave an empty static cohort behind.
