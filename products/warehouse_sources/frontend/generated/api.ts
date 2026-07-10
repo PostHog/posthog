@@ -40,6 +40,8 @@ import type {
     SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
+    SyncWebhookEventsResponseApi,
+    WebhookInfoResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -736,8 +738,8 @@ export const externalDataSourcesSyncWebhookEventsCreate = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesSyncWebhookEventsCreateUrl(projectId, id), {
+): Promise<SyncWebhookEventsResponseApi> => {
+    return apiMutator<SyncWebhookEventsResponseApi>(getExternalDataSourcesSyncWebhookEventsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
@@ -801,8 +803,8 @@ export const externalDataSourcesWebhookInfoRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
+): Promise<WebhookInfoResponseApi> => {
+    return apiMutator<WebhookInfoResponseApi>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

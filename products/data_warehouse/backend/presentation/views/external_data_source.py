@@ -1321,6 +1321,97 @@ class SourceSetupResponseSerializer(serializers.Serializer):
     )
 
 
+class WebhookInfoHogFunctionSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="ID of the hog function that receives this source's webhook events.")
+    name = serializers.CharField(help_text="Display name of the webhook hog function.")
+    enabled = serializers.BooleanField(help_text="Whether the hog function is enabled and processing events.")
+    created_at = serializers.CharField(help_text="ISO 8601 timestamp of when the hog function was created.")
+    status = serializers.JSONField(
+        allow_null=True,
+        help_text="Plugin-server health status of the hog function, e.g. {'state': 1, 'tokens': 0}.",
+    )
+
+
+class WebhookExternalStatusSerializer(serializers.Serializer):
+    exists = serializers.BooleanField(help_text="Whether the webhook still exists on the external provider.")
+    url = serializers.CharField(
+        allow_null=True, required=False, help_text="Webhook endpoint URL as registered on the provider."
+    )
+    enabled_events = serializers.ListField(
+        child=serializers.CharField(),
+        allow_null=True,
+        required=False,
+        help_text="Event types the provider webhook is subscribed to. A single '*' entry means all events.",
+    )
+    status = serializers.CharField(
+        allow_null=True, required=False, help_text="Provider-side webhook status, e.g. 'enabled' or 'disabled'."
+    )
+    description = serializers.CharField(
+        allow_null=True, required=False, help_text="Provider-side description of the webhook endpoint."
+    )
+    created_at = serializers.CharField(
+        allow_null=True, required=False, help_text="When the webhook was created on the provider, if reported."
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Why the provider webhook state could not be read (e.g. the credentials lack webhook read permissions).",
+    )
+
+
+class WebhookInfoResponseSerializer(serializers.Serializer):
+    supports_webhooks = serializers.BooleanField(help_text="Whether this source type supports webhook-based syncing.")
+    exists = serializers.BooleanField(help_text="Whether a webhook hog function exists for this source in PostHog.")
+    hog_function = WebhookInfoHogFunctionSerializer(
+        required=False,
+        help_text="The hog function receiving this source's webhook events. Only present when the webhook exists.",
+    )
+    webhook_url = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="The PostHog endpoint the external service delivers webhook events to.",
+    )
+    schema_mapping = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Mapping of provider object type to the ID of the schema its events are routed to.",
+    )
+    inputs = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        help_text=(
+            "Configured webhook input values keyed by field name. Each entry is either {'value': ...} "
+            "or {'secret': true} when the stored value is masked."
+        ),
+    )
+    external_status = WebhookExternalStatusSerializer(
+        required=False,
+        allow_null=True,
+        help_text="State of the webhook on the external provider, or null when the source cannot report it.",
+    )
+    missing_events = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Desired provider events not yet enabled on the webhook. Non-empty when the webhook was created "
+            "manually or before a newly added table was supported."
+        ),
+    )
+
+
+class SyncWebhookEventsResponseSerializer(WebhookInfoResponseSerializer):
+    success = serializers.BooleanField(
+        help_text=(
+            "Whether the provider webhook events were reconciled. Sources without automatic reconcile "
+            "support report success with missing_events unchanged."
+        )
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        help_text="Why reconciling events on the provider failed (e.g. the credentials lack webhook write permissions).",
+    )
+
+
 class SourceConnectLinkSerializer(serializers.Serializer):
     source_type = serializers.CharField(help_text="The source type the link is for.")
     auth_method = serializers.ChoiceField(
@@ -1600,6 +1691,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "revenue_analytics_config",
         "create_webhook",
         "update_webhook_inputs",
+        "sync_webhook_events",
         "delete_webhook",
         "check_cdc_prerequisites",
         "check_cdc_prerequisites_for_source",
@@ -4201,7 +4293,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             "missing_events": missing_events,
         }
 
-    @extend_schema(responses={200: OpenApiResponse(description="Webhook configuration and provider status")})
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=WebhookInfoResponseSerializer, description="Webhook configuration and provider status"
+            )
+        }
+    )
     @action(methods=["GET"], detail=True)
     def webhook_info(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
@@ -4240,7 +4338,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     @extend_schema(
         request=None,
-        responses={200: OpenApiResponse(description="Sync result plus a refreshed webhook_info payload")},
+        responses={
+            200: OpenApiResponse(
+                response=SyncWebhookEventsResponseSerializer,
+                description="Sync result plus a refreshed webhook_info payload",
+            )
+        },
     )
     @action(methods=["POST"], detail=True, url_path="sync_webhook_events")
     def sync_webhook_events(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -4283,10 +4386,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             config = source.parse_config(instance.job_inputs)
-        except ValidationError as e:
+        # The @config system raises TypeError/ValueError on malformed job inputs, not DRF ValidationError.
+        except (TypeError, ValueError) as e:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Invalid source configuration", "details": getattr(e, "detail", str(e))},
+                data={"message": "Invalid source configuration", "details": str(e)},
             )
         except Exception as e:
             capture_exception(e)

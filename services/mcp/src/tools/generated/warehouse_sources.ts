@@ -846,13 +846,13 @@ const ExternalDataSourcesWebhookInfoRetrieveSchema = ExternalDataSourcesWebhookI
 
 const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
     typeof ExternalDataSourcesWebhookInfoRetrieveSchema,
-    unknown
+    Schemas.WebhookInfoResponse
 > => ({
     name: 'external-data-sources-webhook-info-retrieve',
     schema: ExternalDataSourcesWebhookInfoRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesWebhookInfoRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.WebhookInfoResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/webhook_info/`,
         })

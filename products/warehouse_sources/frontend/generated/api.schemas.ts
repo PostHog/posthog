@@ -2702,6 +2702,125 @@ export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
 }
 
 /**
+ * Mapping of provider object type to the ID of the schema its events are routed to.
+ */
+export type SyncWebhookEventsResponseApiSchemaMapping = { [key: string]: string }
+
+/**
+ * Configured webhook input values keyed by field name. Each entry is either {'value': ...} or {'secret': true} when the stored value is masked.
+ */
+export type SyncWebhookEventsResponseApiInputs = { [key: string]: unknown }
+
+export interface WebhookInfoHogFunctionApi {
+    /** ID of the hog function that receives this source's webhook events. */
+    id: string
+    /** Display name of the webhook hog function. */
+    name: string
+    /** Whether the hog function is enabled and processing events. */
+    enabled: boolean
+    /** ISO 8601 timestamp of when the hog function was created. */
+    created_at: string
+    /** Plugin-server health status of the hog function, e.g. {'state': 1, 'tokens': 0}. */
+    status: unknown
+}
+
+export interface WebhookExternalStatusApi {
+    /** Whether the webhook still exists on the external provider. */
+    exists: boolean
+    /**
+     * Webhook endpoint URL as registered on the provider.
+     * @nullable
+     */
+    url?: string | null
+    /**
+     * Event types the provider webhook is subscribed to. A single '*' entry means all events.
+     * @nullable
+     */
+    enabled_events?: string[] | null
+    /**
+     * Provider-side webhook status, e.g. 'enabled' or 'disabled'.
+     * @nullable
+     */
+    status?: string | null
+    /**
+     * Provider-side description of the webhook endpoint.
+     * @nullable
+     */
+    description?: string | null
+    /**
+     * When the webhook was created on the provider, if reported.
+     * @nullable
+     */
+    created_at?: string | null
+    /**
+     * Why the provider webhook state could not be read (e.g. the credentials lack webhook read permissions).
+     * @nullable
+     */
+    error?: string | null
+}
+
+export interface SyncWebhookEventsResponseApi {
+    /** Whether this source type supports webhook-based syncing. */
+    supports_webhooks: boolean
+    /** Whether a webhook hog function exists for this source in PostHog. */
+    exists: boolean
+    /** The hog function receiving this source's webhook events. Only present when the webhook exists. */
+    hog_function?: WebhookInfoHogFunctionApi
+    /**
+     * The PostHog endpoint the external service delivers webhook events to.
+     * @nullable
+     */
+    webhook_url?: string | null
+    /** Mapping of provider object type to the ID of the schema its events are routed to. */
+    schema_mapping?: SyncWebhookEventsResponseApiSchemaMapping
+    /** Configured webhook input values keyed by field name. Each entry is either {'value': ...} or {'secret': true} when the stored value is masked. */
+    inputs?: SyncWebhookEventsResponseApiInputs
+    /** State of the webhook on the external provider, or null when the source cannot report it. */
+    external_status?: WebhookExternalStatusApi | null
+    /** Desired provider events not yet enabled on the webhook. Non-empty when the webhook was created manually or before a newly added table was supported. */
+    missing_events?: string[]
+    /** Whether the provider webhook events were reconciled. Sources without automatic reconcile support report success with missing_events unchanged. */
+    success: boolean
+    /**
+     * Why reconciling events on the provider failed (e.g. the credentials lack webhook write permissions).
+     * @nullable
+     */
+    error: string | null
+}
+
+/**
+ * Mapping of provider object type to the ID of the schema its events are routed to.
+ */
+export type WebhookInfoResponseApiSchemaMapping = { [key: string]: string }
+
+/**
+ * Configured webhook input values keyed by field name. Each entry is either {'value': ...} or {'secret': true} when the stored value is masked.
+ */
+export type WebhookInfoResponseApiInputs = { [key: string]: unknown }
+
+export interface WebhookInfoResponseApi {
+    /** Whether this source type supports webhook-based syncing. */
+    supports_webhooks: boolean
+    /** Whether a webhook hog function exists for this source in PostHog. */
+    exists: boolean
+    /** The hog function receiving this source's webhook events. Only present when the webhook exists. */
+    hog_function?: WebhookInfoHogFunctionApi
+    /**
+     * The PostHog endpoint the external service delivers webhook events to.
+     * @nullable
+     */
+    webhook_url?: string | null
+    /** Mapping of provider object type to the ID of the schema its events are routed to. */
+    schema_mapping?: WebhookInfoResponseApiSchemaMapping
+    /** Configured webhook input values keyed by field name. Each entry is either {'value': ...} or {'secret': true} when the stored value is masked. */
+    inputs?: WebhookInfoResponseApiInputs
+    /** State of the webhook on the external provider, or null when the source cannot report it. */
+    external_status?: WebhookExternalStatusApi | null
+    /** Desired provider events not yet enabled on the webhook. Non-empty when the webhook was created manually or before a newly added table was supported. */
+    missing_events?: string[]
+}
+
+/**
  * * `oauth` - oauth
  * * `credentials` - credentials
  */
