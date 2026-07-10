@@ -2203,6 +2203,20 @@ class TestExperimentService(APIBaseTest):
         assert dup.feature_flag.key == "dup-stale-target"
         assert [v["key"] for v in dup.feature_flag.variants] == ["control", "test"]
 
+    def test_duplicate_experiment_tolerates_non_dict_legacy_parameters(self):
+        self._create_flag(key="dup-nondict-source")
+        service = self._service()
+        source = service.create_experiment(name="Non-dict Params", feature_flag_key="dup-nondict-source")
+        # The parameters column is a JSONField; a pre-0026 row may hold a non-dict value. Migration
+        # 0026 only rewrote dicts, so this drift survives. Cloning must copy it through unchanged, not
+        # crash on `.items()` inside the flag-config strip.
+        Experiment.objects.filter(id=source.id).update(parameters=["legacy", "list", "drift"])
+        source.refresh_from_db()
+
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-nondict-target")
+
+        assert dup.parameters == ["legacy", "list", "drift"]
+
     def test_duplicate_experiment_copies_saved_metrics(self):
         self._create_flag(key="dup-saved")
         sm = ExperimentSavedMetric.objects.create(
