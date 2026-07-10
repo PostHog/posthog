@@ -25,6 +25,7 @@
         "@testing-library/react": "*",
         "@testing-library/user-event": "*",
         "@tiptap/core": "*",
+        "@tiptap/extension-code-block": "*",
         "@tiptap/extension-code-block-lowlight": "*",
         "@tiptap/extension-document": "*",
         "@tiptap/extension-image": "*",

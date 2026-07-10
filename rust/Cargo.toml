@@ -56,6 +56,7 @@ members = [
   "personhog-proto",
   "personhog-replica",
   "personhog-router",
+  "personhog-stateright",
   "affected-services",
   "property-vals-rs",
 ]
@@ -92,6 +93,19 @@ js-source-scopes = { git = "https://github.com/getsentry/js-source-scopes", rev 
 # (no split-debuginfo) since backtrace-rs reads it at runtime.
 [profile.release]
 debug = "line-tables-only"
+
+# The stateright model checker exhaustively explores millions of protocol
+# states; its hot loop (state hashing, BTreeMap clones) is ~11x slower
+# unoptimized, which would put the exhaustive tests at ~25 minutes in
+# debug-profile CI runs instead of ~2. Compile the checker and the model
+# crate with release-grade codegen even in dev builds — this changes
+# nothing about behavior (debug assertions and overflow checks stay on),
+# only how hard LLVM optimizes these two packages.
+[profile.dev.package.personhog-stateright]
+opt-level = 3
+
+[profile.dev.package.stateright]
+opt-level = 3
 
 [workspace.dependencies]
 aho-corasick = "1.1"
