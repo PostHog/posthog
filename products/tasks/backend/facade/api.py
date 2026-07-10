@@ -903,16 +903,23 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
     drives the session — once the desktop goes away, nothing else ever terminalizes the row.
     An idle session that ended is the run's normal end state, so it finalizes as COMPLETED,
     and without a push notification: pinging a user a day after they closed their session is
-    noise, not signal. Refetches filtered on status and environment so a run that left the
-    queue — or was handed off to cloud — between the candidate scan and this call is skipped.
-    Intentionally cross-team (janitor sweep).
+    noise, not signal.
+
+    Compare-and-set claim (like ``claim_and_fail_stale_run``): the conditional update flips the
+    run only while it is still QUEUED *and* local, so a run that left the queue — or was handed
+    off to cloud (handoff keeps status QUEUED) — between the candidate scan and this call is
+    skipped rather than terminalized under its just-dispatched workflow. The winner finalizes
+    via ``mark_completed`` (``completed_at``, stream + analytics). Intentionally cross-team
+    (janitor sweep).
     """
-    run = TaskRun.objects.filter(
+    claimed = TaskRun.objects.filter(
         pk=run_id, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL
-    ).first()  # nosemgrep: celery-task-team-scope-audit
-    if run is None:
+    ).update(status=TaskRun.Status.COMPLETED)  # nosemgrep: celery-task-team-scope-audit
+    if not claimed:
         return False
-    run.mark_completed(notify=False, analytics_properties={"finalized_by": "stale_local_queued_sweep"})
+    run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
+    if run is not None:
+        run.mark_completed(notify=False, analytics_properties={"finalized_by": "stale_local_queued_sweep"})
     return True
 
 
