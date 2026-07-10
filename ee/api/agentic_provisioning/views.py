@@ -2392,6 +2392,24 @@ def _create_wizard_run(
     if error := _enforce_partner_rate_limit(partner, "wizard_runs"):
         return error, None
 
+    # Verifying the grant user owns the installation doesn't prove the installation can
+    # reach the requested repo — a valid grant for one installation could otherwise report
+    # wizard success for an owner/repo it can't operate on. Fail fast instead (after the
+    # rate limits, so this GitHub call can't be used as an unthrottled probe).
+    if GitHubIntegration.first_for_team_repository(team.id, repository, source="integration") is None:
+        _capture_provisioning_event(
+            "wizard_run", "error", partner=partner, error_code="github_integration_required", team_id=team.id
+        )
+        return (
+            _error_response(
+                "github_integration_required",
+                "The team does not have a GitHub integration that can access this repository",
+                resource_id=str(team.id),
+                status=400,
+            ),
+            None,
+        )
+
     try:
         created = tasks_facade.create_wizard_cloud_run(
             team=team, user_id=user_id, repository=repository, branch=branch or None

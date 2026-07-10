@@ -91,6 +91,7 @@ class TestAccountRequestsWizardBlock(ProvisioningTestBase):
         with (
             patch.object(GitHubIntegration, "verify_user_installation_access", return_value=True),
             patch.object(GitHubIntegration, "fetch_installation_access", return_value=_installation_access()),
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=MagicMock()),
             patch(
                 "ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run", return_value=created
             ) as mock_create,
