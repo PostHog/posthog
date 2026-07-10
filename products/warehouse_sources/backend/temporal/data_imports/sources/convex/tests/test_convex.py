@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
-from requests.exceptions import HTTPError
+from requests.exceptions import ChunkedEncodingError, HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex import (
@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.convex.con
     ConvexResumeConfig,
     InvalidDeployUrlError,
     InvalidWindowError,
+    _convex_get,
     convex_source,
     document_deltas,
     list_snapshot,
@@ -254,6 +255,25 @@ class TestDocumentDeltasResumable:
         assert first_params["cursor"] == 10
         # Discarding a poisoned cursor must not persist new state off the back of it.
         manager.save_state.assert_not_called()
+
+
+class TestConvexChunkedEncodingRetry:
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_document_deltas_retries_on_chunked_encoding_error(self, mock_get: Mock) -> None:
+        # A connection broken mid-body surfaces as ChunkedEncodingError after the response headers,
+        # past _CONVEX_RETRY's reach (urllib3 only retries pre-response failures). The reads are
+        # idempotent GETs, so a fresh request must re-fetch the page rather than fail the sync.
+        manager = _make_manager(can_resume=False)
+        mock_get.return_value.get.side_effect = [
+            ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"),
+            _make_response({"values": [{"_id": "a"}], "cursor": 30, "hasMore": False}),
+        ]
+
+        with patch.object(_convex_get.retry, "sleep"):
+            batches = list(document_deltas("https://x.convex.cloud", "key", "t", 10, manager))
+
+        assert batches == [[{"_id": "a"}]]
+        assert mock_get.return_value.get.call_count == 2
 
 
 class TestConvexRetryPolicy:
