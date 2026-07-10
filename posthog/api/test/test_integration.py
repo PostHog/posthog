@@ -22,6 +22,7 @@ from posthog.api.github_callback.state import store_unified_authorize_state
 from posthog.api.github_callback.team_services import (
     GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
     authorize_link_existing_installation,
+    link_existing_team_github_integration,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
@@ -2937,6 +2938,54 @@ class TestGitHubTeamIntegrationComplete:
             authorize_link_existing_installation(user=member, team=self.team, source_installation_id="12345")
         codes = exc_info.value.get_codes()
         assert isinstance(codes, list) and GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED in codes
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_auto_resolves_single_org_installation(self, mock_from_install):
+        # The one-click "Link existing installation" UI sends no source_team_id / installation_id;
+        # the service must resolve the org's single existing installation and link it to this team.
+        sibling = Team.objects.create(organization=self.organization, name="Sibling Team")
+        Integration.objects.create(
+            team=sibling,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_sibling"},
+        )
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration()
+
+        result = link_existing_team_github_integration(
+            user=self.user,
+            organization=self.organization,
+            team_id=self.team.pk,
+            source_team_id=None,
+            installation_id_param=None,
+        )
+
+        assert result is not None
+        assert mock_from_install.call_args.args[0] == "12345"
+        assert mock_from_install.call_args.args[1] == self.team.pk
+
+    @parameterized.expand([("no_installations", []), ("ambiguous_installations", ["111", "222"])])
+    def test_link_existing_auto_resolve_rejects_when_not_exactly_one(self, _name, installation_ids):
+        # Auto-resolve is only safe when the org has exactly one installation: zero has nothing to
+        # link, and multiple is ambiguous, so the caller must disambiguate rather than guess.
+        for idx, installation_id in enumerate(installation_ids):
+            team = Team.objects.create(organization=self.organization, name=f"Sibling {idx}")
+            Integration.objects.create(
+                team=team,
+                kind="github",
+                integration_id=installation_id,
+                config={"installation_id": installation_id},
+                sensitive_config={"access_token": "ghs_sibling"},
+            )
+        with pytest.raises(ValidationError):
+            link_existing_team_github_integration(
+                user=self.user,
+                organization=self.organization,
+                team_id=self.team.pk,
+                source_team_id=None,
+                installation_id_param=None,
+            )
 
     def test_cross_user_state_rejected_on_unified_callback(self, client: HttpClient):
         # State tokens are bound to a user via the pending-pointer cache key.

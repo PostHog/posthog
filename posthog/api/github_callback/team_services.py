@@ -424,7 +424,34 @@ def link_existing_team_github_integration(
             )
         source = existing
     else:
-        raise ValidationError("source_team_id or installation_id is required")
+        # No source specified: auto-resolve the org's existing GitHub installation. This backs the
+        # one-click "Link existing installation" UI, where a second project reuses the org's single
+        # install without the caller having to know a sibling team id or the installation id.
+        org_github = (
+            Integration.objects.filter(team__organization_id=organization.id, kind="github")
+            .exclude(team_id=team_id)
+            .order_by("id")
+        )
+        distinct_installation_ids = {
+            str(config_installation_id)
+            for integration in org_github
+            if (config_installation_id := (integration.config or {}).get("installation_id"))
+        }
+        if not distinct_installation_ids:
+            raise ValidationError(
+                "No team in your organization has a GitHub installation to link",
+                code=GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
+            )
+        if len(distinct_installation_ids) > 1:
+            raise ValidationError(
+                "Your organization has multiple GitHub installations; specify which one to link via installation_id"
+            )
+        source = org_github.for_github_installation_id(next(iter(distinct_installation_ids))).first()
+        if source is None:
+            raise ValidationError(
+                "No team in your organization has a GitHub installation to link",
+                code=GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
+            )
 
     installation_id = (source.config or {}).get("installation_id")
     if not installation_id:
