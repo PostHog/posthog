@@ -1480,7 +1480,11 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
         cleanup_gemini_file_activity,
     ]
     assert len(mocks.child_calls) == 1
-    assert mocks.child_calls[0][1]["id"] == f"replay-vision-rasterize-99-sess-1-{inputs.scanner_id}"
+    child_kwargs = mocks.child_calls[0][1]
+    assert child_kwargs["id"] == f"replay-vision-rasterize-99-sess-1-{inputs.scanner_id}"
+    # The child window must outlast the rasterize activity's 30-min start_to_close, or its
+    # maximum_attempts=2 retry can never be scheduled (equal budgets = dead retry config).
+    assert child_kwargs["execution_timeout"] > dt.timedelta(minutes=30)
 
     emit_input = next(arg for fn, arg in mocks.activity_calls if fn is emit_observation_event_activity)
     assert emit_input.model_output == model_output
