@@ -63,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookCreationResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.versioning import VersionDeprecation
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_CUSTOM_SOURCES_PER_TEAM,
     PREVIEW_DEFAULT_ROWS,
@@ -97,6 +98,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS as STRIPE_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+
+
+def _configure_source_mock_versioning(mock_get_source) -> None:
+    """Tests that patch `SourceRegistry.get_source` with a bare MagicMock must give the versioning
+    attributes real values: the create path persists `default_version` into the `api_version`
+    column, and the serializer renders `get_version_deprecation` into the response."""
+    mock_get_source.return_value.default_version = "v1"
+    mock_get_source.return_value.get_version_deprecation.return_value = None
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -179,11 +189,6 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(source.api_version, "2024-09-30.acacia")
 
     def test_api_version_deprecation_surfaces_for_deprecated_pin(self):
-        from products.warehouse_sources.backend.temporal.data_imports.sources.common.versioning import (
-            VersionDeprecation,
-        )
-        from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
-
         source = self._create_external_data_source()
         source.api_version = "2024-09-30.acacia"
         source.save(update_fields=["api_version"])
@@ -268,8 +273,7 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.sync_discover_schemas_schedule")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_create_direct_query_source_skips_discovery_schedule(self, mock_get_source, mock_sync_discover):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         # Direct-query sources resolve schemas at query time and opt out of all
         # background sync — no discovery schedule should be created.
         source_mock = mock_get_source.return_value
@@ -2813,8 +2817,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_preserves_numeric_as_decimal(self, mock_get_source):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
@@ -2896,8 +2899,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_does_not_require_prefix_namespace(self, mock_get_source):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -2954,8 +2956,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_creates_only_selected_tables(self, mock_get_source):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
@@ -3033,8 +3034,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_rejects_row_filters(self, mock_get_source):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
@@ -3092,8 +3092,7 @@ class TestExternalDataSource(APIBaseTest):
     def test_create_direct_postgres_blank_schema_prefixes_table_names_and_preserves_physical_schema(
         self, mock_get_source
     ):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
@@ -3193,8 +3192,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table,
         _mock_is_cdc_enabled_for_team,
     ):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
@@ -3294,8 +3292,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table,
         _mock_is_cdc_enabled_for_team,
     ):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         # A CDC source discovers every table, but the user only enables a few. Tables the user
         # didn't enable haven't had a sync method set up, so they must be created with a blank
         # sync_type (the schemas UI keys off this to prompt setup). Only the enabled table gets
@@ -3416,8 +3413,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table,
         _mock_is_cdc_enabled_for_team,
     ):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         # CDC (logical replication) cannot identify rows on UPDATE/DELETE without a primary key.
         # Frontend gates on `supports_cdc`, but the backend must enforce too — direct API/MCP
         # callers, or a UI that lost track of `supports_cdc`, would otherwise create a schema
@@ -3504,8 +3500,7 @@ class TestExternalDataSource(APIBaseTest):
         _mock_is_cdc_enabled_for_team,
         mock_capture_exception,
     ):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         # Credential validation connects with sslmode=prefer (falls back to unencrypted), but the
         # CDC primary-key detection connection requires SSL. A database that doesn't support SSL
         # raises SSLRequiredError here — a user/upstream connection problem, not a bug. It must
@@ -3585,8 +3580,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_setup_cdc_resources,
         _mock_is_cdc_enabled_for_team,
     ):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         # If the user never toggled CDC on at the source-setup step, `payload.cdc_enabled` is
         # False and `_setup_cdc_resources` never runs — so no replication slot/publication exists
         # on the source. Accepting per-schema `sync_type=cdc` in that state would persist
@@ -3667,8 +3661,7 @@ class TestExternalDataSource(APIBaseTest):
         expected_persisted: list[str] | None,
         mock_get_source,
     ):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
@@ -3757,8 +3750,7 @@ class TestExternalDataSource(APIBaseTest):
         expected_persisted: list[str] | None,
         mock_get_source,
     ):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
@@ -6053,8 +6045,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_update_direct_postgres_schema_filter_refreshes_existing_schemas(self, mock_get_source):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -6137,8 +6128,7 @@ class TestExternalDataSource(APIBaseTest):
     def test_update_direct_postgres_schema_filter_preserves_selected_table_for_same_physical_schema(
         self, mock_get_source
     ):
-        mock_get_source.return_value.default_version = "v1"
-        mock_get_source.return_value.get_version_deprecation.return_value = None
+        _configure_source_mock_versioning(mock_get_source)
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),

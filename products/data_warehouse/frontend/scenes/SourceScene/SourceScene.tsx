@@ -289,7 +289,7 @@ function ManagedSourceTabs({
     )
 }
 
-function ApiVersionDeprecationBanner({
+export function ApiVersionDeprecationBanner({
     sourceType,
     deprecation,
 }: {
