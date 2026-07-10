@@ -225,6 +225,45 @@ class TestGitHubPRWebhook(TestCase):
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_resolves_to_active_run_when_resume_shares_pr(self, _mock_capture, mock_get_secret):
+        # A resumed wizard run shares its predecessor's PR; the merge must land on the
+        # live run (recording pr_merged and signaling wind-down), not the dead original.
+        mock_get_secret.return_value = self.webhook_secret
+        pr_url = "https://github.com/posthog/posthog/pull/779"
+        active_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"wizard_config": {}},
+            output={"pr_url": pr_url},
+        )
+        terminal_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.FAILED,
+            state={"wizard_config": {}},
+            output={"pr_url": pr_url},
+        )
+        payload = {
+            "action": "closed",
+            "pull_request": {"html_url": pr_url, "merged": True},
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        with patch("products.tasks.backend.webhooks.signal_workflow_completion") as mock_signal:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_signal.assert_called_once_with(active_run.id, TaskRun.Status.COMPLETED, None)
+        active_run.refresh_from_db()
+        terminal_run.refresh_from_db()
+        assert active_run.output is not None and terminal_run.output is not None
+        self.assertIs(active_run.output.get("pr_merged"), True)
+        self.assertNotIn("pr_merged", terminal_run.output)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_merged_signal_failure_keeps_webhook_successful(self, _mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         pr_url = "https://github.com/posthog/posthog/pull/778"
@@ -819,6 +858,35 @@ class TestFindTaskRun(TestCase):
         )
         result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/123")
         self.assertEqual(result, task_run)
+
+    def test_pr_url_prefers_active_run_over_terminal(self):
+        # A resumed wizard run inherits its predecessor's head branch, so two runs can
+        # claim the same PR URL; the lookup must resolve to the one still able to act.
+        pr_url = "https://github.com/posthog/posthog/pull/321"
+        active_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": pr_url},
+        )
+        # Created later, so a purely newest-first lookup would wrongly pick this one.
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": pr_url},
+        )
+        self.assertEqual(find_task_run(pr_url=pr_url), active_run)
+
+    def test_pr_url_does_not_match_other_repositories(self):
+        pr_url = "https://github.com/posthog/posthog/pull/322"
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": pr_url},
+        )
+        self.assertIsNone(find_task_run(pr_url=pr_url, repository="acme/other"))
 
     def test_finds_by_branch_when_no_pr_url_match(self):
         task_run = TaskRun.objects.create(

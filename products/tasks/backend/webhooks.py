@@ -3,6 +3,7 @@ import uuid
 import hashlib
 
 from django.db import transaction
+from django.db.models import Case, IntegerField, Value, When
 from django.http import HttpResponse
 
 import structlog
@@ -30,15 +31,34 @@ def find_task_run(
     branch: str | None = None,
     repository: str | None = None,
 ) -> TaskRun | None:
+    repository = repository.strip() if repository else None
+
     if pr_url:
-        task_run = TaskRun.objects.filter(output__pr_url=pr_url).select_related(*TASK_RUN_SELECT_RELATED).first()
+        # A resumed wizard run inherits its predecessor's head branch, so a terminal
+        # original and its live resume can both claim the same PR URL. Scope to the
+        # webhook's repo and prefer non-terminal runs so merge handling lands on the
+        # run that can still act on it.
+        runs = TaskRun.objects.filter(output__pr_url=pr_url)
+        if repository:
+            runs = runs.filter(task__repository__iexact=repository)
+        task_run = (
+            runs.annotate(
+                terminal_rank=Case(
+                    When(status__in=_TERMINAL_RUN_STATUSES, then=Value(1)),
+                    default=Value(0),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("terminal_rank", "-created_at")
+            .select_related(*TASK_RUN_SELECT_RELATED)
+            .first()
+        )
         if task_run:
             return task_run
 
     # Branch-only lookups must be scoped to the repository the webhook came from.
     # Without this, a PR opened on an unrelated repo with a colliding branch name
     # (e.g. "main") gets attributed to whichever TaskRun shares that branch.
-    repository = repository.strip() if repository else None
     if branch and repository:
         # Wizard runs are excluded here: their `branch` column holds the checkout (base)
         # branch, so a same-repo PR whose head ref equals the base (e.g. "main") would
