@@ -1764,6 +1764,10 @@ database "posthog" {
       type         = "Nullable(UUID)"
       default      = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
     }
+    column "token" {
+      type         = "LowCardinality(String)"
+      default      = "JSONExtractString(details, 'token')"
+    }
     column "_timestamp" {
       type = "DateTime"
     }

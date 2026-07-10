@@ -44,9 +44,11 @@ CREATE TABLE posthog.ingestion_warnings_v2 (
   distinct_id Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'distinctId'), ''),
   group_key Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'groupKey'), ''),
   person_id Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'personId')),
+  token LowCardinality(String) DEFAULT JSONExtractString(details, 'token'),
   _timestamp DateTime,
   _offset UInt64,
-  _partition UInt64
+  _partition UInt64,
+  INDEX idx_token token TYPE bloom_filter(0.01) GRANULARITY 1
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.ingestion_warnings_v2', '{replica}-{shard}') ORDER BY (team_id, type, timestamp) PARTITION BY toYYYYMM(timestamp) TTL toDateTime(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.ingestion_warnings_v2_distributed (
   team_id Int64,
@@ -61,6 +63,7 @@ CREATE TABLE posthog.ingestion_warnings_v2_distributed (
   distinct_id Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'distinctId'), ''),
   group_key Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'groupKey'), ''),
   person_id Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'personId')),
+  token LowCardinality(String) DEFAULT JSONExtractString(details, 'token'),
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64

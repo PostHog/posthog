@@ -140,6 +140,10 @@ database "posthog" {
       type         = "Nullable(UUID)"
       default      = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
     }
+    column "token" {
+      type         = "LowCardinality(String)"
+      default      = "JSONExtractString(details, 'token')"
+    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -1037,6 +1041,11 @@ database "posthog" {
       index_granularity = "8192"
     }
     extend = "_ingestion_warnings_v2_columns"
+    index "idx_token" {
+      expr        = "token"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.ingestion_warnings_v2"
       replica_name = "{replica}-{shard}"

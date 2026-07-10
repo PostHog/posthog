@@ -297,6 +297,7 @@ CREATE TABLE posthog.ingestion_warnings_v2_distributed (
   distinct_id Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'distinctId'), ''),
   group_key Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'groupKey'), ''),
   person_id Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'personId')),
+  token LowCardinality(String) DEFAULT JSONExtractString(details, 'token'),
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64

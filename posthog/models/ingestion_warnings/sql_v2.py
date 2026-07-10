@@ -22,6 +22,11 @@ DISTRIBUTED_TABLE_NAME = f"{TABLE_NAME}_distributed"
 # Storage columns for the data + distributed tables. Derived dimensions and entity ids have
 # DEFAULT expressions over the raw `details` JSON; the JSON key names must match what the
 # producers emit (a mismatch just yields the default/NULL, it does not break ingestion).
+#
+# `token`: producers that cannot resolve a team_id (e.g. the capture service, which has no
+# database access) emit team_id=0 and stamp the request's API token in `details`; the read
+# side matches those rows to a team by token. Bloom-filter indexed on the data table since
+# token lookups can't use the (team_id, type, timestamp) primary key.
 INGESTION_WARNINGS_V2_COLUMNS = """
     team_id Int64,
     source LowCardinality(String),
@@ -35,6 +40,7 @@ INGESTION_WARNINGS_V2_COLUMNS = """
     distinct_id Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'distinctId'), ''),
     group_key Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'groupKey'), ''),
     person_id Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'personId')),
+    token LowCardinality(String) DEFAULT JSONExtractString(details, 'token'),
     _timestamp DateTime,
     _offset UInt64,
     _partition UInt64
@@ -57,6 +63,7 @@ def INGESTION_WARNINGS_V2_DATA_TABLE_SQL() -> str:
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     {columns}
+    , INDEX idx_token token TYPE bloom_filter(0.01) GRANULARITY 1
 ) ENGINE = {engine}
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, type, timestamp)

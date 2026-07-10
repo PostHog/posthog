@@ -1764,32 +1764,36 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     column "category" {
-      type         = "LowCardinality(String)"
-      default      = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
+      type    = "LowCardinality(String)"
+      default = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
     }
     column "severity" {
-      type         = "LowCardinality(String)"
-      default      = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
+      type    = "LowCardinality(String)"
+      default = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
     }
     column "pipeline_step" {
-      type         = "LowCardinality(String)"
-      default      = "coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown')"
+      type    = "LowCardinality(String)"
+      default = "coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown')"
     }
     column "event_uuid" {
-      type         = "Nullable(UUID)"
-      default      = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
+      type    = "Nullable(UUID)"
+      default = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
     }
     column "distinct_id" {
-      type         = "Nullable(String)"
-      default      = "nullIf(JSONExtractString(details, 'distinctId'), '')"
+      type    = "Nullable(String)"
+      default = "nullIf(JSONExtractString(details, 'distinctId'), '')"
     }
     column "group_key" {
-      type         = "Nullable(String)"
-      default      = "nullIf(JSONExtractString(details, 'groupKey'), '')"
+      type    = "Nullable(String)"
+      default = "nullIf(JSONExtractString(details, 'groupKey'), '')"
     }
     column "person_id" {
-      type         = "Nullable(UUID)"
-      default      = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
+      type    = "Nullable(UUID)"
+      default = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
+    }
+    column "token" {
+      type    = "LowCardinality(String)"
+      default = "JSONExtractString(details, 'token')"
     }
     column "_timestamp" {
       type = "DateTime"
