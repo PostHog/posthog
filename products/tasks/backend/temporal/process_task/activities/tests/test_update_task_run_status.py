@@ -62,11 +62,9 @@ class TestUpdateTaskRunStatusActivity:
 
         test_task_run.refresh_from_db()
         assert test_task_run.status == TaskRun.Status.COMPLETED
-        # A timed-out run is a normal completion; error_message stays empty so nothing
-        # downstream renders it as a failure.
         assert test_task_run.error_message is None
         assert test_task_run.state.get("timed_out_inactivity") is True
-        # Merge, not replace: concurrent state keys survive the marker write.
+        # Merge, not replace: pre-existing state keys survive the marker write.
         assert test_task_run.state.get("existing_key") == "kept"
 
     @pytest.mark.django_db(transaction=True)

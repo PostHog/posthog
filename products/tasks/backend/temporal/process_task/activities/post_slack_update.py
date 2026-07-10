@@ -164,11 +164,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
 
 
 def _is_timed_out_completion(task_run: Any) -> bool:
-    """An inactivity-timeout completion gets no completion card — the thread just went quiet.
-
-    The error_message check is a fallback for runs finalized before the state marker existed;
-    they carry the signal as "Run timed out due to inactivity" in error_message.
-    """
+    """The error_message check covers runs finalized before the state marker existed."""
     state = task_run.state if isinstance(task_run.state, dict) else {}
     if state.get(TIMED_OUT_INACTIVITY_STATE_KEY):
         return True

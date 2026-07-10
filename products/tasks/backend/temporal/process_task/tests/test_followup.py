@@ -292,7 +292,6 @@ class TestCIFollowUpLoop:
         assert all(msg == DEFAULT_CI_MESSAGE for msg in _ci_followup_calls)
         timeout_updates = [(s, e) for s, e, timed_out in _status_updates if timed_out]
         assert timeout_updates, f"expected an inactivity-timeout completion, got {_status_updates}"
-        # The idle timeout is a normal completion: no error_message on the run.
         assert timeout_updates == [("completed", None)]
 
     @pytest.mark.timeout(60, func_only=True)

@@ -12,10 +12,8 @@ from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
-# TaskRun.state key set when a run completes because its inactivity timeout fired rather
-# than the agent finishing. Consumers (e.g. Slack updates) render these completions quietly;
-# the signal lives in state, not error_message, so a normal completion never carries an
-# error and never reads as a failure in UIs that surface error_message.
+# TaskRun.state marker for runs completed by the inactivity timeout; kept out of
+# error_message so a normal completion never reads as a failure.
 TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 
 
@@ -52,7 +50,7 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
         task_run.error_message = input.error_message
 
     if input.timed_out_inactivity:
-        # Atomic merge (not a plain assignment) so concurrent state writers aren't clobbered.
+        # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
         task_run.state = TaskRun.update_state_atomic(task_run.id, updates={TIMED_OUT_INACTIVITY_STATE_KEY: True})
 
     if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:

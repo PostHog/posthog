@@ -224,7 +224,6 @@ class TestPostSlackUpdate(TestCase):
 
     @parameterized.expand(
         [
-            # Timed-out completions carry the marker in run state, never in error_message.
             ({"state": {"timed_out_inactivity": True}, "error_message": None},),
             # Runs finalized before the state marker existed carry the signal in error_message.
             ({"error_message": "Run timed out due to inactivity"},),
