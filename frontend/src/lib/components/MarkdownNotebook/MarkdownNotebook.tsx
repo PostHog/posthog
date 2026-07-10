@@ -178,6 +178,7 @@ import {
     makeEmptyParagraph,
     makeListItemId,
     parseMarkdownNotebook,
+    sanitizeNotebookLinkHref,
     serializeMarkdownNotebook,
 } from './markdown'
 import { NOTEBOOK_AI_WRITING_PLACEHOLDER } from './notebookAI'
@@ -318,6 +319,11 @@ type NotebookHistoryState = {
 }
 
 /** Consecutive single-block edits within this window fold into one undo step. */
+// The editable surfaces whose links are pointer-inert while editing (see MarkdownNotebook.scss);
+// only these get the modifier-click open behavior, everything else keeps native navigation
+const POINTER_INERT_LINK_CONTAINER_SELECTOR =
+    '.MarkdownNotebook__text-block[contenteditable="true"], .MarkdownNotebook__list-block[contenteditable="true"], .MarkdownNotebook__table-cell-content[contenteditable="true"]'
+
 const UNDO_TYPING_GROUP_MS = 1000
 
 /** How many recent local serializations to remember for save-echo detection. Must comfortably
@@ -3935,9 +3941,53 @@ function MarkdownNotebookEditor({
         }, 0)
     }
 
+    // Links in editable blocks are pointer-inert so plain clicks place the caret; holding
+    // Cmd/Ctrl re-enables them (see MarkdownNotebook.scss) so they can be opened, matching
+    // the TipTap editor's link mark behavior.
+    useEffect(() => {
+        if (mode !== 'edit') {
+            return
+        }
+
+        const setLinkModifierHeld = (isHeld: boolean): void => {
+            notebookRef.current?.classList.toggle('MarkdownNotebook--link-modifier-held', isHeld)
+        }
+        const handleModifierKeyChange = (event: globalThis.KeyboardEvent): void =>
+            setLinkModifierHeld(event.metaKey || event.ctrlKey)
+        const resetLinkModifier = (): void => setLinkModifierHeld(false)
+
+        window.addEventListener('keydown', handleModifierKeyChange)
+        window.addEventListener('keyup', handleModifierKeyChange)
+        window.addEventListener('blur', resetLinkModifier)
+        return () => {
+            window.removeEventListener('keydown', handleModifierKeyChange)
+            window.removeEventListener('keyup', handleModifierKeyChange)
+            window.removeEventListener('blur', resetLinkModifier)
+            resetLinkModifier()
+        }
+    }, [mode])
+
     const handleCanvasClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
-        const refElement = event.target instanceof Element ? event.target.closest('[data-notebook-ref]') : null
-        const refId = refElement?.getAttribute('data-notebook-ref')
+        if (!(event.target instanceof Element)) {
+            return
+        }
+
+        const linkElement = event.target.closest('a[href]')
+        if (linkElement && linkElement.closest(POINTER_INERT_LINK_CONTAINER_SELECTOR)) {
+            if (event.metaKey || event.ctrlKey) {
+                const href = sanitizeNotebookLinkHref(linkElement.getAttribute('href') ?? '')
+                if (href) {
+                    event.preventDefault()
+                    window.open(href, '_blank', 'noopener')
+                    return
+                }
+            } else {
+                // While editing, a plain click only places the caret, never navigates
+                event.preventDefault()
+            }
+        }
+
+        const refId = event.target.closest('[data-notebook-ref]')?.getAttribute('data-notebook-ref')
         if (refId) {
             focusDiscussionCommentForRef(refId)
         }

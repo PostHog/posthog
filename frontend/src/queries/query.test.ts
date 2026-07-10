@@ -199,6 +199,22 @@ describe('query', () => {
     })
 
     describe('pollForResults error message parsing', () => {
+        it('prefers the structured error_code from the query status over one parsed from the message', async () => {
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
+                data: {
+                    query_status: {
+                        error_message: 'This query ran out of memory before it could finish',
+                        error_code: 'clickhouse_memory_limit_exceeded',
+                    },
+                },
+            })
+
+            await expect(pollForResults('test-query-id')).rejects.toMatchObject({
+                detail: 'This query ran out of memory before it could finish',
+                code: 'clickhouse_memory_limit_exceeded',
+            })
+        })
+
         it('parses ErrorDetail list format and extracts message and code', async () => {
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
                 data: {

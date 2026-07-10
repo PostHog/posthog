@@ -155,6 +155,40 @@ export const ValidationError: Story = {
     },
 }
 
+export const MemoryLimitExceeded: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/insights/': () => [
+                    200,
+                    { count: 1, results: [{ ...insight, result: null }] },
+                ],
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind/': async () => {
+                    await delay(100)
+                    return HttpResponse.json(
+                        {
+                            type: 'server_error',
+                            code: 'clickhouse_memory_limit_exceeded',
+                            detail: "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries",
+                        },
+                        { status: 513 }
+                    )
+                },
+            },
+        })
+
+        return <App />
+    },
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr=insight-memory-limit-debug-with-ai]',
+        },
+    },
+}
+
 export const EstimatedQueryExecutionTimeTooLong: Story = {
     render: () => {
         useStorybookMocks({
