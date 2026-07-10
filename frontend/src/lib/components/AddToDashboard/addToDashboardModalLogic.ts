@@ -117,6 +117,12 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
             actions.setScrollIndex(values.orderedDashboards.findIndex((d) => d.id === dashboard.id))
         },
 
+        updateInsightFailure: ({ errorObject }) => {
+            // Surface hard rejections (e.g. the target dashboard is publicly shared and the
+            // editor lacks access to this insight's tables) - the modal otherwise fails silently.
+            const detail = (errorObject as { detail?: unknown } | null)?.detail
+            lemonToast.error(typeof detail === 'string' ? detail : 'Could not update dashboards')
+        },
         addToDashboard: async ({ dashboardId }) => {
             // TODO be able to update not by patching `dashboards` against insight
             // either patch dashboard_tiles on the insight or add a dashboard_tiles API

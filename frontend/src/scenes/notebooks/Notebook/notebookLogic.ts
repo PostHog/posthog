@@ -1973,7 +1973,14 @@ export const notebookLogic = kea<notebookLogicType>([
             }
             actions.processPendingMarkdownStreamEvents()
         },
-        saveNotebookFailure: () => {
+        saveNotebookFailure: ({ error }) => {
+            // Surface hard rejections (e.g. adding a query the editor can't run to a publicly shared notebook)
+            // Otherwise autosave fails silently and edits look saved when they aren't.
+            // Transient/network failures keep the quiet retry behavior.
+            const detail = (error as { status?: number; detail?: unknown } | null)?.detail
+            if ((error as { status?: number } | null)?.status === 400 && typeof detail === 'string') {
+                lemonToast.error(detail)
+            }
             actions.processPendingMarkdownStreamEvents()
         },
         loadNotebookSuccess: ({ notebook }) => {

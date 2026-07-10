@@ -32,6 +32,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.sharing_publish_gate import is_publicly_shared, tables_blocked_in_notebook_edit
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
@@ -279,6 +280,22 @@ class NotebookSerializer(NotebookMinimalSerializer):
                         raise Conflict("Someone else edited the Notebook")
 
                     validated_data["version"] = locked_instance.version + 1
+
+                    # A publicly shared notebook's link would expose any query this save adds or
+                    # changes, so the editor must be able to run them. Only changed queries are
+                    # checked, and only when a share exists - normal autosave on unshared
+                    # notebooks does no access work at all.
+                    if is_publicly_shared(locked_instance):
+                        blocked = tables_blocked_in_notebook_edit(
+                            self.context["request"].user, locked_instance, validated_data.get("content")
+                        )
+                        if blocked:
+                            blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                            raise serializers.ValidationError(
+                                f"Can't save: you don't have access to {blocked_list}, "
+                                "and this notebook is publicly shared."
+                            )
+
                     content = validated_data.get("content")
                     if isinstance(content, dict):
                         validated_data["content"] = annotate_python_nodes(content)
@@ -1128,6 +1145,17 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         user = cast(User, request.user)
         user_name = _collab_user_name(user)
+
+        # Same guard as NotebookSerializer.update - collab saves write content directly, so
+        # without it the collab path would bypass the shared-notebook access block entirely.
+        # Must run before submit_steps: once steps are accepted, peers have already applied them.
+        if is_publicly_shared(notebook):
+            blocked = tables_blocked_in_notebook_edit(user, notebook, request.data.get("content"))
+            if blocked:
+                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                raise serializers.ValidationError(
+                    f"Can't save: you don't have access to {blocked_list}, and this notebook is publicly shared."
+                )
 
         result = submit_steps(
             team_id=notebook.team_id,

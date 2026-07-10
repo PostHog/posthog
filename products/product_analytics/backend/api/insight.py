@@ -50,6 +50,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
+from posthog.api.sharing_publish_gate import is_publicly_shared, tables_blocked_for_user
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
@@ -717,6 +718,19 @@ class InsightSerializer(InsightBasicSerializer):
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
 
+        # Shared links execute without access checks, so an edit that adds a table
+        # the editor can't run must not reach a publicly shared surface.
+        # Unshared insights save without any access query.
+        new_query = validated_data.get("query")
+        if isinstance(new_query, dict) and new_query != instance.query and is_publicly_shared(instance):
+            blocked = tables_blocked_for_user(self.context["request"].user, instance.team, [new_query])
+            if blocked:
+                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                raise serializers.ValidationError(
+                    f"Can't save this query: you don't have access to {blocked_list}, "
+                    "and this insight is publicly shared."
+                )
+
         if validated_data.get("deleted", False):
             DashboardTile.objects_including_soft_deleted.filter(insight__id=instance.id).update(deleted=True)
             for alert in instance.alertconfiguration_set.all():
@@ -820,6 +834,17 @@ class InsightSerializer(InsightBasicSerializer):
 
             if dashboard.team != instance.team:
                 raise serializers.ValidationError("Dashboard not found")
+
+            # The dashboard's public link would expose this insight's query, so the editor adding
+            # it must be able to run it (see the publish gate for the enable-time counterpart).
+            if isinstance(instance.query, dict) and is_publicly_shared(dashboard):
+                blocked = tables_blocked_for_user(self.context["request"].user, instance.team, [instance.query])
+                if blocked:
+                    blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                    raise serializers.ValidationError(
+                        f"Can't add this insight: you don't have access to {blocked_list}, "
+                        "and this dashboard is publicly shared."
+                    )
 
             tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=instance, dashboard=dashboard)
 

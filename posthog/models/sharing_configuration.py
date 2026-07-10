@@ -101,6 +101,14 @@ class SharingConfiguration(models.Model):
         }
 
     @classmethod
+    def tokens_active_q(cls) -> models.Q:
+        """Matches shares whose public tokens currently work: enabled, and either unexpired or
+        inside the rotation grace period. This is the exposure question ("does a working link
+        exist?") - distinct from queryset_active_for_resource, which picks the current config row
+        for a resource and ignores grace-period duplicates."""
+        return models.Q(enabled=True) & (models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
+
+    @classmethod
     def queryset_active_for_resource(cls, **resource_lookup: Any) -> models.QuerySet["SharingConfiguration"]:
         return cls.objects.filter(**resource_lookup, expires_at__isnull=True).order_by("-created_at")
 

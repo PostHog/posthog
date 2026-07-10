@@ -749,9 +749,9 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
             if request.method not in ["GET", "HEAD"]:
                 raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
             try:
-                sharing_configuration = SharingConfiguration.objects.filter(
-                    models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now())
-                ).get(access_token=sharing_access_token, enabled=True)
+                sharing_configuration = SharingConfiguration.objects.filter(SharingConfiguration.tokens_active_q()).get(
+                    access_token=sharing_access_token
+                )
 
                 # If password is required, don't authenticate via direct access_token
                 # Let the view handle showing the unlock page

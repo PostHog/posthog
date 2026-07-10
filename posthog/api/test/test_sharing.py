@@ -1933,3 +1933,223 @@ class TestSharingPublishGate(APIBaseTest):
         response = self._enable_sharing("insight")
 
         assert response.status_code == status.HTTP_200_OK, response.content
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+class TestSaveTimeAccessBlock(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="governed_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        self.insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"}},
+            created_by=self.user,
+        )
+
+    def _deny_editor(self) -> None:
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+
+    _DENIED_QUERY = {"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"}}
+
+    def _patch_insight_query(self):
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"query": self._DENIED_QUERY}
+        )
+
+    @parameterized.expand([("direct",), ("dashboard",), ("notebook",)])
+    def test_query_update_blocked_when_insight_is_publicly_shared(self, coverage: str):
+        self._deny_editor()
+        if coverage == "direct":
+            SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
+        elif coverage == "dashboard":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+            SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        else:
+            notebook = Notebook.objects.create(
+                team=self.team,
+                created_by=self.user,
+                content={
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-query",
+                            "attrs": {
+                                "nodeId": "e1",
+                                "query": {"kind": "SavedInsightNode", "shortId": self.insight.short_id},
+                            },
+                        }
+                    ],
+                },
+            )
+            SharingConfiguration.objects.create(team=self.team, notebook=notebook, enabled=True)
+
+        response = self._patch_insight_query()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "publicly shared" in str(response.json())
+        self.insight.refresh_from_db()
+        assert self.insight.query["source"]["query"] == "SELECT 1 AS one"
+
+    def test_query_update_allowed_when_not_shared(self):
+        self._deny_editor()
+
+        response = self._patch_insight_query()
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_adding_insight_to_shared_dashboard_blocked(self):
+        self._deny_editor()
+        self.insight.query = self._DENIED_QUERY
+        self.insight.save()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"dashboards": [dashboard.id]}
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "publicly shared" in str(response.json())
+        assert not DashboardTile.objects.filter(dashboard=dashboard, insight=self.insight).exists()
+
+    def test_adding_insight_to_unshared_dashboard_allowed(self):
+        self._deny_editor()
+        self.insight.query = self._DENIED_QUERY
+        self.insight.save()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"dashboards": [dashboard.id]}
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    def _shared_notebook(self, content: dict) -> Notebook:
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, content=content, version=1)
+        SharingConfiguration.objects.create(team=self.team, notebook=notebook, enabled=True)
+        return notebook
+
+    def _patch_notebook_content(self, notebook: Notebook, content: dict):
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/",
+            {"content": content, "version": notebook.version},
+        )
+
+    @parameterized.expand(
+        [
+            ("inline_query", {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"}),
+            ("incomplete_query", {"kind": "HogQLQuery", "query": "SELECT FROM WHERE ((("}),
+        ]
+    )
+    def test_notebook_edit_adding_inline_query(self, case: str, source: dict):
+        self._deny_editor()
+        notebook = self._shared_notebook({"type": "doc", "content": []})
+        new_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {"nodeId": "n1", "query": {"kind": "DataTableNode", "source": source}},
+                }
+            ],
+        }
+
+        response = self._patch_notebook_content(notebook, new_content)
+
+        if case == "inline_query":
+            # A publicly shared notebook must not accept queries the editor can't run.
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "publicly shared" in str(response.json())
+        else:
+            # Broken mid-typing content isn't an access problem - autosave keeps flowing.
+            assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_notebook_edit_untouched_denied_query_does_not_gate(self):
+        self._deny_editor()
+        denied_node = {
+            "type": "ph-query",
+            "attrs": {
+                "nodeId": "n1",
+                "query": {
+                    "kind": "DataTableNode",
+                    "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+                },
+            },
+        }
+        notebook = self._shared_notebook({"type": "doc", "content": [denied_node]})
+        # Only the edit's delta is checked - pre-existing content never re-gates an autosave.
+        new_content = {"type": "doc", "content": [denied_node, {"type": "paragraph"}]}
+
+        response = self._patch_notebook_content(notebook, new_content)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_notebook_collab_save_blocked_for_denied_query(self):
+        # Collab saves write content directly (not through NotebookSerializer.update), so the
+        # guard must exist on that path too - otherwise collab-enabled notebooks bypass the gate.
+        self._deny_editor()
+        notebook = self._shared_notebook({"type": "doc", "content": []})
+        new_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "nodeId": "n1",
+                        "query": {
+                            "kind": "DataTableNode",
+                            "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+                        },
+                    },
+                }
+            ],
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/collab/save/",
+            data={"client_id": "c1", "version": notebook.version, "steps": [], "content": new_content},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "publicly shared" in str(response.json())
+        notebook.refresh_from_db()
+        assert notebook.content == {"type": "doc", "content": []}
+
+    def test_notebook_embedding_denied_insight_blocked(self):
+        self._deny_editor()
+        self.insight.query = self._DENIED_QUERY
+        self.insight.save()
+        notebook = self._shared_notebook({"type": "doc", "content": []})
+        new_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "nodeId": "e1",
+                        "query": {"kind": "SavedInsightNode", "shortId": self.insight.short_id},
+                    },
+                }
+            ],
+        }
+
+        response = self._patch_notebook_content(notebook, new_content)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "publicly shared" in str(response.json())
