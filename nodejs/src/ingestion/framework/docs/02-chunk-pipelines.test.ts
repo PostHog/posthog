@@ -1,17 +1,17 @@
 /**
- * # Chapter 2: Batch Pipelines
+ * # Chapter 2: Chunk Pipelines
  *
- * Batch pipelines process multiple items at once, which is more efficient
+ * Chunk pipelines process multiple items at once, which is more efficient
  * for I/O-bound operations like database queries or API calls. Instead of
  * N individual calls, you make one batched call.
  *
  * ## Key Concepts
  *
  * - **feed/next interface**: Feed batches in, pull results out
- * - **Cardinality guarantee**: Batch steps must return same number of results as inputs
- * - **OK filtering**: Non-OK items are automatically filtered before batch steps
+ * - **Cardinality guarantee**: Chunk steps must return same number of results as inputs
+ * - **OK filtering**: Non-OK items are automatically filtered before chunk steps
  *
- * ## When to Use Batch Pipelines
+ * ## When to Use Chunk Pipelines
  *
  * - Database lookups (batch SELECT)
  * - External API calls with batch endpoints
@@ -22,27 +22,27 @@ import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResult, dlq, isOkResult, ok } from '~/ingestion/framework/results'
 
 /**
- * Type for batch processing steps - takes an array of values and returns
+ * Type for chunk processing steps - takes an array of values and returns
  * an array of results (must have same length).
  */
-type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
+type ChunkProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
 
-describe('Batch Pipeline Basics', () => {
+describe('Chunk Pipeline Basics', () => {
     /**
-     * Batch pipelines process multiple items in a single step call.
+     * Chunk pipelines process multiple items in a single step call.
      * This is more efficient than processing items one at a time.
      */
-    it('batch pipelines process multiple items at once', async () => {
+    it('chunk pipelines process multiple items at once', async () => {
         let callCount = 0
 
-        function createBatchDoubleStep(): BatchProcessingStep<number, number> {
-            return function batchDoubleStep(items) {
+        function createChunkDoubleStep(): ChunkProcessingStep<number, number> {
+            return function chunkDoubleStep(items) {
                 callCount++
                 return Promise.resolve(items.map((n) => ok(n * 2)))
             }
         }
 
-        const pipeline = newChunkPipelineBuilder<number>().pipeChunk(createBatchDoubleStep()).build()
+        const pipeline = newChunkPipelineBuilder<number>().pipeChunk(createChunkDoubleStep()).build()
 
         const batch = [1, 2, 3, 4, 5].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
@@ -60,7 +60,7 @@ describe('Batch Pipeline Basics', () => {
      * processed, next() returns null.
      */
     it('feed() accepts items and next() returns results then null', async () => {
-        function createUppercaseStep(): BatchProcessingStep<string, string> {
+        function createUppercaseStep(): ChunkProcessingStep<string, string> {
             return function uppercaseStep(items) {
                 return Promise.resolve(items.map((s) => ok(s.toUpperCase())))
             }
@@ -82,17 +82,17 @@ describe('Batch Pipeline Basics', () => {
 
 describe('Cardinality Guarantee', () => {
     /**
-     * Batch steps must return the same number of results as inputs.
+     * Chunk steps must return the same number of results as inputs.
      * This ensures each input has a corresponding output.
      */
-    it('batch steps must return same number of results as inputs', async () => {
-        function createValidBatchStep(): BatchProcessingStep<number, number> {
-            return function validBatchStep(items) {
+    it('chunk steps must return same number of results as inputs', async () => {
+        function createValidChunkStep(): ChunkProcessingStep<number, number> {
+            return function validChunkStep(items) {
                 return Promise.resolve(items.map((n) => ok(n * 2)))
             }
         }
 
-        const pipeline = newChunkPipelineBuilder<number>().pipeChunk(createValidBatchStep()).build()
+        const pipeline = newChunkPipelineBuilder<number>().pipeChunk(createValidChunkStep()).build()
 
         const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
@@ -104,18 +104,18 @@ describe('Cardinality Guarantee', () => {
     })
 
     /**
-     * If a batch step returns a different number of results than inputs,
+     * If a chunk step returns a different number of results than inputs,
      * the pipeline throws an error.
      */
     it('mismatched result count throws an error', async () => {
-        function createBadBatchStep(): BatchProcessingStep<number, number> {
-            return function badBatchStep(items) {
+        function createBadChunkStep(): ChunkProcessingStep<number, number> {
+            return function badChunkStep(items) {
                 // Returns wrong length - invalid!
                 return Promise.resolve([ok(items[0])])
             }
         }
 
-        const pipeline = newChunkPipelineBuilder<number>().pipeChunk(createBadBatchStep()).build()
+        const pipeline = newChunkPipelineBuilder<number>().pipeChunk(createBadChunkStep()).build()
 
         const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
@@ -126,13 +126,13 @@ describe('Cardinality Guarantee', () => {
 
 describe('OK Filtering', () => {
     /**
-     * Batch steps only receive OK items. Non-OK items (DLQ, DROP, REDIRECT)
+     * Chunk steps only receive OK items. Non-OK items (DLQ, DROP, REDIRECT)
      * are automatically filtered out and preserved in the output.
      */
-    it('batch steps receive only OK items from previous steps', async () => {
+    it('chunk steps receive only OK items from previous steps', async () => {
         const receivedInSecondStep: number[] = []
 
-        function createFilterStep(): BatchProcessingStep<number, number> {
+        function createFilterStep(): ChunkProcessingStep<number, number> {
             return function filterStep(items) {
                 return Promise.resolve(
                     items.map((n) => {
@@ -145,7 +145,7 @@ describe('OK Filtering', () => {
             }
         }
 
-        function createProcessStep(): BatchProcessingStep<number, number> {
+        function createProcessStep(): ChunkProcessingStep<number, number> {
             return function processStep(items) {
                 receivedInSecondStep.push(...items)
                 return Promise.resolve(items.map((n) => ok(n * 10)))

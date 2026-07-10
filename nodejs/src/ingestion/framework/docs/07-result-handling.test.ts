@@ -83,7 +83,7 @@ import {
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
-type BatchProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
+type ChunkProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
 
 describe('Result Handling', () => {
     /**
@@ -110,7 +110,7 @@ describe('Result Handling', () => {
             data: string
         }
 
-        function createValidationStep(): BatchProcessingStep<Event, Event> {
+        function createValidationStep(): ChunkProcessingStep<Event, Event> {
             return function validationStep(items) {
                 return Promise.resolve(
                     items.map((item) =>
@@ -175,7 +175,7 @@ describe('Result Handling', () => {
             eventType: string
         }
 
-        function createFilterStep(): BatchProcessingStep<Event, Event> {
+        function createFilterStep(): ChunkProcessingStep<Event, Event> {
             return function filterStep(items) {
                 return Promise.resolve(
                     items.map((item) =>
@@ -232,7 +232,7 @@ describe('Result Handling', () => {
             priority: string
         }
 
-        function createRoutingStep(): BatchProcessingStep<Event, Event, 'high_priority' | 'broadcast'> {
+        function createRoutingStep(): ChunkProcessingStep<Event, Event, 'high_priority' | 'broadcast'> {
             return function routingStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
@@ -326,7 +326,7 @@ describe('Result Handling', () => {
         })
         mockOutputs.produce.mockReturnValue(ack)
 
-        function createRoutingStep(): BatchProcessingStep<{ v: string }, { v: string }, 'overflow'> {
+        function createRoutingStep(): ChunkProcessingStep<{ v: string }, { v: string }, 'overflow'> {
             return function routingStep(items) {
                 // awaitAck defaults to true (fourth arg omitted)
                 return Promise.resolve(items.map(() => redirect('Overflow', OVERFLOW, true)))
@@ -376,7 +376,7 @@ describe('Result Handling', () => {
         // Produce that never acknowledges within the test
         mockOutputs.produce.mockReturnValue(new Promise<void>(() => {}))
 
-        function createRoutingStep(): BatchProcessingStep<{ v: string }, { v: string }, 'overflow'> {
+        function createRoutingStep(): ChunkProcessingStep<{ v: string }, { v: string }, 'overflow'> {
             return function routingStep(items) {
                 // preserveKey = true, awaitAck = false
                 return Promise.resolve(items.map(() => redirect('Overflow', OVERFLOW, true, false)))

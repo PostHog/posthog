@@ -29,7 +29,7 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
 import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
 
-type BatchProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
+type ChunkProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
 
 describe('Filter Map', () => {
     /**
@@ -62,7 +62,7 @@ describe('Filter Map', () => {
         }
 
         // Step 1: Resolve team from teamId (some lookups may fail)
-        function createTeamLookupStep(): BatchProcessingStep<RawEvent, EventWithTeam> {
+        function createTeamLookupStep(): ChunkProcessingStep<RawEvent, EventWithTeam> {
             return function teamLookupStep(events) {
                 return Promise.resolve(
                     events.map((event) => {
@@ -79,7 +79,7 @@ describe('Filter Map', () => {
         }
 
         // Step 2: Process event (runs within teamAware context)
-        function createProcessEventStep(): BatchProcessingStep<EventWithTeam, EventWithTeam, typeof OVERFLOW_OUTPUT> {
+        function createProcessEventStep(): ChunkProcessingStep<EventWithTeam, EventWithTeam, typeof OVERFLOW_OUTPUT> {
             return function processEventStep(events) {
                 return Promise.resolve(
                     events.map((item) => {

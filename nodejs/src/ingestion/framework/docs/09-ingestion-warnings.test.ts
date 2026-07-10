@@ -58,7 +58,7 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
 import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
 
-type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
+type ChunkProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
 
 describe('Warning Basics', () => {
     /**
@@ -71,7 +71,7 @@ describe('Warning Basics', () => {
             properties?: Record<string, any>
         }
 
-        function createValidationStep(): BatchProcessingStep<Event, Event> {
+        function createValidationStep(): ChunkProcessingStep<Event, Event> {
             return function validationStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
@@ -118,7 +118,7 @@ describe('Warning Basics', () => {
             properties?: Record<string, any>
         }
 
-        function createTimestampCheckStep(): BatchProcessingStep<Event, Event> {
+        function createTimestampCheckStep(): ChunkProcessingStep<Event, Event> {
             return function timestampCheckStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
@@ -135,7 +135,7 @@ describe('Warning Basics', () => {
             }
         }
 
-        function createPropertiesCheckStep(): BatchProcessingStep<Event, Event> {
+        function createPropertiesCheckStep(): ChunkProcessingStep<Event, Event> {
             return function propertiesCheckStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
@@ -181,7 +181,7 @@ describe('Warning Basics', () => {
             properties: Record<string, any>
         }
 
-        function createComprehensiveValidationStep(): BatchProcessingStep<Event, Event> {
+        function createComprehensiveValidationStep(): ChunkProcessingStep<Event, Event> {
             return function comprehensiveValidationStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
@@ -253,7 +253,7 @@ describe('Handling Ingestion Warnings', () => {
             name: string
         }
 
-        function createWarningStep(): BatchProcessingStep<Event, Event> {
+        function createWarningStep(): ChunkProcessingStep<Event, Event> {
             return function warningStep(items) {
                 return Promise.resolve(
                     items.map((item) =>
@@ -297,7 +297,7 @@ describe('Handling Ingestion Warnings', () => {
             name: string
         }
 
-        function createStepWithBothSideEffectsAndWarnings(): BatchProcessingStep<Event, Event> {
+        function createStepWithBothSideEffectsAndWarnings(): ChunkProcessingStep<Event, Event> {
             return function stepWithBothSideEffectsAndWarnings(items) {
                 return Promise.resolve(
                     items.map((item) => {
@@ -340,7 +340,7 @@ describe('Warning Debouncing', () => {
             distinctId: string
         }
 
-        function createUserWarningStep(): BatchProcessingStep<Event, Event> {
+        function createUserWarningStep(): ChunkProcessingStep<Event, Event> {
             return function userWarningStep(items) {
                 return Promise.resolve(
                     items.map((item) =>
@@ -384,7 +384,7 @@ describe('Warning Debouncing', () => {
             name: string
         }
 
-        function createCriticalWarningStep(): BatchProcessingStep<Event, Event> {
+        function createCriticalWarningStep(): ChunkProcessingStep<Event, Event> {
             return function criticalWarningStep(items) {
                 return Promise.resolve(
                     items.map((item) =>

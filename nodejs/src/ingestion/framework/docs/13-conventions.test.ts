@@ -82,7 +82,7 @@ describe('Factory Functions', () => {
 
     /**
      * Whole pipelines are also created via factory functions. This is essential
-     * because batch pipelines are stateful (they maintain internal buffers via
+     * because chunk pipelines are stateful (they maintain internal buffers via
      * feed/next) and should only have one caller. Creating pipelines via factory
      * functions ensures each consumer gets its own instance.
      */

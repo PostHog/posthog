@@ -3,7 +3,7 @@
  *
  * The `concurrently()` method processes items in parallel, improving
  * throughput for I/O-bound operations. Concurrency is unbounded by default -
- * every item in a batch starts processing at the same time. Pass
+ * every item in a chunk starts processing at the same time. Pass
  * `{ maxConcurrency }` to cap how many items run at once. Although items are
  * processed concurrently, results are returned in the original input order,
  * one item at a time as they complete.
@@ -78,7 +78,7 @@ describe('Concurrent Processing', () => {
 
     /**
      * Items are returned one by one as they complete processing.
-     * Each call to next() returns one item (not the whole batch).
+     * Each call to next() returns one item (not the whole chunk).
      */
     it('items are returned one by one as they complete', async () => {
         function createSlowStep(): ProcessingStep<number, number> {
@@ -95,12 +95,12 @@ describe('Concurrent Processing', () => {
         const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
 
-        // Collect batches as they arrive
-        const batches: number[][] = []
+        // Collect chunks as they arrive
+        const chunks: number[][] = []
         const collectResults = (async () => {
             let result = await pipeline.next()
             while (result !== null) {
-                batches.push(
+                chunks.push(
                     result.filter((r) => isOkResult(r.result)).map((r) => (r.result as { value: number }).value)
                 )
                 result = await pipeline.next()
@@ -112,7 +112,7 @@ describe('Concurrent Processing', () => {
         await collectResults
 
         // Each call to next() returned exactly 1 item
-        expect(batches).toEqual([[10], [20], [30]])
+        expect(chunks).toEqual([[10], [20], [30]])
     })
 
     /**

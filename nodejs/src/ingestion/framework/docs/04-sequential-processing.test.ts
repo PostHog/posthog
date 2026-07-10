@@ -4,7 +4,7 @@
  * The `sequentially()` method processes items one at a time, preserving order.
  * Use it when order matters or when you need to limit concurrent operations.
  * Unlike concurrent processing which returns items one by one as they complete,
- * sequential processing returns all items together in a single batch after
+ * sequential processing returns all items together in a single chunk after
  * all processing is done.
  *
  * ## When to Use Sequential Processing
@@ -18,7 +18,7 @@
  * - **Order**: Strictly preserved
  * - **Throughput**: Lower than concurrent (one at a time)
  * - **Resources**: Minimal concurrent connections
- * - **Batching**: Results returned together (not streamed)
+ * - **Chunking**: Results returned together (not streamed)
  */
 import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
@@ -68,7 +68,7 @@ describe('Sequential Processing', () => {
     })
 
     /**
-     * Unlike concurrent processing, sequential returns all items in one batch
+     * Unlike concurrent processing, sequential returns all items in one chunk
      * after processing them one at a time.
      */
     it('all items are returned together after sequential processing', async () => {
@@ -86,12 +86,12 @@ describe('Sequential Processing', () => {
         const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
 
-        // Collect batches as they arrive
-        const batches: number[][] = []
+        // Collect chunks as they arrive
+        const chunks: number[][] = []
         const collectResults = (async () => {
             let result = await pipeline.next()
             while (result !== null) {
-                batches.push(
+                chunks.push(
                     result.filter((r) => isOkResult(r.result)).map((r) => (r.result as { value: number }).value)
                 )
                 result = await pipeline.next()
@@ -102,8 +102,8 @@ describe('Sequential Processing', () => {
         await jest.advanceTimersByTimeAsync(30)
         await collectResults
 
-        // All items returned in a single batch (unlike concurrent which returns 1 at a time)
-        expect(batches).toEqual([[10, 20, 30]])
+        // All items returned in a single chunk (unlike concurrent which returns 1 at a time)
+        expect(chunks).toEqual([[10, 20, 30]])
     })
 
     /**

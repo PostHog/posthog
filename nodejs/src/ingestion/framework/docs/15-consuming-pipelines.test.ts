@@ -107,10 +107,10 @@ describe('Consuming a Pipeline', () => {
         unwrapper.feed([{ id: 1 }, { id: 2 }, { id: 3 }].map((e) => createOkContext(e, {})))
 
         const values: Event[] = []
-        let batch = await unwrapper.next()
-        while (batch !== null) {
-            values.push(...batch)
-            batch = await unwrapper.next()
+        let chunk = await unwrapper.next()
+        while (chunk !== null) {
+            values.push(...chunk)
+            chunk = await unwrapper.next()
         }
 
         // Only the OK (odd) values survive, as plain objects
