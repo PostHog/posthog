@@ -915,6 +915,9 @@
                     "$ref": "#/definitions/LogValuesQuery"
                 },
                 {
+                    "$ref": "#/definitions/MetricsQuery"
+                },
+                {
                     "$ref": "#/definitions/TraceSpansQuery"
                 },
                 {
@@ -1212,6 +1215,9 @@
                 },
                 {
                     "$ref": "#/definitions/LogValuesQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/MetricsQueryResponse"
                 },
                 {
                     "$ref": "#/definitions/TraceSpansQueryResponse"
@@ -9104,6 +9110,99 @@
                 },
                 "types": {
                     "items": {},
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedMetricsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MetricsQuerySeries"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
                     "type": "array"
                 },
                 "warnings": {
@@ -31461,6 +31560,226 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "MetricsAggregation": {
+            "enum": ["sum", "avg", "count", "min", "max", "quantile", "rate", "increase", "histogram_quantile"],
+            "type": "string"
+        },
+        "MetricsAttributeScope": {
+            "description": "Which attribute map a metric label key lives in; `auto` resolves resource attributes first, then datapoint attributes.",
+            "enum": ["resource", "attribute", "auto"],
+            "type": "string"
+        },
+        "MetricsFilterOp": {
+            "enum": ["eq", "neq", "regex", "not_regex"],
+            "type": "string"
+        },
+        "MetricsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "clauses": {
+                    "items": {
+                        "$ref": "#/definitions/MetricsQueryClause"
+                    },
+                    "type": "array"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Defaults to the last 24 hours when omitted; dashboard date filters override it"
+                },
+                "formula": {
+                    "description": "Arithmetic over clause aliases (e.g. \"a / b\"); when set, only the formula series are returned",
+                    "type": "string"
+                },
+                "interval": {
+                    "description": "Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "MetricsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/MetricsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["clauses", "kind"],
+            "type": "object"
+        },
+        "MetricsQueryClause": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation": {
+                    "$ref": "#/definitions/MetricsAggregation"
+                },
+                "filters": {
+                    "items": {
+                        "$ref": "#/definitions/MetricsQueryFilter"
+                    },
+                    "type": "array"
+                },
+                "groupBy": {
+                    "items": {
+                        "$ref": "#/definitions/MetricsQueryGroupBy"
+                    },
+                    "type": "array"
+                },
+                "metricName": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Alias a formula refers to (e.g. \"a\"); must be unique within the query",
+                    "type": "string"
+                },
+                "quantile": {
+                    "description": "In (0, 1); required for `quantile` / `histogram_quantile` aggregations",
+                    "type": "number"
+                }
+            },
+            "required": ["name", "metricName", "aggregation"],
+            "type": "object"
+        },
+        "MetricsQueryFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "op": {
+                    "$ref": "#/definitions/MetricsFilterOp"
+                },
+                "scope": {
+                    "$ref": "#/definitions/MetricsAttributeScope"
+                },
+                "value": {
+                    "type": "string"
+                }
+            },
+            "required": ["key", "op", "value"],
+            "type": "object"
+        },
+        "MetricsQueryGroupBy": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "scope": {
+                    "$ref": "#/definitions/MetricsAttributeScope"
+                }
+            },
+            "required": ["key"],
+            "type": "object"
+        },
+        "MetricsQueryPoint": {
+            "additionalProperties": false,
+            "properties": {
+                "time": {
+                    "description": "Bucket start, ISO 8601",
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["time", "value"],
+            "type": "object"
+        },
+        "MetricsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MetricsQuerySeries"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "MetricsQuerySeries": {
+            "additionalProperties": false,
+            "properties": {
+                "clause": {
+                    "description": "Clause alias that produced this series (`formula` for the formula result)",
+                    "type": "string"
+                },
+                "labels": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Label values identifying this series; empty for an ungrouped query",
+                    "type": "object"
+                },
+                "metricName": {
+                    "type": "string"
+                },
+                "points": {
+                    "items": {
+                        "$ref": "#/definitions/MetricsQueryPoint"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["labels", "points"],
+            "type": "object"
+        },
         "MinimalHedgehogConfig": {
             "additionalProperties": false,
             "properties": {
@@ -31802,6 +32121,7 @@
                 "LogsQuery",
                 "LogAttributesQuery",
                 "LogValuesQuery",
+                "MetricsQuery",
                 "TraceSpansQuery",
                 "TraceSpansAggregationQuery",
                 "TraceSpansTreeQuery",
@@ -38826,6 +39146,64 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/MetricsQuerySeries"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -40654,6 +41032,9 @@
                 },
                 {
                     "$ref": "#/definitions/LogValuesQuery"
+                },
+                {
+                    "$ref": "#/definitions/MetricsQuery"
                 },
                 {
                     "$ref": "#/definitions/TraceSpansQuery"
