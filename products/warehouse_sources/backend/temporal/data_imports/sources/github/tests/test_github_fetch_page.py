@@ -29,6 +29,37 @@ def _instant_backoff():
         yield
 
 
+def _not_found_response() -> mock.Mock:
+    response = mock.Mock(spec=requests.Response)
+    response.status_code = 404
+    response.ok = False
+    response.headers = {}
+    response.text = "Not Found"
+    response.request = None
+    response.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Client Error: Not Found for url")
+    return response
+
+
+@pytest.mark.parametrize(
+    "skip_on_not_found,expected_exc",
+    [
+        (True, github.GithubOrgNotFoundError),
+        (False, requests.exceptions.HTTPError),
+    ],
+)
+def test_fetch_page_404_skips_only_for_org_scoped_endpoints(skip_on_not_found, expected_exc):
+    # An org-scoped endpoint (a user-owned repo has no org, so /orgs/{owner}/teams 404s) treats a 404
+    # as a benign skip; a repo-scoped one keeps it fatal so a genuinely missing repo still fails loud.
+    session = mock.Mock()
+    session.request.return_value = _not_found_response()
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        with pytest.raises(expected_exc):
+            github._fetch_page(
+                "https://api.github.com/orgs/acme/teams", {}, mock.Mock(), skip_on_not_found=skip_on_not_found
+            )
+
+
 def test_fetch_page_retries_chunked_encoding_error():
     session = mock.Mock()
     session.request.side_effect = [requests.exceptions.ChunkedEncodingError("Connection broken"), _ok_response()]

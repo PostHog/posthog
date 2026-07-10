@@ -32,6 +32,47 @@ def _no_resume() -> mock.Mock:
     return manager
 
 
+def _not_found_response() -> mock.Mock:
+    response = mock.Mock(spec=requests.Response)
+    response.status_code = 404
+    response.ok = False
+    response.headers = {}
+    response.text = "Not Found"
+    response.request = None
+    response.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Client Error: Not Found for url")
+    return response
+
+
+@pytest.mark.parametrize(
+    "endpoint,expect_raise",
+    [
+        # Org-scoped: a 404 on /orgs/{owner}/teams (user-owned repo, or no org access) must sync zero
+        # rows, not fail the schema. teams walks it directly; team_members hits it via its fan-out parent.
+        ("teams", False),
+        ("team_members", False),
+        # Repo-scoped: a 404 is a genuinely missing/inaccessible repo and must stay fatal.
+        ("issues", True),
+    ],
+)
+def test_org_scoped_404_syncs_zero_rows_while_repo_scoped_404_stays_fatal(endpoint: str, expect_raise: bool) -> None:
+    session = mock.Mock()
+    session.request.return_value = _not_found_response()
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        rows = github.get_rows(
+            personal_access_token="tok",
+            repository="acme/widgets",
+            endpoint=endpoint,
+            logger=mock.Mock(),
+            resumable_source_manager=_no_resume(),
+        )
+        if expect_raise:
+            with pytest.raises(requests.exceptions.HTTPError):
+                list(rows)
+        else:
+            assert list(rows) == []
+
+
 def _collect(endpoint: str, responses_by_url: dict[str, mock.Mock]) -> list[dict[str, Any]]:
     with mock.patch.object(github, "_fetch_page", side_effect=_fetch_page_by_url(responses_by_url)):
         tables = list(
