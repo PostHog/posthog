@@ -4,6 +4,7 @@ import structlog
 from temporalio import activity
 
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.utils import close_db_connections
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -30,6 +31,7 @@ async def count_in_flight_applies_activity(inputs: CountInFlightAppliesInputs) -
 
 
 @activity.defn
+@close_db_connections
 @track_activity()
 def count_in_flight_by_team_activity(inputs: CountInFlightAppliesInputs) -> InFlightApplyCounts:
     """Count in-flight (pending/running) observations for this scanner and for its whole team.
