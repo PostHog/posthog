@@ -8484,6 +8484,132 @@ class TestWebhookInfo(APIBaseTest):
         assert data["inputs"] == {}
 
 
+class TestSyncWebhookEvents(APIBaseTest):
+    def _create_stripe_source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+
+    def _create_template(self, code: str):
+        from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+
+        return HogFunctionTemplate.objects.create(
+            template_id="template-warehouse-source-stripe",
+            name="Stripe warehouse source webhook",
+            description="Receive Stripe webhook events for data warehouse ingestion",
+            code=code,
+            code_language="hog",
+            inputs_schema=[
+                {"type": "string", "key": "signing_secret", "label": "Signing secret", "secret": True},
+                {"type": "json", "key": "schema_mapping", "label": "Schema mapping", "secret": False, "hidden": True},
+                {"type": "string", "key": "source_id", "label": "Source ID", "secret": False, "hidden": True},
+            ],
+            type="warehouse_source_webhook",
+            status="alpha",
+            category=[],
+        )
+
+    def _create_hog_function(self, source: ExternalDataSource, code: str = "// old code"):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Stripe warehouse source webhook",
+            type="warehouse_source_webhook",
+            hog=code,
+            template_id="template-warehouse-source-stripe",
+            enabled=True,
+            inputs_schema=[
+                {"type": "string", "key": "signing_secret", "label": "Signing secret", "secret": True},
+                {"type": "json", "key": "schema_mapping", "label": "Schema mapping", "secret": False},
+                {"type": "string", "key": "source_id", "label": "Source ID", "secret": False},
+            ],
+            inputs={
+                "source_id": {"value": str(source.pk)},
+                "schema_mapping": {"value": {}},
+                "signing_secret": {"value": "whsec_existing"},
+            },
+        )
+        return hog_function
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info",
+        return_value=None,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.sync_webhook_events"
+    )
+    def test_sync_refreshes_template_code_and_preserves_secret(self, mock_sync, _mock_info):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookSyncResult
+
+        mock_sync.return_value = WebhookSyncResult(success=True)
+
+        self._create_template(code="// new template code")
+        source = self._create_stripe_source()
+        hog_function = self._create_hog_function(source, code="// old code")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/sync_webhook_events/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is True
+        assert data["error"] is None
+        assert data["exists"] is True
+        mock_sync.assert_called_once()
+
+        hog_function.refresh_from_db()
+        # Code refreshed from the current template.
+        assert hog_function.hog == "// new template code"
+        # Signing secret preserved through the rebuild (lives in encrypted_inputs).
+        assert (
+            HogFunction.objects.get(pk=hog_function.pk).encrypted_inputs["signing_secret"]["value"] == "whsec_existing"
+        )
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info",
+        return_value=None,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.sync_webhook_events"
+    )
+    def test_sync_surfaces_provider_failure(self, mock_sync, _mock_info):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookSyncResult
+
+        mock_sync.return_value = WebhookSyncResult(success=False, error="Permission denied")
+
+        self._create_template(code="// code")
+        source = self._create_stripe_source()
+        self._create_hog_function(source)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/sync_webhook_events/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is False
+        assert data["error"] == "Permission denied"
+
+    def test_sync_without_hog_function_returns_400(self):
+        source = self._create_stripe_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/sync_webhook_events/"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Create a webhook first" in response.json()["message"]
+
+
 class TestDeleteWebhook(APIBaseTest):
     def _create_stripe_source(self, job_inputs=None) -> ExternalDataSource:
         if job_inputs is None:

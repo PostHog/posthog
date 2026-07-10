@@ -5894,6 +5894,11 @@ const api = {
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('delete_webhook').create()
         },
+        async syncWebhookEvents(
+            sourceId: ExternalDataSource['id']
+        ): Promise<WebhookInfo & { success: boolean; error?: string | null }> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('sync_webhook_events').create()
+        },
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{
             added: number
             deleted: number

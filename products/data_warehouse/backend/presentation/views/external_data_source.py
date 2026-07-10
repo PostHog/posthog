@@ -89,6 +89,7 @@ from products.data_warehouse.backend.facade.api import (
     reconcile_postgres_schemas,
     reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
     reconcile_snowflake_schemas,
+    reconcile_webhook_events,
     source_namespace_is_blank,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
@@ -4151,6 +4152,56 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         return sorted(e for e in desired if e not in current)
 
+    def _build_webhook_info_data(
+        self,
+        instance: ExternalDataSource,
+        source: WebhookSource,
+        hog_function: HogFunction,
+    ) -> dict[str, Any]:
+        """Assemble the webhook_info payload for an existing webhook hog function.
+
+        Shared by webhook_info and sync_webhook_events so the frontend can update in place
+        from either response. Recomputes external status and missing_events on every call.
+        """
+        webhook_url = get_webhook_url(hog_function.id)
+
+        external_status: ExternalWebhookInfo | None = None
+        missing_events: list[str] = []
+
+        if instance.job_inputs:
+            try:
+                config = source.parse_config(instance.job_inputs)
+                external_status = source.get_external_webhook_info(config, webhook_url, self.team_id)
+                missing_events = self._compute_missing_webhook_events(source, config, instance, external_status)
+            except Exception as e:
+                capture_exception(e)
+
+        schema_mapping = {}
+        if hog_function.inputs:
+            schema_mapping = hog_function.inputs.get("schema_mapping", {}).get("value", {})
+
+        webhook_field_names = {f.name for f in (source.get_source_config.webhookFields or [])}
+        all_inputs = HogFunctionSerializer(hog_function).data.get("inputs") or {}
+        webhook_inputs = {k: v for k, v in all_inputs.items() if k in webhook_field_names}
+
+        return {
+            "supports_webhooks": True,
+            "exists": True,
+            "hog_function": {
+                "id": str(hog_function.id),
+                "name": hog_function.name,
+                "enabled": hog_function.enabled,
+                "created_at": hog_function.created_at.isoformat(),
+                "status": hog_function.status,
+            },
+            "webhook_url": webhook_url,
+            "schema_mapping": schema_mapping,
+            "inputs": webhook_inputs,
+            "external_status": dataclasses.asdict(external_status) if external_status else None,
+            "missing_events": missing_events,
+        }
+
+    @extend_schema(responses={200: OpenApiResponse(description="Webhook configuration and provider status")})
     @action(methods=["GET"], detail=True)
     def webhook_info(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
@@ -4182,46 +4233,113 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"supports_webhooks": True, "exists": False},
             )
 
-        webhook_url = get_webhook_url(hog_function.id)
-
-        external_status: ExternalWebhookInfo | None = None
-        missing_events: list[str] = []
-
-        if instance.job_inputs:
-            try:
-                config = source.parse_config(instance.job_inputs)
-                external_status = source.get_external_webhook_info(config, webhook_url, self.team_id)
-                missing_events = self._compute_missing_webhook_events(source, config, instance, external_status)
-            except Exception as e:
-                capture_exception(e)
-
-        schema_mapping = {}
-        if hog_function.inputs:
-            schema_mapping = hog_function.inputs.get("schema_mapping", {}).get("value", {})
-
-        webhook_field_names = {f.name for f in (source.get_source_config.webhookFields or [])}
-        all_inputs = HogFunctionSerializer(hog_function).data.get("inputs") or {}
-        webhook_inputs = {k: v for k, v in all_inputs.items() if k in webhook_field_names}
-
         return Response(
             status=status.HTTP_200_OK,
-            data={
-                "supports_webhooks": True,
-                "exists": True,
-                "hog_function": {
-                    "id": str(hog_function.id),
-                    "name": hog_function.name,
-                    "enabled": hog_function.enabled,
-                    "created_at": hog_function.created_at.isoformat(),
-                    "status": hog_function.status,
-                },
-                "webhook_url": webhook_url,
-                "schema_mapping": schema_mapping,
-                "inputs": webhook_inputs,
-                "external_status": dataclasses.asdict(external_status) if external_status else None,
-                "missing_events": missing_events,
-            },
+            data=self._build_webhook_info_data(instance, source, hog_function),
         )
+
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(description="Sync result plus a refreshed webhook_info payload")},
+    )
+    @action(methods=["POST"], detail=True, url_path="sync_webhook_events")
+    def sync_webhook_events(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Reconcile a source's webhook with the currently selected schemas and refresh the
+        deployed hog function's code from its template.
+
+        Sources that override sync_webhook_events (e.g. Stripe) get their provider events
+        reconciled; sources without an override no-op successfully, and the still-nonempty
+        missing_events in the response tells the UI to keep showing the manual instructions.
+        """
+        instance: ExternalDataSource = self.get_object()
+
+        if not instance.job_inputs:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Source has no configuration"},
+            )
+
+        source_type = ExternalDataSourceType(instance.source_type)
+        source = SourceRegistry.get_source(source_type)
+
+        if not isinstance(source, WebhookSource):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "This source type does not support webhooks"},
+            )
+
+        try:
+            hog_function = HogFunction.objects.get(
+                team=self.team,
+                type="warehouse_source_webhook",
+                inputs__source_id__value=str(instance.pk),
+                deleted=False,
+            )
+        except HogFunction.DoesNotExist:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "No webhook function found for this source. Create a webhook first."},
+            )
+
+        try:
+            config = source.parse_config(instance.job_inputs)
+        except ValidationError as e:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Invalid source configuration", "details": getattr(e, "detail", str(e))},
+            )
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Failed to load source configuration"},
+            )
+
+        eligible_schemas = list(
+            ExternalDataSchema.objects.filter(
+                source=instance,
+                team_id=self.team_id,
+                sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+                should_sync=True,
+            ).exclude(deleted=True)
+        )
+        eligible_schema_names = [schema.name for schema in eligible_schemas]
+
+        # Preserve the currently configured webhook input VALUES (signing secret, etc.) so the
+        # template refresh below doesn't drop them: get_or_create_webhook_hog_function rebuilds
+        # `inputs` from scratch. Passing the stored non-masked values back through extra_inputs
+        # keeps them; masked secret markers ({"secret": True}) are skipped so move_secret_inputs()
+        # restores the real secret from encrypted_inputs instead of overwriting it.
+        webhook_field_names = {f.name for f in (source.get_source_config.webhookFields or [])}
+        stored_inputs = HogFunctionSerializer(hog_function).data.get("inputs") or {}
+        preserved_inputs: dict[str, Any] = {}
+        for name in webhook_field_names:
+            entry = stored_inputs.get(name)
+            if isinstance(entry, dict) and "value" in entry:
+                preserved_inputs[name] = entry["value"]
+
+        # Refresh the hog function code + inputs_schema from the current template and merge
+        # schema_mapping for the eligible schemas (both idempotent in the existing helper).
+        hog_fn_result = get_or_create_webhook_hog_function(
+            team=self.team,
+            source=source,
+            source_id=str(instance.pk),
+            eligible_schemas=eligible_schemas,
+            extra_inputs=preserved_inputs or None,
+        )
+
+        if hog_fn_result.error or not hog_fn_result.hog_function:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": hog_fn_result.error or "Failed to refresh webhook function"},
+            )
+
+        sync_result = reconcile_webhook_events(source, config, hog_fn_result, self.team_id, eligible_schema_names)
+
+        data = self._build_webhook_info_data(instance, source, hog_fn_result.hog_function)
+        data["success"] = sync_result.success
+        data["error"] = sync_result.error
+        return Response(status=status.HTTP_200_OK, data=data)
 
     @action(methods=["POST"], detail=True)
     def create_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:

@@ -34,6 +34,8 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             result,
         }),
         submitWebhookFields: true,
+        syncWebhookEvents: true,
+        setWebhookSyncing: (syncing: boolean) => ({ syncing }),
         deleteWebhook: true,
         setWebhookDeleting: (deleting: boolean) => ({ deleting }),
         setCurrentSection: (section: WebhookSection) => ({ section }),
@@ -59,6 +61,13 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             {
                 createWebhook: () => null,
                 setCreateWebhookResult: (_, { result }) => result,
+            },
+        ],
+        webhookSyncing: [
+            false,
+            {
+                syncWebhookEvents: () => true,
+                setWebhookSyncing: (_, { syncing }) => syncing,
             },
         ],
         webhookDeleting: [
@@ -288,6 +297,23 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message ?? 'Failed to update webhook inputs')
             }
+        },
+        syncWebhookEvents: async () => {
+            try {
+                const result = await api.externalDataSources.syncWebhookEvents(props.id)
+                // The response carries the refreshed webhook_info payload, so update in place
+                // via the loader success action instead of firing a second GET.
+                const { success, error, ...webhookInfo } = result
+                actions.loadWebhookInfoSuccess(webhookInfo)
+                if (success) {
+                    lemonToast.success('Webhook updated')
+                } else {
+                    lemonToast.error(error ?? 'Failed to update webhook on the source')
+                }
+            } catch (e: any) {
+                lemonToast.error(e.data?.message ?? e.message ?? 'Failed to update webhook')
+            }
+            actions.setWebhookSyncing(false)
         },
         deleteWebhook: async () => {
             try {

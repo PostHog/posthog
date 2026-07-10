@@ -720,6 +720,29 @@ export const externalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
     })
 }
 
+export const getExternalDataSourcesSyncWebhookEventsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/sync_webhook_events/`
+}
+
+/**
+ * Reconcile a source's webhook with the currently selected schemas and refresh the
+ * deployed hog function's code from its template.
+ *
+ * Sources that override sync_webhook_events (e.g. Stripe) get their provider events
+ * reconciled; sources without an override no-op successfully, and the still-nonempty
+ * missing_events in the response tells the UI to keep showing the manual instructions.
+ */
+export const externalDataSourcesSyncWebhookEventsCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesSyncWebhookEventsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getExternalDataSourcesUpdateCdcSettingsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_sources/${id}/update_cdc_settings/`
 }
