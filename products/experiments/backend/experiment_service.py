@@ -1026,6 +1026,26 @@ class ExperimentService:
     # Private helpers
     # ------------------------------------------------------------------
 
+    def _report_lifecycle_event(
+        self,
+        experiment: Experiment,
+        event_name: str,
+        *,
+        request: Any | None,
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Emit a lifecycle analytics event with the experiment's standard metadata.
+
+        No-ops for non-HTTP callers (``request`` is None). ``report_user_action`` is referenced as a
+        module-level name so tests can patch it at this module's path.
+        """
+        if request is None:
+            return
+        metadata = experiment.get_analytics_metadata()
+        if extra_metadata:
+            metadata.update(extra_metadata)
+        report_user_action(self.user, event_name, metadata, team=experiment.team, request=request)
+
     def _report_experiment_created(
         self,
         experiment: Experiment,
@@ -1062,18 +1082,11 @@ class ExperimentService:
         *,
         request: Any | None = None,
     ) -> None:
-        if request is None:
-            return
-
-        analytics_metadata = experiment.get_analytics_metadata()
-        analytics_metadata["launch_date"] = experiment.start_date.isoformat() if experiment.start_date else None
-
-        report_user_action(
-            self.user,
+        self._report_lifecycle_event(
+            experiment,
             "experiment launched",
-            analytics_metadata,
-            team=experiment.team,
             request=request,
+            extra_metadata={"launch_date": experiment.start_date.isoformat() if experiment.start_date else None},
         )
 
     def _ensure_feature_flag(
@@ -1548,7 +1561,7 @@ class ExperimentService:
             experiment, disable_if_active=disable_feature_flag, can_write_feature_flag=can_write_feature_flag
         )
 
-        self._report_experiment_archived(experiment, request=request)
+        self._report_lifecycle_event(experiment, "experiment archived", request=request)
 
         return experiment
 
@@ -1631,23 +1644,6 @@ class ExperimentService:
         experiment.feature_flag_auto_archived = True
         experiment.save(update_fields=["feature_flag_auto_archived"])
 
-    def _report_experiment_archived(
-        self,
-        experiment: Experiment,
-        *,
-        request: Any | None = None,
-    ) -> None:
-        if request is None:
-            return
-
-        report_user_action(
-            self.user,
-            "experiment archived",
-            experiment.get_analytics_metadata(),
-            team=experiment.team,
-            request=request,
-        )
-
     # ------------------------------------------------------------------
     # Unarchive
     # ------------------------------------------------------------------
@@ -1669,7 +1665,7 @@ class ExperimentService:
 
         self._unarchive_linked_feature_flag(experiment, can_write_feature_flag=can_write_feature_flag)
 
-        self._report_experiment_unarchived(experiment, request=request)
+        self._report_lifecycle_event(experiment, "experiment unarchived", request=request)
 
         return experiment
 
@@ -1705,23 +1701,6 @@ class ExperimentService:
         experiment.feature_flag_auto_archived = False
         experiment.save(update_fields=["feature_flag_auto_archived"])
 
-    def _report_experiment_unarchived(
-        self,
-        experiment: Experiment,
-        *,
-        request: Any | None = None,
-    ) -> None:
-        if request is None:
-            return
-
-        report_user_action(
-            self.user,
-            "experiment unarchived",
-            experiment.get_analytics_metadata(),
-            team=experiment.team,
-            request=request,
-        )
-
     # ------------------------------------------------------------------
     # Pause / Resume
     # ------------------------------------------------------------------
@@ -1748,7 +1727,7 @@ class ExperimentService:
         # Re-fetch so the serializer sees the updated flag
         experiment.feature_flag = feature_flag
 
-        self._report_experiment_paused(experiment, request=request)
+        self._report_lifecycle_event(experiment, "experiment paused", request=request)
 
         return experiment
 
@@ -1774,43 +1753,9 @@ class ExperimentService:
         # Re-fetch so the serializer sees the updated flag
         experiment.feature_flag = feature_flag
 
-        self._report_experiment_resumed(experiment, request=request)
+        self._report_lifecycle_event(experiment, "experiment resumed", request=request)
 
         return experiment
-
-    def _report_experiment_paused(
-        self,
-        experiment: Experiment,
-        *,
-        request: Any | None = None,
-    ) -> None:
-        if request is None:
-            return
-
-        report_user_action(
-            self.user,
-            "experiment paused",
-            experiment.get_analytics_metadata(),
-            team=experiment.team,
-            request=request,
-        )
-
-    def _report_experiment_resumed(
-        self,
-        experiment: Experiment,
-        *,
-        request: Any | None = None,
-    ) -> None:
-        if request is None:
-            return
-
-        report_user_action(
-            self.user,
-            "experiment resumed",
-            experiment.get_analytics_metadata(),
-            team=experiment.team,
-            request=request,
-        )
 
     # ------------------------------------------------------------------
     # Freeze exposure
@@ -1940,7 +1885,7 @@ class ExperimentService:
 
         # end_date intentionally left null — metrics keep flowing.
 
-        self._report_experiment_exposure_frozen(experiment, request=request)
+        self._report_lifecycle_event(experiment, "experiment exposure frozen", request=request)
 
         return experiment
 
@@ -2229,23 +2174,6 @@ class ExperimentService:
             cohort.deleted = True
             cohort.save(update_fields=["deleted"])
 
-    def _report_experiment_exposure_frozen(
-        self,
-        experiment: Experiment,
-        *,
-        request: Any | None = None,
-    ) -> None:
-        if request is None:
-            return
-
-        report_user_action(
-            self.user,
-            "experiment exposure frozen",
-            experiment.get_analytics_metadata(),
-            team=experiment.team,
-            request=request,
-        )
-
     def unfreeze_exposure(self, experiment: Experiment, *, request: Any) -> Experiment:
         """Reopen enrollment on an exposure-frozen experiment.
 
@@ -2288,26 +2216,9 @@ class ExperimentService:
         # Only after the flag no longer references them: soft-delete the now-orphaned snapshots.
         self._delete_orphaned_snapshot_cohorts(cohort_ids)
 
-        self._report_experiment_exposure_unfrozen(experiment, request=request)
+        self._report_lifecycle_event(experiment, "experiment exposure unfrozen", request=request)
 
         return experiment
-
-    def _report_experiment_exposure_unfrozen(
-        self,
-        experiment: Experiment,
-        *,
-        request: Any | None = None,
-    ) -> None:
-        if request is None:
-            return
-
-        report_user_action(
-            self.user,
-            "experiment exposure unfrozen",
-            experiment.get_analytics_metadata(),
-            team=experiment.team,
-            request=request,
-        )
 
     # ------------------------------------------------------------------
     # End
@@ -2531,7 +2442,7 @@ class ExperimentService:
 
         experiment.save()
 
-        self._report_experiment_reset(experiment, request=request)
+        self._report_lifecycle_event(experiment, "experiment reset", request=request)
 
         return experiment
 
@@ -2580,23 +2491,6 @@ class ExperimentService:
         flag.refresh_from_db()
         experiment.feature_flag = flag
         self._delete_orphaned_snapshot_cohorts(cohort_ids)
-
-    def _report_experiment_reset(
-        self,
-        experiment: Experiment,
-        *,
-        request: Any | None = None,
-    ) -> None:
-        if request is None:
-            return
-
-        report_user_action(
-            self.user,
-            "experiment reset",
-            experiment.get_analytics_metadata(),
-            team=experiment.team,
-            request=request,
-        )
 
     # ------------------------------------------------------------------
     # Ship variant
@@ -2763,20 +2657,15 @@ class ExperimentService:
         release_to_everyone: bool = False,
         request: Any | None = None,
     ) -> None:
-        if request is None:
-            return
-
-        metadata = experiment.get_analytics_metadata()
-        metadata["variant_key"] = variant_key
-        metadata["release_to_everyone"] = release_to_everyone
-        metadata["parameters"] = self._parameters_with_variant_detail(experiment)
-
-        report_user_action(
-            self.user,
+        self._report_lifecycle_event(
+            experiment,
             "experiment variant shipped",
-            metadata,
-            team=experiment.team,
             request=request,
+            extra_metadata={
+                "variant_key": variant_key,
+                "release_to_everyone": release_to_everyone,
+                "parameters": self._parameters_with_variant_detail(experiment),
+            },
         )
 
     # ------------------------------------------------------------------
