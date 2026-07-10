@@ -413,6 +413,23 @@ class ConversationRedisStream:
             if emit_completion:
                 await self._write_status(StatusPayload(status="complete"))
 
+        except asyncio.CancelledError:
+            await self._write_status(
+                StatusPayload(
+                    status="error",
+                    error=(
+                        "PostHog AI took long to process this request"
+                        "and was cancelled."
+                    ),
+                )
+            )
+            raise
+
         except Exception as e:
-            await self._write_status(StatusPayload(status="error", error=str(e)))
+            await self._write_status(
+                StatusPayload(
+                    status="error",
+                    error=str(e),
+                )
+            )
             raise StreamError("Failed to write to stream")
