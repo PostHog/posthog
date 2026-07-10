@@ -16,6 +16,7 @@ import {
 import { tracingSpansAttributeBreakdownCreate, tracingSpansAttributesRetrieve } from '../../generated/api'
 import {
     _SpanPropertyFilterApi,
+    _SpanPropertyFilterOperatorEnumApi,
     _TracingAttributeBreakdownRowApi,
     SpanPropertyTypeEnumApi,
     TracingSpansAttributesRetrieveAttributeType,
@@ -72,8 +73,17 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
             if (!values.currentTeamId) {
                 return []
             }
-            // The endpoint takes the flat inner filter list.
-            const filterGroup = innerFilters(values.queryFilterGroup) as unknown as _SpanPropertyFilterApi[]
+            // The endpoint takes the flat inner filter list. The stored filters carry the app-side
+            // enums (PropertyFilterType/PropertyOperator) which are nominally distinct from the
+            // generated string-union enums despite identical runtime values, so mapping onto the
+            // generated shape type-checks the field structure (key/value) while casting only the two
+            // enum fields.
+            const filterGroup: _SpanPropertyFilterApi[] = innerFilters(values.queryFilterGroup).map((f) => ({
+                key: f.key,
+                type: f.type as unknown as SpanPropertyTypeEnumApi,
+                operator: f.operator as unknown as _SpanPropertyFilterOperatorEnumApi,
+                value: f.value,
+            }))
             const target =
                 facet.source.type === 'column'
                     ? { breakdownKey: facet.source.column, breakdownType: SpanPropertyTypeEnumApi.Span }
