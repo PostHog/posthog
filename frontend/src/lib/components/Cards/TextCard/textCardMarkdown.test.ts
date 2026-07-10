@@ -139,9 +139,11 @@ describe('textCardMarkdown', () => {
         }
 
         const markdown = textCardConverter.docToMarkdown(doc)
-        const reparsedSnippet = textCardConverter.markdownToDoc(markdown).content?.[0]?.content?.find((node: JSONContent) =>
-            node.marks?.some((m: { type: string }) => m.type === 'code')
-        )
+        const reparsedSnippet = textCardConverter
+            .markdownToDoc(markdown)
+            .content?.[0]?.content?.find((node: JSONContent) =>
+                node.marks?.some((m: { type: string }) => m.type === 'code')
+            )
 
         expect(markdown).toContain('`snippet`')
         expect(reparsedSnippet?.text).toBe('snippet')
