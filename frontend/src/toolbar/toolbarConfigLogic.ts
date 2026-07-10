@@ -656,14 +656,20 @@ function verifyUiHostReachability(
             }
         })
         .catch((error: unknown) => {
+            const errorType = classifyFetchError(error)
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            // A network/CORS rejection is the expected outcome for hosts that can't reach
+            // the cheap HEAD probe or CORS-reject it. That case is handled gracefully
+            // (error status + config modal), so only report genuinely unexpected failures.
+            if (errorType !== 'network_or_cors') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
