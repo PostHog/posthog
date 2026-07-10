@@ -41,6 +41,9 @@ from xml.etree import ElementTree
 
 MARKER = "<!-- posthog-backend-coverage -->"
 BAR_WIDTH = 20
+# Sentinel "product" name for the posthog/ee core monolith. Its coverage is collected
+# with relative_files=True, so its filenames are already repo-relative — no products/ prefix.
+CORE_PRODUCT = "core"
 
 
 @dataclass
@@ -119,6 +122,19 @@ def collect(covered: LineMap, valid: LineMap) -> list[ProductCoverage]:
     return results
 
 
+def aggregate_core(artifacts_dir: Path) -> tuple[dict[str, set[int]], dict[str, set[int]]]:
+    """Union covered / valid line numbers per file across the core (posthog/ee) coverage XMLs.
+
+    Core coverage is collected with relative_files=True, so the stored filenames are already
+    repo-relative (e.g. ``posthog/api/foo.py``) — unlike products, no prefix is needed.
+    """
+    covered: dict[str, set[int]] = defaultdict(set)
+    valid: dict[str, set[int]] = defaultdict(set)
+    for xml_path in sorted(artifacts_dir.rglob("*.xml")):
+        parse_xml(xml_path, covered, valid)
+    return covered, valid
+
+
 def repo_path_for(product: str, filename: str) -> str:
     """Map a per-product coverage filename to its repo-relative path.
 
@@ -126,7 +142,10 @@ def repo_path_for(product: str, filename: str) -> str:
     filenames relative to ``products/<product>/backend`` (e.g. ``api.py``,
     ``migrations/0001.py``) — the ``backend/`` source root is stripped from the stored
     name. diff-cover matches against repo-relative ``git diff`` paths, so restore it.
+    Core (posthog/ee) coverage is already repo-relative, so it passes through unchanged.
     """
+    if product == CORE_PRODUCT:
+        return filename
     filename = filename.lstrip("/")
     if filename == "backend" or filename.startswith("backend/"):
         return f"products/{product}/{filename}"
@@ -218,14 +237,14 @@ def render_patch_section(data: dict) -> str:
     """Render the human-facing patch-coverage block from diff-cover's JSON report."""
     total_lines = int(data.get("total_num_lines", 0))
     if not total_lines:
-        return "_No measured product-backend lines changed in this PR (patch coverage n/a)._"
+        return "_No measured backend lines changed in this PR (patch coverage n/a)._"
 
     pct = float(data.get("total_percent_covered", 0))
     violations = int(data.get("total_num_violations", 0))
     covered = total_lines - violations
-    header = f"**Patch coverage** — changed lines in product backends: `{bar(pct)}` {pct:.1f}% ({covered:,} / {total_lines:,})"
+    header = f"**Patch coverage** — changed backend lines (products + core): `{bar(pct)}` {pct:.1f}% ({covered:,} / {total_lines:,})"
     if not violations:
-        return f"{header}\n\nAll changed product-backend lines are covered ✅"
+        return f"{header}\n\nAll changed backend lines are covered ✅"
 
     src = data.get("src_stats", {})
     rows = ["", "| File | Patch | Uncovered changed lines |", "| --- | --- | --- |"]
@@ -416,9 +435,18 @@ def main() -> int:
     parser.add_argument("--patch-json-out", type=Path, help="path for diff-cover's JSON report (machine payload)")
     parser.add_argument("--baseline", type=Path, help="master coverage baseline JSON to compute per-product Δ against")
     parser.add_argument("--write-baseline", type=Path, help="master side: write the per-product baseline JSON and exit")
+    parser.add_argument(
+        "--core-artifacts", type=Path, help="dir of core (posthog/ee) coverage-core-* artifacts to include"
+    )
     args = parser.parse_args()
 
     covered, valid = aggregate(args.artifacts)
+
+    if args.core_artifacts is not None and args.core_artifacts.exists():
+        core_covered, core_valid = aggregate_core(args.core_artifacts)
+        if core_valid:
+            covered[CORE_PRODUCT] = core_covered
+            valid[CORE_PRODUCT] = core_valid
 
     if args.write_baseline is not None:
         write_baseline(covered, valid, args.write_baseline)
