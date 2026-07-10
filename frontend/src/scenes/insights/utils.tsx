@@ -578,12 +578,18 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
     return query ? urls.insightNew({ query }) : undefined
 }
 
-export function getFunnelDatasetKey(dataset: { breakdown_value?: BreakdownKeyType }): string {
+export function getFunnelDatasetKey(dataset: {
+    breakdown_value?: BreakdownKeyType
+    compare_label?: 'current' | 'previous'
+}): string {
     const breakdown_value =
         Array.isArray(dataset.breakdown_value) && dataset.breakdown_value.length == 1
             ? dataset.breakdown_value[0]
             : dataset.breakdown_value
-    const payload = { breakdown_value }
+    // `compare_label` is undefined without compare, so `JSON.stringify` drops it and keys
+    // saved before compare was enabled keep matching. With compare on, each period gets
+    // its own customization slot — same as trends.
+    const payload = { breakdown_value, compare_label: dataset.compare_label }
 
     return JSON.stringify(payload)
 }

@@ -696,8 +696,8 @@ export function flattenedStepsByBreakdown(
 /**
  * Build the detailed-results rows for a pure compare STEPS funnel (no breakdown): one baseline row
  * per period. Rows keep `breakdown_value` undefined so their customization key and color position
- * match the chart's compare bars — the pair shares one color token and the previous row is dimmed
- * via its `compare_label`, not a separate token.
+ * match the chart's compare bars. The pair shares one fallback color (previous dimmed via its
+ * `compare_label`), while explicit customizations are per-period — the key includes `compare_label`.
  */
 export function flattenedStepsByCompare(steps: FunnelStepWithConversionMetrics[]): FlattenedFunnelStepByBreakdown[] {
     const periodCount = steps[0]?.nested_breakdown?.length ?? 0
@@ -726,7 +726,8 @@ export function flattenedStepsByCompare(steps: FunnelStepWithConversionMetrics[]
  * Build the detailed-results rows for a breakdown × compare STEPS funnel: interleaved
  * current/previous row pairs per breakdown value, preceded by a per-period baseline pair when the
  * baseline is shown (vertical layout with more than one value — the same rule as plain breakdowns).
- * Both rows of a pair share a `colorIndex` so they resolve to one color token (previous dimmed).
+ * Both rows of a pair share a `colorIndex` so they resolve to one fallback color (previous dimmed);
+ * explicit customizations are per-period, as the customization key includes `compare_label`.
  */
 export function flattenedStepsByBreakdownCompare(
     steps: FunnelStepWithConversionMetrics[],

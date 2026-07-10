@@ -131,8 +131,8 @@ export function FunnelStepsTable(): JSX.Element | null {
 
                         const color = getFunnelsColor(breakdown)
 
-                        // Pure-compare rows carry no breakdown value (their color/customization key
-                        // must match the chart bars), so fall back to the baseline label.
+                        // Pure-compare rows carry no breakdown value (their per-period color/customization
+                        // key must match the chart bars), so fall back to the baseline label.
                         const labelText =
                             formatBreakdownLabel(
                                 value,

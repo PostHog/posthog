@@ -787,13 +787,16 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 if (!Array.isArray(steps)) {
                     return []
                 }
-                // Pair rows on `breakdown_value` (no `compare_label`) so current/previous of the
-                // same series share the same base color. The downstream color resolver prefers
-                // `colorIndex` over `seriesIndex` (see `getTrendResultCustomizationColorToken`),
-                // and `LineGraph.processDataset` then dims the previous-period series to 50% alpha.
+                // Pair rows on `breakdown_value` only — deliberately excluding `compare_label`,
+                // which is part of the customization key — so current/previous of the same series
+                // share the same base color. The downstream color resolver prefers `colorIndex`
+                // over `seriesIndex` (see `getTrendResultCustomizationColorToken`), and
+                // `LineGraph.processDataset` then dims the previous-period series to 50% alpha.
+                const pairingKey = (step: (typeof steps)[number]): string =>
+                    getFunnelDatasetKey({ breakdown_value: step.breakdown_value })
                 const colorIndexMap = new Map<string, number>()
                 for (const step of steps) {
-                    const key = getFunnelDatasetKey(step)
+                    const key = pairingKey(step)
                     if (!colorIndexMap.has(key)) {
                         colorIndexMap.set(key, colorIndexMap.size)
                     }
@@ -809,7 +812,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     return {
                         ...step,
                         seriesIndex: index,
-                        colorIndex: colorIndexMap.get(getFunnelDatasetKey(step)) ?? 0,
+                        colorIndex: colorIndexMap.get(pairingKey(step)) ?? 0,
                         id: index,
                         compare: stepWithCompare.compare_label != null ? true : stepWithCompare.compare,
                     }
@@ -866,8 +869,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return (dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics) => {
                     const [colorTheme, colorToken] = getFunnelsColorToken(dataset)
                     const color = colorTheme && colorToken ? getColorFromToken(colorTheme, colorToken) : '#000000'
-                    // Current/previous compare bars share a color token (no breakdown_value), so the
-                    // previous-period bar is dimmed here to distinguish it — same treatment as trends.
+                    // The previous-period bar is dimmed to distinguish it from current — same
+                    // treatment as trends. Applied on top of any explicit result customization.
                     return (dataset as FunnelStepWithConversionMetrics).compare_label === 'previous'
                         ? dimPreviousPeriodColor(color)
                         : color

@@ -148,7 +148,8 @@ function FunnelsInfo({ dataset }: FunnelsInfoProps): JSX.Element {
                     <b>{dataset.breakdown_value?.[0]}</b> breakdown
                 </>
             )}
-            .
+            {/* With compare enabled each period has its own customization slot. */}
+            {dataset.compare_label && <> ({dataset.compare_label} period)</>}.
         </>
     )
 }

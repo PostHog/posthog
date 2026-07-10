@@ -7,6 +7,7 @@ import {
     formatBreakdownType,
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
+    getFunnelDatasetKey,
     getTrendDatasetKey,
     NOT_IN_COHORT_ID,
 } from 'scenes/insights/utils'
@@ -657,6 +658,30 @@ describe('getTrendDatasetKey()', () => {
         }
 
         expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":0,"breakdown_value":["Opera"]}')
+    })
+})
+
+describe('getFunnelDatasetKey()', () => {
+    const cases: [string, Parameters<typeof getFunnelDatasetKey>[0], string][] = [
+        // key must stay byte-identical without compare — it's persisted in saved insights
+        ['no breakdown', {}, '{}'],
+        [
+            'a single-element breakdown array (unwrapped)',
+            { breakdown_value: ['Chrome'] },
+            '{"breakdown_value":"Chrome"}',
+        ],
+        ['a multi-value breakdown', { breakdown_value: ['Chrome', 'US'] }, '{"breakdown_value":["Chrome","US"]}'],
+        ['the current period of a pure compare funnel', { compare_label: 'current' }, '{"compare_label":"current"}'],
+        ['the previous period of a pure compare funnel', { compare_label: 'previous' }, '{"compare_label":"previous"}'],
+        [
+            'breakdown and compare combined',
+            { breakdown_value: ['Chrome'], compare_label: 'previous' },
+            '{"breakdown_value":"Chrome","compare_label":"previous"}',
+        ],
+    ]
+
+    it.each(cases)('handles %s', (_, dataset, expected) => {
+        expect(getFunnelDatasetKey(dataset)).toEqual(expected)
     })
 })
 

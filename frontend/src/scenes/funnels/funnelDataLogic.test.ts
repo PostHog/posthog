@@ -1,11 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 import timekeeper from 'timekeeper'
 
+import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { DataNode, FunnelsQuery, NodeKind, ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
 
@@ -1573,6 +1574,47 @@ describe('funnelDataLogic', () => {
             // Both bars share the base hue; the previous one is dimmed to 50% opacity.
             expect(previousColor).toBe(dimPreviousPeriodColor(currentColor))
             expect(previousColor).not.toBe(currentColor)
+        })
+
+        it('applies a per-period result customization to that period only', async () => {
+            const customizedQuery: FunnelsQuery = {
+                ...stepsQuery,
+                funnelsFilter: {
+                    ...stepsQuery.funnelsFilter,
+                    resultCustomizations: {
+                        '{"compare_label":"previous"}': {
+                            assignmentBy: ResultCustomizationBy.Value,
+                            color: 'preset-5',
+                        },
+                    },
+                },
+            }
+            const insight: Partial<InsightModel> = {
+                filters: { insight: InsightType.FUNNELS },
+                result: funnelResultStepsCompare.result,
+            }
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(customizedQuery)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            const step = logic.values.visibleStepsWithConversionMetrics[0]
+            const [currentSeries, previousSeries] = step.nested_breakdown!
+
+            // The customization targets the previous period's slot; current keeps its preset.
+            const [theme, previousToken] = logic.values.getFunnelsColorToken(previousSeries)
+            expect(previousToken).toBe('preset-5')
+            expect(logic.values.getFunnelsColorToken(currentSeries)[1]).toBe('preset-1')
+
+            // Dimming still applies on top of the custom color.
+            expect(logic.values.getFunnelsColor(previousSeries)).toBe(
+                dimPreviousPeriodColor(getColorFromToken(theme!, 'preset-5'))
+            )
+
+            // The detailed-results table rows resolve the same per-period slots as the bars.
+            const rows = logic.values.flattenedBreakdowns
+            expect(logic.values.getFunnelsColorToken(rows[1])[1]).toBe('preset-5')
+            expect(logic.values.getFunnelsColorToken(rows[0])[1]).toBe('preset-1')
         })
 
         it('builds one baseline table row per period for a pure compare funnel', async () => {
