@@ -33,6 +33,15 @@ throughout:
   correct as written.
 - **`$mcp_error_message` does not exist on PostHog's own (hono) data** — it's an external-SDK-only field.
   Referencing it there yields a taxonomy warning and empty results, not an error.
+- **Category derivation:** never group rows directly by `properties.$mcp_tool_category` (some rows
+  for a tool lack it — notably exec-routed calls captured before dispatch attribution). Derive per-tool
+  stats first in an inner subquery grouped by the effective-tool-name coalesce with
+  `any(properties.$mcp_tool_category)` as the tool's category, then roll up to category in the outer
+  query — query 9 encodes this. Tools with no category anywhere bucket as `Uncategorized`.
+- **Alias shadowing in two-level queries:** outer aggregate aliases must not reuse inner column names
+  (`sum(errors) AS errors` breaks any later reference to the inner `errors`, e.g. inside
+  `groupArrayIf`, with "aggregate function found inside another aggregate function" — verified). Use
+  distinct outer names like `category_errors`.
 - Tune the `HAVING` volume floors to the project's traffic (read the profile / probe first).
 
 ---
@@ -73,6 +82,11 @@ Read the result:
 - Both ~0 on a project with real failures → **observability gap**: you can still detect _which_ tools fail
   (query 1) and how agents struggle (query 2), but not _why_ from the taxonomy. That gap is itself
   report-worthy (see the scout's Decide section).
+- `pct_with_category` ≥ ~50 → **per-category report grain** (query 9 is the aggregation layer). Hono
+  projects land around 70–100% — un-dispatched `exec` rows (discovery verbs, wrapper validation
+  errors) carry no category, so don't expect 100% and don't read ~70% as "coverage is broken"
+  (verified: PostHog's own project sits at ~72%). ~0 → external-SDK regime, fall back to the
+  per-tool report grain.
 - `pct_with_intent` ≥ ~20 → intent lens (query 5) is worth running. (On PostHog's own data this is ~100%.)
 - `distinct_clients` > 1 → the per-client split (query 6) can localize a client-specific break.
 
@@ -102,8 +116,8 @@ LIMIT 50
 ```
 
 A tool clearing the floor with a high rate **and** reach across many users/sessions is a
-candidate. `category` is `any()` here so it surfaces when populated and is harmless (empty)
-when not.
+candidate. `category` is `any()` here (per the header's derivation rule) and is the grouping
+key for per-category reports — candidates from this query roll up into their category's report.
 
 ## 2. Struggle / retry leaderboard (Tier-1 detection — always available, high value)
 
@@ -114,6 +128,7 @@ Built from the always-on fields since no retry runner exists.
 ```sql
 SELECT
     tool,
+    any(category) AS category,
     count() AS sessions_using_tool,
     countIf(calls >= 3) AS sessions_3plus_calls,
     round(countIf(calls >= 3) * 100.0 / count(), 1) AS pct_sessions_3plus,
@@ -124,6 +139,7 @@ FROM (
     SELECT
         $session_id AS session,
         coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+        any(properties.$mcp_tool_category) AS category,
         count() AS calls,
         countIf(toBool(properties.$mcp_is_error)) AS errors
     FROM events
@@ -208,6 +224,7 @@ failures in the hono regime.
 ```sql
 SELECT
     coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+    any(properties.$mcp_tool_category) AS category,
     count() AS calls,
     round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50_ms,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_ms,
@@ -321,23 +338,51 @@ ORDER BY p95_output_tokens DESC
 LIMIT 30
 ```
 
-## 9. By-category rollup (optional, low priority)
+## 9. By-category rollup (the report grain — per-category mode)
 
-For the eventual "tools ranked within category" view. `$mcp_tool_category` is hono-only, so
-gate this on `pct_with_category` being high.
+The aggregation layer for per-category reports: per-tool stats in the inner subquery (the
+header's derivation rule — effective-tool coalesce + `any()` category), rolled up to category
+outside, carrying each category's problem tools as an inline array of
+`(tool, calls, errors, error_rate_pct, users)` tuples. Gate on `pct_with_category` ≥ ~50
+(query 0); the inner `calls >= 50 AND tool_error_rate_pct >= 10` floor mirrors query 1 — tune
+them together. Validated against real telemetry (the tuple `groupArrayIf` works in HogQL; keep
+the outer aliases distinct from the inner column names per the header's shadowing rule).
 
 ```sql
 SELECT
-    toString(properties.$mcp_tool_category) AS category,
-    count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND properties.$mcp_source = 'posthog_mcp_analytics'
-    AND isNotNull(properties.$mcp_tool_category)
-    AND timestamp >= now() - INTERVAL 7 DAY
-GROUP BY category
-HAVING calls >= 100
-ORDER BY errors DESC
+    coalesce(nullIf(nullIf(toString(category), ''), 'None'), 'Uncategorized') AS category_bucket,
+    count() AS tools,
+    sum(calls) AS category_calls,
+    sum(errors) AS category_errors,
+    round(sum(errors) * 100.0 / sum(calls), 1) AS category_error_rate_pct,
+    countIf(calls >= 50 AND tool_error_rate_pct >= 10) AS problem_tools,
+    groupArrayIf((tool, calls, errors, tool_error_rate_pct, users), calls >= 50 AND tool_error_rate_pct >= 10) AS problem_tool_details
+FROM (
+    SELECT
+        coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+        any(properties.$mcp_tool_category) AS category,
+        count() AS calls,
+        countIf(toBool(properties.$mcp_is_error)) AS errors,
+        round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS tool_error_rate_pct,
+        uniq(distinct_id) AS users
+    FROM events
+    WHERE event = '$mcp_tool_call'
+        AND properties.$mcp_source = 'posthog_mcp_analytics'
+        AND timestamp >= now() - INTERVAL 7 DAY
+    GROUP BY tool
+)
+GROUP BY category_bucket
+ORDER BY category_errors DESC
 ```
+
+Read it:
+
+- This is aggregation, not detection — it catches the failure shape only. Struggle (query 2)
+  and latency (query 4) candidates join their category via the `category` column those queries
+  now carry, even when they don't appear in `problem_tool_details`.
+- The `Uncategorized` bucket is dominated by bare `exec` rows (discovery verbs, wrapper
+  validation errors) plus uncatalogued tools like `render-ui` — attribution residue to
+  sanity-check, not an owning team (verified: on PostHog's own project it is exactly those two
+  tools at high volume).
+- `category_error_rate_pct` alone is not a finding — a big category dilutes a broken tool; the
+  per-tool entries in `problem_tool_details` are what clears the bar.
