@@ -163,7 +163,7 @@ export function createAiIngestionPipeline<
                         )
                         // Rate-limit non-cookieless events to overflow before parsing the body.
                         // Cookieless events pass through and are handled post-cookieless below.
-                        .pipeBatch(
+                        .pipeChunk(
                             createSkipCookielessRateLimitToOverflowStep(
                                 preservePartitionLocality,
                                 overflowRedirectService
@@ -204,19 +204,19 @@ export function createAiIngestionPipeline<
                                         // Cookieless processing rewrites distinct_id; person fetch keys on the
                                         // final distinct_id, so it must run after this batch step.
                                         .gather()
-                                        .pipeBatch(createApplyCookielessProcessingStep(cookielessManager))
-                                        .pipeBatch(
+                                        .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
+                                        .pipeChunk(
                                             createOnlyCookielessRateLimitToOverflowStep(
                                                 preservePartitionLocality,
                                                 overflowRedirectService
                                             )
                                         )
-                                        .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
+                                        .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
                                         // Read-only batch person fetch (no person writes).
-                                        .pipeBatch(createFetchPersonBatchStep(personRepository))
+                                        .pipeChunk(createFetchPersonBatchStep(personRepository))
                                         // Prefetch hog functions for the batch's teams so the transformer
                                         // honors Hog watcher's disabled-function state (mirrors analytics).
-                                        .pipeBatch(
+                                        .pipeChunk(
                                             createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate)
                                         )
                                         // Per-event chain. Retry is applied per step: only the steps

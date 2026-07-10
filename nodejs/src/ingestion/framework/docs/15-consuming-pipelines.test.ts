@@ -69,7 +69,7 @@ describe('Consuming a Pipeline', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, NoCtx>().pipeBatch(createDoubleStep()).build()
+        const pipeline = newBatchPipelineBuilder<Event, NoCtx>().pipeChunk(createDoubleStep()).build()
 
         pipeline.feed([{ id: 1 }, { id: 2 }, { id: 3 }].map((e) => createOkContext(e, {})))
 
@@ -101,7 +101,7 @@ describe('Consuming a Pipeline', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, NoCtx>().pipeBatch(createFilterStep()).build()
+        const pipeline = newBatchPipelineBuilder<Event, NoCtx>().pipeChunk(createFilterStep()).build()
         const unwrapper = new ChunkPipelineUnwrapper(pipeline)
 
         unwrapper.feed([{ id: 1 }, { id: 2 }, { id: 3 }].map((e) => createOkContext(e, {})))
@@ -132,7 +132,7 @@ describe('Consuming a Pipeline', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, NoCtx>().pipeBatch(createStepWithSideEffect()).build()
+        const pipeline = newBatchPipelineBuilder<Event, NoCtx>().pipeChunk(createStepWithSideEffect()).build()
         const unwrapper = new ChunkPipelineUnwrapper(pipeline)
 
         unwrapper.feed([{ id: 1 }].map((e) => createOkContext(e, {})))

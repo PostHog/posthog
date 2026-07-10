@@ -277,7 +277,7 @@ describe('Pipeline Integration Tests', () => {
                     builder
                         .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
                         .gather()
-                        .pipeBatch(batchStep4)
+                        .pipeChunk(batchStep4)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -359,7 +359,7 @@ describe('Pipeline Integration Tests', () => {
                     builder
                         .concurrently((b) => b.pipe(step1))
                         .gather()
-                        .pipeBatch(batchStep2)
+                        .pipeChunk(batchStep2)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -428,7 +428,7 @@ describe('Pipeline Integration Tests', () => {
                     builder
                         .concurrently((b) => b.pipe(step1))
                         .gather()
-                        .pipeBatch(batchStep2)
+                        .pipeChunk(batchStep2)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -506,7 +506,7 @@ describe('Pipeline Integration Tests', () => {
                     builder
                         .concurrently((b) => b.pipe(step1))
                         .gather()
-                        .pipeBatch(batchStep2)
+                        .pipeChunk(batchStep2)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -694,7 +694,7 @@ describe('Pipeline Integration Tests', () => {
                     builder
                         .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
                         .gather()
-                        .pipeBatch(batchStep4)
+                        .pipeChunk(batchStep4)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -863,7 +863,7 @@ describe('Pipeline Integration Tests', () => {
                     builder
                         .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
                         .gather()
-                        .pipeBatch(batchStep4)
+                        .pipeChunk(batchStep4)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -1013,7 +1013,7 @@ describe('Pipeline Integration Tests', () => {
                     builder
                         .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
                         .gather()
-                        .pipeBatch(batchStep4)
+                        .pipeChunk(batchStep4)
                 )
                 .handleResults({
                     outputs: mockOutputs,
@@ -1174,9 +1174,9 @@ describe('Pipeline Integration Tests', () => {
                     builder
                         .concurrently((b) => b.pipe(step1))
                         .gather()
-                        .pipeBatch(batchStep1)
-                        .pipeBatch(batchStep2)
-                        .pipeBatch(batchStep3)
+                        .pipeChunk(batchStep1)
+                        .pipeChunk(batchStep2)
+                        .pipeChunk(batchStep3)
                 )
                 .handleResults({
                     outputs: mockOutputs,
@@ -1656,7 +1656,7 @@ describe('Pipeline Integration Tests', () => {
                     builder
                         .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
                         .gather()
-                        .pipeBatch(batchStep4)
+                        .pipeChunk(batchStep4)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -1819,7 +1819,7 @@ describe('Pipeline Integration Tests', () => {
                                         b
                                             .concurrently((c) => c.pipe(step3))
                                             .gather()
-                                            .pipeBatch(batchStep)
+                                            .pipeChunk(batchStep)
                                     )
                                     .handleIngestionWarnings(createMockIngestionOutputs<IngestionWarningsOutput>())
                         )
@@ -1923,7 +1923,7 @@ describe('Pipeline Integration Tests', () => {
                     builder
                         .concurrently((b) => b.pipe(step1))
                         .gather()
-                        .pipeBatch(batchStep2)
+                        .pipeChunk(batchStep2)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })

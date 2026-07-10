@@ -1,13 +1,13 @@
 /**
  * # Chapter 11: Retry Logic
  *
- * Retry is a per-step option: pass `{ retry }` to `pipe()` or `pipeBatch()` to
+ * Retry is a per-step option: pass `{ retry }` to `pipe()` or `pipeChunk()` to
  * wrap that single step with automatic retry logic. This handles transient
  * failures like network hiccups, database connection timeouts, or rate limiting.
  *
  * ```
  * .pipe(step, { retry: { tries: 3, sleepMs: 100 } })
- * .pipeBatch(step, { retry: { tries: 3, sleepMs: 100 } })
+ * .pipeChunk(step, { retry: { tries: 3, sleepMs: 100 } })
  * ```
  *
  * ## Key Concepts
@@ -300,11 +300,11 @@ describe('Batch Retries', () => {
     })
 
     /**
-     * `pipeBatch(step, { retry })` retries the whole batch step on retriable
+     * `pipeChunk(step, { retry })` retries the whole batch step on retriable
      * errors, the same way per-item retry works. The batch is reprocessed as a
      * unit until it succeeds or retries are exhausted.
      */
-    it('pipeBatch retries the batch step until it succeeds', async () => {
+    it('pipeChunk retries the batch step until it succeeds', async () => {
         let attempts = 0
 
         interface Event {
@@ -322,7 +322,7 @@ describe('Batch Retries', () => {
         }
 
         const pipeline = newBatchPipelineBuilder<Event>()
-            .pipeBatch(createFlakyBatchStep(), { retry: { tries: 5, sleepMs: 100 } })
+            .pipeChunk(createFlakyBatchStep(), { retry: { tries: 5, sleepMs: 100 } })
             .build()
 
         pipeline.feed([{ id: 1 }, { id: 2 }].map((e) => createOkContext(e, {})))
@@ -340,7 +340,7 @@ describe('Batch Retries', () => {
      * is converted to its own DLQ result. The failure is attributed per-input
      * so each message is dead-lettered individually.
      */
-    it('pipeBatch sends one DLQ per input on a non-retriable error', async () => {
+    it('pipeChunk sends one DLQ per input on a non-retriable error', async () => {
         interface Event {
             id: number
         }
@@ -352,7 +352,7 @@ describe('Batch Retries', () => {
         }
 
         const pipeline = newBatchPipelineBuilder<Event>()
-            .pipeBatch(createFailingBatchStep(), { retry: { tries: 5, sleepMs: 100 } })
+            .pipeChunk(createFailingBatchStep(), { retry: { tries: 5, sleepMs: 100 } })
             .build()
 
         // Three inputs -> three DLQ results, no retries (non-retriable)

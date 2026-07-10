@@ -110,7 +110,7 @@ describe('Filter Map', () => {
         // filterMap() filters OK results, maps them, and processes through subpipeline.
         // Non-OK results pass through unchanged, so we only need handleResults once at the end.
         const pipeline = newBatchPipelineBuilder<RawEvent, { message: Message }>()
-            .pipeBatch(createTeamLookupStep())
+            .pipeChunk(createTeamLookupStep())
             .gather()
             .filterMap(
                 // Map: extract team from result and add to context
@@ -124,7 +124,7 @@ describe('Filter Map', () => {
                 // Subpipeline: process events with team context
                 (b) =>
                     b
-                        .teamAware((b) => b.pipeBatch(createProcessEventStep()).gather())
+                        .teamAware((b) => b.pipeChunk(createProcessEventStep()).gather())
                         .handleIngestionWarnings(mockWarningOutputs)
             )
             // Handle all results (both from subpipeline and passed-through non-OK) once at the end

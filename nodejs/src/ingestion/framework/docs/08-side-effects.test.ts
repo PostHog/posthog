@@ -230,7 +230,7 @@ describe('Handling Side Effects', () => {
         }
 
         const pipeline = newBatchPipelineBuilder<Item>()
-            .pipeBatch(createBatchProcessStep())
+            .pipeChunk(createBatchProcessStep())
             .handleSideEffects(promiseScheduler, { await: true })
             .build()
 
@@ -311,7 +311,7 @@ describe('Handling Side Effects', () => {
         }
 
         const pipeline = newBatchPipelineBuilder<Item>()
-            .pipeBatch(createBatchProcessStep())
+            .pipeChunk(createBatchProcessStep())
             .handleSideEffects(promiseScheduler, { await: false })
             .build()
 

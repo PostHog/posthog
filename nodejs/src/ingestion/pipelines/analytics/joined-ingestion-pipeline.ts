@@ -244,7 +244,7 @@ export function createJoinedIngestionPipeline<
                         // Cookieless events (headers.distinct_id === sentinel) pass through and are
                         // handled by the matching only-cookieless step in post-team, which keys on
                         // the hashed distinct_id assigned by the cookieless step.
-                        .pipeBatch(
+                        .pipeChunk(
                             createSkipCookielessRateLimitToOverflowStep(
                                 preservePartitionLocality,
                                 overflowRedirectService

@@ -91,7 +91,7 @@ describe('Warning Basics', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeBatch(createValidationStep()).build()
+        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeChunk(createValidationStep()).build()
 
         const batch = [createOkContext({ name: 'pageview' }, { team })]
         pipeline.feed(batch)
@@ -154,8 +154,8 @@ describe('Warning Basics', () => {
 
         const team = createTestTeam()
         const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
-            .pipeBatch(createTimestampCheckStep())
-            .pipeBatch(createPropertiesCheckStep())
+            .pipeChunk(createTimestampCheckStep())
+            .pipeChunk(createPropertiesCheckStep())
             .build()
 
         const batch = [createOkContext({ name: 'click' }, { team })]
@@ -218,7 +218,7 @@ describe('Warning Basics', () => {
 
         const team = createTestTeam()
         const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
-            .pipeBatch(createComprehensiveValidationStep())
+            .pipeChunk(createComprehensiveValidationStep())
             .build()
 
         // Create an event that triggers multiple warnings
@@ -265,7 +265,7 @@ describe('Handling Ingestion Warnings', () => {
 
         const team = createTestTeam({ id: 42 })
         const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
-            .pipeBatch(createWarningStep())
+            .pipeChunk(createWarningStep())
             .teamAware((builder) => builder)
             .handleIngestionWarnings(mockOutputs)
             .handleSideEffects(promiseScheduler, { await: true })
@@ -311,7 +311,7 @@ describe('Handling Ingestion Warnings', () => {
 
         const team = createTestTeam()
         const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
-            .pipeBatch(createStepWithBothSideEffectsAndWarnings())
+            .pipeChunk(createStepWithBothSideEffectsAndWarnings())
             .teamAware((builder) => builder)
             .handleIngestionWarnings(mockOutputs)
             .handleSideEffects(promiseScheduler, { await: true })
@@ -361,7 +361,7 @@ describe('Warning Debouncing', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeBatch(createUserWarningStep()).build()
+        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeChunk(createUserWarningStep()).build()
 
         const batch = [createOkContext({ distinctId: 'user-123' }, { team })]
         pipeline.feed(batch)
@@ -406,7 +406,7 @@ describe('Warning Debouncing', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeBatch(createCriticalWarningStep()).build()
+        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeChunk(createCriticalWarningStep()).build()
 
         const batch = [createOkContext({ name: 'important_event' }, { team })]
         pipeline.feed(batch)

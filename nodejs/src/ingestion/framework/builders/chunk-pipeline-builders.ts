@@ -69,7 +69,7 @@ export class GroupProcessingBuilder<
 export class ChunkPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R extends string = never> {
     constructor(protected pipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>) {}
 
-    pipeBatch<U, R2 extends string = never>(
+    pipeChunk<U, R2 extends string = never>(
         step: ChunkProcessingStep<TOutput, U, R2>,
         options?: { retry?: RetryOptions }
     ): ChunkPipelineBuilder<TInput, U, CInput, COutput, R | R2> {

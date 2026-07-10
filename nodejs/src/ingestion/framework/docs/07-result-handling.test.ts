@@ -57,7 +57,7 @@
  *
  * ```typescript
  * newBatchPipelineBuilder<T, { message: Message }>()
- *   .pipeBatch(processStep())
+ *   .pipeChunk(processStep())
  *   .messageAware((builder) => builder)
  *   .handleResults(config)
  *   .handleSideEffects(promiseScheduler, { await: true })  // Required!
@@ -121,7 +121,7 @@ describe('Result Handling', () => {
         }
 
         const pipeline = newBatchPipelineBuilder<Event, { message: Message }>()
-            .pipeBatch(createValidationStep())
+            .pipeChunk(createValidationStep())
             .messageAware((builder) => builder)
             .handleResults(pipelineConfig)
             .handleSideEffects(promiseScheduler, { await: true })
@@ -186,7 +186,7 @@ describe('Result Handling', () => {
         }
 
         const pipeline = newBatchPipelineBuilder<Event, { message: Message }>()
-            .pipeBatch(createFilterStep())
+            .pipeChunk(createFilterStep())
             .messageAware((builder) => builder)
             .handleResults(pipelineConfig)
             .handleSideEffects(promiseScheduler, { await: true })
@@ -248,7 +248,7 @@ describe('Result Handling', () => {
         }
 
         const pipeline = newBatchPipelineBuilder<Event, { message: Message }>()
-            .pipeBatch(createRoutingStep())
+            .pipeChunk(createRoutingStep())
             .messageAware((builder) => builder)
             .handleResults(pipelineConfig)
             .handleSideEffects(promiseScheduler, { await: true })
@@ -335,7 +335,7 @@ describe('Result Handling', () => {
 
         // await: true so the redirect side effect (the produce) is awaited before next() resolves
         const pipeline = newBatchPipelineBuilder<{ v: string }, { message: Message }>()
-            .pipeBatch(createRoutingStep())
+            .pipeChunk(createRoutingStep())
             .messageAware((builder) => builder)
             .handleResults({ outputs: mockOutputs, promiseScheduler })
             .handleSideEffects(promiseScheduler, { await: true })
@@ -386,7 +386,7 @@ describe('Result Handling', () => {
         // Even with await: true, the redirect side effect resolves immediately because
         // awaitAck=false means it never waits on the produce ack.
         const pipeline = newBatchPipelineBuilder<{ v: string }, { message: Message }>()
-            .pipeBatch(createRoutingStep())
+            .pipeChunk(createRoutingStep())
             .messageAware((builder) => builder)
             .handleResults({ outputs: mockOutputs, promiseScheduler })
             .handleSideEffects(promiseScheduler, { await: true })

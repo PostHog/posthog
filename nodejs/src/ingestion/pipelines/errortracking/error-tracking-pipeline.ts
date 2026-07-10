@@ -124,7 +124,7 @@ function applyKeyedRateLimiters<TInput, TOutput, CInput, COutput, R extends stri
     builder: ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R>,
     specs: KeyedRateLimiterStepOptions<TOutput>[]
 ): ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
-    return specs.reduce((b, spec) => b.pipeBatch(createKeyedRateLimiterStep(spec)), builder)
+    return specs.reduce((b, spec) => b.pipeChunk(createKeyedRateLimiterStep(spec)), builder)
 }
 
 /**
@@ -204,7 +204,7 @@ export function createErrorTrackingPipeline(
                 // Cookieless events (headers.distinct_id === sentinel) pass through and are
                 // handled post-cookieless by createOnlyCookielessRateLimitToOverflowStep, which
                 // keys on the hashed distinct_id assigned by the cookieless step.
-                .pipeBatch(
+                .pipeChunk(
                     createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService)
                 )
                 // Body parse and team resolution. Anything that needs the parsed event lives here.
@@ -243,11 +243,11 @@ export function createErrorTrackingPipeline(
                                 // the final distinct ID.
                                 const afterCookieless = b
                                     .gather()
-                                    .pipeBatch(createApplyCookielessProcessingStep(cookielessManager))
+                                    .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
                                     // Rate-limit only cookieless events to overflow now that they
                                     // have a real hashed distinct_id. Non-cookieless events were
                                     // rate-limited pre-parse above.
-                                    .pipeBatch(
+                                    .pipeChunk(
                                         createOnlyCookielessRateLimitToOverflowStep(
                                             preservePartitionLocality,
                                             overflowRedirectService
@@ -255,7 +255,7 @@ export function createErrorTrackingPipeline(
                                     )
                                 const preCymbal = afterCookieless
                                     // Refresh TTLs for overflow lane events (keeps Redis flags alive)
-                                    .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
+                                    .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
                                 const afterCymbal = preCymbal
                                     // Process through Cymbal as a batch (before enrichment - Cymbal only
                                     // needs raw exception data, not person/geoip/group data).
@@ -263,7 +263,7 @@ export function createErrorTrackingPipeline(
                                     // 3 retries keeps the worst-case batch time (3 × 45s timeout =
                                     // 135s) well within the 180s liveness interval, and reduces
                                     // amplification pressure on Cymbal during degradation.
-                                    .pipeBatch(createCymbalProcessingStep(cymbalClient), {
+                                    .pipeChunk(createCymbalProcessingStep(cymbalClient), {
                                         retry: { tries: 3, sleepMs: 100, name: 'cymbal_processing' },
                                     })
                                 // Post-Cymbal team-global rate-limit chain. Drops events the team
@@ -273,7 +273,7 @@ export function createErrorTrackingPipeline(
                                     afterRateLimit
                                         // Enrich, prepare, create, and emit events
                                         // Batch fetch person (read-only, no updates)
-                                        .pipeBatch(createFetchPersonBatchStep(personRepository))
+                                        .pipeChunk(createFetchPersonBatchStep(personRepository))
                                         .sequentially((b) =>
                                             b
                                                 // Run Hog transformations (including GeoIP if team has it enabled)

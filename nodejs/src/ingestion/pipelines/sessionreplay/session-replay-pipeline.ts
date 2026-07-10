@@ -129,14 +129,14 @@ export function createSessionReplayPipeline(
                 // recorded — keyed on the (validated) session_id header. Sessions with unresolvable
                 // retention are dropped before any parse or write.
                 .gather()
-                .pipeBatch(createResolveRetentionStep(retentionService, sessionBatchManager), {
+                .pipeChunk(createResolveRetentionStep(retentionService, sessionBatchManager), {
                     retry: { tries: 3, sleepMs: 100 },
                 })
                 // Track sessions and rate-limit new ones for the whole batch, tagging the survivors with
                 // isNewSession and dropping the blocked ones right here (they carry no key, so nothing
                 // downstream acts on them). Its own retry scope means a later key-resolution failure never
                 // re-runs the rate limiter and double-charges the budget.
-                .pipeBatch(createTrackAndGateStep(sessionTracker, sessionFilter), {
+                .pipeChunk(createTrackAndGateStep(sessionTracker, sessionFilter), {
                     retry: { tries: 3, sleepMs: 100 },
                 })
                 // Resolve each session's encryption key. Grouped by session so it runs once per session
@@ -157,7 +157,7 @@ export function createSessionReplayPipeline(
                 // in a single Redis write and as the barrier that guarantees every key is resolved first.
                 .gather()
                 // Mark the surviving new sessions seen, now that every key is durably resolved.
-                .pipeBatch(createMarkSeenStep(sessionTracker))
+                .pipeChunk(createMarkSeenStep(sessionTracker))
                 // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
                 .filterMap(
                     (element) => ({

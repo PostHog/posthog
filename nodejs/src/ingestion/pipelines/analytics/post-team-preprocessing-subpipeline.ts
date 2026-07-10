@@ -93,26 +93,26 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             // are captured with $posthog_cookieless distinct ID and rewritten here).
             // Any steps that depend on the final distinct ID must run after this step.
             .gather()
-            .pipeBatch(createApplyCookielessProcessingStep(cookielessManager))
+            .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
             // Rate-limit only cookieless events using the hashed distinct_id assigned by the
             // cookieless step. Non-cookieless events were rate-limited pre-parse in the joined
             // pipeline via createSkipCookielessRateLimitToOverflowStep.
-            .pipeBatch(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+            .pipeChunk(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             // Refresh TTLs for overflow lane events (keeps Redis flags alive)
-            .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
+            .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
             // Drop redundant $feature_flag_called events (keep-first Redis claim).
             // Must run after cookieless (keys on the final distinct_id) and before
             // person prefetch so duplicates skip person processing and the CH write.
-            .pipeBatch(createDedupeFeatureFlagCalledStep(featureFlagCalledDedupService))
+            .pipeChunk(createDedupeFeatureFlagCalledStep(featureFlagCalledDedupService))
             // Prefetch must run after cookieless, as cookieless changes distinct IDs.
             // Prefetch is fire-and-forget (best-effort cache warming), so retry here would be a
             // no-op — transient persons-Postgres failures are swallowed inside prefetchPersons so
             // they can't surface as an unhandled rejection and crash the worker.
-            .pipeBatch(prefetchPersonsStep(personsPrefetchEnabled))
+            .pipeChunk(prefetchPersonsStep(personsPrefetchEnabled))
             // Batch insert personless distinct IDs after prefetch (uses prefetch cache).
             // This step awaits its DB write, so retry transient persons-Postgres failures
             // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
-            .pipeBatch(
+            .pipeChunk(
                 processPersonlessDistinctIdsBatchStep(personsPrefetchEnabled, flagCalledPersonlessDefaultTeams),
                 {
                     retry: {
@@ -123,6 +123,6 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
                 }
             )
             // Prefetch hog functions for all teams in the batch
-            .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
+            .pipeChunk(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
     )
 }

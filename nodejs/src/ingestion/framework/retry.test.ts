@@ -68,7 +68,7 @@ const stepVariant: Variant = {
 }
 
 const batchVariant: Variant = {
-    label: 'withChunkRetry (via pipeBatch)',
+    label: 'withChunkRetry (via pipeChunk)',
     async run(script, retry, opts) {
         const inputs = opts?.inputs ?? [1]
         // Inline function literal so the computed-property key names the step (for the metric-name test).
@@ -83,7 +83,7 @@ const batchVariant: Variant = {
                   script()
                   return Promise.resolve(values.map((v) => ok(String(v))))
               }
-        const pipeline = newBatchPipelineBuilder<number>().pipeBatch(step, { retry }).gather().build()
+        const pipeline = newBatchPipelineBuilder<number>().pipeChunk(step, { retry }).gather().build()
         pipeline.feed(inputs.map((v) => createOkContext(v, {})))
         const results = await pipeline.next()
         return (results ?? []).map((r) => r.result)

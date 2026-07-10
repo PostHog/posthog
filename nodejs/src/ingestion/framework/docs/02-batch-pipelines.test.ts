@@ -42,7 +42,7 @@ describe('Batch Pipeline Basics', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>().pipeBatch(createBatchDoubleStep()).build()
+        const pipeline = newBatchPipelineBuilder<number>().pipeChunk(createBatchDoubleStep()).build()
 
         const batch = [1, 2, 3, 4, 5].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
@@ -66,7 +66,7 @@ describe('Batch Pipeline Basics', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<string>().pipeBatch(createUppercaseStep()).build()
+        const pipeline = newBatchPipelineBuilder<string>().pipeChunk(createUppercaseStep()).build()
 
         const batch = ['a', 'b', 'c'].map((s) => createOkContext(s, {}))
         pipeline.feed(batch)
@@ -92,7 +92,7 @@ describe('Cardinality Guarantee', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>().pipeBatch(createValidBatchStep()).build()
+        const pipeline = newBatchPipelineBuilder<number>().pipeChunk(createValidBatchStep()).build()
 
         const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
@@ -115,7 +115,7 @@ describe('Cardinality Guarantee', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>().pipeBatch(createBadBatchStep()).build()
+        const pipeline = newBatchPipelineBuilder<number>().pipeChunk(createBadBatchStep()).build()
 
         const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
@@ -153,8 +153,8 @@ describe('OK Filtering', () => {
         }
 
         const pipeline = newBatchPipelineBuilder<number>()
-            .pipeBatch(createFilterStep())
-            .pipeBatch(createProcessStep())
+            .pipeChunk(createFilterStep())
+            .pipeChunk(createProcessStep())
             .build()
 
         const batch = [1, 2, 3, 4, 5].map((n) => createOkContext(n, {}))

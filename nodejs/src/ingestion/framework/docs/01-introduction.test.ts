@@ -376,7 +376,7 @@ describe('Batch Pipelines', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<string>().pipeBatch(createUppercaseBatchStep()).build()
+        const pipeline = newBatchPipelineBuilder<string>().pipeChunk(createUppercaseBatchStep()).build()
 
         const batch = ['a', 'b', 'c'].map((s) => createOkContext(s, {}))
         pipeline.feed(batch)
@@ -388,11 +388,11 @@ describe('Batch Pipelines', () => {
     })
 
     /**
-     * The `pipeBatch` method adds a step that processes the entire batch at once.
+     * The `pipeChunk` method adds a step that processes the entire batch at once.
      * The step receives an array of values and must return an array of results
      * with the same length.
      */
-    it('pipeBatch processes all items in a single call', async () => {
+    it('pipeChunk processes all items in a single call', async () => {
         const callCounts: number[] = []
 
         function createBatchEnrichStep(): BatchProcessingStep<number, number> {
@@ -402,7 +402,7 @@ describe('Batch Pipelines', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>().pipeBatch(createBatchEnrichStep()).build()
+        const pipeline = newBatchPipelineBuilder<number>().pipeChunk(createBatchEnrichStep()).build()
 
         const batch = [1, 2, 3, 4, 5].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
@@ -425,7 +425,7 @@ describe('Batch Pipelines', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<string>().pipeBatch(createPassthroughStep()).build()
+        const pipeline = newBatchPipelineBuilder<string>().pipeChunk(createPassthroughStep()).build()
 
         const batch = ['x', 'y'].map((s) => createOkContext(s, {}))
         pipeline.feed(batch)
