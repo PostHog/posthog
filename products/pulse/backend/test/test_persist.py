@@ -1,8 +1,18 @@
 from posthog.test.base import BaseTest
 
+from posthog.models.scoping import team_scope
+
+from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.generation.persist import persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
-from products.pulse.backend.models import Opportunity, ProductBrief
+from products.pulse.backend.models import (
+    ActionStatus,
+    ActionType,
+    Opportunity,
+    ProductBrief,
+    ResourceLink,
+    ResourceType,
+)
 from products.pulse.backend.sources.base import SourceItem
 
 _EVIDENCE = {"type": "insight", "ref": "abc", "label": "Pageviews", "url": "/project/1/insights/abc"}
@@ -47,22 +57,49 @@ class TestPersistBriefOutput(BaseTest):
     def _opportunities(self):
         return Opportunity.objects.for_team(self.team.pk)
 
-    def test_resolves_citation_ids_to_structured_refs(self) -> None:
+    def _links(self):
+        return ResourceLink.objects.for_team(self.team.pk)
+
+    def test_resolves_citation_ids_to_resource_links_and_action(self) -> None:
+        # A real insight with the cited short_id so the link resolves its FK.
+        with team_scope(self.team.pk, canonical=True):
+            insight = Insight.objects.create(team=self.team, name="Pageviews", short_id="abc")
         brief = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
         assert brief.status == ProductBrief.Status.READY
         assert len(brief.sections) == 1
         assert brief.sources_used == ["anchored_insights"]
         opportunity = self._opportunities().get()
-        # The cited id 'c1' resolves back to the full structured ref, including its deep link.
-        assert opportunity.evidence == [_EVIDENCE]
         assert opportunity.baseline == {"pct_change": -30.0, "baseline_total": 700.0, "current_total": 490.0}
         assert opportunity.metric_ref == {"insight_short_id": "abc"}
+        # The LLM summary is wrapped in the structured advisory action envelope.
+        assert opportunity.action == {
+            "type": ActionType.ADVISORY.value,
+            "summary": "a",
+            "params": {},
+            "status": ActionStatus.PROPOSED.value,
+        }
+        # The cited id 'c1' resolves to a ResourceLink with the right type, cached columns, and FK.
+        link = self._links().get()
+        assert link.resource_type == ResourceType.INSIGHT
+        assert link.ref == "abc"
+        assert link.label == "Pageviews"
+        assert link.url == "/project/1/insights/abc"
+        assert link.insight_id == insight.id
 
-    def test_unknown_citation_id_is_dropped(self) -> None:
+    def test_link_created_even_when_insight_ref_does_not_resolve(self) -> None:
+        # No insight with short_id 'abc' exists — the link is still created (cached columns only),
+        # with a null FK, so a deleted/renamed resource does not drop the evidence.
+        persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
+        link = self._links().get()
+        assert link.resource_type == ResourceType.INSIGHT
+        assert link.ref == "abc"
+        assert link.insight_id is None
+
+    def test_unknown_citation_id_creates_no_link(self) -> None:
         # The model cited an id that maps to no gathered evidence — it is dropped, not fabricated.
         persist_brief_output(brief=self._brief(), out=_out(evidence_refs=["c1", "c99"]), items=[_item()])
-        opportunity = self._opportunities().get()
-        assert opportunity.evidence == [_EVIDENCE]
+        assert self._opportunities().count() == 1
+        assert [link.ref for link in self._links()] == ["abc"]
 
     def test_same_fingerprint_does_not_duplicate(self) -> None:
         persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])

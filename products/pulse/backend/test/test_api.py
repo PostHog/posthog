@@ -10,6 +10,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
+from posthog.slo.types import SloOperation
 
 from products.pulse.backend.models import BriefConfig, ProductBrief
 
@@ -57,9 +58,15 @@ class TestPulseAPI(APIBaseTest):
         client.start_workflow.assert_called_once()
         assert client.start_workflow.call_args.kwargs["task_queue"] == settings.ANALYTICS_PLATFORM_TASK_QUEUE
         assert client.start_workflow.call_args.kwargs["execution_timeout"] is not None
+        # The workflow input carries an SLO config so the interceptor emits started/completed metrics.
+        workflow_input = client.start_workflow.call_args.args[1]
+        assert workflow_input.slo is not None
+        assert workflow_input.slo.operation == SloOperation.PULSE_BRIEF_GENERATION
+        assert workflow_input.slo.resource_id == str(brief.id)
 
+    @patch("products.pulse.backend.api.brief.report_user_action")
     def test_generate_while_running_returns_409_without_orphan_brief(
-        self, mock_connect: MagicMock, _mock_flag: MagicMock
+        self, mock_report: MagicMock, mock_connect: MagicMock, _mock_flag: MagicMock
     ) -> None:
         client = _temporal_client()
         client.start_workflow.side_effect = WorkflowAlreadyStartedError("pulse-brief-x", "pulse-generate-brief")
@@ -67,8 +74,12 @@ class TestPulseAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/pulse/briefs/generate/")
         assert response.status_code == status.HTTP_409_CONFLICT
         assert not ProductBrief.objects.for_team(self.team.pk).exists()
+        # Contention is a distinct analytics signal from a successful generate.
+        assert "pulse brief generation contended" in [call.args[1] for call in mock_report.call_args_list]
 
-    def test_generate_dispatch_failure_marks_brief_failed(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+    def test_generate_dispatch_failure_returns_500_with_brief_id_and_status(
+        self, mock_connect: MagicMock, _mock_flag: MagicMock
+    ) -> None:
         client = _temporal_client()
         client.start_workflow.side_effect = RuntimeError("temporal down")
         mock_connect.return_value = client
@@ -77,6 +88,8 @@ class TestPulseAPI(APIBaseTest):
         brief = ProductBrief.objects.for_team(self.team.pk).get()
         assert brief.status == ProductBrief.Status.FAILED
         assert "temporal down" in (brief.error or "")
+        # The failed row's id+status is returned so the frontend can surface/deep-link it.
+        assert response.json()["brief"] == {"id": str(brief.id), "status": ProductBrief.Status.FAILED.value}
 
     def test_generate_with_unknown_config_returns_400(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")

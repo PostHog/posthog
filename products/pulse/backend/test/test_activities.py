@@ -13,6 +13,7 @@ from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.scoping import team_scope
+from posthog.slo.types import SloArea, SloConfig, SloOperation
 
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief
@@ -138,6 +139,22 @@ async def test_synthesize_activity_without_creating_user_raises(team) -> None:
             SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
         )
     assert exc_info.value.non_retryable is True
+
+
+def test_workflow_inputs_carry_slo_config() -> None:
+    # The workflow input must be able to carry an SloConfig for the SloInterceptor to read at start;
+    # a plain input (no SLO) stays valid too.
+    slo = SloConfig(
+        operation=SloOperation.PULSE_BRIEF_GENERATION,
+        area=SloArea.ANALYTIC_PLATFORM,
+        team_id=1,
+        resource_id="brief-1",
+        distinct_id="user-1",
+    )
+    inputs = GenerateBriefWorkflowInputs(team_id=1, brief_id="brief-1", slo=slo)
+    assert inputs.slo is slo
+    assert inputs.slo.operation == SloOperation.PULSE_BRIEF_GENERATION
+    assert GenerateBriefWorkflowInputs(team_id=1, brief_id="brief-1").slo is None
 
 
 def test_resolve_period_since_last_run_vs_last_n_days() -> None:

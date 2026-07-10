@@ -1,18 +1,15 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.utils import timezone
-
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.config import DEFAULT_BRIEF_SETTINGS, BriefSettings
 from products.pulse.backend.models import BriefConfig
-from products.pulse.backend.sources.anchored_insights import AnchoredInsightsSource, score_movement
+from products.pulse.backend.sources.anchored_insights import AnchoredInsightsSource
+from products.pulse.backend.sources.strategy import MovementScoringStrategy, score_movement
 
 _TRENDS_QUERY = {
     "kind": "InsightVizNode",
@@ -70,15 +67,19 @@ class TestAnchoredInsightsGather(BaseTest):
                 team=self.team, name="Focus", anchors={"insights": [i.short_id for i in insights]}
             )
 
-    @patch("products.pulse.backend.sources.anchored_insights.calculate_for_query_based_insight")
+    def _source(self) -> AnchoredInsightsSource:
+        return AnchoredInsightsSource(MovementScoringStrategy())
+
+    @patch("products.pulse.backend.sources.strategy.calculate_for_query_based_insight")
     def test_gather_returns_item_for_significant_movement(self, mock_calculate: MagicMock) -> None:
         insight = self._insight()
         config = self._config([insight])
         mock_calculate.return_value = MagicMock(result=[{"label": "$pageview", "data": [100.0] * 7 + [70.0] * 7}])
 
-        items = AnchoredInsightsSource().gather(self.team, config, lookback_days=7)
+        items = self._source().gather(self.team, config, lookback_days=7)
 
         assert len(items) == 1
+        assert items[0].source == "anchored_insights"
         assert items[0].fingerprint_hint == f"{insight.short_id}:0"
         assert items[0].metrics["pct_change"] == -30.0
         # Evidence carries a navigable deep link into the app.
@@ -91,7 +92,7 @@ class TestAnchoredInsightsGather(BaseTest):
             ("odd_length_drops_oldest", [{"label": "x", "data": [999.0, 100.0, 100.0, 70.0, 70.0]}], 1, -30.0),
         ]
     )
-    @patch("products.pulse.backend.sources.anchored_insights.calculate_for_query_based_insight")
+    @patch("products.pulse.backend.sources.strategy.calculate_for_query_based_insight")
     def test_gather_result_shapes(
         self,
         _name: str,
@@ -103,13 +104,13 @@ class TestAnchoredInsightsGather(BaseTest):
         config = self._config([self._insight()])
         mock_calculate.return_value = MagicMock(result=result)
 
-        items = AnchoredInsightsSource().gather(self.team, config, lookback_days=7)
+        items = self._source().gather(self.team, config, lookback_days=7)
 
         assert len(items) == expected_count
         if expected_pct is not None:
             assert items[0].metrics["pct_change"] == expected_pct
 
-    @patch("products.pulse.backend.sources.anchored_insights.calculate_for_query_based_insight")
+    @patch("products.pulse.backend.sources.strategy.calculate_for_query_based_insight")
     def test_gather_survives_one_broken_insight(self, mock_calculate: MagicMock) -> None:
         broken = self._insight("Broken")
         working = self._insight("Working")
@@ -122,31 +123,18 @@ class TestAnchoredInsightsGather(BaseTest):
 
         mock_calculate.side_effect = _calculate
 
-        items = AnchoredInsightsSource().gather(self.team, config, lookback_days=7)
+        items = self._source().gather(self.team, config, lookback_days=7)
 
         assert [item.fingerprint_hint for item in items] == [f"{working.short_id}:0"]
 
-    @patch("products.pulse.backend.sources.anchored_insights.calculate_for_query_based_insight")
-    def test_dashboard_anchored_gather(self, mock_calculate: MagicMock) -> None:
-        # A config anchored on a dashboard gathers movements from that dashboard's insights.
-        insight = self._insight()
-        dashboard = Dashboard.objects.create(team=self.team, name="Anchor")
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+    @patch("products.pulse.backend.sources.strategy.calculate_for_query_based_insight")
+    def test_dashboard_anchors_are_not_gathered_by_insights_source(self, mock_calculate: MagicMock) -> None:
+        # A dashboard-only anchored config yields nothing from the insights source — dashboards are
+        # the dashboards source's job. This is the split under test.
         with team_scope(self.team.pk, canonical=True):
-            config = BriefConfig.objects.create(team=self.team, name="Focus", anchors={"dashboards": [dashboard.id]})
-        mock_calculate.return_value = MagicMock(result=[{"label": "x", "data": [100.0] * 7 + [70.0] * 7}])
+            config = BriefConfig.objects.create(team=self.team, name="Focus", anchors={"dashboards": [1]})
 
-        items = AnchoredInsightsSource().gather(self.team, config, lookback_days=7)
+        items = self._source().gather(self.team, config, lookback_days=7)
 
-        assert [item.fingerprint_hint for item in items] == [f"{insight.short_id}:0"]
-
-    @patch("products.pulse.backend.sources.anchored_insights.calculate_for_query_based_insight")
-    def test_zero_config_falls_back_to_recent_dashboards(self, mock_calculate: MagicMock) -> None:
-        insight = self._insight()
-        dashboard = Dashboard.objects.create(team=self.team, name="Main", last_accessed_at=timezone.now())
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
-        mock_calculate.return_value = MagicMock(result=[{"label": "x", "data": [100.0] * 7 + [70.0] * 7}])
-
-        items = AnchoredInsightsSource().gather(self.team, None, lookback_days=7)
-
-        assert [item.fingerprint_hint for item in items] == [f"{insight.short_id}:0"]
+        assert items == []
+        mock_calculate.assert_not_called()
