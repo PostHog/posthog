@@ -248,6 +248,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.SessionProperties ||
         listGroupType === TaxonomicFilterGroupType.MaxAIContext ||
         listGroupType === TaxonomicFilterGroupType.ErrorTrackingProperties ||
+        listGroupType === TaxonomicFilterGroupType.MCPProperties ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>

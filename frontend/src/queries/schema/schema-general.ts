@@ -2845,6 +2845,8 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     limit?: integer
     offset?: integer
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -3515,6 +3517,9 @@ export type MetricsAttributeScope = 'resource' | 'attribute' | 'auto'
 
 export type MetricsFilterOp = 'eq' | 'neq' | 'regex' | 'not_regex'
 
+/** OTel metric type; matches what ingest writes to `metric_type` */
+export type MetricsOtelType = 'gauge' | 'sum' | 'histogram' | 'exponential_histogram' | 'summary'
+
 export type MetricsAggregation =
     | 'sum'
     | 'avg'
@@ -3543,6 +3548,9 @@ export interface MetricsQueryClause {
     name: string
     metricName: string
     aggregation: MetricsAggregation
+    /** Series identity includes the OTel type — one name can exist as e.g. both a
+     * counter and a gauge — so a clause pins it to avoid blending distinct series. */
+    metricType?: MetricsOtelType
     filters?: MetricsQueryFilter[]
     groupBy?: MetricsQueryGroupBy[]
     /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
