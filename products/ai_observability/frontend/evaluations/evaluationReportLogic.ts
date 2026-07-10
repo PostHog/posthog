@@ -44,6 +44,11 @@ export interface ReportConfigDraft {
     cooldownHours: number
 }
 
+export interface ReportConfigErrors {
+    triggerThreshold?: string
+    cooldownHours?: string
+}
+
 export const TRIGGER_THRESHOLD_MIN = 100
 export const TRIGGER_THRESHOLD_DEFAULT = 100
 export const TRIGGER_THRESHOLD_MAX = 10_000
@@ -76,6 +81,32 @@ const DEFAULT_CONFIG_DRAFT: ReportConfigDraft = {
     reportPromptGuidance: '',
     triggerThreshold: TRIGGER_THRESHOLD_DEFAULT,
     cooldownHours: COOLDOWN_HOURS_DEFAULT,
+}
+
+export function getReportConfigErrors(draft: ReportConfigDraft): ReportConfigErrors {
+    if (draft.frequency !== 'every_n') {
+        return {}
+    }
+
+    return {
+        triggerThreshold:
+            Number.isInteger(draft.triggerThreshold) &&
+            draft.triggerThreshold >= TRIGGER_THRESHOLD_MIN &&
+            draft.triggerThreshold <= TRIGGER_THRESHOLD_MAX
+                ? undefined
+                : `Evaluation count threshold must be a whole number between ${TRIGGER_THRESHOLD_MIN} and ${TRIGGER_THRESHOLD_MAX.toLocaleString()}.`,
+        cooldownHours:
+            Number.isInteger(draft.cooldownHours) &&
+            draft.cooldownHours >= COOLDOWN_HOURS_MIN &&
+            draft.cooldownHours <= COOLDOWN_HOURS_MAX
+                ? undefined
+                : `Minimum hours between reports must be a whole number between ${COOLDOWN_HOURS_MIN} and ${COOLDOWN_HOURS_MAX}.`,
+    }
+}
+
+export function getReportConfigError(draft: ReportConfigDraft): string | null {
+    const errors = getReportConfigErrors(draft)
+    return errors.triggerThreshold ?? errors.cooldownHours ?? null
 }
 
 function normalizeScheduleWeekdays(weekdays: ReportScheduleWeekday[]): ReportScheduleWeekday[] {
@@ -220,6 +251,11 @@ export async function persistReportDraft(
     draft: ReportConfigDraft,
     activeReport: EvaluationReport | null
 ): Promise<boolean> {
+    const configError = getReportConfigError(draft)
+    if (configError) {
+        throw new Error(configError)
+    }
+
     const targets = buildDeliveryTargets(draft)
     if (activeReport) {
         await llmAnalyticsEvaluationReportsPartialUpdate(
@@ -409,6 +445,14 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
 
     selectors({
         isNewEvaluation: [(_, p) => [p.evaluationId], (evaluationId: string) => evaluationId === 'new'],
+        configErrors: [
+            (s) => [s.configDraft],
+            (configDraft: ReportConfigDraft): ReportConfigErrors => getReportConfigErrors(configDraft),
+        ],
+        configError: [
+            (s) => [s.configDraft],
+            (configDraft: ReportConfigDraft): string | null => getReportConfigError(configDraft),
+        ],
         activeReport: [
             (s) => [s.reports],
             (reports): EvaluationReport | null => {
@@ -474,6 +518,11 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         },
         saveDraft: () => {
             const { configDraft, activeReport } = values
+            if (values.configError) {
+                lemonToast.error(values.configError)
+                return
+            }
+
             const targets = buildDeliveryTargets(configDraft)
             if (activeReport) {
                 actions.updateReport({

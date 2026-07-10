@@ -240,7 +240,7 @@ describe('llmEvaluationLogic', () => {
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
                 },
-                '/api/environments/:teamId/evaluations/:id/': mockEvaluation,
+                '/api/projects/:teamId/evaluations/:id/': mockEvaluation,
                 '/api/environments/:teamId/llm_analytics/models/': {
                     models: [
                         { id: 'gpt-5-mini', posthog_available: true },
@@ -411,6 +411,15 @@ describe('llmEvaluationLogic', () => {
                 await expectLogic(logic).toMatchValues({ formValid: false })
             })
 
+            it('returns false when an LLM judge has no selected model', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Valid Name')
+                logic.actions.setEvaluationPrompt('Valid prompt')
+                logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
+
+                await expectLogic(logic).toMatchValues({ formValid: false })
+            })
+
             it('returns false when no conditions have rollout > 0', async () => {
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
                 logic.actions.setEvaluationName('Valid Name')
@@ -446,6 +455,11 @@ describe('llmEvaluationLogic', () => {
                 logic.actions.setEvaluationName('Valid Name')
                 logic.actions.setEvaluationPrompt('Valid prompt')
                 logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
+                logic.actions.setModelConfiguration({
+                    provider: 'openai',
+                    model: 'gpt-5-mini',
+                    provider_key_id: 'key-1',
+                })
 
                 await expectLogic(logic).toMatchValues({ formValid: true })
             })
@@ -1197,6 +1211,48 @@ describe('llmEvaluationLogic', () => {
     })
 
     describe('saveEvaluation report persistence', () => {
+        it('does not create an evaluation when the report threshold is invalid', async () => {
+            let evaluationCreateCount = 0
+            useMocks({
+                post: {
+                    '/api/projects/:teamId/evaluations/': () => {
+                        evaluationCreateCount += 1
+                        return mockEvaluation
+                    },
+                },
+            })
+
+            logic = llmEvaluationLogic({ evaluationId: 'new' })
+            const reportLogic = evaluationReportLogic({ evaluationId: 'new' })
+            logic.mount()
+            reportLogic.mount()
+
+            try {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Valid Name')
+                logic.actions.setEvaluationPrompt('Valid prompt')
+                logic.actions.setModelConfiguration({
+                    provider: 'openai',
+                    model: 'gpt-5-mini',
+                    provider_key_id: 'key-1',
+                })
+                reportLogic.actions.setDraftTriggerThreshold(67)
+
+                expect(reportLogic.values.configErrors.triggerThreshold).toBe(
+                    'Evaluation count threshold must be a whole number between 100 and 10,000.'
+                )
+
+                logic.actions.saveEvaluation()
+
+                await expectLogic(logic)
+                    .toDispatchActions(['saveEvaluationFailure'])
+                    .toMatchValues({ evaluationFormSubmitting: false })
+                expect(evaluationCreateCount).toBe(0)
+            } finally {
+                reportLogic.unmount()
+            }
+        })
+
         it('does not overwrite a saved report with defaults before the report load finishes', async () => {
             let reportWriteCount = 0
             let reportListRequestCount = 0
@@ -1222,7 +1278,7 @@ describe('llmEvaluationLogic', () => {
                     },
                 },
                 patch: {
-                    '/api/environments/:teamId/evaluations/:id/': () => mockEvaluation,
+                    '/api/projects/:teamId/evaluations/:id/': () => mockEvaluation,
                     '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/': () => {
                         reportWriteCount += 1
                         return mockEvaluationReport
@@ -1277,10 +1333,10 @@ describe('llmEvaluationLogic', () => {
                         created_at: '2024-01-01T00:00:00Z',
                         updated_at: '2024-01-01T00:00:00Z',
                     },
-                    '/api/environments/:teamId/evaluations/:id/': mockEvaluation,
+                    '/api/projects/:teamId/evaluations/:id/': mockEvaluation,
                 },
                 patch: {
-                    '/api/environments/:teamId/evaluations/:id/': () => [
+                    '/api/projects/:teamId/evaluations/:id/': () => [
                         400,
                         {
                             enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],

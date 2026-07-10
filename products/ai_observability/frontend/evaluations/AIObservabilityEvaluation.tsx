@@ -23,7 +23,6 @@ import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { SceneExport } from 'scenes/sceneTypes'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
@@ -42,9 +41,9 @@ import { EvaluationTriggers } from './components/EvaluationTriggers'
 import {
     evaluationSupportsReports,
     evaluationTypeHasEditableCriteria,
-    evaluationTypeSupportsSignalEmission,
     evaluationTypeUsesModelConfiguration,
 } from './evaluationCapabilities'
+import { evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_TRACE_WINDOW_SECONDS, LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
 import { EvaluationTarget, EvaluationType } from './types'
@@ -59,12 +58,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
         isNewEvaluation,
         runsSummary,
         evaluationProviderKeyIssue,
-        signalEmissionEnabled,
         activeTab,
         canEnable,
         canEnableReason,
     } = useValues(llmEvaluationLogic)
-    const { user } = useValues(userLogic)
     const { searchParams } = useValues(router)
     const {
         setEvaluationName,
@@ -76,7 +73,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
         setEvaluationType,
         setEvaluationTarget,
         setTraceWindowSeconds,
-        setSignalEmission,
         setActiveTab,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
@@ -160,6 +156,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
         : isSentiment
           ? true
           : evaluation.evaluation_config.prompt.trim().length > 0
+    const hasSelectedJudgeModel =
+        !evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) ||
+        Boolean(evaluation.model_configuration?.model.trim())
     const hasName = evaluation.name.length > 0
     const basicFieldsValid = hasName && configValid
     const percentageUnset = evaluation.conditions.some((c) => (c.rollout_percentage ?? 0) === 0)
@@ -173,7 +172,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
           ? isHog
               ? 'Add evaluation code before saving'
               : 'Add an evaluation prompt before saving'
-          : undefined
+          : !hasSelectedJudgeModel
+            ? 'Select a judge model before saving'
+            : undefined
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
@@ -198,6 +199,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
                 lemonToast.error('Some required fields are missing. Please review the configuration.')
             }
             focusTriggers()
+            return
+        }
+
+        const reportLogic = evaluationReportLogic({ evaluationId: isNewEvaluation ? 'new' : evaluation.id })
+        if (isReportableEvaluation && reportLogic.isMounted() && reportLogic.values.configError) {
+            lemonToast.error(reportLogic.values.configError)
             return
         }
 
@@ -556,20 +563,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     </div>
                                                 </Field>
                                             )}
-                                            {!isNewEvaluation &&
-                                                user?.is_staff &&
-                                                evaluationTypeSupportsSignalEmission(evaluation.evaluation_type) && (
-                                                    <div className="flex items-center gap-2">
-                                                        <LemonSwitch
-                                                            checked={signalEmissionEnabled}
-                                                            onChange={setSignalEmission}
-                                                        />
-                                                        <span>Emit signals</span>
-                                                        <Tooltip title="When enabled, true verdicts from this evaluation will be emitted as signals for clustering and investigation.">
-                                                            <IconInfo className="text-muted text-base" />
-                                                        </Tooltip>
-                                                    </div>
-                                                )}
                                         </div>
                                     </div>
 
@@ -649,16 +642,19 @@ function EvaluationModelPicker(): JSX.Element {
 
             <div className="space-y-4">
                 <Field name="model" label="Model">
-                    <ModelPicker
-                        model={selectedModel}
-                        selectedProviderKeyId={selectedPickerProviderKeyId}
-                        onSelect={selectModelFromPicker}
-                        groups={groups}
-                        loading={loading}
-                        footerLink={footerLink}
-                        selectedModelName={selectedModelName}
-                        data-attr="evaluation-model-selector"
-                    />
+                    <div>
+                        <ModelPicker
+                            model={selectedModel}
+                            selectedProviderKeyId={selectedPickerProviderKeyId}
+                            onSelect={selectModelFromPicker}
+                            groups={groups}
+                            loading={loading}
+                            footerLink={footerLink}
+                            selectedModelName={selectedModelName}
+                            data-attr="evaluation-model-selector"
+                        />
+                        {!selectedModel && <p className="text-sm text-danger mt-1">Select a judge model.</p>}
+                    </div>
                 </Field>
             </div>
         </div>
