@@ -18,7 +18,16 @@ from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
 )
-from products.customer_analytics.backend.models import Account, CustomPropertyDefinition, CustomPropertySource
+from products.customer_analytics.backend.logic.custom_property_definitions import InvalidCustomPropertyOptions
+from products.customer_analytics.backend.logic.custom_property_values import set_custom_property_value
+from products.customer_analytics.backend.models import (
+    Account,
+    AccountRelationship,
+    AccountRelationshipDefinition,
+    CustomPropertyDefinition,
+    CustomPropertySource,
+    CustomPropertyValue,
+)
 from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account
@@ -158,44 +167,51 @@ class TestCustomerAnalyticsFacade(BaseTest):
 
     def test_update_external_account_not_found_returns_not_found(self):
         result = facade.update_external_account(
-            self.team.id, "missing", role_assignments={}, tags=None, tags_mode="add"
+            self.team.id, "missing", relationship_assignments={}, tags=None, tags_mode="add"
         )
         assert result.account is None
         assert result.error == contracts.ExternalAccountUpdateError.NOT_FOUND
 
-    def test_update_external_account_assigns_role_and_resolves_email(self):
+    def _create_csm_definition(self) -> AccountRelationshipDefinition:
+        return AccountRelationshipDefinition.objects.for_team(self.team.id).create(team_id=self.team.id, name="CSM")
+
+    def _active_relationships(self, account: Account):
+        return AccountRelationship.objects.for_team(self.team.id).filter(account_id=account.id, ended_at__isnull=True)
+
+    def test_update_external_account_assigns_relationship_and_resolves_email(self):
+        definition = self._create_csm_definition()
         account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
 
         result = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
+            self.team.id,
+            "acme-1",
+            relationship_assignments={str(definition.id): self.user.id},
+            tags=None,
+            tags_mode="add",
         )
 
         assert result.error is None
         assert result.account is not None
-        assert result.account.properties["csm"] == {"id": self.user.id, "email": self.user.email}
-        account.refresh_from_db()
-        assert account.properties.csm == AccountAssignment(id=self.user.id, email=self.user.email)
+        assert result.account.relationships == {"CSM": [{"user_id": self.user.id, "email": self.user.email}]}
+        assert list(self._active_relationships(account).values_list("user_id", flat=True)) == [self.user.id]
 
-    def test_update_external_account_clears_role_with_none(self):
-        account = create_account(
-            team_id=self.team.id,
-            name="Acme Corp",
-            external_id="acme-1",
-            _properties=AccountProperties(
-                csm=AccountAssignment(id=self.user.id, email=self.user.email),
-            ).model_dump(mode="json"),
+    def test_update_external_account_ends_assignment_with_none(self):
+        definition = self._create_csm_definition()
+        account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
+        AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id, definition=definition, account_id=account.id, user=self.user
         )
 
         result = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={"csm": None}, tags=None, tags_mode="add"
+            self.team.id, "acme-1", relationship_assignments={str(definition.id): None}, tags=None, tags_mode="add"
         )
 
         assert result.account is not None
-        assert result.account.properties["csm"] is None
-        account.refresh_from_db()
-        assert account.properties.csm is None
+        assert result.account.relationships == {}
+        assert self._active_relationships(account).count() == 0
 
-    def test_update_external_account_preserves_unmentioned_properties(self):
+    def test_update_external_account_does_not_touch_properties(self):
+        definition = self._create_csm_definition()
         account = create_account(
             team_id=self.team.id,
             name="Acme Corp",
@@ -204,26 +220,34 @@ class TestCustomerAnalyticsFacade(BaseTest):
         )
 
         facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
+            self.team.id,
+            "acme-1",
+            relationship_assignments={str(definition.id): self.user.id},
+            tags=None,
+            tags_mode="add",
         )
 
         account.refresh_from_db()
         assert account.properties.stripe_customer_id == "cus_123"
-        assert account.properties.csm == AccountAssignment(id=self.user.id, email=self.user.email)
+        assert account.properties.csm is None
 
     def test_update_external_account_rejects_non_member(self):
+        definition = self._create_csm_definition()
         account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
         outsider = User.objects.create_and_join(Organization.objects.create(name="Outsiders"), "out@example.com", None)
 
         result = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={"csm": outsider.id}, tags=None, tags_mode="add"
+            self.team.id,
+            "acme-1",
+            relationship_assignments={str(definition.id): outsider.id},
+            tags=None,
+            tags_mode="add",
         )
 
         assert result.account is None
         assert result.error == contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION
-        assert result.error_field == "csm"
-        account.refresh_from_db()
-        assert account.properties.csm is None
+        assert result.error_field == str(definition.id)
+        assert self._active_relationships(account).count() == 0
 
     def test_update_external_account_invalid_properties(self):
         create_account(
@@ -234,7 +258,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         )
 
         result = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
+            self.team.id, "acme-1", relationship_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
         )
 
         assert result.account is None
@@ -244,26 +268,27 @@ class TestCustomerAnalyticsFacade(BaseTest):
         create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
 
         added = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={}, tags=["enterprise"], tags_mode="add"
+            self.team.id, "acme-1", relationship_assignments={}, tags=["enterprise"], tags_mode="add"
         )
         assert added.account is not None and added.account.tags == ["enterprise"]
 
         added_more = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={}, tags=["priority"], tags_mode="add"
+            self.team.id, "acme-1", relationship_assignments={}, tags=["priority"], tags_mode="add"
         )
         assert added_more.account is not None and added_more.account.tags == ["enterprise", "priority"]
 
         replaced = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={}, tags=["only"], tags_mode="set"
+            self.team.id, "acme-1", relationship_assignments={}, tags=["only"], tags_mode="set"
         )
         assert replaced.account is not None and replaced.account.tags == ["only"]
 
         removed = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={}, tags=["only"], tags_mode="remove"
+            self.team.id, "acme-1", relationship_assignments={}, tags=["only"], tags_mode="remove"
         )
         assert removed.account is not None and removed.account.tags == []
 
-    def test_update_external_account_rolls_back_role_when_tags_fail(self):
+    def test_update_external_account_rolls_back_relationship_when_tags_fail(self):
+        definition = self._create_csm_definition()
         account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
 
         with patch(
@@ -273,15 +298,14 @@ class TestCustomerAnalyticsFacade(BaseTest):
             result = facade.update_external_account(
                 self.team.id,
                 "acme-1",
-                role_assignments={"csm": self.user.id},
+                relationship_assignments={str(definition.id): self.user.id},
                 tags=["enterprise"],
                 tags_mode="add",
             )
 
         assert result.account is None
         assert result.error == contracts.ExternalAccountUpdateError.UPDATE_FAILED
-        account.refresh_from_db()
-        assert account.properties.csm is None
+        assert self._active_relationships(account).count() == 0
 
 
 class TestCustomerAnalyticsCRUDFacade(BaseTest):
@@ -493,6 +517,117 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
             )
             is None
         )
+
+
+class TestCustomPropertyDefinitionOptionsFacade(TeamScopedTestMixin, BaseTest):
+    OPTIONS = [
+        {"label": "Red", "color": "preset-1"},
+        {"label": "Blue", "color": "preset-2"},
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id)
+
+    def _create_select(self, options=None):
+        return facade.create_custom_property_definition(
+            team_id=self.team.id,
+            name="Stage",
+            description=None,
+            display_type="select",
+            is_big_number=False,
+            options=self.OPTIONS if options is None else options,
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+
+    def _update(self, definition_id, **fields):
+        return facade.update_custom_property_definition(
+            team_id=self.team.id,
+            definition_id=definition_id,
+            fields=fields,
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+
+    def _set_value(self, definition_id, value, account_id=None):
+        return set_custom_property_value(
+            team_id=self.team.id,
+            account_id=account_id or self.account.id,
+            definition_id=definition_id,
+            value=value,
+        )
+
+    def _values(self, definition_id):
+        return CustomPropertyValue.objects.for_team(self.team.id).filter(definition_id=definition_id)
+
+    def test_create_assigns_option_ids(self):
+        view = self._create_select()
+
+        assert view.options is not None
+        assert [option.label for option in view.options] == ["Red", "Blue"]
+        assert all(option.id for option in view.options)
+
+    def test_create_select_without_options_raises(self):
+        with pytest.raises(InvalidCustomPropertyOptions):
+            self._create_select(options=[])
+
+    def test_rename_backfills_active_and_historical_values(self):
+        view = self._create_select()
+        self._set_value(view.id, "Red")
+        self._set_value(view.id, "Blue")  # supersedes: the "Red" row becomes historical
+
+        self._update(
+            view.id,
+            options=[
+                {"id": view.options[0].id, "label": "Crimson", "color": "preset-1"},
+                {"id": view.options[1].id, "label": "Blue", "color": "preset-2"},
+            ],
+        )
+
+        stored = list(self._values(view.id).order_by("created_at").values_list("value_str", "is_deleted"))
+        assert stored == [("Crimson", True), ("Blue", False)]
+
+    def test_removed_option_soft_deletes_active_values(self):
+        view = self._create_select()
+        self._set_value(view.id, "Red")
+
+        updated = self._update(view.id, options=[{"id": view.options[1].id, "label": "Blue", "color": "preset-2"}])
+
+        assert updated is not None and [option.label for option in updated.options] == ["Blue"]
+        row = self._values(view.id).get()
+        assert row.value_str == "Red"
+        assert row.is_deleted is True
+
+    def test_label_swap_between_options_does_not_cascade(self):
+        view = self._create_select()
+        other_account = create_account(team_id=self.team.id, name="Globex")
+        self._set_value(view.id, "Red")
+        self._set_value(view.id, "Blue", account_id=other_account.id)
+
+        self._update(
+            view.id,
+            options=[
+                {"id": view.options[0].id, "label": "Blue", "color": "preset-1"},
+                {"id": view.options[1].id, "label": "Red", "color": "preset-2"},
+            ],
+        )
+
+        by_account = {row.account_id: row.value_str for row in self._values(view.id)}
+        assert by_account == {self.account.id: "Blue", other_account.id: "Red"}
+
+    def test_converting_select_to_text_keeps_values_and_clears_options(self):
+        view = self._create_select()
+        self._set_value(view.id, "Red")
+
+        updated = self._update(view.id, display_type="text")
+
+        assert updated is not None and updated.options is None
+        row = self._values(view.id).get()
+        assert row.value_str == "Red"
+        assert row.is_deleted is False
 
 
 class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):

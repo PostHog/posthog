@@ -16,6 +16,7 @@ import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { RedisOperationError } from '~/common/utils/db/error'
 import { logger } from '~/common/utils/logger'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '~/common/utils/utils'
+import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '~/ingestion/common/timestamps'
 import { IngestionConsumerConfig } from '~/ingestion/config'
 import { PipelineResult, dlq, drop, isOkResult, ok } from '~/ingestion/framework/results'
@@ -397,7 +398,7 @@ export class CookielessManager {
             } = getProperties(event, timestamp)
             if (!userAgent || !ip || !host) {
                 let reason: string
-                let type: string
+                let type: IngestionWarningType
                 let missingProperty: string
 
                 if (!userAgent) {

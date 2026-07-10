@@ -51,6 +51,7 @@ from posthog.schema import (
     MCPToolSampleIntentsQuery,
     MCPToolStatsQuery,
     MCPToolTopUsersQuery,
+    MetricsQuery,
     NodeKind,
     PathsQuery,
     PropertyGroupFilter,
@@ -62,6 +63,7 @@ from posthog.schema import (
     SamplingRate,
     SessionAttributionExplorerQuery,
     SessionBatchEventsQuery,
+    SessionQuery,
     SessionsQuery,
     SessionsTimelineQuery,
     StickinessQuery,
@@ -87,7 +89,6 @@ from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.transforms.geoip_dict_fallback import geoip_dict_fallback_team_in_env
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
@@ -298,6 +299,7 @@ RunnableQueryNode = Union[
     ActorsQuery,
     EventsQuery,
     SessionBatchEventsQuery,
+    SessionQuery,
     HogQLQuery,
     InsightActorsQuery,
     FunnelsActorsQuery,
@@ -318,6 +320,7 @@ RunnableQueryNode = Union[
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
+    MetricsQuery,
     MCPHarnessBreakdownQuery,
     MCPToolTopUsersQuery,
     MCPToolFailuresQuery,
@@ -501,6 +504,17 @@ def get_query_runner(
 
         return SessionBatchEventsQueryRunner(
             query=cast(SessionBatchEventsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "SessionQuery":
+        from .ai.session_query_runner import SessionQueryRunner
+
+        return SessionQueryRunner(
+            query=cast(SessionQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -1191,6 +1205,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "MetricsQuery":
+        from products.metrics.backend.facade.queries import MetricsQueryRunner
+
+        return MetricsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     # Registered here for server-side CSV export only (ExportedAsset + Celery).
     # Direct queries are blocked by LogsQueryRunner.validate_query_runner_access.
     if kind == "LogsQuery":
@@ -1875,7 +1901,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # pydantic validation on the extra key (and poison the cache, which set_cache_data has
             # already written by the time CachedResponse(**dict) raises).
             if warnings_accumulator and "warnings" in CachedResponse.model_fields:
-                fresh_response_dict["warnings"] = [w.model_dump() for w in warnings_accumulator.values()]
+                # The accumulator is authoritative for sync warnings (it collects across every inner
+                # execution), but the shared warnings field also carries other kinds — e.g. access
+                # control warnings attached by HogQLQueryExecutor — which must survive the replace.
+                other_warnings = [
+                    w
+                    for w in (fresh_response_dict.get("warnings") or [])
+                    if (w.get("type") if isinstance(w, dict) else getattr(w, "type", None)) != "warehouse_sync"
+                ]
+                fresh_response_dict["warnings"] = [
+                    w.model_dump() for w in warnings_accumulator.values()
+                ] + other_warnings
 
             # Don't cache debug queries with errors and export queries
             errors: Optional[list[Any]] = fresh_response_dict.get("error", None)
@@ -1986,15 +2022,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if restricted:
             payload["restricted_properties"] = restricted
 
-        # Temporary (June 2026 MaxMind incident): only set while the geoip dict fallback is enabled for the team, so
-        # flipping HOGQL_GEOIP_DICT_FALLBACK_TEAMS invalidates exactly the affected teams' cached results (which hold
-        # blank geo values) and nothing changes for anyone else. Deliberately keyed on env membership alone, NOT the
-        # runtime dictionary probe: cache keys must depend only on operator-controlled config, or a transient probe
-        # failure would flip every enabled team's keys at once and recompute the fleet against an already-degraded
-        # cluster. Remove with the transform.
-        if geoip_dict_fallback_team_in_env(self.team.pk):
-            payload["geoip_dict_fallback"] = True
-
         # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
         # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
         # retention. Only set when enforced, so non-cohort teams' keys are unchanged.
@@ -2013,7 +2040,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
-        restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+        restricted = get_restricted_properties_for_team(user=self.user, team=self.team)
         if not restricted:
             return None
         return sorted(restricted)
@@ -2303,6 +2330,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if dashboard_filter.breakdown_filter and not should_ignore_dashboard_breakdown:
             if hasattr(self.query, "breakdownFilter"):  # redundant, but required for mypy
                 self.query.breakdownFilter = dashboard_filter.breakdown_filter
+
+        # Interval and test-account overrides apply only to query types that carry the field.
+        # Types without it (retention, paths) are silently skipped rather than mutated.
+        if dashboard_filter.interval is not None and hasattr(self.query, "interval"):
+            self.query.interval = dashboard_filter.interval
+
+        if dashboard_filter.filterTestAccounts is not None and hasattr(self.query, "filterTestAccounts"):
+            self.query.filterTestAccounts = dashboard_filter.filterTestAccounts
+
         self.__post_init__()
 
 

@@ -164,7 +164,8 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
     def _calculate(self) -> LifecycleQueryResponse:
         query = self.to_query()
-        hogql = to_printed_hogql(query, self.team)
+        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
+        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
 
         response = execute_hogql_query(
             query_type="LifecycleQuery",
@@ -299,7 +300,9 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     def _earliest_timestamp(self) -> datetime | None:
         if self.query.dateRange and self.query.dateRange.date_from == "all":
             # Get earliest timestamp across all series in this insight
-            return get_earliest_timestamp_from_series(team=self.team, series=list(self.query.series or []))
+            return get_earliest_timestamp_from_series(
+                team=self.team, series=list(self.query.series or []), user=self.user
+            )
 
         return None
 

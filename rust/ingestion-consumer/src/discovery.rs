@@ -77,7 +77,9 @@ pub trait WorkerDiscovery: Send {
 /// Reconcile the registry to a desired worker set: add workers that are new and
 /// re-admit any that rejoined, and mark departed workers as draining (they keep
 /// finishing in-flight work; the reaper removes them once drained or timed out).
-fn reconcile_membership(registry: &WorkerRegistry, desired: &HashSet<WorkerId>) {
+/// Public so integration tests can drive membership changes the same way the
+/// discovery providers do.
+pub fn reconcile_membership(registry: &WorkerRegistry, desired: &HashSet<WorkerId>) {
     let current: HashSet<WorkerId> = registry.workers().into_iter().collect();
 
     for worker in desired.difference(&current) {

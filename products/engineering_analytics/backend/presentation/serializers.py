@@ -16,7 +16,11 @@ from products.engineering_analytics.backend.facade.contracts import (
     CIFailureLogs,
     CIJobFailureLog,
     CIStatusRollup,
+    CostPerMergeBucket,
+    FlakyTestItem,
+    FlakyTestList,
     GitHubSource,
+    MasterFailureGroup,
     PRCostSummary,
     PRLifecycle,
     PRLifecycleEvent,
@@ -27,12 +31,15 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineFile,
     QuarantineRequest,
     QuarantineRequestResult,
+    RepoOverview,
     RepoRef,
     RunCost,
+    RunFailureLogs,
     WorkflowCost,
     WorkflowHealthBucket,
     WorkflowHealthItem,
     WorkflowJob,
+    WorkflowJobAggregate,
     WorkflowRunActivity,
     WorkflowRunActivityPoint,
     WorkflowRunDetail,
@@ -358,6 +365,59 @@ class PRCostSummarySerializer(DataclassSerializer):
         }
 
 
+class FlakyTestItemSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = FlakyTestItem
+        extra_kwargs = {
+            "nodeid": {
+                "help_text": "Reconstructed pytest nodeid (the CI span name), e.g. "
+                "'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable "
+                "selector — use `selector` to run or quarantine the test.",
+            },
+            "selector": {
+                "help_text": "Runnable pytest selector, e.g. "
+                "'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; "
+                "otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess.",
+            },
+            "rerun_passed_count": {
+                "help_text": "Times the test failed, then passed on an automatic retry — the strongest flaky "
+                "signal. Only CI lanes running with reruns enabled emit it; a flake in a no-rerun lane "
+                "shows up in failed_count instead.",
+            },
+            "failed_count": {
+                "help_text": "Spans whose final outcome was 'failed' or 'error' in the window. An absolute "
+                "count, not a rate — fast passing runs are not emitted, so denominators are biased.",
+            },
+            "failed_pr_count": {
+                "help_text": "Distinct pull requests among the failed/error spans. Failures on master or "
+                "unattributed branches carry no PR number and are excluded here (still in failed_count).",
+            },
+            "branch_count": {
+                "help_text": "Distinct git branches across all of the test's flaky-signal spans in the window.",
+            },
+            "xfailed_count": {
+                "help_text": "Runs where the test failed while quarantined (xfail) — already masked in CI "
+                "but still flaky.",
+            },
+            "last_seen_at": {"help_text": "Most recent flaky-signal span for this test in the window."},
+        }
+
+
+class FlakyTestListSerializer(DataclassSerializer):
+    items = FlakyTestItemSerializer(
+        many=True, help_text="Qualifying tests ranked by flakiness signal, strongest first, capped at `limit`."
+    )
+
+    class Meta:
+        dataclass = FlakyTestList
+        extra_kwargs = {
+            "truncated": {
+                "help_text": "True when more tests qualified than the cap; `items` is the strongest `limit` rows.",
+            },
+            "limit": {"help_text": "Maximum number of tests returned in `items`."},
+        }
+
+
 class CIStatusRollupSerializer(DataclassSerializer):
     class Meta:
         dataclass = CIStatusRollup
@@ -366,6 +426,10 @@ class CIStatusRollupSerializer(DataclassSerializer):
             "passing": {"help_text": "Latest runs that completed with conclusion 'success'."},
             "failing": {"help_text": "Latest runs that completed with conclusion 'failure' or 'timed_out'."},
             "pending": {"help_text": "Latest runs not yet completed (queued or in progress)."},
+            "failing_workflows": {
+                "help_text": "The workflow names behind `failing`, sorted - names what is failing instead of "
+                "leaving a bare count."
+            },
         }
 
 
@@ -591,11 +655,14 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration of completed runs, in seconds. Null if none completed.",
+                "help_text": "Median duration in seconds over successful runs only — cancelled (superseded) and "
+                "failed runs end early and would bias the percentile. Null if no run succeeded in the window.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration of completed runs, in seconds. Null if none completed.",
+                "help_text": "95th-percentile duration in seconds over successful runs only — cancelled "
+                "(superseded) and failed runs end early and would bias the percentile. Null if no run succeeded "
+                "in the window.",
                 "allow_null": True,
             },
             "last_failure_at": {
@@ -623,6 +690,181 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
             "estimated_cost_usd": {
                 "help_text": "Estimated cost in USD over this workflow's jobs in the window. Null when nothing "
                 "was costable or the job source isn't synced.",
+                "allow_null": True,
+            },
+            "rerun_cycles": {
+                "help_text": "Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy."
+            },
+            "success_rate_prev": {
+                "help_text": "Success rate over the equal-length window before date_from - the delta baseline. "
+                "Null when that window had no completed runs.",
+                "allow_null": True,
+            },
+        }
+
+
+class CostPerMergeBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CostPerMergeBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to cost_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "estimated_cost_usd": {
+                "help_text": "Estimated Depot CI cost (USD) of all runs started in this bucket. Null when nothing "
+                "was costable (no billable self-hosted Linux jobs) or the job source isn't synced.",
+                "allow_null": True,
+            },
+            "merges": {"help_text": "PRs merged in this bucket (all authors, bots included)."},
+            "cost_per_merge_usd": {
+                "help_text": "Rolling ratio: trailing-window CI cost divided by trailing-window merges "
+                "(24 h / 7 d / 4 w to match the granularity). Null when the trailing window had no merges "
+                "or no costable cost.",
+                "allow_null": True,
+            },
+        }
+
+
+class RepoOverviewSerializer(DataclassSerializer):
+    cost_series = CostPerMergeBucketSerializer(
+        many=True,
+        help_text="CI cost per merged PR across the window, oldest first, zero-filled, bucketed by "
+        "cost_series_granularity. Empty when the job-level source isn't synced.",
+    )
+
+    class Meta:
+        dataclass = RepoOverview
+        extra_kwargs = {
+            "run_count": {"help_text": "Workflow runs started in the window, all branches and workflows."},
+            "run_count_prev": {
+                "help_text": "Same count over the equal-length window immediately before date_from — the delta baseline."
+            },
+            "success_rate": {
+                "help_text": "Fraction of completed runs that succeeded (0-1) in the window. Null if none completed.",
+                "allow_null": True,
+            },
+            "success_rate_prev": {
+                "help_text": "Success rate over the previous window. Null if none completed.",
+                "allow_null": True,
+            },
+            "rerun_cycles": {"help_text": "Runs in the window that were a 2nd+ attempt (attempt > 1)."},
+            "rerun_cycles_prev": {"help_text": "Re-run cycles over the previous window."},
+            "median_open_to_merge_seconds": {
+                "help_text": "Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. "
+                "Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.",
+                "allow_null": True,
+            },
+            "median_open_to_merge_seconds_prev": {
+                "help_text": "The same median over the previous window. Null when nothing merged.",
+                "allow_null": True,
+            },
+            "billable_minutes": {
+                "help_text": "Billable (self-hosted) job minutes in the window; null when the job-level source "
+                "isn't synced.",
+                "allow_null": True,
+            },
+            "billable_minutes_prev": {
+                "help_text": "Billable minutes over the previous window; null when the job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "estimated_cost_usd": {
+                "help_text": "Estimated CI cost in USD (billable minutes x runner-tier rate); null when the "
+                "job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "estimated_cost_usd_prev": {
+                "help_text": "Estimated cost over the previous window; null when the job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "jobs_available": {"help_text": "Whether the job-level source is synced (cost and queue figures exist)."},
+            "default_branch": {"help_text": "'master' or 'main', picked by observed run volume in the window."},
+            "cost_series_granularity": {
+                "help_text": "Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'."
+            },
+        }
+
+
+class MasterFailureGroupSerializer(DataclassSerializer):
+    repo = RepoRefSerializer(help_text="Repository the failures occurred in.")
+
+    class Meta:
+        dataclass = MasterFailureGroup
+        extra_kwargs = {
+            "workflow_name": {"help_text": "GitHub Actions workflow name the failing runs belong to."},
+            "failed_job": {
+                "help_text": "De-sharded failing job name (matrix '(G/N)' suffix stripped) — the group's failure "
+                "signature together with the workflow. '' when the job-level source isn't synced and the group "
+                "degrades to workflow level."
+            },
+            "run_count": {"help_text": "Distinct failing default-branch runs in this group within the window."},
+            "first_seen": {"help_text": "When the oldest failing run in the group started."},
+            "last_seen": {"help_text": "When the newest failing run in the group started."},
+            "latest_run_id": {"help_text": "Run id of the newest failing run — the drill-down anchor."},
+        }
+
+
+class RunFailureLogsSerializer(DataclassSerializer):
+    jobs = CIJobFailureLogSerializer(
+        many=True, help_text="Failed CI jobs of this run with their thinned failure logs, grouped by job."
+    )
+
+    class Meta:
+        dataclass = RunFailureLogs
+        extra_kwargs = {
+            "run_id": {"help_text": "Workflow run id the failure logs are for."},
+            "logs_available": {
+                "help_text": "False when no failure logs were found — the run didn't fail, or its logs aged out of "
+                "the short Logs retention.",
+            },
+            "truncated": {"help_text": "True when the overall line cap across all jobs was hit."},
+        }
+
+
+class WorkflowJobAggregateSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WorkflowJobAggregate
+        extra_kwargs = {
+            "job_name": {
+                "help_text": "De-sharded job name: the matrix '(G/N)' suffix is stripped and unexpanded "
+                "'${{ matrix.* }}' templates are collapsed, so shards of one matrix aggregate together."
+            },
+            "job_count": {"help_text": "Job instances observed in the window (all shards, all attempts)."},
+            "shard_count": {"help_text": "Distinct raw job names inside the group - the observed matrix width."},
+            "runs_in": {"help_text": "Distinct workflow runs the job appeared in."},
+            "run_share": {
+                "help_text": "runs_in divided by the workflow's total runs in the window; below 1.0 means the "
+                "job is conditional and skips some runs. Null when the workflow had no runs.",
+                "allow_null": True,
+            },
+            "queue_p50_seconds": {
+                "help_text": "Median queue wait (created to started) in seconds - where runner-capacity problems "
+                "hide. Null when nothing started.",
+                "allow_null": True,
+            },
+            "p50_seconds": {
+                "help_text": "Median duration of successful job instances, in seconds — cancelled and failed "
+                "instances end early and would bias the percentile. Null if none succeeded.",
+                "allow_null": True,
+            },
+            "p95_seconds": {
+                "help_text": "95th-percentile duration of successful job instances, in seconds — cancelled and "
+                "failed instances end early and would bias the percentile. Null if none succeeded.",
+                "allow_null": True,
+            },
+            "failure_rate": {
+                "help_text": "Decisive failures ('failure', 'timed_out') over completed instances (0-1). Null if "
+                "none completed.",
+                "allow_null": True,
+            },
+            "retry_job_count": {"help_text": "Job instances that ran on a 2nd+ run attempt - retry pressure."},
+            "billable_minutes": {
+                "help_text": "Billable (self-hosted) minutes across the group's instances; null when every "
+                "instance ran on an unknown tier.",
+                "allow_null": True,
+            },
+            "estimated_cost_usd": {
+                "help_text": "Estimated cost in USD via the runner-tier rate ladder; null when every instance ran "
+                "on an unknown tier.",
                 "allow_null": True,
             },
         }

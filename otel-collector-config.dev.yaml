@@ -97,6 +97,9 @@ exporters:
         headers:
             # special "local" token is automatically mapped to team_id 1 in dev environments
             authorization: Bearer phc_local
+        # Give up in 30s (vs the 5 min default) when capture-logs is down.
+        retry_on_failure:
+            max_elapsed_time: 30s
     otlphttp/logs:
         endpoint: 'http://host.docker.internal:4320'
         compression: none
@@ -105,6 +108,8 @@ exporters:
         headers:
             # special "local" token is automatically mapped to team_id 1 in dev environments
             authorization: Bearer phc_local
+        retry_on_failure:
+            max_elapsed_time: 30s
     otlphttp/metrics:
         endpoint: 'http://host.docker.internal:4320'
         compression: none
@@ -112,26 +117,35 @@ exporters:
             insecure: true
         headers:
             authorization: Bearer phc_local
+        retry_on_failure:
+            max_elapsed_time: 30s
 
 processors:
+    # Shed load instead of buffering to multiple GB of RAM when a downstream
+    # (e.g. capture-logs) is unreachable.
+    memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+        spike_limit_mib: 128
     batch:
 
 service:
     pipelines:
         traces:
             receivers: [otlp]
-            processors: [batch]
+            processors: [memory_limiter, batch]
             exporters: [otlp, otlphttp]
         logs:
             exporters:
                 - otlphttp/logs
             processors:
+                - memory_limiter
                 - batch
             receivers:
                 - otlp
                 - receiver_creator
         metrics:
             receivers: [otlp, prometheus]
-            processors: [batch]
+            processors: [memory_limiter, batch]
             exporters: [otlphttp/metrics]
     extensions: [docker_observer, health_check, zpages] # Enabling the declared extensions

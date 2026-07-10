@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from django.utils.dateparse import parse_datetime
 import requests
 from temporalio import activity
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.scoping import team_scope
 from posthog.temporal.common.utils import close_db_connections
@@ -58,6 +60,11 @@ def poll_pull_requests_for_team(
     updated = 0
     rate_limited = False
 
+    # A shed sweep breaks mid-list; shuffling gives the tail equal coverage across cycles instead
+    # of permanently starving whatever sits past the shed point of a large team's list.
+    prs = list(prs)
+    random.shuffle(prs)
+
     for index, ref in enumerate(prs):
         if heartbeat is not None:
             heartbeat(index)
@@ -74,7 +81,7 @@ def poll_pull_requests_for_team(
         except ObjectDoesNotExist:
             activity.logger.warning("code_workstreams_pr_integration_missing", pr_url=ref.pr_url)
             continue
-        except (GitHubIntegrationError, requests.RequestException) as e:
+        except (GitHubIntegrationError, GitHubRateLimitError, requests.RequestException) as e:
             # A token-refresh failure for one PR must not abort the whole activity (which would
             # block the team's rebuild this cycle); skip this PR and move on.
             activity.logger.warning("code_workstreams_pr_integration_unavailable", pr_url=ref.pr_url, error=str(e))
@@ -84,11 +91,16 @@ def poll_pull_requests_for_team(
 
         try:
             snap = integration.get_pull_request_snapshot(ref.pr_url)
+        except GitHubEgressBudgetExhausted:
+            # Our own limiter shed the sweep — stop for this cycle; the next scheduled run resumes.
+            activity.logger.warning("code_workstreams_pr_budget_exhausted", team_id=team_id, polled=polled)
+            rate_limited = True
+            break
+        except GitHubRateLimitError:
+            activity.logger.warning("code_workstreams_pr_rate_limited", team_id=team_id, polled=polled)
+            rate_limited = True
+            break
         except GitHubIntegrationError as e:
-            if getattr(e, "is_rate_limit", False):
-                activity.logger.warning("code_workstreams_pr_rate_limited", team_id=team_id, polled=polled)
-                rate_limited = True
-                break
             activity.logger.warning("code_workstreams_pr_fetch_failed", pr_url=ref.pr_url, error=str(e))
             continue
         except Exception as e:

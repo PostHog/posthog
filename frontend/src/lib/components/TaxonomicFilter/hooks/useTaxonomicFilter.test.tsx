@@ -16,10 +16,11 @@ jest.mock('~/queries/query', () => ({
     performQuery: jest.fn(),
 }))
 
-jest.mock('lib/api', () => ({
-    __esModule: true,
-    default: { get: jest.fn().mockResolvedValue({ results: [], count: 0 }) },
-}))
+jest.mock('lib/api', () =>
+    require('~/test/mocks/taxonomicFilterApiMock').buildTaxonomicFilterApiMock({
+        get: jest.fn().mockResolvedValue({ results: [], count: 0 }),
+    })
+)
 
 const wrapper = ({ children }: { children: ReactNode }): JSX.Element => <Provider>{children}</Provider>
 
@@ -79,6 +80,26 @@ describe('useTaxonomicFilter', () => {
     ])('$name', ({ requested }) => {
         const { result } = renderHook(() => useTaxonomicFilter({ taxonomicGroupTypes: requested }), { wrapper })
         expect(result.current.groupTypes).not.toContain(TaxonomicFilterGroupType.SuggestedFilters)
+    })
+
+    // Mirrors the legacy `taxonomicGroupTypes` selector cases in taxonomicFilterLogic.test.ts —
+    // both surfaces must lead with the sole group, then Recent/Pinned, and drop any prepended All.
+    it.each([
+        {
+            name: 'single substantive group leads, Recent/Pinned follow (no All)',
+            requested: [TaxonomicFilterGroupType.Events],
+        },
+        {
+            name: 'single substantive group drops an explicitly-prepended All and still leads',
+            requested: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+        },
+    ])('$name', ({ requested }) => {
+        const { result } = renderHook(() => useTaxonomicFilter({ taxonomicGroupTypes: requested }), { wrapper })
+        expect(result.current.groupTypes).toEqual([
+            TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.RecentFilters,
+            TaxonomicFilterGroupType.PinnedFilters,
+        ])
     })
 
     it('auto-injects SuggestedFilters as the default for a multi-content picker', () => {
@@ -164,7 +185,12 @@ describe('useTaxonomicFilter', () => {
         const { result } = renderHook(
             () =>
                 useTaxonomicFilter({
-                    taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                    // Two substantive groups so "All" is retained — a single substantive group drops it
+                    taxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.SuggestedFilters,
+                        TaxonomicFilterGroupType.Events,
+                        TaxonomicFilterGroupType.Actions,
+                    ],
                 }),
             { wrapper }
         )

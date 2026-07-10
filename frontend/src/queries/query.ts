@@ -135,9 +135,8 @@ export async function pollForResults(
             const parsed = parseErrorMessage(e.data?.query_status?.error_message)
             e.detail = parsed.message
 
-            if (parsed.code) {
-                e.code = parsed.code
-            }
+            // Prefer the structured code from QueryStatus over one parsed out of the message
+            e.code = e.data?.query_status?.error_code ?? parsed.code ?? e.code
 
             // Attach queryId to error for downstream error handling
             e.queryId = queryId

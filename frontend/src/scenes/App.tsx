@@ -1,11 +1,14 @@
+import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
 import React, { Suspense, useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
+
+import { PostHogProvider } from '@posthog/react'
 
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
-import { KeaDevtools } from 'lib/KeaDevTools'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
@@ -20,11 +23,56 @@ import { userLogic } from 'scenes/userLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { initKea } from '../initKea'
+import { loadPostHogJS } from '../loadPostHogJS'
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
 const AuthenticatedShell = React.lazy(() => retryImport(() => import('./AuthenticatedShell')))
 
 window.process = MOCK_NODE_PROCESS
+
+let appBooted = false
+
+/**
+ * One-time boot side effects for the app chunk, called from the entry's lazy factory
+ * (frontend/src/index.tsx) after the chunk loads and before <App /> first renders.
+ * A function rather than module-scope statements so that merely importing scenes/App
+ * (storybook stories, jest) stays side-effect-free — the test harnesses manage their
+ * own kea context, and an import-time initKea() would wipe it.
+ */
+export function bootApp(): void {
+    if (appBooted) {
+        return
+    }
+    appBooted = true
+
+    loadPostHogJS()
+    // Kea must initialize before any component mounts
+    initKea()
+
+    const idle =
+        typeof window.requestIdleCallback === 'function'
+            ? window.requestIdleCallback.bind(window)
+            : (cb: () => void) => setTimeout(cb, 200)
+
+    idle(() => {
+        void import('./session-recordings/player/snapshot-processing/DecompressionWorkerManager')
+            .then(({ preWarmDecompression }) => preWarmDecompression())
+            .catch((error) => {
+                console.warn('[App] Failed to load DecompressionWorkerManager for pre-warm:', error)
+            })
+
+        // On Chrome + Windows, the country flag emojis don't render correctly. This polyfill fixes that.
+        // NOTE: The first argument sets the polyfill's font family name, which our CSS references —
+        // keep the two in sync. Detection is canvas-based and can throw on some browser states
+        // (e.g. Safari/macOS); it's purely cosmetic and best-effort.
+        void import('country-flag-emoji-polyfill')
+            .then(({ polyfillCountryFlagEmojis }) => polyfillCountryFlagEmojis('Emoji Flags Polyfill'))
+            .catch((error) => {
+                console.warn('[App] Country flag emoji polyfill failed:', error)
+            })
+    })
+}
 
 /**
  * Wraps each rendered scene so that when the scene unmounts (on tab change
@@ -49,6 +97,15 @@ function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.El
     )
 }
 
+/** Lazy-loaded Kea devtools panel, only rendered in dev mode with dev tools open */
+function KeaDevtoolsLoader(): JSX.Element | null {
+    const [DevTools, setDevTools] = React.useState<React.ComponentType | null>(null)
+    React.useEffect(() => {
+        import('lib/KeaDevTools').then((mod) => setDevTools(() => mod.KeaDevtools)).catch(() => {})
+    }, [])
+    return DevTools ? <DevTools /> : null
+}
+
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner, showingDevTools } = useValues(appLogic)
 
@@ -63,7 +120,7 @@ export function App(): JSX.Element | null {
     // root init and triggers a circular-import TDZ. Its urlToAction fires on the current URL on mount.
     useEffect(() => {
         let unmount: (() => void) | undefined
-        void import('lib/components/Support/supportRouterLogic').then(({ supportRouterLogic }) => {
+        void retryImport(() => import('lib/components/Support/supportRouterLogic')).then(({ supportRouterLogic }) => {
             unmount = supportRouterLogic.mount()
         })
         return () => unmount?.()
@@ -74,19 +131,33 @@ export function App(): JSX.Element | null {
     // A cloud OAuth redirect lands at /oauth/callback on the local origin. Render the exchange
     // screen here (oauthLogic's urlToAction performs the token exchange), before normal routing.
     if (window.location.pathname === '/oauth/callback') {
-        return <OAuthCallback />
-    }
-
-    if (showApp) {
         return (
-            <>
-                <AppScene />
-                {showingDevTools ? <KeaDevtools /> : null}
-            </>
+            <ErrorBoundary>
+                <PostHogProvider client={posthog}>
+                    <OAuthCallback />
+                </PostHogProvider>
+            </ErrorBoundary>
         )
     }
 
-    return <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
+    const sceneContent = (
+        <ErrorBoundary>
+            <PostHogProvider client={posthog}>
+                <BaseTooltip.Provider delay={500} closeDelay={0} timeout={400}>
+                    {showApp ? (
+                        <>
+                            <AppScene />
+                            {showingDevTools ? <KeaDevtoolsLoader /> : null}
+                        </>
+                    ) : (
+                        <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
+                    )}
+                </BaseTooltip.Provider>
+            </PostHogProvider>
+        </ErrorBoundary>
+    )
+
+    return sceneContent
 }
 
 function AppScene(): JSX.Element | null {

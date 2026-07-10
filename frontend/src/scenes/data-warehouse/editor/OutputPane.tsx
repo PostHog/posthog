@@ -55,7 +55,13 @@ import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/D
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
-import { type DataTableNode, type HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import {
+    type AccessControlFilterWarning,
+    type DataTableNode,
+    type DataWarehouseSyncWarning,
+    type HogQLQueryResponse,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -75,6 +81,7 @@ import {
 import { FixErrorButton } from './components/FixErrorButton'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
+import { trimRedundantTail } from './syncWarnings'
 import TabScroller from './TabScroller'
 
 interface RowDetailsModalProps {
@@ -985,31 +992,57 @@ function InternalDataTableVisualization(
     )
 }
 
-const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
+// The shared `warnings` field is a tagged union; render one banner per warning kind present.
+const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
     if (!warnings || warnings.length === 0) {
         return null
     }
+    const syncWarnings = warnings.filter((w): w is DataWarehouseSyncWarning => w.type === 'warehouse_sync')
+    const acWarnings = warnings.filter((w): w is AccessControlFilterWarning => w.type === 'access_control')
     return (
-        <LemonBanner type="warning" className="m-2 flex-shrink-0" data-attr="sql-editor-output-pane-sync-warnings">
-            <div className="font-semibold mb-1">
-                Some warehouse sources used by this query are out of date — results may not reflect current data
-            </div>
-            <ul className="list-disc pl-5 space-y-1">
-                {warnings.map((warning, index) => (
-                    <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
-                        {warning.message}
-                        {warning.source_id && (
-                            <>
-                                {' '}
-                                <Link to={urls.dataWarehouseSource(`managed-${warning.source_id}`)} target="_blank">
-                                    Manage source
-                                </Link>
-                            </>
-                        )}
-                    </li>
-                ))}
-            </ul>
-        </LemonBanner>
+        <>
+            {syncWarnings.length > 0 && (
+                <LemonBanner
+                    type="warning"
+                    className="m-2 flex-shrink-0"
+                    data-attr="sql-editor-output-pane-sync-warnings"
+                >
+                    Some warehouse sources used by this query are out of date — results may not reflect current data:
+                    <ul className="list-disc pl-5">
+                        {syncWarnings.map((warning, index) => (
+                            <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
+                                {trimRedundantTail(warning.message)}
+                                {warning.source_id && (
+                                    <>
+                                        {' '}
+                                        <Link
+                                            to={urls.dataWarehouseSource(`managed-${warning.source_id}`)}
+                                            target="_blank"
+                                        >
+                                            Manage source
+                                        </Link>
+                                    </>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
+                </LemonBanner>
+            )}
+            {acWarnings.length > 0 && (
+                <LemonBanner
+                    type="warning"
+                    className="m-2 flex-shrink-0"
+                    data-attr="sql-editor-output-pane-access-control-warnings"
+                >
+                    {/* The backend emits at most one access control warning; its message is the full sentence. */}
+                    {acWarnings.map((warning, index) => (
+                        <div key={index} className="font-semibold">
+                            {warning.message}
+                        </div>
+                    ))}
+                </LemonBanner>
+            )}
+        </>
     )
 }
 
@@ -1142,7 +1175,7 @@ const Content = ({
 
         return (
             <div className="absolute inset-0 flex flex-col border-t overflow-hidden">
-                <SyncWarningsBanner warnings={response?.warnings} />
+                <QueryWarningsBanner warnings={response?.warnings} />
                 <div className="flex flex-col flex-1 min-h-0 hide-scrollbar overflow-auto">
                     <InternalDataTableVisualization
                         uniqueKey={vizKey}
@@ -1204,7 +1237,7 @@ const Content = ({
     if (activeTab === OutputTab.Results) {
         return (
             <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
-                <SyncWarningsBanner warnings={response?.warnings} />
+                <QueryWarningsBanner warnings={response?.warnings} />
                 {rows.length === 0 ? (
                     <EmptyResultsState />
                 ) : (

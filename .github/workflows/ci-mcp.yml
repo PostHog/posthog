@@ -22,6 +22,9 @@ permissions:
     contents: read
     pull-requests: read
 
+env:
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+
 jobs:
     changes:
         runs-on: ubuntu-24.04
@@ -42,7 +45,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -550,12 +553,25 @@ jobs:
                   verbose: true
 
             - name: Run integration tests
-              run: cd services/mcp && pnpm run test:integration
+              # The junit reporter (alongside the default console one) feeds the Trunk upload below.
+              run: cd services/mcp && pnpm run test:integration -- --reporter=default --reporter=junit --outputFile.junit=junit-integration.xml
               env:
                   TEST_POSTHOG_API_BASE_URL: http://localhost:8000
                   TEST_POSTHOG_PERSONAL_API_KEY: phx_e2e_demo_api_key
                   TEST_ORG_ID: ${{ env.TEST_ORG_ID }}
                   TEST_PROJECT_ID: ${{ env.TEST_PROJECT_ID }}
+
+            # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
+            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            - name: Upload test results to Trunk
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: services/mcp/junit-integration.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
 
             - name: Show server logs on failure
               if: failure()
@@ -630,7 +646,7 @@ jobs:
               if: steps.check-patches.outputs.has-patches == 'true'
               uses: ./.github/actions/commit-snapshots
               with:
-                  workflow-type: backend
+                  workflow-type: mcp
                   patch-path: /tmp/snapshot-patches
                   snapshot-path: 'services/mcp/tests/unit/'
                   commit-message: 'test(mcp): update unit test snapshots'
@@ -662,17 +678,17 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.build.result }}" == "failure" ]]; then
                     echo "MCP build failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.unit-tests.result }}" != "success" && "${{ needs.unit-tests.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.unit-tests.result }}" == "failure" ]]; then
                     echo "MCP unit tests failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.integration-tests.result }}" == "failure" ]]; then
                     echo "MCP integration tests failed."
                     exit 1
                   fi

@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from posthog.test.base import BaseTest
@@ -14,7 +15,7 @@ from posthog.models import Person, Team
 from posthog.models.person.util import get_person_by_id
 from posthog.test.persons import add_cohort_members, create_person
 
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -603,3 +604,98 @@ class TestCohort(BaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.version, 1)
         self.assertEqual(cohort.count, 42)
+
+
+_PERSON_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [{"type": "AND", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+    }
+}
+
+_BEHAVIORAL_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {
+                "type": "AND",
+                "values": [
+                    {"type": "behavioral", "value": "performed_event", "event_type": "events", "key": "$pageview"}
+                ],
+            }
+        ],
+    }
+}
+
+_MIXED_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {"type": "AND", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]},
+            {
+                "type": "AND",
+                "values": [
+                    {"type": "behavioral", "value": "performed_event", "event_type": "events", "key": "$pageview"}
+                ],
+            },
+        ],
+    }
+}
+
+_COHORT_REF_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [{"type": "AND", "values": [{"key": "id", "value": 1, "type": "cohort"}]}],
+    }
+}
+
+_FIXED_TS = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+class TestCohortIsFlagCompatible(BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand(
+        [
+            # (label, cohort_type, filters, person_ts, events_ts, expected)
+            # Non-realtime cohort types are never flag-compatible
+            ("static_never_compatible", CohortType.STATIC, _PERSON_FILTERS, _FIXED_TS, _FIXED_TS, False),
+            ("behavioral_type_never_compatible", CohortType.BEHAVIORAL, _PERSON_FILTERS, _FIXED_TS, _FIXED_TS, False),
+            (
+                "person_property_type_never_compatible",
+                CohortType.PERSON_PROPERTY,
+                _PERSON_FILTERS,
+                _FIXED_TS,
+                None,
+                False,
+            ),
+            # Realtime + person filters: gate on person timestamp
+            ("realtime_person_no_ts", CohortType.REALTIME, _PERSON_FILTERS, None, None, False),
+            ("realtime_person_only_person_ts", CohortType.REALTIME, _PERSON_FILTERS, _FIXED_TS, None, True),
+            ("realtime_person_only_events_ts", CohortType.REALTIME, _PERSON_FILTERS, None, _FIXED_TS, False),
+            ("realtime_person_both_ts", CohortType.REALTIME, _PERSON_FILTERS, _FIXED_TS, _FIXED_TS, True),
+            # Realtime + behavioral filters: gate on events timestamp
+            ("realtime_behavioral_no_ts", CohortType.REALTIME, _BEHAVIORAL_FILTERS, None, None, False),
+            ("realtime_behavioral_only_person_ts", CohortType.REALTIME, _BEHAVIORAL_FILTERS, _FIXED_TS, None, False),
+            ("realtime_behavioral_only_events_ts", CohortType.REALTIME, _BEHAVIORAL_FILTERS, None, _FIXED_TS, True),
+            ("realtime_behavioral_both_ts", CohortType.REALTIME, _BEHAVIORAL_FILTERS, _FIXED_TS, _FIXED_TS, True),
+            # Realtime + mixed filters: require both timestamps
+            ("realtime_mixed_no_ts", CohortType.REALTIME, _MIXED_FILTERS, None, None, False),
+            ("realtime_mixed_only_person_ts", CohortType.REALTIME, _MIXED_FILTERS, _FIXED_TS, None, False),
+            ("realtime_mixed_only_events_ts", CohortType.REALTIME, _MIXED_FILTERS, None, _FIXED_TS, False),
+            ("realtime_mixed_both_ts", CohortType.REALTIME, _MIXED_FILTERS, _FIXED_TS, _FIXED_TS, True),
+            # Realtime + no recognized filter types: never compatible, regardless of timestamps
+            ("realtime_empty_filters_no_ts", CohortType.REALTIME, {}, None, None, False),
+            ("realtime_empty_filters_with_ts", CohortType.REALTIME, {}, _FIXED_TS, _FIXED_TS, False),
+            ("realtime_cohort_ref_with_ts", CohortType.REALTIME, _COHORT_REF_FILTERS, _FIXED_TS, _FIXED_TS, False),
+        ]
+    )
+    def test_is_flag_compatible(self, _label, cohort_type, filters, person_ts, events_ts, expected):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters=filters,
+            cohort_type=cohort_type,
+            last_backfill_person_properties_at=person_ts,
+            last_backfill_events_at=events_ts,
+        )
+        self.assertEqual(cohort.is_flag_compatible, expected)

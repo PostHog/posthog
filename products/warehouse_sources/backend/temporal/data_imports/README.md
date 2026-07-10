@@ -38,21 +38,47 @@ The manual flow above re-pulls every row from the source. We also have an automa
 
 How it works:
 
-- **Detection.** After each sync, the controller measures per-partition bytes from the Delta log (`get_add_actions` — no S3 LIST, no scan) and always records `max_partition_bytes` on the schema for observability. When the largest partition is over the budget it records a `repartition_pending` target on the schema: the next finer tier (md5 count grows, numerical size shrinks, datetime `month` → `week` → `day` → `hour`).
-- **Rewrite.** On the next run, a pre-extraction activity streams the live Delta table one record-batch at a time, recomputes `_ph_partition_key` under the finer scheme, and writes a sibling temp table. It then does a crash-safe swap: delete live → server-side copy temp → verify row count → delete temp. Memory is bounded by batch size, independent of partition size. Temp stays the source of truth until the swap is verified, so a worker death at any point loses wasted compute, never data.
+- **Detection.** After each sync, the controller measures per-partition bytes from the Delta log (`get_add_actions` — no S3 LIST, no scan) and always records `max_partition_bytes` on the schema for observability. It records a `repartition_pending` target (the next finer tier — md5 count grows, numerical size shrinks, datetime `month` → `week` → `day` → `hour`) when **either** the largest partition is over the budget (`trigger_reason=proactive_threshold`) **or** the schema has repeatedly OOM'd recently (`trigger_reason=oom_history`). The OOM path catches tables whose compressed at-rest size looks safe but whose real merge working set is much larger (e.g. wide nested-JSON columns) — see `ExternalDataSchemaOOMEvent`, recorded per OOM occurrence at the heartbeat-timeout detection point.
+- **Rewrite.** On the next run, a pre-extraction activity streams the live Delta table one record-batch at a time, recomputes `_ph_partition_key` under the finer scheme, and writes a sibling temp table. It then does a crash-safe swap: delete live → server-side copy temp → verify row count → delete temp. Memory is bounded by batch size, independent of partition size. Temp stays the source of truth until the swap is verified, so a worker death at any point loses wasted compute, never data. An interruption (OOM, worker restart) can leave the `__repartitioned` temp partial, so every step that could destroy live re-validates temp first: the swap opens temp and checks it holds the full row count before deleting live, and a resume re-validates the temp the `ready` marker points at — discarding it and rebuilding fresh from the intact live rather than copying a broken temp over live. A live table whose own log is unreadable is skipped (the import activity's revival handles it), not counted as a repartition failure.
 - **Safety.** The repartition is the sole writer (the schedule's `OnlyOne` overlap policy plus the v3 pipeline lock), so it needs no new locking. A repartition failure never fails the sync — it's swallowed, retried on a later run, and capped at `MAX_REPARTITION_ATTEMPTS` (3) consecutive failures before it gives up and alerts.
 
 Tuning and gating:
 
 - Gated by the `data-warehouse-auto-repartition` feature flag plus a 24h per-table cooldown. The flag can be released to a single schema (`schema_id = <id>`) before rolling out by team/org/project.
-- The budget is tunable via the `DATA_WAREHOUSE_TARGET_PARTITION_BYTES` setting (default ~1 GB at-rest → ~20 GB worst-case merge, under the 29 GB pod limit with headroom).
+- The budget is tunable via the `DATA_WAREHOUSE_TARGET_PARTITION_BYTES` setting (default ~0.5 GB at-rest → ~10 GB worst-case merge). Worker pods are multi-tenant, so the budget leaves headroom for concurrent merges under the 29 GB pod limit rather than sizing to a single merge.
+- The OOM-history override is tunable via `DATA_WAREHOUSE_REPARTITION_OOM_THRESHOLD` (default 3) and `DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS` (default 7). An OOM-triggered rewrite of an under-budget table steps one tier finer per cooldown cycle, converging as the (still-recorded) OOMs continue.
 - CDC tables are excluded for now.
 
 Observability: `warehouse_repartition_flagged` / `started` / `completed` / `failed` / `skipped` PostHog events (with full team/schema/source/table context, before→after scheme, sizes, durations, and trigger reason) plus `DELTA_REPARTITION_*` Prometheus metrics.
 
 The existing admin repartition action now stages a `repartition_pending` target and triggers this cheap in-place path (no reset, no source re-pull) instead of a reset + resync.
 
+## Admin panel actions
+
+Most day-to-day interventions no longer need a k8s pod — they're buttons on the `ExternalDataSchema` change page in the Django admin (`/admin/warehouse_sources/externaldataschema/<schema_id>/change/`).
+All admin-triggered runs are non-billable, and admin-triggered runs auto-pause the per-schema schedule for the duration and auto-unpause it on success.
+
+- **Trigger sync / resync.** Runs an ad-hoc `external-data-job` workflow, with checkboxes for `reset_pipeline` (wipe existing files and re-pull from scratch) and `billable`. This replaces the pod snippets under [How to resync](#how-to-resync) for most cases.
+- **Repartition / change partition mode.** Stages a `repartition_pending` target and triggers the cheap [in-place repartition](#automated-in-place-repartitioning) — rewrites the data already in S3, no source re-pull, no pod, no oversized partition materialised. You can switch `partition_mode` (`datetime` / `numerical` / `md5`), set the partitioning keys, and set the mode's knob (`partition_format`, `partition_size`, or `partition_count`).
+- **Pause / unpause schedule.** Pause the per-schema Temporal schedule manually while doing admin work.
+
+### Overriding the read chunk size (`chunk_size_override`)
+
+For SQL sources (Postgres, Redshift, ClickHouse) the pipeline auto-sizes how many rows it reads per fetch by sampling the p95 row size and targeting ~150 MB per chunk.
+That estimate ignores the top 5% of rows and undercounts the Python/Arrow heap the rows expand into, so a wide table with large outlier cells (long text, big arrays) can compute a huge chunk size and OOM the pod on _read_ — before any merge.
+
+To cap it, add `chunk_size_override` (an integer row count) to the schema's `sync_type_config` JSON via the admin change form, then Save:
+
+```json
+{ "...": "...", "chunk_size_override": 15000 }
+```
+
+It bypasses the auto-sizing, is read at the start of the next run (no reset needed — a full-refresh re-reads everything anyway), and survives resets.
+Start conservative (e.g. 10k–25k) and tune up: smaller chunks lower peak read memory at the cost of more fetches and more Delta files, which end-of-run compaction cleans up.
+
 ## How to resync
+
+Prefer the admin **Trigger sync** action above; use the pod method below only when the admin isn't suitable (e.g. bulk-resyncing many schemas at once).
 
 When we resync a table, we do so from a k8s pod. We have the ability to disable billing for a sync via this method meaning that a user won't be charged for us repartitioning their data.
 
