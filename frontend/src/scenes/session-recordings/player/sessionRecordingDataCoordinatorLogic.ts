@@ -9,6 +9,7 @@ import {
     keyForSource,
     processAllSnapshots,
     SnapshotStore,
+    SourceKey,
     SourceLoadingState,
 } from '@posthog/replay-shared'
 
@@ -229,7 +230,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             // fetched sources this pass will cover — promoted to loaded on completion, including empty
             // ones that contribute no snapshots. Tracked by key, not index: a setSources refresh during
             // the await below re-indexes entries, and promoting stale indexes would flip the wrong source.
-            const coveredKeys: string[] = []
+            const coveredKeys: SourceKey[] = []
             if (sources) {
                 for (let i = 0; i < sources.length; i++) {
                     const entry = values.snapshotStore.getEntry(i)
