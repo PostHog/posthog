@@ -593,15 +593,33 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
                     )
                 ]
 
+                # TODO: We should be more explicit about this parameter being
+                # an ARN or an ID
                 if inputs.kms_key_id is not None:
-                    # TODO: KMS key could be in a different acount, we should support passing a
-                    # full ARN here rather than just the key ID.
-                    account_id = integration.aws_role_arn.split(":")[4]
+                    # KMS key could be in a different acount, in which case
+                    # a customer would have provided the full ARN here.
+                    if inputs.kms_key_id.startswith("arn:"):
+                        resource = inputs.kms_key_id
+
+                    else:
+                        # If not, assume that the KMS key is in the same account as the role
+                        # we are assuming. This is the same assumption S3 makes when passing
+                        # just a key ID.
+                        parts = integration.aws_role_arn.split(":")
+                        if len(parts) < 6 or not parts[4]:
+                            raise ValueError(f"Malformed role ARN: {integration.aws_role_arn!r}")
+                        account_id = parts[4]
+
+                        # I am aware KMS key aliases are a thing, but we explicitly ask for
+                        # KMS key "ID". It's a user error if they pass an alias (and we can)
+                        # just tell them to use the full ARN then.
+                        resource = f"arn:aws:kms:{inputs.region}:{account_id}:key/{inputs.kms_key_id}"
+
                     policy_statements.append(
                         PolicyStatement(
                             Effect="Allow",
                             Action=["kms:GenerateDataKey", "kms:Decrypt"],
-                            Resource=f"arn:aws:kms:{inputs.region}:{account_id}:key/{inputs.kms_key_id}",
+                            Resource=resource,
                         )
                     )
 
