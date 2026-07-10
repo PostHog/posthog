@@ -40,7 +40,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.duckgres_usage.acking import day_boundary_ack
 from posthog.temporal.duckgres_usage.client import UsageResponse, ack_usage, fetch_usage, is_configured
-from posthog.temporal.duckgres_usage.mirror import replace_window
+from posthog.temporal.duckgres_usage.mirror import count_out_of_window_rows, replace_window
 from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs, PollDuckgresUsageResult
 
 logger = structlog.get_logger(__name__)
@@ -55,6 +55,12 @@ class DuckgresRowParseError(Exception):
     """One or more duckgres usage rows could not be parsed and were dropped."""
 
 
+class DuckgresRowsOutsideWindow(Exception):
+    """Duckgres served rows dated outside the ack window (at or below its own
+    cursor). They were dropped, not persisted, so the ack is withheld — acking
+    could delete their source buckets and permanently under-bill."""
+
+
 @activity.defn(name="poll-duckgres-usage")
 async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUsageResult:
     async with Heartbeater():
@@ -67,6 +73,7 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
         recorded = await database_sync_to_async(_read_recorded_watermark)()
         hole = recorded is not None and response.watermark_low > recorded
         parse_failure = response.unparsed_row_count > 0
+        out_of_window = count_out_of_window_rows(response)
         if recorded is not None and response.watermark_low < recorded:
             # Duckgres re-serves data we already acked past; replace semantics
             # absorb it idempotently. Worth noting, not halting.
@@ -77,9 +84,10 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             )
 
         ack_at = day_boundary_ack(watermark_low=response.watermark_low, watermark_high=response.watermark_high)
-        # Withhold the ack on a hole or a parse failure — acking would let
-        # duckgres delete data this pull didn't fully capture.
-        should_ack = ack_at is not None and not hole and not parse_failure
+        # Withhold the ack on any anomaly — a hole, an unparseable row, or a row
+        # dropped for being outside the window — since acking would let duckgres
+        # delete data this pull didn't fully capture.
+        should_ack = ack_at is not None and not hole and not parse_failure and out_of_window == 0
         ack_watermark = ack_at.isoformat() if (should_ack and ack_at is not None) else None
 
         # One transaction: persist the mirror rows and — record-before-ack — the
@@ -100,6 +108,13 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
                     f"the ack; sample: {response.unparsed_row_sample}"
                 )
             )
+        if out_of_window:
+            capture_exception(
+                DuckgresRowsOutsideWindow(
+                    f"dropped {out_of_window} duckgres row(s) dated outside the ack window "
+                    f"(watermark_low {response.watermark_low.isoformat()}) and withheld the ack"
+                )
+            )
 
         await logger.ainfo(
             "duckgres_usage_polled",
@@ -111,6 +126,7 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             ack_watermark=ack_watermark,
             watermark_hole=hole,
             unparsed_row_count=response.unparsed_row_count,
+            out_of_window_dropped=out_of_window,
         )
         return PollDuckgresUsageResult(
             rows_written=rows_written,
@@ -119,6 +135,7 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             ack_watermark=ack_watermark,
             watermark_hole=hole,
             unparsed_row_count=response.unparsed_row_count,
+            out_of_window_dropped=out_of_window,
         )
 
 

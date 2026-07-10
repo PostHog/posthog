@@ -21,7 +21,7 @@ import pytest
 
 from posthog.ducklake.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
 from posthog.temporal.duckgres_usage.client import StorageRow, UsageResponse, UsageRow
-from posthog.temporal.duckgres_usage.mirror import replace_window
+from posthog.temporal.duckgres_usage.mirror import count_out_of_window_rows, replace_window
 
 pytestmark = pytest.mark.django_db
 
@@ -315,3 +315,25 @@ class TestReplaceWindowStorage:
 
         assert DuckgresDailyStorageUsage.objects.get(date=dt.date(2026, 7, 6)).gib_seconds == Decimal("360000")
         assert DuckgresDailyStorageUsage.objects.get(date=dt.date(2026, 7, 7)).gib_seconds == Decimal("180000")
+
+
+class TestCountOutOfWindowRows:
+    LOW = dt.datetime(2026, 7, 6, 23, 59, 59, tzinfo=dt.UTC)  # window is [day 7, day 7]
+    HIGH = dt.datetime(2026, 7, 7, 12, 0, tzinfo=dt.UTC)
+
+    def test_all_in_window_counts_zero(self) -> None:
+        response = _response([_row(dt.date(2026, 7, 7))], self.LOW, self.HIGH)
+        assert count_out_of_window_rows(response) == 0
+
+    def test_counts_rows_below_the_window_across_families(self) -> None:
+        response = _response(
+            [_row(dt.date(2026, 7, 3)), _row(dt.date(2026, 7, 7))],  # day 3 out, day 7 in
+            self.LOW,
+            self.HIGH,
+            storage_rows=[_storage_row(dt.date(2026, 7, 2))],  # day 2 out
+        )
+        assert count_out_of_window_rows(response) == 2
+
+    def test_empty_window_counts_zero(self) -> None:
+        low = high = self.LOW
+        assert count_out_of_window_rows(_response([_row(dt.date(2026, 7, 3))], low, high)) == 0

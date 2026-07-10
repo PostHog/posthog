@@ -6,8 +6,9 @@ does not perform it; the workflow runs a separate ack activity for that. Custody
 rules under test:
 
 - The poll withholds the ack (returns no `ack_watermark`, doesn't advance the
-  cursor) on a detected hole (`watermark_low > recorded`) or a parse failure, so
-  duckgres keeps data this pull didn't fully capture.
+  cursor) on a detected hole (`watermark_low > recorded`), a parse failure, or a
+  row dated outside the window, so duckgres keeps data this pull didn't fully
+  capture.
 - The benign "duckgres behind" direction still yields an `ack_watermark`.
 - The ack activity is a thin, idempotent POST.
 
@@ -76,6 +77,14 @@ PARSE_FAILURE_RESPONSE = UsageResponse(
     rows=[_row(dt.date(2026, 7, 6))],
     unparsed_row_count=1,
     unparsed_row_sample={"date": "2026-07-06", "team_id": "not-a-number"},
+)
+
+OUT_OF_WINDOW_RESPONSE = UsageResponse(
+    # A day closed (would normally ack), but duckgres also served a row dated
+    # day 3 — below its own cursor, outside the window [day 6, day 7].
+    watermark_low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
+    watermark_high=dt.datetime(2026, 7, 7, 12, 39, tzinfo=dt.UTC),
+    rows=[_row(dt.date(2026, 7, 3)), _row(dt.date(2026, 7, 6))],
 )
 
 DAY_6_END = dt.datetime(2026, 7, 6, 23, 59, 59, tzinfo=dt.UTC)
@@ -176,6 +185,24 @@ async def test_withholds_ack_and_alerts_on_parse_failure(activity_environment) -
     assert await usage_count() == 1  # the good row persisted
     mock_capture.assert_called_once()
     assert not await cursor_exists()  # nothing acked, nothing recorded
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_withholds_ack_and_alerts_on_out_of_window_rows(activity_environment) -> None:
+    # Duckgres served a row dated below its cursor (outside the window). It's
+    # dropped, not persisted — and the ack is withheld so it can't delete that
+    # row's source bucket, even though a day closed.
+    is_conf, fetch, cap, log = _patched(OUT_OF_WINDOW_RESPONSE)
+    with is_conf, fetch, cap as mock_capture, log:
+        result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+
+    assert result.out_of_window_dropped == 1
+    assert result.ack_watermark is None  # withheld
+    assert await usage_count() == 1  # only the in-window day 6 row persisted
+    assert await usage_dates() == [dt.date(2026, 7, 6)]
+    mock_capture.assert_called_once()
+    assert not await cursor_exists()
 
 
 @pytest.mark.django_db(transaction=True)

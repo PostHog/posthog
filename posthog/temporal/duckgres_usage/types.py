@@ -27,3 +27,6 @@ class PollDuckgresUsageResult(BaseModel):
     # Rows that failed to parse and were dropped. Non-zero withholds the ack so
     # duckgres keeps the un-parsed data until the upstream cause is fixed.
     unparsed_row_count: int = 0
+    # Rows dated outside the ack window (duckgres served at/below its cursor).
+    # Dropped, not persisted; non-zero withholds the ack.
+    out_of_window_dropped: int = 0

@@ -27,10 +27,41 @@ from posthog.temporal.duckgres_usage.client import UsageResponse
 logger = structlog.get_logger(__name__)
 
 
+def derive_window(watermark_low: dt.datetime, watermark_high: dt.datetime) -> tuple[dt.date, dt.date]:
+    """The [first, last] UTC-date window whose rows a response may replace.
+
+    Rows dated outside it are already-acked (below `window_first`) or beyond the
+    served ceiling, and are never persisted — acked days are immutable. Deriving
+    `window_first` from `watermark_low + 1s` (not `watermark_low.date()`) is what
+    keeps the last acked day out of the window.
+    """
+    window_first = (watermark_low + dt.timedelta(seconds=1)).astimezone(dt.UTC).date()
+    window_last = watermark_high.astimezone(dt.UTC).date()
+    return window_first, window_last
+
+
+def count_out_of_window_rows(response: UsageResponse) -> int:
+    """Rows (either family) dated outside the replace window.
+
+    A row outside the window means duckgres served data at or below its own
+    cursor — a contract violation. `replace_window` drops these rather than
+    mutate already-billed history; the caller alerts and withholds the ack so
+    the ack can't delete the dropped rows' source buckets.
+    """
+    if response.watermark_high <= response.watermark_low:
+        return 0
+    first, last = derive_window(response.watermark_low, response.watermark_high)
+    return sum(1 for row in response.rows if not first <= row.date <= last) + sum(
+        1 for row in response.storage_rows if not first <= row.date <= last
+    )
+
+
 def replace_window(response: UsageResponse) -> int:
     """Replace the open window's mirror rows with the response's rows.
 
-    Returns the number of rows written.
+    Returns the number of rows written. Rows dated outside the window are dropped
+    (see `count_out_of_window_rows`); the caller is responsible for alerting on
+    and withholding the ack for them.
     """
     if response.watermark_high <= response.watermark_low:
         # Empty window (fresh cursor, or a pull racing right behind an ack).
@@ -42,25 +73,12 @@ def replace_window(response: UsageResponse) -> int:
             )
         return 0
 
-    window_first = (response.watermark_low + dt.timedelta(seconds=1)).astimezone(dt.UTC).date()
-    window_last = response.watermark_high.astimezone(dt.UTC).date()
+    window_first, window_last = derive_window(response.watermark_low, response.watermark_high)
 
-    # Acked days are immutable: replace strictly within the derived open window.
-    # A row dated outside it means duckgres served data at or below its own cursor
-    # — a contract violation (it serves `(cursor, watermark_high]`) — so drop it
-    # and warn rather than mutate already-acked, already-billed history. (A normal
-    # cursor regression keeps its re-served days inside the window, since
-    # window_first tracks watermark_low, so this only fires on genuinely bad data.)
+    # Acked days are immutable: replace strictly within the window. Out-of-window
+    # rows are dropped (the activity captures + withholds the ack for them).
     compute_rows = [row for row in response.rows if window_first <= row.date <= window_last]
     storage_rows = [row for row in response.storage_rows if window_first <= row.date <= window_last]
-    dropped = (len(response.rows) - len(compute_rows)) + (len(response.storage_rows) - len(storage_rows))
-    if dropped:
-        logger.warning(
-            "duckgres_usage_rows_outside_window_dropped",
-            dropped=dropped,
-            window_first=window_first.isoformat(),
-            window_last=window_last.isoformat(),
-        )
 
     # BOTH families commit in this one transaction: duckgres's ack deletes
     # compute AND storage buckets atomically, so persisting one family and
