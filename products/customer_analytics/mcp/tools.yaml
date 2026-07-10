@@ -75,10 +75,10 @@ tools:
             idempotent: true
         title: Update account relationship definition
         description: >
-            Update fields on an existing Customer Analytics account relationship definition. Accepts a subset of
-            fields; unspecified fields are left unchanged. Updatable fields: `name` (must remain unique within the
-            team), `description`, and `is_single_holder`. Changing `is_single_holder` does not end existing
-            assignments; it only affects future assigns.
+            Update fields on an existing Customer Analytics account relationship definition. Accepts a subset of fields;
+            unspecified fields are left unchanged. Updatable fields: `name` (must remain unique within the team),
+            `description`, and `is_single_holder`. Changing `is_single_holder` does not end existing assignments; it
+            only affects future assigns.
         feature_flag: customer-analytics-csp
     account-relationship-definitions-retrieve:
         operation: account_relationship_definitions_retrieve
@@ -300,12 +300,12 @@ tools:
             idempotent: true
         title: Assign account relationship
         description: >
-            Assign a PostHog user to a relationship on a Customer Analytics account. Pass `definition` (the
-            relationship definition UUID — list or create with the account relationship definition tools) and `user`
-            (the numeric PostHog user id, which must be a member of the account's organization; resolve an email to an
-            id via `org-members-list`). If the user already actively holds the relationship on this account, the
-            existing assignment is returned unchanged. For single-holder definitions, assigning a new user automatically ends the current holder's
-            assignment.
+            Assign a PostHog user to a relationship on a Customer Analytics account. Pass `definition` (the relationship
+            definition UUID — list or create with the account relationship definition tools) and `user` (the numeric
+            PostHog user id, which must be a member of the account's organization; resolve an email to an id via
+            `org-members-list`). If the user already actively holds the relationship on this account, the existing
+            assignment is returned unchanged. For single-holder definitions, assigning a new user automatically ends the
+            current holder's assignment.
         feature_flag: customer-analytics-csp
     accounts-relationships-end-create:
         operation: accounts_relationships_end_create
@@ -338,9 +338,9 @@ tools:
             List the relationship assignments of a single Customer Analytics account — which PostHog users hold which
             relationship (CSM, Onboarding manager, ...) on it. Each result includes the assignment `id`, the
             relationship `definition`, the assigned `user` ({id, email}; null when the user was deleted), `started_at`,
-            and `ended_at` (null while active). By default only active assignments are returned; pass
-            `include_history: true` for the full timeline including ended ones. To query assignments across all
-            accounts in bulk, HogQL `system.account_relationships` covers the same data.
+            and `ended_at` (null while active). By default only active assignments are returned; pass `include_history:
+            true` for the full timeline including ended ones. To query assignments across all accounts in bulk, HogQL
+            `system.account_relationships` covers the same data.
         feature_flag: customer-analytics-csp
     accounts-retrieve:
         operation: accounts_retrieve
