@@ -23,7 +23,7 @@ Kafka message
     → teamAware()
       → concurrentlyPerGroup(token:distinctId) for per-entity processing
       → gather()
-      → pipeBatch() for batch operations
+      → pipeChunk() for chunk operations
       → handleIngestionWarnings()
     → handleResults()
   → handleSideEffects()
@@ -58,11 +58,11 @@ See `nodejs/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` for 
 
 **Results**: Use `ok()`, `dlq()`, `drop()`, `redirect()` constructors. Side effects as promises in `ok(value, [effects])`. Warnings as third parameter.
 
-**Composition**: `messageAware` wraps the pipeline. `handleResults` inside `messageAware`. `handleSideEffects` after. `concurrentlyPerGroup` for per-entity work. `gather` before batch steps.
+**Composition**: `messageAware` wraps the pipeline. `handleResults` inside `messageAware`. `handleSideEffects` after. `concurrentlyPerGroup` for per-entity work. `gather` before chunk steps.
 
 **Batching lifecycle hooks** (`BatchingPipeline` beforeBatch/afterBatch): enrich-only. Hooks may enrich elements and batch context but must return exactly the elements they received — a count change is a broken invariant and `feed()` throws. Filtering belongs in sub-pipeline steps that return `drop()`. An empty `feed()` is a no-op (no hooks, no capacity). Details: `nodejs/src/ingestion/framework/docs/14-batching.test.ts`.
 
-**Testing**: Step tests call factory directly. Use `consumeAll()`/`collectBatches()` helpers. Fake timers for async. Type guards for result assertions. No `any`.
+**Testing**: Step tests call factory directly. Use `consumeAll()`/`collectChunks()` helpers. Fake timers for async. Type guards for result assertions. No `any`.
 
 ## Running all doctors
 

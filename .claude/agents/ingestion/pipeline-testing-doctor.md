@@ -49,7 +49,7 @@ Before reviewing or writing any code, read:
 The full chapter list (all are sources of truth for testing patterns):
 
 - `nodejs/src/ingestion/pipelines/docs/01-introduction.test.ts`
-- `nodejs/src/ingestion/pipelines/docs/02-batch-pipelines.test.ts`
+- `nodejs/src/ingestion/pipelines/docs/02-chunk-pipelines.test.ts`
 - `nodejs/src/ingestion/pipelines/docs/03-concurrent-processing.test.ts`
 - `nodejs/src/ingestion/pipelines/docs/04-sequential-processing.test.ts`
 - `nodejs/src/ingestion/pipelines/docs/05-grouping.test.ts`
@@ -111,7 +111,7 @@ Use existing helpers from `helpers.ts`:
 - `createTestMessage()` — create Kafka message fixtures
 - `createTestTeam()` — create team fixtures
 - `consumeAll(pipeline)` — drain all results from a pipeline
-- `collectBatches(pipeline)` — collect results grouped by batch
+- `collectChunks(pipeline)` — collect results grouped by chunk
 
 Check the helpers file for the current set — new helpers may have been added.
 
@@ -143,7 +143,7 @@ it('retries with backoff', async () => {
 
 ### 5. Cardinality assertion
 
-Batch step tests must verify result array length matches input length.
+Chunk step tests must verify result array length matches input length.
 
 ```typescript
 const inputs = [itemA, itemB, itemC]
@@ -238,7 +238,7 @@ Produce a checklist grouped by rule:
 
 - [x] Uses type guard functions for result checks
 - [x] Side effects awaited before assertions
-- [ ] **ISSUE**: Missing cardinality assertion for batch step test (Rule 5)
+- [ ] **ISSUE**: Missing cardinality assertion for chunk step test (Rule 5)
 ```
 
 ### When writing tests

@@ -33,7 +33,7 @@ The 13 runnable doc-test chapters define all conventions:
 ```text
 nodejs/src/ingestion/framework/docs/
 ├── 01-introduction.test.ts
-├── 02-batch-pipelines.test.ts
+├── 02-chunk-pipelines.test.ts
 ├── 03-concurrent-processing.test.ts
 ├── 04-sequential-processing.test.ts
 ├── 05-grouping.test.ts
