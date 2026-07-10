@@ -688,6 +688,7 @@ class TestRun:
             "failed",
             error_message="database connection closed",
             run_id="run-id",
+            error_type="RuntimeError",
         )
         # A terminal completion signal is enqueued even on failure paths so
         # the orchestrator never waits indefinitely on a silent child.
@@ -934,7 +935,7 @@ class TestRunStatusTransitions:
             update_status_mock.assert_not_awaited()
         else:
             status, message = expected_call
-            update_status_mock.assert_awaited_once_with(status, error_message=message)
+            update_status_mock.assert_awaited_once_with(status, error_message=message, error_type=None)
 
 
 class TestCompletionStatusOnExceptionPaths:
