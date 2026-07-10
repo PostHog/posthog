@@ -5,12 +5,14 @@ import { LemonBanner, LemonCard, LemonCheckbox, LemonSelect, LemonSwitch, Link }
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { aiTriageTicketTypeLabel, TicketChannel } from '../../types'
 import { supportSettingsLogic } from './supportSettingsLogic'
+import { CONVERSATIONS_LOGIC_KEY } from './SupportSettingsScene'
 
 const CHANNEL_LABELS: Record<TicketChannel, string> = {
     widget: 'API / Widget',
@@ -58,7 +60,14 @@ export function AISection(): JSX.Element {
     const isChannelActive = (channel: TicketChannel): boolean => aiEnabledChannels.includes(channel)
 
     const openChannelSettings = (channel: TicketChannel): void => {
+        // Switch the embedded settings pane via its own logic — settingsLogic does not
+        // sync selectedSetting from /support/settings hash changes.
+        settingsLogic({
+            logicKey: CONVERSATIONS_LOGIC_KEY,
+            sectionId: 'environment-conversations',
+        }).actions.selectSetting('conversations-general')
         router.actions.push(urls.supportSettings(), router.values.searchParams, {
+            ...router.values.hashParams,
             selectedSetting: 'conversations-general',
             channel: CHANNEL_SETTINGS_TABS[channel],
         })

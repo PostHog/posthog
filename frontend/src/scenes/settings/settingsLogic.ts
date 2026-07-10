@@ -1,5 +1,5 @@
 import FuseClass from 'fuse.js'
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -602,12 +602,6 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
     }),
-    propsChanged(({ actions, props }, oldProps) => {
-        if (props.settingId && props.settingId !== oldProps.settingId) {
-            actions.selectSetting(props.settingId)
-        }
-    }),
-
     actionToUrl(({ props }) => ({
         // Skip the URL update in the full settings scene — settingsSceneLogic already pushes
         // the canonical URL with the section path + setting hash. Without this guard, both
@@ -625,21 +619,6 @@ export const settingsLogic = kea<settingsLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        ['*/support/settings']: (_, __, hashParams) => {
-            const { selectedSetting } = hashParams
-            const selectedSettingId =
-                selectedSetting === 'conversations-channels'
-                    ? ('conversations-general' as SettingId)
-                    : (selectedSetting as SettingId | undefined)
-
-            if (!selectedSettingId) {
-                return
-            }
-
-            if (values.selectedSettingId !== selectedSettingId) {
-                actions.selectSetting(selectedSettingId)
-            }
-        },
         ['*/replay/settings']: (_, __, hashParams) => {
             const { selectedSetting } = hashParams
             const selectedSettingId = selectedSetting as SettingId
