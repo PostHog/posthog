@@ -19,6 +19,19 @@ from products.growth.backend.models import OrganizationEnrichment
 ORGANIZATION_GROUP_TYPE = "organization"
 
 
+def _merge_into_record(organization_id: str, values: dict) -> None:
+    """Row-locked read/merge/save into OrganizationEnrichment.data.
+
+    select_for_update serializes concurrent writers on the same org (the request-path
+    signup write and the fire-and-forget provider write). Without the lock they read the
+    same snapshot and the later save clobbers the other's keys, dropping enrichment data.
+    """
+    with transaction.atomic():
+        record, _ = OrganizationEnrichment.objects.select_for_update().get_or_create(organization_id=organization_id)
+        record.data = {**record.data, **values}
+        record.save(update_fields=["data", "updated_at"])
+
+
 def write_organization_enrichment(
     *,
     organization_id: str,
@@ -37,10 +50,7 @@ def write_organization_enrichment(
     if not values:
         return
 
-    with transaction.atomic():
-        record, _ = OrganizationEnrichment.objects.get_or_create(organization_id=organization_id)
-        record.data = {**record.data, **values}
-        record.save(update_fields=["data", "updated_at"])
+    _merge_into_record(organization_id, values)
 
     pha_client.group_identify(
         ORGANIZATION_GROUP_TYPE,
@@ -56,7 +66,4 @@ def record_signup_work_email(*, organization_id: str, work_email: bool) -> None:
     path for every signup — including personal-domain ones that never get a provider
     lookup. Postgres only; the group projection happens with the provider write.
     """
-    with transaction.atomic():
-        record, _ = OrganizationEnrichment.objects.get_or_create(organization_id=organization_id)
-        record.data = {**record.data, "work_email": work_email}
-        record.save(update_fields=["data", "updated_at"])
+    _merge_into_record(organization_id, {"work_email": work_email})
