@@ -134,5 +134,33 @@ describe('timeSensitiveAuthenticationLogic', () => {
                 showAuthenticationModal: true,
             })
         })
+
+        it('resolves the awaited checkReauthentication with false when dismissed', async () => {
+            // Session about to expire, so checkReauthentication returns a pending promise that
+            // callers (e.g. inviteLogic) await. Dismissing must *resolve* with `false`, never reject:
+            // a rejection thrown from a kea listener escapes as an unhandled exception (the original
+            // regression — `reject(undefined)` made kea do `error.message` on undefined and crash).
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_DEFAULT_USER,
+                sensitive_session_expires_at: dayjs().add(1, 'minute').toISOString(),
+            })
+
+            const reauthPromise = logic.asyncActions.checkReauthentication()
+            logic.actions.setDismissedReauthentication(true)
+
+            await expect(reauthPromise).resolves.toBe(false)
+        })
+
+        it('resolves the awaited checkReauthentication with true on successful reauthentication', async () => {
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_DEFAULT_USER,
+                sensitive_session_expires_at: dayjs().add(1, 'minute').toISOString(),
+            })
+
+            const reauthPromise = logic.asyncActions.checkReauthentication()
+            logic.actions.submitReauthenticationSuccess({ password: 'test' })
+
+            await expect(reauthPromise).resolves.toBe(true)
+        })
     })
 })
