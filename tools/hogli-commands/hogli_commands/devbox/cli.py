@@ -40,7 +40,6 @@ from .coder import (
     coder_installed,
     coder_reachable,
     coder_ssh_alias_configured,
-    create_clone_image,
     create_task,
     create_workspace,
     delete_user_secret,
@@ -58,8 +57,10 @@ from .coder import (
     get_default_git_identity,
     get_shared_users,
     get_sharing_status,
+    get_source_instance_id,
     get_username,
     get_workspace,
+    get_workspace_disk_size,
     get_workspace_name,
     get_workspace_region,
     get_workspace_status,
@@ -1433,9 +1434,9 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
     if template != DEFAULT_TEMPLATE:
         _fail(f"Clone supports the '{DEFAULT_TEMPLATE}' template only (this devbox uses '{template}').")
 
+    # The clone lands in the source's region -- a per-clone AMI is region-scoped,
+    # so the template images and boots within that same region.
     region = region_from_workspace_name(source_name)
-    if region != DEFAULT_REGION:
-        _fail("Clone is us-east-1 only for now (an AMI is region-scoped). EU clone is not wired yet.")
 
     status = get_workspace_status(ws)
     if status != "running":
@@ -1458,10 +1459,23 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
             click.echo("Cancelled.")
             return
 
-    click.echo("Capturing a clone image from the source devbox (this takes a few minutes)...")
-    ami = create_clone_image(source_name, owner=owner, source_label=source_name)
-    click.echo(f"Captured {ami}. Creating '{target_name}'...")
-    clone_workspace(source_name, target_name, base_ami=ami, template=template, verbose=verbose)
+    disk_size = get_workspace_disk_size(ws)
+    if disk_size is None:
+        _fail("Could not determine the source devbox's disk size. Rebuild it on the latest template and retry.")
+
+    source_instance_id = get_source_instance_id(source_name)
+    click.echo(
+        f"Cloning '{source_name}' ({source_instance_id}) -> '{target_name}'. "
+        "The template captures its disk into a private image (a few minutes) and boots the clone from it."
+    )
+    clone_workspace(
+        target_name,
+        source_instance_id=source_instance_id,
+        disk_size=disk_size,
+        region=region,
+        template=template,
+        verbose=verbose,
+    )
     click.echo("Cloned.")
     _print_connection_info(target_name)
 

@@ -53,6 +53,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
 
     actions({
         setScope: (scope: InboxScope) => ({ scope }),
+        // Auto-select a default scope (e.g. Entire project when the user has no assigned reports)
+        // without marking it as an explicit user choice, so a later real choice still wins and persists.
+        applyDefaultScope: (scope: InboxScope) => ({ scope }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setSort: (field: InboxSortField, direction: InboxSortDirection) => ({ field, direction }),
         toggleSourceProduct: (source: string) => ({ source }),
@@ -89,6 +92,16 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             { persist: true },
             {
                 setScope: (_, { scope }) => scope,
+                applyDefaultScope: (_, { scope }) => scope,
+            },
+        ],
+        // Whether the user has explicitly picked a scope. Once true, the empty-inbox auto-default
+        // no longer fires, so a deliberate choice of "For you" is respected even with zero reports.
+        hasUserChosenScope: [
+            false,
+            { persist: true },
+            {
+                setScope: () => true,
             },
         ],
         // Not persisted – matches desktop (searchQuery is excluded from `partialize`).

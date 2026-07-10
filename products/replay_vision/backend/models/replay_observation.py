@@ -15,6 +15,10 @@ class ObservationStatus(models.TextChoices):
     INELIGIBLE = "ineligible", "Ineligible"
 
 
+# Not-yet-terminal statuses: what the quota meter reserves and the concurrency caps count as "in flight".
+IN_FLIGHT_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
+
+
 class ObservationTrigger(models.TextChoices):
     SCHEDULE = "schedule", "Schedule"
     ON_DEMAND = "on_demand", "On demand"
@@ -101,7 +105,19 @@ class ReplayObservation(UUIDModel):
                 name="rlo_workflow_id_idx",
                 condition=~models.Q(workflow_id=""),
             ),
+            # Serves the per-team in-flight concurrency count (sweep headroom + on-demand 429). Partial on the
+            # in-flight statuses only, since terminal rows dominate and are never counted.
+            models.Index(
+                fields=["team", "scanner"],
+                name="rlo_team_in_flight_idx",
+                condition=models.Q(status__in=("pending", "running")),
+            ),
         ]
+
+    @classmethod
+    def in_flight_for_team(cls, team_id: int) -> "models.QuerySet[ReplayObservation]":
+        """A team's not-yet-terminal observations; the one predicate the quota meter and concurrency caps share."""
+        return cls.objects.filter(team_id=team_id, status__in=IN_FLIGHT_STATUSES)
 
     def save(self, *args, **kwargs) -> None:
         # Tenant invariant: observation.team_id must match scanner.team_id.

@@ -8,8 +8,9 @@ from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 import pydantic
@@ -33,7 +34,7 @@ from products.actions.backend.models.action import Action
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.experiment_service import ExperimentService, _deprecated_fields_in_request
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
@@ -1005,13 +1006,19 @@ class TestExperimentService(APIBaseTest):
             description="All optional fields set",
             type="web",
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "name": "Control", "rollout_percentage": 34},
-                    {"key": "variant-a", "name": "Variant A", "rollout_percentage": 33},
-                    {"key": "variant-b", "name": "Variant B", "rollout_percentage": 33},
-                ],
-                "rollout_percentage": 80,
                 "minimum_detectable_effect": 20,
+            },
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 34},
+                            {"key": "variant-a", "name": "Variant A", "rollout_percentage": 33},
+                            {"key": "variant-b", "name": "Variant B", "rollout_percentage": 33},
+                        ]
+                    },
+                    "groups": [{"properties": [], "rollout_percentage": 80}],
+                },
             },
             metrics=[
                 {
@@ -1271,13 +1278,16 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError) as ctx:
             service.update_experiment(
                 experiment,
-                {
-                    "parameters": {
-                        "feature_flag_variants": [
-                            {"key": "control", "name": "Control", "rollout_percentage": 34},
-                            {"key": "test", "name": "Test", "rollout_percentage": 33},
-                            {"key": "new_variant", "name": "New", "rollout_percentage": 33},
-                        ]
+                {},
+                feature_flag_config={
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "name": "Control", "rollout_percentage": 34},
+                                {"key": "test", "name": "Test", "rollout_percentage": 33},
+                                {"key": "new_variant", "name": "New", "rollout_percentage": 33},
+                            ]
+                        }
                     }
                 },
             )
@@ -1321,12 +1331,15 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
         service.update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ],
+            {},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 50},
+                            {"key": "test", "name": "Test", "rollout_percentage": 50},
+                        ]
+                    },
                 },
             },
         )
@@ -1341,13 +1354,16 @@ class TestExperimentService(APIBaseTest):
 
         service.update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 34},
-                        {"key": "test", "name": "Test", "rollout_percentage": 33},
-                        {"key": "variant-b", "name": "Variant B", "rollout_percentage": 33},
-                    ],
+            {},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 34},
+                            {"key": "test", "name": "Test", "rollout_percentage": 33},
+                            {"key": "variant-b", "name": "Variant B", "rollout_percentage": 33},
+                        ]
+                    },
                 }
             },
         )
@@ -1364,15 +1380,17 @@ class TestExperimentService(APIBaseTest):
 
         self._service().update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 75},
-                        {"key": "test", "name": "Test", "rollout_percentage": 25},
-                    ],
-                    "rollout_percentage": 50,
+            {"update_feature_flag_params": True},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 75},
+                            {"key": "test", "name": "Test", "rollout_percentage": 25},
+                        ]
+                    },
+                    "groups": [{"properties": [], "rollout_percentage": 50}],
                 },
-                "update_feature_flag_params": True,
             },
         )
 
@@ -1394,14 +1412,16 @@ class TestExperimentService(APIBaseTest):
 
         self._service().update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 75},
-                        {"key": "test", "name": "Test", "rollout_percentage": 25},
-                    ],
+            {**extra},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 75},
+                            {"key": "test", "name": "Test", "rollout_percentage": 25},
+                        ]
+                    },
                 },
-                **extra,
             },
         )
 
@@ -1424,14 +1444,16 @@ class TestExperimentService(APIBaseTest):
 
         self._service().update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 70},
-                        {"key": "test", "name": "Test", "rollout_percentage": 30},
-                    ],
+            {"update_feature_flag_params": True},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 70},
+                            {"key": "test", "name": "Test", "rollout_percentage": 30},
+                        ]
+                    },
                 },
-                "update_feature_flag_params": True,
             },
         )
 
@@ -1461,14 +1483,16 @@ class TestExperimentService(APIBaseTest):
 
         self._service().update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 70},
-                        {"key": "test", "name": "Test", "rollout_percentage": 30},
-                    ],
+            {"update_feature_flag_params": True},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 70},
+                            {"key": "test", "name": "Test", "rollout_percentage": 30},
+                        ]
+                    },
                 },
-                "update_feature_flag_params": True,
             },
         )
 
@@ -1487,15 +1511,17 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError) as ctx:
             self._service().update_experiment(
                 experiment,
-                {
-                    "parameters": {
-                        "feature_flag_variants": [
-                            {"key": "control", "name": "Control", "rollout_percentage": 34},
-                            {"key": "test", "name": "Test", "rollout_percentage": 33},
-                            {"key": "new_variant", "name": "New", "rollout_percentage": 33},
-                        ]
+                {"update_feature_flag_params": True},
+                feature_flag_config={
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "name": "Control", "rollout_percentage": 34},
+                                {"key": "test", "name": "Test", "rollout_percentage": 33},
+                                {"key": "new_variant", "name": "New", "rollout_percentage": 33},
+                            ]
+                        }
                     },
-                    "update_feature_flag_params": True,
                 },
             )
 
@@ -2175,6 +2201,21 @@ class TestExperimentService(APIBaseTest):
         links = list(dup.experimenttosavedmetric_set.all())
         assert len(links) == 1
         assert links[0].saved_metric_id == sm.id
+
+    # index 0 is the truthiness edge case: a `if index:` guard would wrongly drop it.
+    @parameterized.expand([("index_zero", 0), ("index_one", 1)])
+    def test_duplicate_experiment_preserves_group_aggregation(self, _name: str, group_index: int):
+        flag = self._create_flag(key="dup-group-source")
+        flag.filters = {**flag.filters, "aggregation_group_type_index": group_index}
+        flag.save()
+        service = self._service()
+        source = service.create_experiment(name="Group Source", feature_flag_key="dup-group-source")
+
+        # New key forces a fresh flag through _ensure_feature_flag rather than reusing the source.
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-group-target")
+
+        assert dup.feature_flag.id != source.feature_flag.id
+        assert dup.feature_flag.aggregation_group_type_index == group_index
 
     # ------------------------------------------------------------------
     # Launch experiment
@@ -5093,61 +5134,24 @@ class TestExperimentService(APIBaseTest):
     # Validation hardening
     # ------------------------------------------------------------------
 
-    def test_variant_missing_key_raises_validation_error(self):
-        """Variant without 'key' should return 400, not 500 KeyError."""
-        service = self._service()
-        with self.assertRaises(ValidationError):
-            service.create_experiment(
-                name="Bad Variants",
-                feature_flag_key="bad-variant-flag",
-                parameters={
-                    "feature_flag_variants": [
-                        {"name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ]
-                },
-            )
-
-    def test_variant_not_a_dict_raises_validation_error(self):
-        """Variant that is not a dict should return 400."""
-        service = self._service()
-        with self.assertRaises(ValidationError):
-            service.create_experiment(
-                name="Bad Variants",
-                feature_flag_key="bad-variant-flag-2",
-                parameters={"feature_flag_variants": ["control", "test"]},
-            )
-
-    def test_variant_missing_both_percentages_raises_validation_error(self):
-        """Variant without split_percent or rollout_percentage should be rejected."""
-        service = self._service()
-        with self.assertRaises(ValidationError) as ctx:
-            service.create_experiment(
-                name="Missing Percentages",
-                feature_flag_key="missing-pct-flag",
-                parameters={
-                    "feature_flag_variants": [
-                        {"key": "control"},
-                        {"key": "test", "rollout_percentage": 50},
-                    ]
-                },
-            )
-        assert "split_percent" in str(ctx.exception)
-
-    def test_variant_with_only_rollout_percentage_succeeds(self):
-        """Legacy clients sending only rollout_percentage must still work (deprecated but accepted)."""
+    def test_create_with_rollout_only_variants_succeeds(self):
+        """Variants carrying rollout_percentage (the flag's native shape) build the flag as-is."""
         service = self._service()
         experiment = service.create_experiment(
-            name="Legacy rollout only",
-            feature_flag_key="legacy-rollout-flag",
-            parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ]
+            name="Rollout only",
+            feature_flag_key="rollout-only-flag",
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    }
+                }
             },
         )
-        assert experiment.id is not None
+        assert [v["key"] for v in experiment.feature_flag.variants] == ["control", "test"]
 
     def test_duplicate_metric_uuids_within_list_are_regenerated(self):
         """Duplicate metric UUIDs within one list should be silently regenerated.
@@ -6369,12 +6373,15 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError):
             service.update_experiment(
                 experiment,
-                {
-                    "parameters": {
-                        "feature_flag_variants": [
-                            {"key": "control", "rollout_percentage": 50},
-                            {"key": "variant-b", "rollout_percentage": 50},
-                        ]
+                {},
+                feature_flag_config={
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 50},
+                                {"key": "variant-b", "rollout_percentage": 50},
+                            ]
+                        }
                     }
                 },
             )
@@ -6525,3 +6532,55 @@ class TestExperimentServiceWarehouseMetricAccess(APIBaseTest):
                 feature_flag_key="dw-saved",
                 saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
             )
+
+
+class TestDeprecatedFieldsInRequest(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "deprecated_parameters_and_secondary_metrics",
+                {
+                    "parameters": {"feature_flag_variants": [{"key": "control"}], "rollout_percentage": 100},
+                    "secondary_metrics": [{"kind": "x"}],
+                },
+                {
+                    "experiment_create_deprecated_fields": ["parameters", "secondary_metrics"],
+                    "experiment_create_deprecated_parameters_keys": ["feature_flag_variants", "rollout_percentage"],
+                },
+            ),
+            (
+                "new_feature_flag_object_is_not_deprecated",
+                {"feature_flag": {"filters": {"multivariate": {}}}, "metrics": [{"kind": "x"}]},
+                {"experiment_create_deprecated_fields": []},
+            ),
+            (
+                "legacy_filters",
+                {"filters": {"events": []}},
+                {"experiment_create_deprecated_fields": ["filters"]},
+            ),
+            (
+                "empty_parameters_not_counted",
+                {"parameters": {}},
+                {"experiment_create_deprecated_fields": []},
+            ),
+            (
+                "parameters_with_only_non_deprecated_keys",
+                {"parameters": {"variant_notes": {"control": "n"}}},
+                {"experiment_create_deprecated_fields": ["parameters"]},
+            ),
+            (
+                "non_dict_body",
+                [1, 2, 3],
+                {},
+            ),
+        ]
+    )
+    def test_detects_deprecated_fields(self, _name: str, body: Any, expected: dict[str, Any]) -> None:
+        request = MagicMock()
+        request.data = body
+        assert _deprecated_fields_in_request(request) == expected
+
+    def test_returns_empty_when_reading_body_raises(self) -> None:
+        request = MagicMock()
+        type(request).data = PropertyMock(side_effect=RuntimeError("stream consumed"))
+        assert _deprecated_fields_in_request(request) == {}

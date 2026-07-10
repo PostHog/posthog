@@ -260,3 +260,37 @@ class TestTaskRunMetrics(TestCase):
             )
 
         assert _sample_value("posthog_tasks_agent_turn_failed_total", labels) == before + expected_delta
+
+    @parameterized.expand(
+        [
+            ("unbound_wizard_run", {"wizard_head_branch": "posthog/instrumentation-ab12cd"}, {}, 1.0),
+            (
+                "bound_wizard_run",
+                {"wizard_head_branch": "posthog/instrumentation-ab12cd"},
+                {"pr_url": "https://x/pull/1"},
+                0.0,
+            ),
+            ("non_wizard_run", {}, {}, 0.0),
+        ]
+    )
+    def test_terminal_transition_counts_unbound_wizard_runs(
+        self, _name: str, extra_state: dict, output: dict, expected_delta: float
+    ) -> None:
+        from products.tasks.backend.facade import api as facade
+
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD, extra_state=extra_state)
+        if output:
+            run.output = output
+            run.save(update_fields=["output"])
+        labels = {"status": "completed"}
+        before = _sample_value("posthog_tasks_wizard_run_unbound_total", labels)
+
+        with patch.object(facade, "signal_workflow_completion"):
+            facade.update_task_run(
+                run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"status": "completed"},
+            )
+
+        assert _sample_value("posthog_tasks_wizard_run_unbound_total", labels) == before + expected_delta

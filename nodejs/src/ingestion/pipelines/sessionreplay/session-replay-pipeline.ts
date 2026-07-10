@@ -129,30 +129,26 @@ export function createSessionReplayPipeline(
                 // recorded — keyed on the (validated) session_id header. Sessions with unresolvable
                 // retention are dropped before any parse or write.
                 .gather()
-                .pipeBatchWithRetry(createResolveRetentionStep(retentionService, sessionBatchManager), {
-                    tries: 3,
-                    sleepMs: 100,
+                .pipeBatch(createResolveRetentionStep(retentionService, sessionBatchManager), {
+                    retry: { tries: 3, sleepMs: 100 },
                 })
                 // Track sessions and rate-limit new ones for the whole batch, tagging the survivors with
                 // isNewSession and dropping the blocked ones right here (they carry no key, so nothing
                 // downstream acts on them). Its own retry scope means a later key-resolution failure never
                 // re-runs the rate limiter and double-charges the budget.
-                .pipeBatchWithRetry(createTrackAndGateStep(sessionTracker, sessionFilter), {
-                    tries: 3,
-                    sleepMs: 100,
+                .pipeBatch(createTrackAndGateStep(sessionTracker, sessionFilter), {
+                    retry: { tries: 3, sleepMs: 100 },
                 })
                 // Resolve each session's encryption key. Grouped by session so it runs once per session
                 // (the cached keystore fans the key to its other messages) and concurrently across
                 // sessions, capped to bound KMS/DynamoDB fan-out. Per-session retry isolates a transient
                 // keystore blip to that one session. Deleted sessions are dropped here.
-                .groupBy((element) => `${element.team.teamId}:${element.headers.session_id}`)
-                .concurrently(
+                .concurrentlyPerGroup(
+                    (element) => `${element.team.teamId}:${element.headers.session_id}`,
                     (group) =>
                         group.sequentially((b) =>
-                            b.retry((rb) => rb.pipe(createResolveKeyStep(keyStore)), {
-                                name: 'resolve_session_key',
-                                tries: 3,
-                                sleepMs: 100,
+                            b.pipe(createResolveKeyStep(keyStore), {
+                                retry: { name: 'resolve_session_key', tries: 3, sleepMs: 100 },
                             })
                         ),
                     { maxConcurrency: sessionKeyResolutionMaxConcurrency }

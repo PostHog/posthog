@@ -1,1 +1,1 @@
-0010_slacksettings_default_integration_nullable
+0011_slacksettings_permission_modes
