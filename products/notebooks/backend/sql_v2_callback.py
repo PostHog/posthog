@@ -82,8 +82,11 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
     except NotebookNodeRun.DoesNotExist:
         return JsonResponse({"error": "Run not found"}, status=404)
 
-    is_ok = envelope.get("status") == "ok"
-    run.status = NotebookNodeRun.Status.DONE if is_ok else NotebookNodeRun.Status.FAILED
+    status_by_envelope = {
+        "ok": NotebookNodeRun.Status.DONE,
+        "interrupted": NotebookNodeRun.Status.INTERRUPTED,
+    }
+    run.status = status_by_envelope.get(envelope.get("status"), NotebookNodeRun.Status.FAILED)
     run.envelope = envelope
     run.result_id = envelope.get("result_id")
     run.error = envelope.get("error")

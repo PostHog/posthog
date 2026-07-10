@@ -65,6 +65,9 @@ interface SQLEditorProps {
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
+    /** With onRunQuery: flips the run button to Cancel while runQueryLoading. */
+    onCancelQuery?: () => void
+    cancelQueryLoading?: boolean
     onShareTab?: () => void
     queryPaneDefaultHeight?: number
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
@@ -82,6 +85,8 @@ export function SQLEditor({
     runQueryLoading,
     runQueryDisabledReason,
     runQueryTooltip,
+    onCancelQuery,
+    cancelQueryLoading,
     onShareTab,
     queryPaneDefaultHeight,
     autoFocusQueryPane,
@@ -253,6 +258,8 @@ export function SQLEditor({
                                                             runQueryLoading={runQueryLoading}
                                                             runQueryDisabledReason={runQueryDisabledReason}
                                                             runQueryTooltip={runQueryTooltip}
+                                                            onCancelQuery={onCancelQuery}
+                                                            cancelQueryLoading={cancelQueryLoading}
                                                             onShareTab={onShareTab}
                                                             autoFocusQueryPane={autoFocusQueryPane}
                                                         />

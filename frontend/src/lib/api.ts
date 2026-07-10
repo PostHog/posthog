@@ -4936,11 +4936,17 @@ const api = {
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
         },
+        async sqlV2RunInterrupt(
+            notebookId: NotebookType['short_id'],
+            runId: string
+        ): Promise<{ status: string; detail?: string }> {
+            return await new ApiRequest().notebook(notebookId).withAction(`sql_v2/runs/${runId}/interrupt`).create()
+        },
         async sqlV2RunResult(
             notebookId: NotebookType['short_id'],
             runId: string
         ): Promise<{
-            status: 'running' | 'done' | 'failed'
+            status: 'running' | 'done' | 'failed' | 'interrupted'
             result: {
                 columns?: string[]
                 types?: [string, string][]

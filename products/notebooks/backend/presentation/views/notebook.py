@@ -59,6 +59,7 @@ from products.notebooks.backend.sql_v2 import (
     SQLV2KernelNotRunning,
     SQLV2PageError,
     fetch_sql_v2_page,
+    interrupt_sql_v2_run,
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
@@ -1030,10 +1031,13 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if run is None:
             raise Http404()
 
+        # Interrupted runs keep their envelope too: the walkthrough (Journey 9) promises the
+        # captured stdout/stderr arrive with the final envelope even when the user stopped it.
+        has_result = run.status in (NotebookNodeRun.Status.DONE, NotebookNodeRun.Status.INTERRUPTED)
         return Response(
             {
                 "status": run.status,
-                "result": run.envelope if run.status == NotebookNodeRun.Status.DONE else None,
+                "result": run.envelope if has_result else None,
                 "error": run.error or None,
             }
         )
@@ -1122,6 +1126,71 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             cache.delete(lock_key)
 
         return Response(page)
+
+    @extend_schema(exclude=True)
+    @action(
+        methods=["POST"],
+        url_path="sql_v2/runs/(?P<run_id>[^/.]+)/interrupt",
+        detail=True,
+        required_scopes=["notebook:write"],
+    )
+    def sql_v2_run_interrupt(self, request: Request, run_id: str | None = None, **kwargs):
+        # A control call, not a data read: it stops a run, so it needs notebook write access
+        # but neither query scope nor the RBAC query gate (no analytics rows flow either way).
+        # The terminal state still arrives through the normal callback -> run row -> poll.
+        user = self._current_user()
+        if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:
+            raise Http404()
+
+        notebook = self._get_notebook_for_kernel()
+        try:
+            run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
+        except DjangoValidationError:  # malformed run_id (not a UUID)
+            raise Http404()
+        if run is None:
+            raise Http404()
+        if run.status != NotebookNodeRun.Status.RUNNING:
+            # Already terminal: idempotent noop; the client just reads the outcome.
+            return Response({"status": run.status})
+
+        try:
+            known = interrupt_sql_v2_run(notebook, user if isinstance(user, User) else None, run)
+        except SQLV2KernelNotRunning:
+            # Kernels are currently per user, so in a shared notebook the run may be
+            # executing on a collaborator's kernel this user cannot reach. Don't mark a
+            # possibly-live run terminal in that case.
+            other_kernel_running = (
+                KernelRuntime.objects.filter(
+                    team_id=notebook.team_id,
+                    notebook_short_id=notebook.short_id,
+                    status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+                )
+                .exclude(user=user if isinstance(user, User) else None)
+                .exists()
+            )
+            if other_kernel_running:
+                return Response(
+                    {
+                        "detail": "This run is executing on another collaborator's kernel and can't be stopped from here."
+                    },
+                    status=409,
+                )
+            # No reachable kernel anywhere: the callback can never arrive, so this is the
+            # user's escape hatch out of a stuck RUNNING row. A late callback (e.g. the
+            # sandbox comes back) simply overwrites with the real outcome.
+            run.status = NotebookNodeRun.Status.INTERRUPTED
+            run.error = "Kernel is not reachable, so the run was stopped."
+            run.save(update_fields=["status", "error", "updated_at"])
+            return Response({"status": run.status})
+
+        if not known:
+            # Dispatch still in flight (Temporal) or the run just finished: nothing was
+            # stopped; the client keeps polling and the user can retry.
+            return Response(
+                {"status": run.status, "detail": "The run has not reached the kernel yet. Try again in a moment."},
+                status=202,
+            )
+        return Response({"status": run.status}, status=202)
 
     @extend_schema(request=NotebookCollabSaveSerializer)
     @action(methods=["POST"], url_path="collab/save", detail=True, required_scopes=["notebook:write"])

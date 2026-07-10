@@ -95,7 +95,7 @@ class NotebookSQLV2MediaSerializer(serializers.Serializer):
 
 
 class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
-    status = serializers.CharField(help_text="Run outcome: 'ok' or 'error'.")
+    status = serializers.CharField(help_text="Run outcome: 'ok', 'error', or 'interrupted' (user-requested stop).")
     stdout = serializers.CharField(
         required=False,
         default="",

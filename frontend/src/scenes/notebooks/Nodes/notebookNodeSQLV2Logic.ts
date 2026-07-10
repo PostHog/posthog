@@ -96,6 +96,8 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         startPolling: (runId: string) => ({ runId }),
         pollResult: (runId: string) => ({ runId }),
         stopPolling: true,
+        interruptRun: true,
+        setIsInterrupting: (isInterrupting: boolean) => ({ isInterrupting }),
         setIsRunning: (isRunning: boolean) => ({ isRunning }),
         setRunError: (runError: string | null) => ({ runError }),
         setPage: (page: number) => ({ page }),
@@ -120,6 +122,17 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 runQuery: () => null,
                 startPolling: () => null,
                 setRunError: (_, { runError }) => runError,
+            },
+        ],
+        // The interrupt POST (or the wait for its effect) is in flight; guards the Cancel
+        // button against double submission; any terminal poll state resets it.
+        isInterrupting: [
+            false,
+            {
+                interruptRun: () => true,
+                setIsInterrupting: (_, { isInterrupting }) => isInterrupting,
+                stopPolling: () => false,
+                runQuery: () => false,
             },
         ],
         page: [
@@ -280,22 +293,28 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     if (runId !== cache.activeRunId) {
                         return
                     }
+                    const envelopeResult: NotebookNodeSQLV2Result | null = result
+                        ? {
+                              columns: result.columns ?? [],
+                              types: result.types ?? [],
+                              row_count: result.row_count ?? 0,
+                              first_page: result.first_page ?? [],
+                              has_more: result.has_more ?? false,
+                              stdout: result.stdout ?? '',
+                              stderr: result.stderr ?? '',
+                              media: result.media ?? [],
+                          }
+                        : null
                     if (status === 'done') {
-                        props.updateAttributes({
-                            result: result
-                                ? {
-                                      columns: result.columns ?? [],
-                                      types: result.types ?? [],
-                                      row_count: result.row_count ?? 0,
-                                      first_page: result.first_page ?? [],
-                                      has_more: result.has_more ?? false,
-                                      stdout: result.stdout ?? '',
-                                      stderr: result.stderr ?? '',
-                                      media: result.media ?? [],
-                                  }
-                                : null,
-                        })
+                        props.updateAttributes({ result: envelopeResult })
                         // A fresh envelope replaces whatever page the user had drilled into.
+                        actions.resetPaging()
+                        actions.stopPolling()
+                    } else if (status === 'interrupted') {
+                        // A user-requested stop: the envelope still carries whatever stdout,
+                        // stderr, and figures the cell produced before the interrupt landed.
+                        props.updateAttributes({ result: envelopeResult })
+                        actions.setRunError(error ?? 'Run interrupted.')
                         actions.resetPaging()
                         actions.stopPolling()
                     } else if (status === 'failed') {
@@ -311,6 +330,26 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     actions.stopPolling()
                 } finally {
                     cache.pollInFlight = false
+                }
+            },
+            interruptRun: async () => {
+                const runId = cache.activeRunId ?? props.runId
+                if (!runId || !values.isRunning) {
+                    actions.setIsInterrupting(false)
+                    return
+                }
+                try {
+                    const response = await api.notebooks.sqlV2RunInterrupt(props.notebookShortId, runId)
+                    if (response.detail) {
+                        // Nothing was stopped (e.g. the run hasn't reached the kernel yet), so
+                        // let the user retry instead of wedging the button in loading.
+                        lemonToast.info(response.detail)
+                        actions.setIsInterrupting(false)
+                    }
+                    // Otherwise stay interrupting until the poll observes the terminal state.
+                } catch (error: any) {
+                    actions.setIsInterrupting(false)
+                    lemonToast.error(error?.detail || error?.message || 'Failed to stop the run')
                 }
             },
             stopPolling: () => {
