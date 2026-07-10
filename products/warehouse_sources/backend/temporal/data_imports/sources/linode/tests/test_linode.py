@@ -125,12 +125,12 @@ class TestFetchPageRetries:
         response.status_code = 404
         response.ok = False
         response.text = "secret account details"
+        response.raise_for_status.side_effect = requests.RequestException("404")
         session = MagicMock()
         session.get.return_value = response
         logger = MagicMock()
 
-        with pytest.raises(requests.HTTPError):
-            response.raise_for_status.side_effect = requests.HTTPError("404")
+        with pytest.raises(requests.RequestException):
             linode._fetch_page(session, "https://api.linode.com/v4/volumes", {}, logger)
 
         logged = " ".join(str(call) for call in logger.error.call_args_list)
