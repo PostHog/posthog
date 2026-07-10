@@ -93,6 +93,11 @@ class GlobalAnalyzer(ast.NodeVisitor):
         self.builtins = builtins
         self.used: set[str] = set()
         self.scopes: list[Scope] = [Scope(kind="module", locals=module_locals)]
+        # Module names bound so far in execution order. At module (exec) scope a name is a
+        # local *from the point it is bound onwards* — reading it before that reads the injected
+        # namespace, so a read-before-bind name (df.columns = ...; df = df.assign(...)) is a
+        # genuine external input, unlike function scope where any assignment makes the name local.
+        self.module_assigned: set[str] = set()
 
     def is_global_name(self, name: str) -> bool:
         current_scope = self.scopes[-1]
@@ -107,8 +112,74 @@ class GlobalAnalyzer(ast.NodeVisitor):
 
     def visit_Name(self, node: ast.Name) -> None:
         if isinstance(node.ctx, ast.Load):
-            if self.is_global_name(node.id) and node.id not in self.builtins and node.id not in self.module_locals:
+            # A module-scope name already bound before this read is a local, not an input.
+            if self.is_global_name(node.id) and node.id not in self.builtins and node.id not in self.module_assigned:
                 self.used.add(node.id)
+
+    def visit_Module(self, node: ast.Module) -> None:
+        for statement in node.body:
+            self._visit_module_statement(statement)
+
+    def _visit_module_statement(self, statement: ast.stmt) -> None:
+        # Walk top-level statements in execution order, visiting reads before recording the
+        # bindings they introduce, so a name read before it is bound counts as an input.
+        if isinstance(statement, ast.Assign):
+            self.visit(statement.value)
+            for target in statement.targets:
+                self.visit(target)  # attribute/subscript targets still *read* their base object
+            self._record_bindings(statement.targets)
+        elif isinstance(statement, ast.AnnAssign):
+            if statement.value is not None:
+                self.visit(statement.value)
+            self.visit(statement.annotation)
+            self.visit(statement.target)
+            if statement.value is not None:
+                self._record_bindings([statement.target])
+        elif isinstance(statement, ast.AugAssign):
+            self.visit(statement.value)
+            self.visit(statement.target)
+            self._record_bindings([statement.target])
+        elif isinstance(statement, ast.Import):
+            self.module_assigned.update(alias.asname or alias.name.split(".")[0] for alias in statement.names)
+        elif isinstance(statement, ast.ImportFrom):
+            self.module_assigned.update(alias.asname or alias.name for alias in statement.names)
+        elif isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            self.visit(statement)
+            self.module_assigned.add(statement.name)
+        elif isinstance(statement, ast.For | ast.AsyncFor):
+            self.visit(statement.iter)
+            self._record_bindings([statement.target])  # loop var is bound before the body runs
+            for child in [*statement.body, *statement.orelse]:
+                self._visit_module_statement(child)
+        elif isinstance(statement, ast.With | ast.AsyncWith):
+            for item in statement.items:
+                self.visit(item.context_expr)
+                if item.optional_vars is not None:
+                    self._record_bindings([item.optional_vars])
+            for child in statement.body:
+                self._visit_module_statement(child)
+        elif isinstance(statement, ast.If | ast.While):
+            self.visit(statement.test)
+            for child in [*statement.body, *statement.orelse]:
+                self._visit_module_statement(child)
+        elif isinstance(statement, ast.Try):
+            for child in statement.body:
+                self._visit_module_statement(child)
+            for handler in statement.handlers:
+                if handler.type is not None:
+                    self.visit(handler.type)
+                if handler.name is not None:
+                    self.module_assigned.add(handler.name)
+                for child in handler.body:
+                    self._visit_module_statement(child)
+            for child in [*statement.orelse, *statement.finalbody]:
+                self._visit_module_statement(child)
+        else:
+            self.visit(statement)
+
+    def _record_bindings(self, targets: list[ast.expr]) -> None:
+        for target in targets:
+            self.module_assigned.update(extract_target_names(target))
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._visit_function_like(node, "function")
