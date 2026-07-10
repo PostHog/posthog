@@ -166,7 +166,7 @@ jobs:
                       echo "::notice::Optional Backend CI: PR sampled OUT (bucket $bucket >= ${PERCENT}%) — skipped."
                   fi
     # Job to decide if we should run backend ci
-    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    # See .github/actions/paths-filter/README.md for filter semantics
     changes:
         # Root of the `needs` graph: skipped when `sample` says skip (or is itself skipped
         # at percent 0/unset), which cascades the whole workflow off.

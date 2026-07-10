@@ -2354,12 +2354,27 @@ export namespace Schemas {
       customEventName: string;
     }
 
+    export type DaysOfWeekEnum = typeof DaysOfWeekEnum[keyof typeof DaysOfWeekEnum];
+
+
+    export const DaysOfWeekEnum = {
+      Number1: 1,
+      Number2: 2,
+      Number3: 3,
+      Number4: 4,
+      Number5: 5,
+      Number6: 6,
+      Number7: 7,
+    } as const;
+
     export interface DateRange {
       /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
        * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
       date_from?: string | null;
       /** End of the date range. Same format as date_from. Omit or null for "now". */
       date_to?: string | null;
+      /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
+      daysOfWeek?: DaysOfWeekEnum[] | null;
       /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
       explicitDate?: boolean | null;
     }
@@ -11900,6 +11915,16 @@ export namespace Schemas {
       BigQuery: 'BigQuery',
     } as const;
 
+    /**
+     * * `email` - email
+     */
+    export type DedupeKeyEnum = typeof DedupeKeyEnum[keyof typeof DedupeKeyEnum];
+
+
+    export const DedupeKeyEnum = {
+      Email: 'email',
+    } as const;
+
     export interface BlastRadius {
       /** Number of users matching the filters */
       affected: number;
@@ -11907,6 +11932,10 @@ export namespace Schemas {
       total: number;
       /** Maximum allowed audience size for batch triggers for this team. */
       limit: number;
+      /** The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.
+       *
+       * * `email` - email */
+      dedupe_key: DedupeKeyEnum | null;
     }
 
     /**
@@ -11922,6 +11951,10 @@ export namespace Schemas {
          * @nullable
          */
       group_type_index?: number | null;
+      /** When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.
+       *
+       * * `email` - email */
+      dedupe_key?: DedupeKeyEnum | null;
     }
 
     export interface BooleanScoreDefinitionConfig {

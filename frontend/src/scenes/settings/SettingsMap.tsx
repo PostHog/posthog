@@ -1275,7 +1275,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-workflows',
         title: 'Workflows',
         group: 'Products',
-        flag: 'WORKFLOWS_ENGAGEMENT_EVENTS',
         settings: [
             {
                 id: 'workflows-engagement-events',

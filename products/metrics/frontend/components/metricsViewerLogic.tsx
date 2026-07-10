@@ -19,7 +19,11 @@ import { MetricsQuery, MetricsQueryClause, MetricsQueryFilter, NodeKind } from '
 import { QueryBasedInsightModel } from '~/types'
 import { PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
-import { metricsCharacterizeCreate, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
+import {
+    metricsAttributesRetrieve,
+    metricsCharacterizeCreate,
+    metricsQueryCreate,
+} from 'products/metrics/frontend/generated/api'
 import { OtelMetricTypeEnumApi } from 'products/metrics/frontend/generated/api.schemas'
 import type {
     _MetricAnomalyReportApi,
@@ -155,6 +159,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setStatSummary: (statSummary: MetricSummary) => ({ statSummary }),
         setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
         setGroupByKeys: (groupByKeys: string[]) => ({ groupByKeys }),
+        setGroupBySearch: (groupBySearch: string) => ({ groupBySearch }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         // AbortController plumbing mirrors logsViewerDataLogic: a `cancelInProgress`
         // action aborts the previous controller before storing the new one.
@@ -178,6 +183,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
         // Attribute keys to split the metric into one series each (e.g. ['service.name', 'env']).
         groupByKeys: [[] as string[], { setGroupByKeys: (_, { groupByKeys }) => groupByKeys }],
+        // Free-text search backing the group-by attribute-key autocomplete.
+        groupBySearch: ['' as string, { setGroupBySearch: (_, { groupBySearch }) => groupBySearch }],
         // The filter bar's UniversalFilters group; converted into backend matchers by `queryFilters`.
         filterGroup: [DEFAULT_UNIVERSAL_GROUP_FILTER, { setFilterGroup: (_, { filterGroup }) => filterGroup }],
         queryAbortController: [
@@ -210,6 +217,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         saveAsInsightFailure: ({ error }) => {
             lemonToast.error(`Failed to save insight: ${error}`)
         },
+        setGroupBySearch: () => {
+            actions.loadAttributeKeyOptions({})
+        },
         cancelInProgressQuery: ({ controller }) => {
             if (values.queryAbortController !== null) {
                 // An AbortError-named DOMException (not a bare string) is what api.ts and the global
@@ -237,6 +247,26 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         },
     })),
     loaders(({ values, actions }) => ({
+        // Backs the group-by attribute-key autocomplete. Scoped to the viewer's window so
+        // suggestions match the data on screen; debounced to match the chart fetch cadence.
+        attributeKeyOptions: [
+            [] as { key: string; label: string }[],
+            {
+                loadAttributeKeyOptions: async (_, breakpoint) => {
+                    await breakpoint(300)
+                    const dateFrom = resolveDate(values.dateFrom) ?? undefined
+                    const dateTo = resolveDate(values.dateTo) ?? undefined
+                    const response = await metricsAttributesRetrieve(String(values.currentTeamId), {
+                        search: values.groupBySearch,
+                        ...(dateFrom ? { dateFrom } : {}),
+                        ...(dateTo ? { dateTo } : {}),
+                        limit: 100,
+                    })
+                    breakpoint()
+                    return response.results.map((result) => ({ key: result.name, label: result.name }))
+                },
+            },
+        ],
         queryResults: [
             [] as MetricsViewerSeries[],
             {
