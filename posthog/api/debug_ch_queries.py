@@ -912,6 +912,137 @@ class DebugCHQueries(viewsets.ViewSet):
             }
         )
 
+    @action(detail=False, methods=["GET"], url_path="precompute_timeseries", required_scopes=["query_performance:read"])
+    def precompute_timeseries(self, request):
+        """Bucketed history of the precompute overview's headline numbers, for the trend charts.
+
+        Returns arrays aligned to `buckets` (zero-filled, so charts get a continuous axis):
+        read counts by path outcome, failed-build counts by exit code, and bytes wasted on
+        failed builds. Hourly buckets up to 48h, daily beyond; window capped at 21 days
+        (query_log_archive retention).
+        """
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only staff users can view the precompute timeseries.")
+
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
+
+        try:
+            hours = int(request.query_params.get("hours", 168))
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError("hours must be an integer.")
+        hours = max(1, min(hours, 504))  # clamp to 1h–21d
+
+        bucket_fn = "toStartOfHour" if hours <= 48 else "toStartOfDay"
+        bucket_delta = timedelta(hours=1) if hours <= 48 else timedelta(days=1)
+        interval = "hour" if hours <= 48 else "day"
+
+        params: dict = {
+            "hours": hours,
+            "not_query": "%request:_api_debug_ch_queries_%",
+        }
+
+        # nosemgrep: clickhouse-fstring-param-audit - bucket_fn is one of two hardcoded function names
+        reads_sql = f"""
+            SELECT
+                {bucket_fn}(event_time) AS bucket,
+                count() AS reads,
+                countIf(exposures_path = 'precomputed') AS precomputed_reads,
+                countIf(exposures_path != 'precomputed' AND skip_reason = '') AS fallback_reads
+            FROM (
+                SELECT
+                    event_time,
+                    coalesce(
+                        nullIf(toString(log_comment.experiment_exposures_path), ''),
+                        ifNull(toString(log_comment.experiment_execution_path), '')
+                    ) AS exposures_path,
+                    ifNull(toString(log_comment.experiment_precompute_skip_reason), '') AS skip_reason
+                FROM query_log_archive
+                WHERE
+                    event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
+                    AND event_time > now() - INTERVAL %(hours)s HOUR
+                    AND lc_product = 'experiments'
+                    AND toString(log_comment.experiment_query_surface) = 'metric'
+                    AND is_initial_query
+                    AND toInt8(type) > 1
+                    AND query NOT LIKE %(not_query)s
+            )
+            GROUP BY bucket
+            SETTINGS skip_unavailable_shards=1
+            """
+        # nosemgrep: clickhouse-fstring-param-audit - bucket_fn is one of two hardcoded function names
+        builds_sql = f"""
+            SELECT
+                {bucket_fn}(event_time) AS bucket,
+                exception_code,
+                count() AS builds,
+                sum(read_bytes) AS read_bytes
+            FROM query_log_archive
+            WHERE
+                event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
+                AND event_time > now() - INTERVAL %(hours)s HOUR
+                AND lc_product = 'experiments'
+                AND toString(log_comment.experiment_query_surface) = 'precompute_build'
+                AND is_initial_query
+                AND toInt8(type) > 1
+                AND query NOT LIKE %(not_query)s
+            GROUP BY bucket, exception_code
+            SETTINGS skip_unavailable_shards=1
+            """
+        reads_response = sync_execute(reads_sql, params)
+        builds_response = sync_execute(builds_sql, params)
+
+        # Zero-filled bucket axis from window start to now (UTC, matching toStartOfHour/Day above).
+        window_start = datetime.now(UTC) - timedelta(hours=hours)
+        if interval == "hour":
+            first_bucket = window_start.replace(minute=0, second=0, microsecond=0)
+        else:
+            first_bucket = window_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        buckets: list[datetime] = []
+        cursor = first_bucket
+        end = datetime.now(UTC)
+        while cursor <= end:
+            buckets.append(cursor)
+            cursor += bucket_delta
+        index_by_bucket = {b.replace(tzinfo=None): i for i, b in enumerate(buckets)}
+        n = len(buckets)
+
+        reads = [0] * n
+        precomputed_reads = [0] * n
+        fallback_reads = [0] * n
+        failed_build_read_bytes = [0] * n
+        failed_builds_by_code: dict[str, list[int]] = {}
+        for bucket, bucket_reads, bucket_precomputed, bucket_fallback in reads_response:
+            i = index_by_bucket.get(bucket)
+            if i is None:
+                continue
+            reads[i] = bucket_reads
+            precomputed_reads[i] = bucket_precomputed
+            fallback_reads[i] = bucket_fallback
+        for bucket, exception_code, bucket_builds, bucket_read_bytes in builds_response:
+            i = index_by_bucket.get(bucket)
+            if i is None or exception_code == 0:
+                continue
+            failed_build_read_bytes[i] += bucket_read_bytes
+            code_series = failed_builds_by_code.setdefault(str(exception_code), [0] * n)
+            code_series[i] += bucket_builds
+
+        return Response(
+            {
+                "hours": hours,
+                "interval": interval,
+                "buckets": [b.strftime("%Y-%m-%dT%H:%M:%SZ") for b in buckets],
+                "reads": {
+                    "total": reads,
+                    "precomputed": precomputed_reads,
+                    "fallback": fallback_reads,
+                },
+                "builds": {
+                    "failed_by_code": failed_builds_by_code,
+                    "failed_read_bytes": failed_build_read_bytes,
+                },
+            }
+        )
+
     @action(detail=False, methods=["GET"], url_path="cache_health", required_scopes=["query_performance:read"])
     def cache_health(self, request):
         if not request.user.is_staff:
