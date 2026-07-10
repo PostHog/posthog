@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { DashboardFilter, TileFilters } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, QueryBasedInsightModel } from '~/types'
+import { DashboardFilter, DashboardFilterConflict, TileFilters } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, QueryBasedInsightModel } from '~/types'
 
 import __dataTableEvents from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import __dataTableHogQL from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
@@ -24,6 +24,7 @@ interface StoryArgs {
     insight: QueryBasedInsightModel
     filtersOverride?: DashboardFilter
     tileFiltersOverride?: TileFilters | null
+    dashboardFilterConflicts?: DashboardFilterConflict[]
 }
 
 type Story = StoryObj<StoryArgs>
@@ -33,7 +34,7 @@ const meta: Meta<StoryArgs> = {
     parameters: {
         mockDate: '2025-12-10',
     },
-    render: ({ insight, filtersOverride, tileFiltersOverride }) => {
+    render: ({ insight, filtersOverride, tileFiltersOverride, dashboardFilterConflicts }) => {
         return (
             <div className="bg-surface-primary w-[24rem] p-4 rounded">
                 <InsightDetailsComponent
@@ -41,6 +42,7 @@ const meta: Meta<StoryArgs> = {
                     footerInfo={insight}
                     filtersOverride={filtersOverride}
                     tileFiltersOverride={tileFiltersOverride}
+                    dashboardFilterConflicts={dashboardFilterConflicts}
                 />
             </div>
         )
@@ -164,5 +166,43 @@ export const TileFilterOverrides: Story = {
                 },
             ],
         },
+    },
+}
+
+const DASHBOARD_BROWSER_FILTER: AnyPropertyFilter = {
+    type: PropertyFilterType.Event,
+    key: '$browser',
+    operator: PropertyOperator.IsNot,
+    value: ['Chrome'],
+}
+
+export const DashboardFilterConflicts: Story = {
+    args: {
+        // The backend already merged the dashboard filter in and dropped the insight's contradicted one,
+        // so the query carries only the dashboard filter plus the recorded conflict pair.
+        insight: {
+            ...(__trendsLine as any),
+            query: {
+                ...(__trendsLine as any).query,
+                source: {
+                    ...(__trendsLine as any).query.source,
+                    properties: [DASHBOARD_BROWSER_FILTER],
+                },
+            },
+        },
+        filtersOverride: {
+            properties: [DASHBOARD_BROWSER_FILTER],
+        },
+        dashboardFilterConflicts: [
+            {
+                insight_filter: {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    operator: PropertyOperator.Exact,
+                    value: ['Chrome'],
+                },
+                dashboard_filter: DASHBOARD_BROWSER_FILTER,
+            },
+        ],
     },
 }
