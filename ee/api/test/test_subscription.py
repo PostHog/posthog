@@ -1563,6 +1563,26 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert res.status_code == status.HTTP_200_OK
         assert res.json()["results"] == []
 
+    def test_dashboard_tiles_filter_requires_dashboard_view_access(self):
+        # Without a view-access check a member could pass any dashboard ID and enumerate its tiles'
+        # subscriptions. Denying object access must 403, not leak the tile set.
+        self._create_subscription(title="On tile", insight=self._insight().id)
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object", return_value=False
+        ):
+            res = self.client.get(
+                f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": self.dashboard.id}
+            )
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.content
+
+    def test_dashboard_tiles_filter_rejects_other_teams_dashboard(self):
+        # A dashboard from another team must 404-style reject (team scoping), never resolve its tiles.
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="Theirs")
+        res = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": other_dashboard.id})
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert res.json().get("attr") == "dashboard_tiles"
+
     @parameterized.expand(
         [
             ("invalid_created_by", "created_by", "not-a-uuid", "created_by"),

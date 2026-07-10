@@ -43,6 +43,7 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import str_to_bool
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
     Subscription,
@@ -1108,8 +1109,16 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 # loaded into memory. The default DashboardTile manager skips deleted tiles/dashboards; we
                 # also drop soft-deleted insights and scope to the team, matching the tile set the sibling
                 # dashboard-export validation resolves.
+                dashboard_id = _parse_int_param(request_params["dashboard_tiles"], "dashboard_tiles")
+                # Require view access to the dashboard itself: without it a project member could pass any
+                # dashboard ID and enumerate which subscribed insights are tiles on a dashboard they can't see.
+                dashboard = Dashboard.objects.filter(id=dashboard_id, team_id=self.team_id).first()
+                if dashboard is None:
+                    raise ValidationError({"dashboard_tiles": ["Dashboard not found."]})
+                if not self.user_access_control.check_access_level_for_object(dashboard, "viewer"):
+                    raise exceptions.PermissionDenied("You do not have access to this dashboard.")
                 tile_insight_ids = DashboardTile.objects.filter(
-                    dashboard_id=_parse_int_param(request_params["dashboard_tiles"], "dashboard_tiles"),
+                    dashboard_id=dashboard_id,
                     dashboard__team_id=self.team_id,
                     insight_id__isnull=False,
                     insight__deleted=False,
