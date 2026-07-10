@@ -3258,6 +3258,15 @@ class ExperimentService:
         source_group_type_index = source_experiment.feature_flag.aggregation_group_type_index
         if source_group_type_index is not None:
             clone_filters["aggregation_group_type_index"] = source_group_type_index
+        # Inherit only the overall rollout percentage; without this the create path falls back to
+        # DEFAULT_ROLLOUT_PERCENTAGE and a 20%-rolled-out experiment would clone to 100%.
+        # Release-condition targeting (group properties, extra groups) intentionally does not clone:
+        # the experiment input surface restricts groups to a single empty-properties entry and
+        # _ensure_feature_flag only reads groups[0].rollout_percentage, so passing more through would
+        # not survive flag creation anyway. Edit the flag directly to copy targeting.
+        source_groups = source_experiment.feature_flag.get_filters().get("groups")
+        if source_groups and source_groups[0].get("rollout_percentage") is not None:
+            clone_filters["groups"] = [{"properties": [], "rollout_percentage": source_groups[0]["rollout_percentage"]}]
         feature_flag_config = {
             "filters": clone_filters,
             # bool() so a NULL continuity clones as off — the create path treats None as "unset" and
