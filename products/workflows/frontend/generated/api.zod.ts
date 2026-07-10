@@ -2372,4 +2372,10 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
 export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
     filters: zod.record(zod.string(), zod.unknown()).describe('Property filters to apply'),
     group_type_index: zod.number().nullish().describe('Group type index for group-based targeting'),
+    dedupe_key: zod
+        .union([zod.enum(['email']).describe('\* `email` - email'), zod.null()])
+        .optional()
+        .describe(
+            "When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.\n\n\* `email` - email"
+        ),
 })

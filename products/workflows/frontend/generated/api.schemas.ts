@@ -887,6 +887,15 @@ export interface WorkflowStatsRowApi {
  */
 export type BlastRadiusRequestApiFilters = { [key: string]: unknown }
 
+/**
+ * * `email` - email
+ */
+export type DedupeKeyEnumApi = (typeof DedupeKeyEnumApi)[keyof typeof DedupeKeyEnumApi]
+
+export const DedupeKeyEnumApi = {
+    Email: 'email',
+} as const
+
 export interface BlastRadiusRequestApi {
     /** Property filters to apply */
     filters: BlastRadiusRequestApiFilters
@@ -895,6 +904,10 @@ export interface BlastRadiusRequestApi {
      * @nullable
      */
     group_type_index?: number | null
+    /** When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.
+     *
+     * * `email` - email */
+    dedupe_key?: DedupeKeyEnumApi | null
 }
 
 export interface BlastRadiusApi {
@@ -904,6 +917,10 @@ export interface BlastRadiusApi {
     total: number
     /** Maximum allowed audience size for batch triggers for this team. */
     limit: number
+    /** The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.
+     *
+     * * `email` - email */
+    dedupe_key: DedupeKeyEnumApi | null
 }
 
 export type HogFlowTemplatesListParams = {

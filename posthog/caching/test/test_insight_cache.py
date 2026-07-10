@@ -9,7 +9,7 @@ from django.utils.timezone import now
 
 import orjson as json
 
-from posthog.caching.insight_cache import update_cache
+from posthog.caching.insight_cache import update_cache, update_cached_state
 from posthog.caching.insight_caching_state import upsert
 from posthog.caching.test.test_insight_caching_state import create_insight, filter_dict
 from posthog.models import Team, User
@@ -122,3 +122,23 @@ def test_update_cache_when_recently_refreshed(team: Team, user: User):
     updated_caching_state = InsightCachingState.objects.get(team=team)
 
     assert updated_caching_state.last_refresh == caching_state.last_refresh
+
+
+@pytest.mark.django_db
+@freeze_time("2020-01-04T13:01:01Z")
+def test_update_cached_state_skips_redundant_write(team: Team, user: User):
+    # A warm dashboard read calls update_cached_state once per tile, each reporting the
+    # already-stored last_refresh. A row already at the target values must not be re-written,
+    # otherwise every tile issues a redundant per-request UPDATE.
+    caching_state = create_insight_caching_state(team, user, last_refresh=timedelta(days=14), refresh_attempt=3)
+    fresh = now()
+
+    # A genuine change writes the row and resets refresh_attempt.
+    assert update_cached_state(team.pk, caching_state.cache_key, fresh, result=None) == 1
+
+    # Repeating with the same timestamp is a no-op - the redundant write is skipped.
+    assert update_cached_state(team.pk, caching_state.cache_key, fresh, result=None) == 0
+
+    updated_caching_state = InsightCachingState.objects.get(pk=caching_state.pk)
+    assert updated_caching_state.last_refresh == fresh
+    assert updated_caching_state.refresh_attempt == 0

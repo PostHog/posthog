@@ -248,7 +248,6 @@ export const FEATURE_FLAGS = {
     AI_GATEWAY: 'ai-gateway', // owner: #team-ai-gateway, gates the AI gateway UI and llm_gateway:read on project secret API keys
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
     ALERTS_15_MINUTE_INTERVAL: 'alerts-15-minute-interval', // owner: #team-analytics-platform, gates 15-minute insight alert interval
-    ALERTS_ANOMALY_DETECTION: 'alerts-anomaly-detection', // owner: @andrewm4894
     ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
     ALERTS_INVESTIGATION_AGENT: 'alerts-investigation-agent', // owner: @andrewm4894, anomaly alerts — investigation agent on firing
     ALERTS_REAL_TIME_INTERVAL: 'alerts-real-time-interval', // owner: #team-analytics-platform, gates real-time (2-minute) insight alert interval
@@ -485,6 +484,7 @@ export const FEATURE_FLAGS = {
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-analytics-platform
     SUBSCRIPTION_AI_PROMPT: 'ai-subscriptions', // owner: #team-analytics-platform, gates AI prompt-based subscriptions
     SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE: 'subscription-ai-summary-prompt-guide', // owner: #team-analytics-platform, gates the per-subscription prompt guide textarea
+    SUBSCRIPTION_TABBED_OVERVIEW: 'subscription-tabbed-overview', // owner: #team-analytics-platform, gates the tabbed subscriptions overview modal
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
     SURVEYS_FORM_BUILDER: 'surveys-form-builder', // owner: @adboio #team-surveys
@@ -532,13 +532,8 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_TILE_SKELETONS: 'web-analytics-tile-skeletons', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_TILE_TOGGLES: 'web-analytics-tile-toggles', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS: 'web-analytics-tooltip-comparison-labels', // owner: @lricoy #team-web-analytics
-    WORKFLOWS_BATCH_TRIGGERS: 'workflows-batch-triggers', // owner: #team-workflows
-    WORKFLOWS_ENGAGEMENT_EVENTS: 'workflows-engagement-events', // owner: #team-workflows
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
-    WORKFLOWS_PERSON_TIMEZONE: 'workflows-person-timezone', // owner: #team-workflows
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: @Odin #team-workflows
-    WORKFLOWS_RECURRING_SCHEDULES: 'workflows-recurring-schedules', // owner: #team-workflows
-    WORKFLOWS_WAIT_UNTIL_EVENT: 'workflows-wait-until-event', // owner: #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS

@@ -80,6 +80,7 @@ export const mcpServerInstallationsInstallCustomCreateBodyClientIdDefault = ``
 export const mcpServerInstallationsInstallCustomCreateBodyClientSecretDefault = ``
 export const mcpServerInstallationsInstallCustomCreateBodyInstallSourceDefault = `posthog`
 export const mcpServerInstallationsInstallCustomCreateBodyPosthogCodeCallbackUrlDefault = ``
+export const mcpServerInstallationsInstallCustomCreateBodyScopeDefault = `personal`
 
 export const McpServerInstallationsInstallCustomCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(mcpServerInstallationsInstallCustomCreateBodyNameMax),
@@ -96,11 +97,19 @@ export const McpServerInstallationsInstallCustomCreateBody = /* @__PURE__ */ zod
     posthog_code_callback_url: zod
         .string()
         .default(mcpServerInstallationsInstallCustomCreateBodyPosthogCodeCallbackUrlDefault),
+    scope: zod
+        .enum(['personal', 'shared'])
+        .describe('\* `personal` - personal\n\* `shared` - shared')
+        .default(mcpServerInstallationsInstallCustomCreateBodyScopeDefault)
+        .describe(
+            "'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).\n\n\* `personal` - personal\n\* `shared` - shared"
+        ),
 })
 
 export const mcpServerInstallationsInstallTemplateCreateBodyApiKeyDefault = ``
 export const mcpServerInstallationsInstallTemplateCreateBodyInstallSourceDefault = `posthog`
 export const mcpServerInstallationsInstallTemplateCreateBodyPosthogCodeCallbackUrlDefault = ``
+export const mcpServerInstallationsInstallTemplateCreateBodyScopeDefault = `personal`
 
 export const McpServerInstallationsInstallTemplateCreateBody = /* @__PURE__ */ zod.object({
     template_id: zod.uuid(),
@@ -112,4 +121,11 @@ export const McpServerInstallationsInstallTemplateCreateBody = /* @__PURE__ */ z
     posthog_code_callback_url: zod
         .string()
         .default(mcpServerInstallationsInstallTemplateCreateBodyPosthogCodeCallbackUrlDefault),
+    scope: zod
+        .enum(['personal', 'shared'])
+        .describe('\* `personal` - personal\n\* `shared` - shared')
+        .default(mcpServerInstallationsInstallTemplateCreateBodyScopeDefault)
+        .describe(
+            "'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).\n\n\* `personal` - personal\n\* `shared` - shared"
+        ),
 })
