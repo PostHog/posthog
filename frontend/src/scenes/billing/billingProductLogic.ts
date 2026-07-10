@@ -161,6 +161,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
         showConfirmDowngradeModal: true,
         hideConfirmDowngradeModal: true,
         confirmProductDowngrade: true,
+        showConfirmPurchaseModal: true,
+        hideConfirmPurchaseModal: true,
+        confirmProductPurchase: true,
     }),
     reducers({
         billingLimitInput: [
@@ -278,6 +281,16 @@ export const billingProductLogic = kea<billingProductLogicType>([
             {
                 showConfirmDowngradeModal: () => true,
                 hideConfirmDowngradeModal: () => false,
+            },
+        ],
+        confirmPurchaseModalOpen: [
+            false as boolean,
+            {
+                showConfirmPurchaseModal: () => true,
+                hideConfirmPurchaseModal: () => false,
+                // Auto-close once the activation call settles (loading cleared), so the modal
+                // doesn't linger if the purchase succeeds or routes to payment entry.
+                setBillingProductLoading: (state, { productKey }) => (productKey ? state : false),
             },
         ],
     }),
@@ -706,6 +719,16 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 to_product_key: props.product.type,
                 to_plan_key: String(upgradePlan.plan_key),
             })
+        },
+        confirmProductPurchase: () => {
+            const upgradePlan = values.currentAndUpgradePlans.upgradePlan
+            if (!upgradePlan) {
+                return
+            }
+            // Fresh flat-rate add-on purchase (nothing to switch from). Fire the same activation
+            // the "Add" button used to trigger directly — now gated behind the confirmation modal
+            // so a card-on-file customer sees what they'll be charged before it happens.
+            actions.initiateProductUpgrade(props.product, upgradePlan, '')
         },
         confirmProductDowngrade: () => {
             const targetPlan = values.currentAndUpgradePlans.upgradePlan

@@ -15,6 +15,7 @@ import { billingLogic } from './billingLogic'
 import { formatFlatRate } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
 import { ConfirmDowngradeModal } from './ConfirmDowngradeModal'
+import { ConfirmPurchaseModal } from './ConfirmPurchaseModal'
 import { ConfirmUpgradeModal } from './ConfirmUpgradeModal'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { TrialCancellationSurveyModal } from './TrialCancellationSurveyModal'
@@ -61,7 +62,9 @@ export const BillingProductAddonActions = ({
 
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade, activateTrial } =
         useActions(billingProductLogic({ product: addon }))
-    const { showConfirmUpgradeModal, showConfirmDowngradeModal } = useActions(billingProductLogic({ product: addon }))
+    const { showConfirmUpgradeModal, showConfirmDowngradeModal, showConfirmPurchaseModal } = useActions(
+        billingProductLogic({ product: addon })
+    )
     const { reportBillingAddonPlanSwitchStarted } = useActions(eventUsageLogic)
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const isTrialEligible = !!addon.trial
@@ -153,6 +156,10 @@ export const BillingProductAddonActions = ({
                             onPurchaseClick?.()
                             if (isTrialEligible) {
                                 activateTrial()
+                            } else if (hasFlatRate) {
+                                // Flat-rate add-ons are charged immediately when a card is on file,
+                                // so confirm the amount with the customer before activating.
+                                showConfirmPurchaseModal()
                             } else {
                                 initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
                             }
@@ -345,6 +352,7 @@ export const BillingProductAddonActions = ({
             {surveyID === TRIAL_CANCELLATION_SURVEY_ID && <TrialCancellationSurveyModal product={addon} />}
             <ConfirmUpgradeModal product={addon} />
             <ConfirmDowngradeModal product={addon} />
+            <ConfirmPurchaseModal product={addon} />
         </div>
     )
 }
