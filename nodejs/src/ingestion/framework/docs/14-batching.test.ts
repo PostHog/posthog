@@ -7,6 +7,12 @@
  * per-batch setup/teardown: prefetching data all the items in a batch will
  * need, or flushing an accumulated write once the batch is done.
  *
+ * A batch is not the same as a chunk. A batch is one `feed()` call's worth of
+ * elements, tracked here by `batchId` and the `beforeBatch`/`afterBatch` hooks.
+ * A chunk is the array a pipeline stage processes at once, and chunk boundaries
+ * need not align with batch boundaries. See chapter 2's "Chunks vs batches"
+ * section for the distinction.
+ *
  * ## Key concepts
  *
  * - **A batch is one `feed()` call.** The batching pipeline does not accumulate
