@@ -220,6 +220,7 @@ export class IngestionConsumer {
             this.deps.groupRepository,
             this.deps.clickhouseGroupRepository,
             {
+                useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
                 maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
                 maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
                 optimisticUpdateRetryInterval: this.config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
@@ -272,6 +273,7 @@ export class IngestionConsumer {
             overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
+            groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
             outputs,
             perDistinctIdOptions: {

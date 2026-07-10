@@ -16,7 +16,7 @@ import {
 } from '~/types'
 
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
-import { GroupRepository } from './group-repository.interface'
+import { GroupPropertiesToSetUpdate, GroupRepository } from './group-repository.interface'
 import { PostgresGroupRepositoryTransaction } from './postgres-group-repository-transaction'
 import { RawPostgresGroupRepository } from './raw-postgres-group-repository.interface'
 
@@ -73,6 +73,8 @@ export class PostgresGroupRepository
             group_type_index: GroupTypeIndex
             group_key: string
             group_properties: Record<string, any>
+            created_at: DateTime
+            version: number
         }[]
     > {
         // All arrays must have the same length since they represent tuples
@@ -90,7 +92,7 @@ export class PostgresGroupRepository
 
         const { rows } = await this.postgres.query(
             tx ?? PostgresUse.PERSONS_READ,
-            `SELECT g.team_id, g.group_type_index, g.group_key, g.group_properties
+            `SELECT g.team_id, g.group_type_index, g.group_key, g.group_properties, g.created_at, g.version
              FROM posthog_group g
              JOIN unnest($1::int[], $2::int[], $3::text[]) AS t(team_id, group_type_index, group_key)
                ON g.team_id = t.team_id
@@ -112,8 +114,59 @@ export class PostgresGroupRepository
                 group_type_index: row.group_type_index as GroupTypeIndex,
                 group_key: row.group_key,
                 group_properties: row.group_properties,
+                created_at: DateTime.fromISO(row.created_at).toUTC(),
+                version: Number(row.version || 0),
             }
         })
+    }
+
+    async updateGroupsBatch(updates: GroupPropertiesToSetUpdate[]): Promise<Group[]> {
+        if (updates.length === 0) {
+            return []
+        }
+
+        const teamIds: number[] = []
+        const groupTypeIndexes: number[] = []
+        const groupKeys: string[] = []
+        const propertiesToSet: string[] = []
+        const createdAts: string[] = []
+
+        for (const update of updates) {
+            teamIds.push(update.teamId)
+            groupTypeIndexes.push(update.groupTypeIndex)
+            groupKeys.push(update.groupKey)
+            propertiesToSet.push(sanitizeJsonbValue(update.propertiesToSet))
+            createdAts.push(update.createdAt.toISO()!)
+        }
+
+        // Merge semantics (jsonb ||) applied server-side: concurrent writers
+        // can only race on the same key, never clobber each other's other
+        // keys, so no version assertion (and no conflict retry) is needed.
+        // UNNEST keeps the statement shape constant for prepared-statement reuse.
+        const { rows } = await this.postgres.query<RawGroup>(
+            PostgresUse.PERSONS_WRITE,
+            `
+            UPDATE posthog_group AS g SET
+                group_properties = COALESCE(g.group_properties, '{}'::jsonb) || batch.new_properties::jsonb,
+                created_at = LEAST(g.created_at, batch.new_created_at::timestamp with time zone),
+                version = COALESCE(g.version, 0)::numeric + 1
+            FROM UNNEST(
+                $1::int[],
+                $2::int[],
+                $3::text[],
+                $4::text[],
+                $5::text[]
+            ) AS batch(batch_team_id, batch_group_type_index, batch_group_key, new_properties, new_created_at)
+            WHERE g.team_id = batch.batch_team_id
+              AND g.group_type_index = batch.batch_group_type_index
+              AND g.group_key = batch.batch_group_key
+            RETURNING g.*
+            `,
+            [teamIds, groupTypeIndexes, groupKeys, propertiesToSet, createdAts],
+            'updateGroupsBatch'
+        )
+
+        return rows.map((row) => this.toGroup(row))
     }
 
     async insertGroup(

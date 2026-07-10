@@ -98,6 +98,7 @@ function createMockPostgres(): jest.Mocked<GroupRepository> {
         fetchGroupTypesByTeamIds: jest.fn(),
         fetchGroupTypesByProjectIds: jest.fn(),
         insertGroup: jest.fn(),
+        updateGroupsBatch: jest.fn(),
         updateGroup: jest.fn(),
         updateGroupOptimistically: jest.fn(),
         insertGroupType: jest.fn(),
@@ -212,6 +213,8 @@ describe('PersonHogGroupRepository', () => {
                     group_type_index: GROUP_TYPE_INDEX,
                     group_key: GROUP_KEY,
                     group_properties: { name: 'Acme Corp' },
+                    created_at: CREATED_AT,
+                    version: 1,
                 },
             ]
 
@@ -353,6 +356,8 @@ describe('PersonHogGroupRepository', () => {
                     group_type_index: GROUP_TYPE_INDEX,
                     group_key: GROUP_KEY,
                     group_properties: { name: 'Acme Corp' },
+                    created_at: CREATED_AT,
+                    version: 1,
                 },
             ]
             handlers.getGroupsBatch.mockReturnValue({
@@ -420,6 +425,8 @@ describe('PersonHogGroupRepository', () => {
                             group_type_index: GROUP_TYPE_INDEX,
                             group_key: GROUP_KEY,
                             group_properties: {},
+                            created_at: CREATED_AT,
+                            version: 1,
                         },
                     ]
                     h.getGroupsBatch.mockImplementation(() => {

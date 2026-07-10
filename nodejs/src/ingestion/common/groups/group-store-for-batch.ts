@@ -1,11 +1,10 @@
 import { DateTime } from 'luxon'
 
-import { FlushResult } from '~/ingestion/common/persons/persons-store'
 import { Properties } from '~/plugin-scaffold'
 import { GroupTypeIndex, ProjectId, TeamId } from '~/types'
 
 import { BatchWritingGroupStore } from './batch-writing-group-store'
-import { CacheMetrics, GroupStore } from './group-store.interface'
+import { CacheMetrics, GroupFlushResult, GroupStore } from './group-store.interface'
 
 export type GroupStoreForBatch = Omit<GroupStore, 'upsertGroup' | 'releaseBatch' | 'getFlushStats'> & {
     upsertGroup(
@@ -15,6 +14,15 @@ export type GroupStoreForBatch = Omit<GroupStore, 'upsertGroup' | 'releaseBatch'
         groupKey: string,
         properties: Properties,
         timestamp: DateTime
+    ): Promise<void>
+    /**
+     * Best-effort cache warmer: fetches all given group keys in one batched
+     * query. Each entry may carry its own batchId for cache eviction tracking,
+     * allowing a single DB fetch to service entries belonging to different
+     * concurrent batches.
+     */
+    prefetchGroups(
+        entries: { teamId: TeamId; groupTypeIndex: GroupTypeIndex; groupKey: string; batchId: number }[]
     ): Promise<void>
     readonly batchId: number
 }
@@ -36,11 +44,17 @@ export class BatchBoundGroupStore implements GroupStoreForBatch {
         return this.store.upsertGroup(teamId, projectId, groupTypeIndex, groupKey, properties, timestamp, this.batchId)
     }
 
+    prefetchGroups(
+        entries: { teamId: TeamId; groupTypeIndex: GroupTypeIndex; groupKey: string; batchId: number }[]
+    ): Promise<void> {
+        return this.store.prefetchGroups(entries)
+    }
+
     getCacheMetrics(): CacheMetrics {
         return this.store.getCacheMetrics()
     }
 
-    flush(): Promise<FlushResult[]> {
+    flush(): Promise<GroupFlushResult[]> {
         return this.store.flush()
     }
 

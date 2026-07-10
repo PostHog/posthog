@@ -9,6 +9,12 @@ export interface GroupUpdate {
     group_type_index: GroupTypeIndex
     group_key: string
     group_properties: Properties
+    /**
+     * Keys set by events since this entry was last synced with the database.
+     * This is the delta that batched flushes merge server-side (jsonb `||`);
+     * `group_properties` remains the full merged view for cache reads.
+     */
+    properties_to_set: Properties
     created_at: DateTime
     version: number
     needsWrite: boolean
@@ -17,6 +23,8 @@ export interface GroupUpdate {
 export interface PropertiesUpdate {
     updated: boolean
     properties: Properties
+    /** The subset of incoming properties that actually changed. */
+    changedProperties: Properties
 }
 
 export function fromGroup(group: Group): GroupUpdate {
@@ -25,6 +33,7 @@ export function fromGroup(group: Group): GroupUpdate {
         group_type_index: group.group_type_index,
         group_key: group.group_key,
         group_properties: group.group_properties,
+        properties_to_set: {},
         created_at: group.created_at,
         version: group.version,
         needsWrite: false,
@@ -35,6 +44,7 @@ export function calculateUpdate(currentProperties: Properties, properties: Prope
     const result: PropertiesUpdate = {
         updated: false,
         properties: { ...currentProperties },
+        changedProperties: {},
     }
 
     // Ideally we'd keep track of event timestamps, for when properties were updated
@@ -53,6 +63,7 @@ export function calculateUpdate(currentProperties: Properties, properties: Prope
         if (!(key in result.properties) || !equal(value, result.properties[key])) {
             result.updated = true
             result.properties[key] = value
+            result.changedProperties[key] = value
         }
     })
     return result

@@ -860,6 +860,56 @@ describe('PostgresGroupRepository Integration', () => {
         })
     })
 
+    describe('updateGroupsBatch', () => {
+        it('merges properties server-side, backdates created_at, bumps version, and omits missing groups', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup({ group_key: 'group-a', group_properties: JSON.stringify({ name: 'A', keep: 1 }) })
+            await insertTestGroup({ group_key: 'group-b', group_properties: JSON.stringify({ name: 'B' }), version: 3 })
+
+            const earlierCreatedAt = createdAt.minus({ days: 1 })
+            const result = await repository.updateGroupsBatch([
+                {
+                    teamId,
+                    groupTypeIndex,
+                    groupKey: 'group-a',
+                    propertiesToSet: { name: 'A2', added: true },
+                    createdAt: earlierCreatedAt,
+                },
+                {
+                    teamId,
+                    groupTypeIndex,
+                    groupKey: 'group-b',
+                    propertiesToSet: { plan: 'scale' },
+                    createdAt: createdAt.plus({ days: 1 }),
+                },
+                {
+                    teamId,
+                    groupTypeIndex,
+                    groupKey: 'does-not-exist',
+                    propertiesToSet: { x: 1 },
+                    createdAt,
+                },
+            ])
+
+            expect(result).toHaveLength(2)
+            const byKey = new Map(result.map((g) => [g.group_key, g]))
+
+            // Set keys win, untouched keys survive, version bumps, created_at backdates.
+            expect(byKey.get('group-a')).toMatchObject({
+                group_properties: { name: 'A2', keep: 1, added: true },
+                created_at: earlierCreatedAt,
+                version: 2,
+            })
+            // A later createdAt never moves created_at forward.
+            expect(byKey.get('group-b')).toMatchObject({
+                group_properties: { name: 'B', plan: 'scale' },
+                created_at: createdAt,
+                version: 4,
+            })
+            expect(byKey.has('does-not-exist')).toBe(false)
+        })
+    })
+
     describe('inTransaction', () => {
         it('should execute operations within a transaction', async () => {
             await insertTestTeam(teamId)

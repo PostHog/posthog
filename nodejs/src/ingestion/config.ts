@@ -148,9 +148,11 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_EVENTS_PARTITION_COUNT: number
 
     // Group batch writing config
+    GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+    GROUPS_PREFETCH_ENABLED: boolean
 
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
@@ -260,9 +262,11 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
 
         // Group batch writing config
+        GROUP_BATCH_WRITING_USE_BATCH_UPDATES: false,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
+        GROUPS_PREFETCH_ENABLED: false,
 
         // Event overflow config
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,

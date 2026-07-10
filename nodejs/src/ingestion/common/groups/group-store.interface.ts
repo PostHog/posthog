@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { GroupClickhouseMessage } from '~/common/groups/repositories/clickhouse-group-repository'
 import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
 import { GroupTypeIndex, ProjectId, TeamId } from '~/types'
@@ -9,7 +10,14 @@ export interface CacheMetrics {
     cacheMisses: number
 }
 
-export interface GroupStore extends BatchWritingStore {
+export type GroupFlushResult = {
+    messages: GroupClickhouseMessage[]
+    teamId: TeamId
+    groupTypeIndex: GroupTypeIndex
+    groupKey: string
+}
+
+export interface GroupStore extends BatchWritingStore<GroupFlushResult> {
     /**
      * Stop any background work (e.g., periodic metric emission) and flush
      * remaining accumulated metrics. Called on graceful shutdown. Does NOT

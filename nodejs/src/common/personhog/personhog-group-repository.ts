@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { GroupRepositoryTransaction } from '~/common/groups/repositories/group-repository-transaction.interface'
-import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+import { GroupPropertiesToSetUpdate, GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { logger } from '~/common/utils/logger'
 import { Properties } from '~/plugin-scaffold'
 import { Group, GroupTypeIndex, ProjectId, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '~/types'
@@ -63,6 +63,8 @@ export class PersonHogGroupRepository implements GroupRepository {
             group_type_index: GroupTypeIndex
             group_key: string
             group_properties: Record<string, any>
+            created_at: DateTime
+            version: number
         }[]
     > {
         if (!shouldUseGrpcForTeams(this.rolloutTeamIds, teamIds, this.grpcPercentage)) {
@@ -178,6 +180,10 @@ export class PersonHogGroupRepository implements GroupRepository {
             propertiesLastOperation,
             tag
         )
+    }
+
+    updateGroupsBatch(updates: GroupPropertiesToSetUpdate[]): Promise<Group[]> {
+        return this.postgres.updateGroupsBatch(updates)
     }
 
     updateGroupOptimistically(

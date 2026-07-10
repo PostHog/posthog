@@ -1,7 +1,10 @@
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
-import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import {
+    ClickhouseGroupRepository,
+    GroupClickhouseMessage,
+} from '~/common/groups/repositories/clickhouse-group-repository'
 import { GroupRepositoryTransaction } from '~/common/groups/repositories/group-repository-transaction.interface'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { GroupsOutput, IngestionWarningsOutput } from '~/common/outputs'
@@ -11,13 +14,12 @@ import { logger } from '~/common/utils/logger'
 import { promiseRetry } from '~/common/utils/retries'
 import { RaceConditionError } from '~/common/utils/utils'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
-import { FlushResult } from '~/ingestion/common/persons/persons-store'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
-import { GroupTypeIndex, TeamId } from '~/types'
+import { Group, GroupTypeIndex, TeamId } from '~/types'
 
 import { logMissingRow, logVersionMismatch } from './group-logging'
-import { CacheMetrics, GroupStore } from './group-store.interface'
+import { CacheMetrics, GroupFlushResult, GroupStore } from './group-store.interface'
 import { GroupUpdate, calculateUpdate, fromGroup } from './group-update'
 import {
     groupCacheOperationsCounter,
@@ -34,6 +36,8 @@ class GroupCache {
     private batchGroupKeys: Map<number, Set<string>>
     private groupKeyRefCount: Map<string, number>
     private deferredEvictions: Set<string>
+    private pendingPrefetchesByBatchId: Map<number, number>
+    private releasedBatchIdsWithPendingPrefetch: Set<number>
 
     constructor() {
         this.cache = new Map()
@@ -41,6 +45,8 @@ class GroupCache {
         this.batchGroupKeys = new Map()
         this.groupKeyRefCount = new Map()
         this.deferredEvictions = new Set()
+        this.pendingPrefetchesByBatchId = new Map()
+        this.releasedBatchIdsWithPendingPrefetch = new Set()
         this.metrics = {
             cacheHits: 0,
             cacheMisses: 0,
@@ -149,6 +155,9 @@ class GroupCache {
 
     releaseBatchId(batchId: number): void {
         const keys = this.batchGroupKeys.get(batchId)
+        if (this.pendingPrefetchesByBatchId.has(batchId)) {
+            this.releasedBatchIdsWithPendingPrefetch.add(batchId)
+        }
         if (!keys) {
             return
         }
@@ -164,6 +173,28 @@ class GroupCache {
         }
 
         this.batchGroupKeys.delete(batchId)
+    }
+
+    trackPendingPrefetch(batchIds: Set<number>): void {
+        for (const batchId of batchIds) {
+            this.pendingPrefetchesByBatchId.set(batchId, (this.pendingPrefetchesByBatchId.get(batchId) ?? 0) + 1)
+        }
+    }
+
+    finishPendingPrefetch(batchIds: Set<number>): void {
+        for (const batchId of batchIds) {
+            const pendingCount = (this.pendingPrefetchesByBatchId.get(batchId) ?? 1) - 1
+            if (pendingCount <= 0) {
+                this.pendingPrefetchesByBatchId.delete(batchId)
+                this.releasedBatchIdsWithPendingPrefetch.delete(batchId)
+            } else {
+                this.pendingPrefetchesByBatchId.set(batchId, pendingCount)
+            }
+        }
+    }
+
+    isBatchReleasedWithPendingPrefetch(batchId: number): boolean {
+        return this.releasedBatchIdsWithPendingPrefetch.has(batchId)
     }
 
     processDeferredEvictions(): void {
@@ -245,6 +276,13 @@ export interface BatchWritingGroupStoreOptions {
     maxOptimisticUpdateRetries: number
     optimisticUpdateRetryInterval: number
     /**
+     * When true, flush writes all dirty groups in a single UNNEST statement
+     * with server-side jsonb merge semantics (no version CAS, no conflict
+     * retries). When false, each group is written individually with an
+     * optimistic version check.
+     */
+    useBatchUpdates: boolean
+    /**
      * Interval at which accumulated group operation metrics are emitted and
      * cleared. Set to 0 to disable the timer (used by tests; production
      * always wants a positive interval).
@@ -256,7 +294,15 @@ const DEFAULT_OPTIONS: BatchWritingGroupStoreOptions = {
     maxConcurrentUpdates: 10,
     maxOptimisticUpdateRetries: 5,
     optimisticUpdateRetryInterval: 50,
+    useBatchUpdates: false,
     metricEmissionIntervalMs: 30_000,
+}
+
+interface PendingGroupWrite {
+    update: GroupUpdate
+    /** Delta captured (and reset) at the flush linearization point. */
+    propertiesToSet: Properties
+    cacheKey: string
 }
 
 /**
@@ -305,14 +351,14 @@ export class BatchWritingGroupStore implements GroupStore {
         return this.groupCache
     }
 
-    async flush(): Promise<FlushResult[]> {
+    async flush(): Promise<GroupFlushResult[]> {
         // SYNCHRONOUS LINEARIZATION POINT for cross-batch correctness.
-        // Walk every dirty entry, capture it for writing, and clear
-        // `needsWrite` before any await below. Concurrent batches that
+        // Walk every dirty entry, capture it (and its delta) for writing, and
+        // clear `needsWrite` before any await below. Concurrent batches that
         // mutate an entry between this clear and the async DB write will
         // re-set `needsWrite=true` and be picked up by the next flush.
         // DO NOT introduce any `await` inside this block.
-        const pendingUpdates: [string, GroupUpdate][] = []
+        const pendingWrites: PendingGroupWrite[] = []
         for (const [key, update] of this.groupCache.entries()) {
             if (!update) {
                 continue
@@ -321,23 +367,23 @@ export class BatchWritingGroupStore implements GroupStore {
                 continue
             }
             update.needsWrite = false
-            pendingUpdates.push([key, update])
+            const propertiesToSet = update.properties_to_set
+            update.properties_to_set = {}
+            pendingWrites.push({ update, propertiesToSet, cacheKey: key })
         }
         // END synchronous linearization point.
 
-        if (pendingUpdates.length === 0) {
+        if (pendingWrites.length === 0) {
             this.groupCache.processDeferredEvictions()
             return []
         }
 
-        const limit = pLimit(this.options.maxConcurrentUpdates)
-
         try {
-            await Promise.all(
-                pendingUpdates.map(([distinctId, update]) => limit(() => this.processGroupUpdate(update, distinctId)))
-            )
+            const results = this.options.useBatchUpdates
+                ? await this.flushBatch(pendingWrites)
+                : await this.flushIndividual(pendingWrites)
             this.groupCache.processDeferredEvictions()
-            return []
+            return results
         } catch (error) {
             logger.error('Failed to flush group updates', {
                 error,
@@ -348,52 +394,155 @@ export class BatchWritingGroupStore implements GroupStore {
         }
     }
 
+    /**
+     * Write every dirty group individually with an optimistic version check.
+     */
+    private async flushIndividual(pendingWrites: PendingGroupWrite[]): Promise<GroupFlushResult[]> {
+        const limit = pLimit(this.options.maxConcurrentUpdates)
+        const results = await Promise.all(
+            pendingWrites.map(({ update, cacheKey }) => limit(() => this.processGroupUpdate(update, cacheKey)))
+        )
+        return results.filter((result): result is GroupFlushResult => result !== null)
+    }
+
+    /**
+     * Write all dirty groups in a single UNNEST statement with server-side
+     * jsonb merge semantics. Groups missing from the result (deleted or never
+     * created) fall back to the individual path, which creates them via the
+     * direct-upsert fallback. A failure of the whole statement falls back to
+     * individual optimistic writes of the full property view, so no captured
+     * delta is lost.
+     */
+    private async flushBatch(pendingWrites: PendingGroupWrite[]): Promise<GroupFlushResult[]> {
+        this.incrementDatabaseOperation('updateGroupsBatch')
+
+        let updatedGroups: Group[]
+        try {
+            updatedGroups = await this.groupRepository.updateGroupsBatch(
+                pendingWrites.map(({ update, propertiesToSet }) => ({
+                    teamId: update.team_id,
+                    groupTypeIndex: update.group_type_index,
+                    groupKey: update.group_key,
+                    propertiesToSet,
+                    createdAt: update.created_at,
+                }))
+            )
+        } catch (error) {
+            logger.warn('⚠️', 'Batch group update failed, falling back to individual updates', {
+                count: pendingWrites.length,
+                error,
+                errorMessage: error instanceof Error ? error.message : String(error),
+            })
+            return await this.flushIndividual(pendingWrites)
+        }
+
+        const updatedByKey = new Map<string, Group>()
+        for (const group of updatedGroups) {
+            updatedByKey.set(`${group.team_id}:${group.group_key}`, group)
+        }
+
+        const results: GroupFlushResult[] = []
+        const missingWrites: PendingGroupWrite[] = []
+
+        for (const pendingWrite of pendingWrites) {
+            const row = updatedByKey.get(pendingWrite.cacheKey)
+            if (!row) {
+                missingWrites.push(pendingWrite)
+                continue
+            }
+
+            this.syncCacheEntryFromRow(pendingWrite.update, row)
+            results.push({
+                messages: [
+                    this.clickhouseGroupRepository.buildUpsertMessage(
+                        row.team_id,
+                        row.group_type_index,
+                        row.group_key,
+                        row.group_properties,
+                        row.created_at,
+                        row.version
+                    ),
+                ],
+                teamId: row.team_id,
+                groupTypeIndex: row.group_type_index,
+                groupKey: row.group_key,
+            })
+        }
+
+        if (missingWrites.length > 0) {
+            results.push(...(await this.flushIndividual(missingWrites)))
+        }
+
+        return results
+    }
+
+    /**
+     * Sync the cached entry with the authoritative row returned by the batch
+     * update, preserving any delta accumulated by concurrent batches since the
+     * flush captured this write.
+     */
+    private syncCacheEntryFromRow(update: GroupUpdate, row: Group): void {
+        const cached = this.groupCache.get(update.team_id, update.group_key)
+        const target = cached ?? update
+        target.group_properties = { ...row.group_properties, ...target.properties_to_set }
+        target.created_at = DateTime.min(target.created_at, row.created_at)
+        target.version = row.version
+    }
+
     getFlushStats(): BatchWritingStoreFlushStats {
         return this.groupCache.getFlushStats()
     }
 
-    private async processGroupUpdate(update: GroupUpdate, distinctId: string): Promise<void> {
+    private async processGroupUpdate(update: GroupUpdate, cacheKey: string): Promise<GroupFlushResult | null> {
         try {
-            await promiseRetry(
+            const message = await promiseRetry(
                 () => this.executeOptimisticUpdate(update),
                 'updateGroupOptimistically',
                 this.options.maxOptimisticUpdateRetries,
-                this.options.optimisticUpdateRetryInterval,
+                // Jitter the starting interval so pods that conflicted on the
+                // same group don't retry in lockstep and re-collide.
+                this.options.optimisticUpdateRetryInterval * (0.5 + Math.random()),
                 undefined,
                 [MessageSizeTooLarge]
             )
+            if (!message) {
+                return null
+            }
+            return {
+                messages: [message],
+                teamId: update.team_id,
+                groupTypeIndex: update.group_type_index,
+                groupKey: update.group_key,
+            }
         } catch (error) {
-            await this.handleOptimisticUpdateFailure(error, update, distinctId)
+            await this.handleOptimisticUpdateFailure(error, update, cacheKey)
+            return null
         }
     }
 
-    private async handleOptimisticUpdateFailure(
-        error: unknown,
-        update: GroupUpdate,
-        distinctId: string
-    ): Promise<void> {
+    private async handleOptimisticUpdateFailure(error: unknown, update: GroupUpdate, cacheKey: string): Promise<void> {
         if (error instanceof MessageSizeTooLarge) {
             await emitIngestionWarning(this.outputs, update.team_id, {
                 type: 'group_upsert_message_size_too_large',
                 details: {
                     groupTypeIndex: update.group_type_index,
                     groupKey: update.group_key,
-                    distinctId: distinctId,
+                    distinctId: cacheKey,
                 },
                 pipelineStep: 'group-store',
             })
             return
         }
 
-        await this.fallbackToDirectUpsert(update, distinctId)
+        await this.fallbackToDirectUpsert(update, cacheKey)
     }
 
-    private async fallbackToDirectUpsert(update: GroupUpdate, distinctId: string): Promise<void> {
+    private async fallbackToDirectUpsert(update: GroupUpdate, cacheKey: string): Promise<void> {
         logger.warn('⚠️', 'Falling back to direct upsert after max retries', {
             teamId: update.team_id,
             groupTypeIndex: update.group_type_index,
             groupKey: update.group_key,
-            distinctId,
+            cacheKey,
         })
 
         // Remove from cache to prevent retry
@@ -461,16 +610,7 @@ export class BatchWritingGroupStore implements GroupStore {
         const group = await this.getGroup(teamId, groupTypeIndex, groupKey, false, groupCache)
 
         if (!group) {
-            await this.executeGroupUpsert(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                properties,
-                timestamp,
-                false,
-                'batch-create',
-                batchId
-            )
+            await this.createGroup(teamId, groupTypeIndex, groupKey, properties, timestamp, batchId)
             return
         }
 
@@ -481,11 +621,67 @@ export class BatchWritingGroupStore implements GroupStore {
                 group_type_index: groupTypeIndex,
                 group_key: groupKey,
                 group_properties: propertiesUpdate.properties,
+                // Accumulate the delta since the last DB sync — a flush in
+                // flight has already captured (and reset) the previous delta.
+                properties_to_set: { ...group.properties_to_set, ...propertiesUpdate.changedProperties },
                 created_at: group.created_at,
                 version: group.version,
                 needsWrite: true,
             })
         }
+    }
+
+    /**
+     * Create a group that the cache says doesn't exist. Runs without a
+     * wrapping transaction — the insert is a single ON CONFLICT DO NOTHING
+     * statement, so the transaction added round trips without atomicity value.
+     * A racing create surfaces as RaceConditionError, which handleUpsertError
+     * turns into a cache refresh and upsert retry.
+     */
+    private async createGroup(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        properties: Properties,
+        timestamp: DateTime,
+        batchId: number
+    ): Promise<void> {
+        const createdAt = DateTime.min(DateTime.now(), timestamp)
+
+        this.incrementDatabaseOperation('insertGroup')
+        const insertedVersion = await this.groupRepository.insertGroup(
+            teamId,
+            groupTypeIndex,
+            groupKey,
+            properties,
+            createdAt,
+            {},
+            {}
+        )
+        if (insertedVersion > 1) {
+            logVersionMismatch(teamId, groupTypeIndex, groupKey, insertedVersion - 1)
+        }
+
+        this.groupCache.obtainForBatchId(batchId).set(teamId, groupKey, {
+            team_id: teamId,
+            group_type_index: groupTypeIndex,
+            group_key: groupKey,
+            group_properties: properties,
+            properties_to_set: {},
+            created_at: createdAt,
+            version: insertedVersion,
+            needsWrite: false,
+        })
+
+        await this.upsertToClickhouse(
+            teamId,
+            groupTypeIndex,
+            groupKey,
+            properties,
+            createdAt,
+            insertedVersion,
+            'batch-create'
+        )
     }
 
     private async executeGroupUpsert(
@@ -598,6 +794,7 @@ export class BatchWritingGroupStore implements GroupStore {
                     group_type_index: groupTypeIndex,
                     group_key: groupKey,
                     group_properties: propertiesUpdate.properties,
+                    properties_to_set: {},
                     created_at: createdAt,
                     version: actualVersion,
                     needsWrite: false,
@@ -660,7 +857,7 @@ export class BatchWritingGroupStore implements GroupStore {
         return insertedVersion
     }
 
-    private async executeOptimisticUpdate(update: GroupUpdate): Promise<void> {
+    private async executeOptimisticUpdate(update: GroupUpdate): Promise<GroupClickhouseMessage | null> {
         this.incrementDatabaseOperation('updateGroupOptimistically')
         const actualVersion = await this.groupRepository.updateGroupOptimistically(
             update.team_id,
@@ -674,16 +871,20 @@ export class BatchWritingGroupStore implements GroupStore {
         )
 
         if (actualVersion !== undefined) {
-            await this.upsertToClickhouse(
+            // Keep the cached entry's version in sync with the row we just
+            // wrote, so the next flush of this entry doesn't CAS against a
+            // stale version and manufacture a conflict.
+            update.version = actualVersion
+            // The ClickHouse produce is returned to the caller and scheduled as
+            // a side effect after flush, so flush latency stays DB-only.
+            return this.clickhouseGroupRepository.buildUpsertMessage(
                 update.team_id,
                 update.group_type_index,
                 update.group_key,
                 update.group_properties,
                 update.created_at,
-                actualVersion,
-                'optimistically'
+                actualVersion
             )
-            return
         }
 
         groupOptimisticUpdateConflictsPerBatchCounter.inc()
@@ -696,12 +897,138 @@ export class BatchWritingGroupStore implements GroupStore {
         )
         if (latestGroup) {
             const propertiesUpdate = calculateUpdate(latestGroup.group_properties || {}, update.group_properties)
+            if (!propertiesUpdate.updated && update.created_at >= latestGroup.created_at) {
+                // The winning writer already persisted everything this update
+                // carries — common for hot groups receiving identical
+                // $group_set payloads across pods. Sync to the winning row and
+                // skip the write (and its ClickHouse produce) entirely.
+                update.group_properties = latestGroup.group_properties || {}
+                update.created_at = latestGroup.created_at
+                update.version = latestGroup.version
+                return null
+            }
             if (propertiesUpdate.updated) {
                 update.group_properties = propertiesUpdate.properties
             }
             update.version = latestGroup.version
         }
         throw new Error('Optimistic update failed, will retry')
+    }
+
+    /**
+     * Best-effort cache warmer for the given group keys — one batched query
+     * instead of a single-row fetch per key. Callers fire this without
+     * awaiting it (mirrors prefetchPersons): transient persons-Postgres
+     * unavailability is swallowed here so the fire-and-forget copy can't
+     * crash the worker, while each per-key promise (awaited by getGroup)
+     * still rejects so consumers propagate the error and retry. Any other
+     * error is rethrown so it crashes loudly rather than being masked.
+     */
+    async prefetchGroups(
+        entries: { teamId: TeamId; groupTypeIndex: GroupTypeIndex; groupKey: string; batchId: number }[]
+    ): Promise<void> {
+        if (entries.length === 0) {
+            return
+        }
+
+        // Filter out entries that are already cached or have pending fetches.
+        const uncachedEntries: { teamId: TeamId; groupTypeIndex: GroupTypeIndex; groupKey: string; batchId: number }[] =
+            []
+        const seenKeys = new Set<string>()
+        for (const entry of entries) {
+            const key = `${entry.teamId}:${entry.groupKey}`
+            if (seenKeys.has(key)) {
+                continue
+            }
+            seenKeys.add(key)
+            if (this.groupCache.hasForBatch(entry.batchId, entry.teamId, entry.groupKey)) {
+                continue
+            }
+            if (this.groupCache.getFetchPromise(entry.teamId, entry.groupKey)) {
+                continue
+            }
+            uncachedEntries.push(entry)
+        }
+
+        if (uncachedEntries.length === 0) {
+            return
+        }
+
+        const prefetchBatchIds = new Set(uncachedEntries.map(({ batchId }) => batchId))
+        this.groupCache.trackPendingPrefetch(prefetchBatchIds)
+        this.incrementDatabaseOperation('prefetchGroups')
+
+        const batchFetchPromise = this.groupRepository
+            .fetchGroupsByKeys(
+                uncachedEntries.map(({ teamId }) => teamId),
+                uncachedEntries.map(({ groupTypeIndex }) => groupTypeIndex),
+                uncachedEntries.map(({ groupKey }) => groupKey),
+                'ingestion/group-prefetch'
+            )
+            .then((rows) => {
+                const groupsByKey = new Map<string, GroupUpdate>()
+                for (const row of rows) {
+                    groupsByKey.set(`${row.team_id}:${row.group_key}`, {
+                        team_id: row.team_id,
+                        group_type_index: row.group_type_index,
+                        group_key: row.group_key,
+                        group_properties: row.group_properties,
+                        properties_to_set: {},
+                        created_at: row.created_at,
+                        version: row.version,
+                        needsWrite: false,
+                    })
+                }
+
+                // Cache all results (found groups and nulls for missing ones).
+                for (const { teamId, groupKey, batchId } of uncachedEntries) {
+                    // Caching under a released batchId would re-register it in
+                    // the refcount tracking with nobody left to release it.
+                    if (this.groupCache.isBatchReleasedWithPendingPrefetch(batchId)) {
+                        continue
+                    }
+                    // Don't clobber an entry that appeared while the fetch was
+                    // in flight (e.g. a group created inline by event processing).
+                    if (this.groupCache.get(teamId, groupKey) !== undefined) {
+                        continue
+                    }
+                    this.groupCache.setForBatch(
+                        batchId,
+                        teamId,
+                        groupKey,
+                        groupsByKey.get(`${teamId}:${groupKey}`) ?? null
+                    )
+                }
+
+                return groupsByKey
+            })
+            .finally(() => {
+                for (const { teamId, groupKey } of uncachedEntries) {
+                    this.groupCache.deleteFetchPromise(teamId, groupKey)
+                }
+                this.groupCache.finishPendingPrefetch(prefetchBatchIds)
+            })
+
+        // Register per-key promises so getGroup waits on the in-flight batch
+        // fetch instead of issuing its own single-row query. The throwaway
+        // catch only marks the promise handled so an unconsumed key can't
+        // become an unhandled rejection — awaiting consumers still observe
+        // the rejection.
+        for (const { teamId, groupKey } of uncachedEntries) {
+            const keyPromise = batchFetchPromise.then((groupsByKey) => groupsByKey.get(`${teamId}:${groupKey}`) ?? null)
+            keyPromise.catch(() => {})
+            this.groupCache.setFetchPromise(teamId, groupKey, keyPromise)
+        }
+
+        await batchFetchPromise.catch((error) => {
+            if (error?.isRetriable === true) {
+                logger.warn('⚠️', 'prefetchGroups failed on a retriable persons-Postgres error', {
+                    error: String(error),
+                })
+                return
+            }
+            throw error
+        })
     }
 
     private async getGroup(

@@ -16,7 +16,7 @@ export type FlushResult = {
     uuid?: string
 }
 
-export interface PersonsStore extends BatchWritingStore {
+export interface PersonsStore extends BatchWritingStore<FlushResult> {
     /**
      * Executes a function within a transaction
      * @param description - Description of the transaction for logging

@@ -1,6 +1,9 @@
+import { GroupsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { logger } from '~/common/utils/logger'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
+import { GroupFlushResult } from '~/ingestion/common/groups/group-store.interface'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { FlushResult, PersonsStore } from '~/ingestion/common/persons/persons-store'
@@ -18,10 +21,12 @@ import {
 import { AfterBatchStep } from '~/ingestion/framework/batching-pipeline'
 import { ok } from '~/ingestion/framework/results'
 
+export type FlushBatchStoresOutputs = PersonOutputs & IngestionOutputs<GroupsOutput>
+
 export interface FlushBatchStoresStepConfig {
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
-    outputs: PersonOutputs
+    outputs: FlushBatchStoresOutputs
 }
 
 type BatchStoreName = 'person' | 'group'
@@ -77,7 +82,10 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
             })
 
             // Create Kafka produce promises for all person/group store updates
-            const producePromises = createProducePromises(personsStoreMessages, outputs)
+            const producePromises = [
+                ...createPersonProducePromises(personsStoreMessages, outputs),
+                ...createGroupProducePromises(groupResults, outputs),
+            ]
 
             return ok(input, producePromises)
         } catch (error) {
@@ -96,7 +104,10 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
     }
 }
 
-async function flushStore(store: BatchStoreName, batchWritingStore: BatchWritingStore): Promise<FlushResult[]> {
+async function flushStore<TFlushResult extends { messages: unknown[] }>(
+    store: BatchStoreName,
+    batchWritingStore: BatchWritingStore<TFlushResult>
+): Promise<TFlushResult[]> {
     const flushStats = batchWritingStore.getFlushStats()
     batchStoreFlushDirtyEntriesHistogram.observe({ store }, flushStats.dirtyEntryCount)
     batchStoreFlushReferencedBatchesHistogram.observe({ store }, flushStats.referencedBatchCount)
@@ -119,7 +130,7 @@ async function flushStore(store: BatchStoreName, batchWritingStore: BatchWriting
     }
 }
 
-function countFlushResultMessages(flushResults: FlushResult[]): number {
+function countFlushResultMessages(flushResults: { messages: unknown[] }[]): number {
     return flushResults.reduce((count, record) => count + record.messages.length, 0)
 }
 
@@ -129,7 +140,7 @@ function countFlushResultMessages(flushResults: FlushResult[]): number {
  * - MessageSizeTooLarge: Emits ingestion warning (non-fatal)
  * - Other errors: Propagated to fail the side effect
  */
-function createProducePromises(personsStoreMessages: FlushResult[], outputs: PersonOutputs): Promise<unknown>[] {
+function createPersonProducePromises(personsStoreMessages: FlushResult[], outputs: PersonOutputs): Promise<unknown>[] {
     const promises: Promise<unknown>[] = []
 
     for (const record of personsStoreMessages) {
@@ -167,6 +178,60 @@ function createProducePromises(personsStoreMessages: FlushResult[], outputs: Per
                             teamId: record.teamId,
                             distinctId: record.distinctId,
                             uuid: record.uuid,
+                        })
+                        throw error
+                    }
+                })
+
+            promises.push(promise)
+        }
+    }
+
+    return promises
+}
+
+/**
+ * Creates Kafka produce promises for all group store flush results, mirroring
+ * the person handling: MessageSizeTooLarge emits a group-specific ingestion
+ * warning (non-fatal), other errors fail the side effect.
+ */
+function createGroupProducePromises(
+    groupResults: GroupFlushResult[],
+    outputs: FlushBatchStoresOutputs
+): Promise<unknown>[] {
+    const promises: Promise<unknown>[] = []
+
+    for (const record of groupResults) {
+        for (const message of record.messages) {
+            const promise = outputs
+                .produce(message.output, {
+                    key: null,
+                    value: message.value,
+                    teamId: record.teamId,
+                })
+                .catch((error) => {
+                    if (error instanceof MessageSizeTooLarge) {
+                        logger.warn('🪣', 'flushBatchStoresStep: Group message size too large', {
+                            output: message.output,
+                            teamId: record.teamId,
+                            groupTypeIndex: record.groupTypeIndex,
+                            groupKey: record.groupKey,
+                        })
+                        return emitIngestionWarning(outputs, record.teamId, {
+                            type: 'group_upsert_message_size_too_large',
+                            details: {
+                                groupTypeIndex: record.groupTypeIndex,
+                                groupKey: record.groupKey,
+                            },
+                            pipelineStep: 'flush',
+                        })
+                    } else {
+                        logger.error('❌', 'flushBatchStoresStep: Failed to produce group message', {
+                            error,
+                            output: message.output,
+                            teamId: record.teamId,
+                            groupTypeIndex: record.groupTypeIndex,
+                            groupKey: record.groupKey,
                         })
                         throw error
                     }
