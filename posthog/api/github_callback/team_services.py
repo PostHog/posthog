@@ -142,6 +142,47 @@ def create_team_github_integration_from_oauth_code(
     return instance
 
 
+def authorize_link_existing_installation(
+    *,
+    user: User,
+    team: Team,
+    source_installation_id: str,
+) -> None:
+    """Confirm ``user`` may link an installation already present in their org to ``team``.
+
+    The installation is already linked to another team in the same organization, so the org
+    already has legitimate access to it. A user with admin access to the target team can therefore
+    attach another of the org's own projects to that installation without re-proving personal
+    GitHub access, because team admin within the org is sufficient ownership proof. This is what
+    lets a second PostHog project reuse a GitHub App that installs only once per org.
+
+    For anyone without team admin access (e.g. a plain member using the explicit link endpoint),
+    fall back to proving access with the user's personal GitHub OAuth token, raising
+    ``GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED`` when that proof is missing or fails.
+    """
+    if github_callback_state.has_team_management_access(user, team):
+        return
+
+    user_github_integration = UserIntegration.objects.filter(user=user, kind="github").order_by("-created_at").first()
+    user_access_token = (
+        user_github_integration.sensitive_config.get("access_token") if user_github_integration else None
+    )
+    if not user_access_token:
+        raise ValidationError(
+            PERSONAL_GITHUB_REQUIRED_MESSAGE,
+            code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
+        )
+    try:
+        has_access = GitHubIntegration.verify_user_installation_access(source_installation_id, user_access_token)
+    except requests.RequestException:
+        raise ValidationError("Failed to verify installation access")
+    if not has_access:
+        raise ValidationError(
+            PERSONAL_GITHUB_REQUIRED_MESSAGE,
+            code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
+        )
+
+
 def finish_team_github_setup_update(
     *,
     user: User,
@@ -212,28 +253,9 @@ def execute_team_github_finish_setup(
             if not source_installation_id:
                 raise ValidationError("Source integration is missing installation_id")
 
-            user_github_integration = (
-                UserIntegration.objects.filter(user=user, kind="github").order_by("-created_at").first()
+            authorize_link_existing_installation(
+                user=user, team=team, source_installation_id=str(source_installation_id)
             )
-            user_access_token = (
-                user_github_integration.sensitive_config.get("access_token") if user_github_integration else None
-            )
-            if not user_access_token:
-                raise ValidationError(
-                    PERSONAL_GITHUB_REQUIRED_MESSAGE,
-                    code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-                )
-            try:
-                has_access = GitHubIntegration.verify_user_installation_access(
-                    str(source_installation_id), user_access_token
-                )
-            except requests.RequestException:
-                raise ValidationError("Failed to verify installation access")
-            if not has_access:
-                raise ValidationError(
-                    PERSONAL_GITHUB_REQUIRED_MESSAGE,
-                    code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-                )
 
             integration = GitHubIntegration.integration_from_installation_id(str(source_installation_id), team.id, user)
 
@@ -408,24 +430,10 @@ def link_existing_team_github_integration(
     if not installation_id:
         raise ValidationError("Source integration is missing installation_id")
 
-    user_github_integration = UserIntegration.objects.filter(user=user, kind="github").order_by("-created_at").first()
-    user_access_token = (
-        user_github_integration.sensitive_config.get("access_token") if user_github_integration else None
-    )
-    if not user_access_token:
-        raise ValidationError(
-            PERSONAL_GITHUB_REQUIRED_MESSAGE,
-            code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-        )
-    try:
-        has_access = GitHubIntegration.verify_user_installation_access(str(installation_id), user_access_token)
-    except requests.RequestException:
-        raise ValidationError("Failed to verify installation access")
-    if not has_access:
-        raise ValidationError(
-            PERSONAL_GITHUB_REQUIRED_MESSAGE,
-            code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-        )
+    target_team = organization.teams.filter(id=team_id).first()
+    if target_team is None:
+        raise ValidationError("Target team not found in your organization")
+    authorize_link_existing_installation(user=user, team=target_team, source_installation_id=str(installation_id))
 
     instance = GitHubIntegration.integration_from_installation_id(str(installation_id), team_id, user)
 

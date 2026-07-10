@@ -16,8 +16,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.github_callback.state import store_unified_authorize_state
+from posthog.api.github_callback.team_services import (
+    GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
+    authorize_link_existing_installation,
+)
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.models.integration import (
@@ -2878,6 +2883,59 @@ class TestGitHubTeamIntegrationComplete:
         assert response.status_code == status.HTTP_302_FOUND
         assert response["Location"].startswith("https://github.com/login/oauth/authorize")
         mock_build_oauth_url.assert_called_once()
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_admin_links_existing_org_installation_without_personal_github(self, mock_from_install, client: HttpClient):
+        # A GitHub App installs once per org, so a second project hits the Setup URL with
+        # setup_action=update and no OAuth code. A team admin must be able to complete that link
+        # off the installation already connected to a sibling team, without a personal GitHub link.
+        sibling = Team.objects.create(organization=self.organization, name="Sibling Team")
+        Integration.objects.create(
+            team=sibling,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345", "connecting_user_github_login": "owneruser"},
+            sensitive_config={"access_token": "ghs_sibling"},
+        )
+        # self.user is an org admin with no UserIntegration (personal GitHub link).
+        assert not UserIntegration.objects.filter(user=self.user, kind="github").exists()
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration()
+
+        client.force_login(self.user)
+        next_path = f"/project/{self.team.pk}/integrations/github"
+        state_token = "link-existing-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path,
+            ),
+        )
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "setup_action": "update",
+                "state": urlencode({"next": next_path, "token": state_token}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_setup_error" not in response["Location"]
+        assert Integration.objects.filter(team=self.team, kind="github", integration_id="12345").exists()
+
+    def test_authorize_link_existing_requires_personal_github_for_non_admin(self):
+        # The admin bypass must not leak to plain members: without team admin access and without a
+        # personal GitHub link, linking an existing installation still demands the personal token.
+        member = User.objects.create_and_join(
+            self.organization, "member-linker@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            authorize_link_existing_installation(user=member, team=self.team, source_installation_id="12345")
+        assert GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED in exc_info.value.get_codes()
 
     def test_cross_user_state_rejected_on_unified_callback(self, client: HttpClient):
         # State tokens are bound to a user via the pending-pointer cache key.
