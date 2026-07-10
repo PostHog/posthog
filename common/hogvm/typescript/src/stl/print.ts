@@ -17,9 +17,10 @@ const singlequoteEscapeCharsMap: Record<string, string> = {
     "'": "\\'",
 }
 
+// The HogQL/Hog parsers only accept a doubled backtick inside a quoted identifier, not a backslash-escaped one.
 const backquoteEscapeCharsMap: Record<string, string> = {
     ...escapeCharsMap,
-    '`': '\\`',
+    '`': '``',
 }
 
 export function escapeString(value: string): string {

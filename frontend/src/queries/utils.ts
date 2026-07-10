@@ -45,6 +45,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MathType,
+    MetricsQuery,
     Node,
     NodeKind,
     NonIntegratedConversionsTableQuery,
@@ -66,6 +67,7 @@ import {
     RevenueExampleEventsQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
+    SessionQuery,
     SessionsQuery,
     StickinessQuery,
     TracesQuery,
@@ -78,7 +80,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, GroupTypeIndex, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, FunnelVizType, GroupTypeIndex, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
 
@@ -252,6 +254,10 @@ export function isRevenueAnalyticsTopCustomersQuery(
     return node?.kind === NodeKind.RevenueAnalyticsTopCustomersQuery
 }
 
+export function isMetricsQuery(node?: Record<string, any> | null): node is MetricsQuery {
+    return node?.kind === NodeKind.MetricsQuery
+}
+
 export function isEndpointsUsageOverviewQuery(node?: Record<string, any> | null): node is EndpointsUsageOverviewQuery {
     return node?.kind === NodeKind.EndpointsUsageOverviewQuery
 }
@@ -316,6 +322,10 @@ export function isNonIntegratedConversionsTableQuery(
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
     return node?.kind === NodeKind.TracesQuery
+}
+
+export function isSessionQuery(node?: Record<string, any> | null): node is SessionQuery {
+    return node?.kind === NodeKind.SessionQuery
 }
 
 export function isWebVitalsQuery(node?: Record<string, any> | null): node is WebVitalsQuery {
@@ -439,8 +449,11 @@ export function shouldQueryBeAsync(query: Node): boolean {
         isInsightQueryNode(query) ||
         isHogQLQuery(query) ||
         isTracesQuery(query) ||
-        (isDataTableNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source))) ||
-        (isDataVisualizationNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source)))
+        isSessionQuery(query) ||
+        (isDataTableNode(query) &&
+            (isInsightQueryNode(query.source) || isTracesQuery(query.source) || isSessionQuery(query.source))) ||
+        (isDataVisualizationNode(query) &&
+            (isInsightQueryNode(query.source) || isTracesQuery(query.source) || isSessionQuery(query.source)))
     )
 }
 
@@ -498,6 +511,51 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
         return query.trendsFilter?.display
     }
     return undefined
+}
+
+// Display types whose viz paints to a <canvas> (Chart.js / quill-charts), which repaints on every resize
+// frame. Everything else renders as DOM/SVG and is cheap to keep mounted while a tile is resized.
+const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
+    ChartDisplayType.Auto,
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsStackedBar,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.Metric,
+    ChartDisplayType.BoxPlot,
+    ChartDisplayType.SlopeGraph,
+    ChartDisplayType.TwoDimensionalHeatmap,
+])
+
+/**
+ * Whether an insight's viz paints to a <canvas>. Canvas viz redraws on every resize frame, so a dashboard tile
+ * throttles its redraws while resizing; DOM/SVG viz (tables, bold numbers, world maps, retention, paths) is cheap
+ * and stays fully live. Unrecognised node types default to true so we never regress resize perf for unknown viz.
+ */
+export function queryVizRendersToCanvas(query?: Node | null): boolean {
+    if (isDataTableNode(query)) {
+        return false
+    }
+    if (isDataVisualizationNode(query)) {
+        return !!query.display && CANVAS_CHART_DISPLAY_TYPES.has(query.display)
+    }
+    if (isInsightVizNode(query)) {
+        const source = query.source
+        if (isRetentionQuery(source) || isPathsQuery(source)) {
+            return false
+        }
+        if (isFunnelsQuery(source)) {
+            // Steps (default) and Trends paint to canvas; Flow (Sankey) is SVG and TimeToConvert is a DOM table.
+            const vizType = source.funnelsFilter?.funnelVizType
+            return vizType !== FunnelVizType.Flow && vizType !== FunnelVizType.TimeToConvert
+        }
+        return CANVAS_CHART_DISPLAY_TYPES.has(getDisplay(source) ?? ChartDisplayType.Auto)
+    }
+    return true
 }
 
 export const getFormula = (query: InsightQueryNode | null): string | undefined => {
@@ -733,6 +791,19 @@ export function trimQuotes(identifier: string): string {
     return identifier
 }
 
+// Mirrors escape_chars_map in posthog/hogql/escape_sql.py: backslash and control chars must be escaped so a quoted identifier round-trips losslessly through the HogQL parser.
+const HOGQL_IDENTIFIER_ESCAPE_MAP: Record<string, string> = {
+    '\b': '\\b',
+    '\f': '\\f',
+    '\r': '\\r',
+    '\n': '\\n',
+    '\t': '\\t',
+    '\0': '\\0',
+    '\x07': '\\a',
+    '\v': '\\v',
+    '\\': '\\\\',
+}
+
 /** Make sure the property key is wrapped in quotes if it contains any special characters. */
 export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
@@ -742,7 +813,9 @@ export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     if (isQuoted(identifier)) {
         return identifier // This identifier is already quoted
     }
-    return !identifier.includes('"') ? `"${identifier}"` : `\`${identifier}\``
+    // Escape backslashes and control chars, then wrap; double an inner backtick (the parser rejects a backslash-escaped delimiter). The double-quote path needs no quote escaping since it is only taken when the identifier has no `"`.
+    const escaped = Array.from(identifier, (c) => HOGQL_IDENTIFIER_ESCAPE_MAP[c] || c).join('')
+    return !identifier.includes('"') ? `"${escaped}"` : `\`${escaped.replaceAll('`', '``')}\``
 }
 
 /** Quote each segment of a dotted HogQL reference independently. */

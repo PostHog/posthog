@@ -192,6 +192,11 @@ class AgentSession(ProductTeamModel, UUIDModel):
             '{"tokens_in": 0, "tokens_out": 0, "cache_read": 0, "cache_write": 0, "cost_input": 0, "cost_output": 0, "cost_cache_read": 0, "cost_cache_write": 0, "cost_total": 0}'
         ),
     )
+    # Derived on every conversation write by the node SessionQueue so the list
+    # view + search never read the full `conversation` JSONB. search_text is a
+    # truncated user+assistant text digest; turn_count is len(conversation).
+    search_text = models.TextField(null=True, blank=True)
+    turn_count = models.IntegerField(default=0, db_default=0)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
     updated_at = models.DateTimeField(auto_now=True, db_default=Now())
 

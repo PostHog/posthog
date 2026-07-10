@@ -120,7 +120,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
             organization=cls.organization,
             domain=_VERIFIED_DOMAIN,
             verified_at=timezone.now(),
-            id_jag_issuer_url=_IDP_ISSUER,
+            _id_jag_issuer_url=_IDP_ISSUER,
         )
 
     def setUp(self) -> None:
@@ -463,7 +463,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
             organization=attacker_org,
             domain="bigco.example",
             verified_at=timezone.now(),
-            id_jag_issuer_url=_IDP_ISSUER,
+            _id_jag_issuer_url=_IDP_ISSUER,
         )
 
         # Victim user whose email is on the attacker's verified domain but who
@@ -626,8 +626,8 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         # ID-JAG is opt-in per domain. With `id_jag_issuer_url` cleared, an
         # otherwise valid ID-JAG must be rejected — the org hasn't bound an IdP yet.
         domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
-        domain.id_jag_issuer_url = None
-        domain.save(update_fields=["id_jag_issuer_url"])
+        domain._id_jag_issuer_url = None
+        domain.save(update_fields=["_id_jag_issuer_url"])
 
         assertion = _make_id_jag()
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
@@ -641,8 +641,8 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         # The IdP binding is exact-match on the issuer URL — even a sibling IdP
         # that happens to know the same user is rejected unless explicitly bound.
         domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
-        domain.id_jag_issuer_url = "https://idp.example.com"
-        domain.save(update_fields=["id_jag_issuer_url"])
+        domain._id_jag_issuer_url = "https://idp.example.com"
+        domain.save(update_fields=["_id_jag_issuer_url"])
 
         assertion = _make_id_jag(issuer="https://other-idp.example.com")
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
@@ -658,8 +658,8 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         # legitimate IdPs that always include a trailing slash on `iss` would
         # be impossible to bind.
         domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
-        domain.id_jag_issuer_url = _IDP_ISSUER
-        domain.save(update_fields=["id_jag_issuer_url"])
+        domain._id_jag_issuer_url = _IDP_ISSUER
+        domain.save(update_fields=["_id_jag_issuer_url"])
 
         assertion = _make_id_jag(issuer=_IDP_ISSUER + "/")
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
@@ -671,8 +671,8 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         # arguments passed to `_get_jwks_client` rather than reasserting the
         # signature (the mock already returns our test public key).
         domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
-        domain.id_jag_jwks_url = "https://idp.example.com/keys.json"
-        domain.save(update_fields=["id_jag_jwks_url"])
+        domain._id_jag_jwks_url = "https://idp.example.com/keys.json"
+        domain.save(update_fields=["_id_jag_jwks_url"])
 
         # Re-patch to capture call args; the base setUp patch doesn't expose
         # them in a way that survives across multiple tests.
@@ -690,8 +690,8 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
     def test_allowed_clients_permits_listed_client_id(self) -> None:
         domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
-        domain.id_jag_allowed_clients = ["client_first", "client_second"]
-        domain.save(update_fields=["id_jag_allowed_clients"])
+        domain._id_jag_allowed_clients = ["client_first", "client_second"]
+        domain.save(update_fields=["_id_jag_allowed_clients"])
 
         assertion = _make_id_jag(client_id="client_second")
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
@@ -699,8 +699,8 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
     def test_allowed_clients_rejects_unlisted_client_id(self) -> None:
         domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
-        domain.id_jag_allowed_clients = ["client_first", "client_second"]
-        domain.save(update_fields=["id_jag_allowed_clients"])
+        domain._id_jag_allowed_clients = ["client_first", "client_second"]
+        domain.save(update_fields=["_id_jag_allowed_clients"])
 
         assertion = _make_id_jag(client_id="client_third")
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})

@@ -18,6 +18,7 @@ import {
     IconPlus,
     IconShare,
     IconScreen,
+    IconWarning,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
@@ -54,7 +55,13 @@ import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/D
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
-import { type DataTableNode, type HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import {
+    type AccessControlFilterWarning,
+    type DataTableNode,
+    type DataWarehouseSyncWarning,
+    type HogQLQueryResponse,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -62,6 +69,8 @@ import {
     ExporterFormat,
     type ExportContext,
 } from '~/types'
+
+import { WarehouseWizardHint } from 'products/data_warehouse/frontend/shared/components/WarehouseWizardHint'
 
 import {
     copyTableToCsv,
@@ -72,6 +81,7 @@ import {
 import { FixErrorButton } from './components/FixErrorButton'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
+import { trimRedundantTail } from './syncWarnings'
 import TabScroller from './TabScroller'
 
 interface RowDetailsModalProps {
@@ -982,31 +992,57 @@ function InternalDataTableVisualization(
     )
 }
 
-const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
+// The shared `warnings` field is a tagged union; render one banner per warning kind present.
+const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
     if (!warnings || warnings.length === 0) {
         return null
     }
+    const syncWarnings = warnings.filter((w): w is DataWarehouseSyncWarning => w.type === 'warehouse_sync')
+    const acWarnings = warnings.filter((w): w is AccessControlFilterWarning => w.type === 'access_control')
     return (
-        <LemonBanner type="warning" className="m-2" data-attr="sql-editor-output-pane-sync-warnings">
-            <div className="font-semibold mb-1">
-                Some warehouse sources used by this query are out of date — results may not reflect current data
-            </div>
-            <ul className="list-disc pl-5 space-y-1">
-                {warnings.map((warning, index) => (
-                    <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
-                        {warning.message}
-                        {warning.source_id && (
-                            <>
-                                {' '}
-                                <Link to={urls.dataWarehouseSource(`managed-${warning.source_id}`)} target="_blank">
-                                    Manage source
-                                </Link>
-                            </>
-                        )}
-                    </li>
-                ))}
-            </ul>
-        </LemonBanner>
+        <>
+            {syncWarnings.length > 0 && (
+                <LemonBanner
+                    type="warning"
+                    className="m-2 flex-shrink-0"
+                    data-attr="sql-editor-output-pane-sync-warnings"
+                >
+                    Some warehouse sources used by this query are out of date — results may not reflect current data:
+                    <ul className="list-disc pl-5">
+                        {syncWarnings.map((warning, index) => (
+                            <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
+                                {trimRedundantTail(warning.message)}
+                                {warning.source_id && (
+                                    <>
+                                        {' '}
+                                        <Link
+                                            to={urls.dataWarehouseSource(`managed-${warning.source_id}`)}
+                                            target="_blank"
+                                        >
+                                            Manage source
+                                        </Link>
+                                    </>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
+                </LemonBanner>
+            )}
+            {acWarnings.length > 0 && (
+                <LemonBanner
+                    type="warning"
+                    className="m-2 flex-shrink-0"
+                    data-attr="sql-editor-output-pane-access-control-warnings"
+                >
+                    {/* The backend emits at most one access control warning; its message is the full sentence. */}
+                    {acWarnings.map((warning, index) => (
+                        <div key={index} className="font-semibold">
+                            {warning.message}
+                        </div>
+                    ))}
+                </LemonBanner>
+            )}
+        </>
     )
 }
 
@@ -1019,19 +1055,33 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
 
     return (
         <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')}>
-            <InsightErrorState
-                query={sourceQuery}
-                excludeDetail
-                title={
-                    <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
-                        {error}
-                    </pre>
-                }
-                excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
-                fixWithAIComponent={
-                    <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
-                }
-            />
+            <div className="flex min-h-full flex-col justify-center">
+                <InsightErrorState
+                    query={sourceQuery}
+                    excludeDetail
+                    title={
+                        <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
+                            {error}
+                        </pre>
+                    }
+                    excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
+                    fixWithAIComponent={
+                        <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
+                    }
+                />
+            </div>
+        </div>
+    )
+}
+
+const EmptyResultsState = (): JSX.Element => {
+    return (
+        <div
+            className="flex flex-1 justify-center items-center gap-2 border-t px-4 py-6 text-center"
+            data-attr="sql-editor-output-pane-no-rows-state"
+        >
+            <IconWarning className="text-warning text-lg" />
+            <span className="text-secondary">Query produced no results</span>
         </div>
     )
 }
@@ -1109,29 +1159,36 @@ const Content = ({
                         Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the
                         query.
                     </span>
-                    <MCPUseCaseCard
-                        surfaceKey="sql.execute"
-                        expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                    <WarehouseWizardHint
                         className="max-w-140"
+                        fallback={
+                            <MCPUseCaseCard
+                                surfaceKey="sql.execute"
+                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                                className="max-w-140"
+                            />
+                        }
                     />
                 </div>
             )
         }
 
         return (
-            <div className="absolute inset-0 flex flex-col hide-scrollbar border-t overflow-auto">
-                <SyncWarningsBanner warnings={response?.warnings} />
-                <InternalDataTableVisualization
-                    uniqueKey={vizKey}
-                    query={sourceQuery}
-                    setQuery={setSourceQuery}
-                    context={{}}
-                    cachedResults={undefined}
-                    exportContext={exportContext}
-                    editMode
-                    embedded={isEmbeddedMode}
-                    showSettingsPanel={showVisualizationSettings}
-                />
+            <div className="absolute inset-0 flex flex-col border-t overflow-hidden">
+                <QueryWarningsBanner warnings={response?.warnings} />
+                <div className="flex flex-col flex-1 min-h-0 hide-scrollbar overflow-auto">
+                    <InternalDataTableVisualization
+                        uniqueKey={vizKey}
+                        query={sourceQuery}
+                        setQuery={setSourceQuery}
+                        context={{}}
+                        cachedResults={undefined}
+                        exportContext={exportContext}
+                        editMode
+                        embedded={isEmbeddedMode}
+                        showSettingsPanel={showVisualizationSettings}
+                    />
+                </div>
             </div>
         )
     }
@@ -1163,10 +1220,15 @@ const Content = ({
                     {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
                     statements with <code>;</code> to run them independently.
                 </span>
-                <MCPUseCaseCard
-                    surfaceKey="sql.execute"
-                    expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                <WarehouseWizardHint
                     className="max-w-140"
+                    fallback={
+                        <MCPUseCaseCard
+                            surfaceKey="sql.execute"
+                            expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                            className="max-w-140"
+                        />
+                    }
                 />
             </div>
         )
@@ -1174,16 +1236,22 @@ const Content = ({
 
     if (activeTab === OutputTab.Results) {
         return (
-            <TabScroller data-attr="sql-editor-output-pane-results">
-                <SyncWarningsBanner warnings={response?.warnings} />
-                <DataGrid
-                    className={clsx(isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full', 'ph-no-capture')}
-                    columns={columns}
-                    rows={sortedRows}
-                    sortColumns={sortColumns}
-                    onSortColumnsChange={setSortColumns}
-                />
-            </TabScroller>
+            <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
+                <QueryWarningsBanner warnings={response?.warnings} />
+                {rows.length === 0 ? (
+                    <EmptyResultsState />
+                ) : (
+                    <TabScroller data-attr="sql-editor-output-pane-results">
+                        <DataGrid
+                            className={clsx(isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full', 'ph-no-capture')}
+                            columns={columns}
+                            rows={sortedRows}
+                            sortColumns={sortColumns}
+                            onSortColumnsChange={setSortColumns}
+                        />
+                    </TabScroller>
+                )}
+            </div>
         )
     }
     return null

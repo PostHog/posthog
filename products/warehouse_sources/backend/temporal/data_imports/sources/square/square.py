@@ -25,13 +25,19 @@ SQUARE_HOSTS = {
     "sandbox": "https://connect.squareupsandbox.com",
 }
 
-PAGE_SIZE = 100
+# Square cursors expire ~5 minutes after they're issued, and a cursor is only spent
+# once the previous page has been processed downstream. Smaller pages mean less
+# per-page processing, so each cursor is far more likely to be used inside its TTL —
+# the main driver of the INVALID_CURSOR failures on large streams (e.g. customers).
+PAGE_SIZE = 50
 REQUEST_TIMEOUT_SECONDS = 60
 
-# A Square cursor that outlives its ~5 minute TTL mid-stream forces a full restart.
-# Allow a few restarts so a transient stall during the re-scan doesn't fail the sync,
-# while still bounding the work for a stream that paginates slower than its cursor lives.
-MAX_CURSOR_RESTARTS = 3
+# A Square cursor that outlives its ~5 minute TTL mid-stream forces a restart. Allow a
+# handful so a transient stall during the re-scan doesn't fail the sync, while still
+# bounding the work for a stream that paginates slower than its cursor lives. Endpoints
+# with a server-side time filter resume from the last value seen instead of re-scanning
+# from zero (see get_rows), so this budget mostly protects the full-refresh streams.
+MAX_CURSOR_RESTARTS = 5
 
 
 class SquareRetryableError(Exception):
@@ -99,6 +105,15 @@ def _build_initial_params(
         params[config.time_filter_param] = _format_rfc3339(db_incremental_field_last_value)
 
     return params
+
+
+def _time_filter_field(config: SquareEndpointConfig) -> Optional[str]:
+    """The record field that ``time_filter_param`` filters on, or ``None`` when the
+    endpoint has no server-side time filter. Used to seed a restart from the last value
+    seen so an expired cursor resumes mid-stream instead of re-scanning from the start."""
+    if not config.time_filter_param or not config.incremental_fields:
+        return None
+    return config.incremental_fields[0]["field"]
 
 
 def validate_credentials(access_token: str, environment: str, schema_name: Optional[str] = None) -> tuple[bool, bool]:
@@ -173,6 +188,11 @@ def get_rows(
 
         return response.json()
 
+    # The record field the server-side time filter applies to (e.g. created_at), if any.
+    # Tracked so a restart can resume from the last value seen rather than from zero.
+    time_field = _time_filter_field(config)
+    last_seen_value: Optional[str] = None
+
     restarts_remaining = MAX_CURSOR_RESTARTS
     while True:
         # Square encodes the original query in the cursor, so subsequent pages are
@@ -181,15 +201,24 @@ def get_rows(
         try:
             data = fetch_page(params)
         except SquareInvalidCursorError:
-            # An expired cursor can't be recovered by retrying it, so restart the
-            # stream from the beginning (merge dedupes on the primary key). A cursor-less
-            # initial request can't trigger this error, so a rejection there signals a
-            # malformed query rather than expiry — surface it instead of looping. The
-            # restart budget bounds the work when a stream keeps outliving its cursor.
+            # An expired cursor can't be recovered by retrying it, so restart the stream
+            # (merge dedupes on the primary key). A cursor-less initial request can't
+            # trigger this error, so a rejection there signals a malformed query rather
+            # than expiry — surface it instead of looping. The restart budget bounds the
+            # work when a stream keeps outliving its cursor.
             if cursor is None or restarts_remaining <= 0:
                 raise
             restarts_remaining -= 1
-            logger.warning(f"Square: cursor for {endpoint} was rejected, restarting stream from the beginning")
+            cursor = None
+            # On an endpoint with a server-side time filter, resume from the last value
+            # we saw so the restart re-scans only the unfinished tail rather than the
+            # whole stream — otherwise it just hits the same ~5 min TTL wall again.
+            # Endpoints without one (e.g. customers) fall back to a full restart.
+            if time_field is not None and last_seen_value is not None and config.time_filter_param is not None:
+                initial_params = {**initial_params, config.time_filter_param: _format_rfc3339(last_seen_value)}
+                logger.warning(f"Square: cursor for {endpoint} was rejected, resuming from last seen {time_field}")
+            else:
+                logger.warning(f"Square: cursor for {endpoint} was rejected, restarting stream from the beginning")
             # Overwrite the stale cursor in the resume store now. Otherwise, if the
             # restart finishes within a single page (no fresh next_cursor to save),
             # the expired cursor lingers until its TTL and every later sync re-scans
@@ -197,7 +226,6 @@ def get_rows(
             # from the start rather than replaying the bad value.
             if config.paginated:
                 resumable_source_manager.save_state(SquareResumeConfig(cursor=""))
-            cursor = None
             continue
 
         items = data.get(config.data_key, [])
@@ -205,6 +233,12 @@ def get_rows(
 
         if items:
             yield items
+            # Advance the time watermark so a later cursor expiry can resume from here.
+            if time_field is not None:
+                for item in items:
+                    value = item.get(time_field)
+                    if isinstance(value, str) and (last_seen_value is None or value > last_seen_value):
+                        last_seen_value = value
             # Save state only after yielding, so a crash re-yields the last batch
             # rather than skipping it (merge dedupes on the primary key). No point
             # persisting a cursor for non-paginated endpoints — there's nothing to

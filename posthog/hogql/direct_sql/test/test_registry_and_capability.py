@@ -19,12 +19,12 @@ class TestDirectSQLRegistry(SimpleTestCase):
         self.assertIsInstance(get_adapter("postgres"), PostgresAdapter)
         self.assertIsInstance(get_adapter("mysql"), MySQLAdapter)
 
-    @parameterized.expand([("none", None), ("unregistered", "snowflake")])
+    @parameterized.expand([("none", None), ("unregistered", "bigquery")])
     def test_get_adapter_returns_none_for_unknown_engine(self, _name, engine):
         self.assertIsNone(get_adapter(engine))
 
     def test_registered_engines_includes_phase_one_engines(self):
-        self.assertEqual({"postgres", "mysql"}, set(registered_engines()))
+        self.assertEqual({"postgres", "mysql", "snowflake"}, set(registered_engines()))
 
     def test_register_adapter_round_trips(self):
         class FakeAdapter:
@@ -45,6 +45,7 @@ class TestDirectSQLCapability(SimpleTestCase):
             ("postgres_synced_enabled", ExternalDataSourceType.POSTGRES, "warehouse", True, True),
             ("postgres_synced_disabled", ExternalDataSourceType.POSTGRES, "warehouse", False, False),
             ("mysql_synced_enabled", ExternalDataSourceType.MYSQL, "warehouse", True, True),
+            ("snowflake_direct_ignores_toggle", ExternalDataSourceType.SNOWFLAKE, "direct", False, True),
             ("unmapped_engine_synced", ExternalDataSourceType.STRIPE, "warehouse", True, False),
             ("unmapped_engine_direct", ExternalDataSourceType.STRIPE, "direct", True, False),
         ]
@@ -59,6 +60,6 @@ class TestDirectSQLCapability(SimpleTestCase):
 
     def test_direct_capable_source_types(self):
         self.assertEqual(
-            {ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL},
+            {ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL, ExternalDataSourceType.SNOWFLAKE},
             set(direct_capable_source_types()),
         )

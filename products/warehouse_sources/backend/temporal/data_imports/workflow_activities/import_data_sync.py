@@ -217,7 +217,15 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             )
 
             new_source = SourceRegistry.get_source(source_type)
-            config = new_source.parse_config(model.pipeline.job_inputs)
+
+            try:
+                config = new_source.parse_config(model.pipeline.job_inputs)
+            except Exception as e:
+                # A stored config that can't be parsed (corrupt or double-encoded `job_inputs`)
+                # fails identically on every attempt — there is nothing to retry. Treat it as
+                # non-retryable so the job gives up cleanly instead of crash-looping and spamming
+                # error tracking. Mirrors the skip in `sync_new_schemas_activity`.
+                await handle_non_retryable_error(job_inputs, str(e), logger, e)
 
             resumable_source_manager: ResumableSourceManager | None = None
             try:
@@ -245,7 +253,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 # schema now. The schedule is unpaused if the schema transitions back
                 # to snapshot mode (e.g., after a TRUNCATE or re-enable after grace period).
                 try:
-                    from products.data_warehouse.backend.logic.data_load.service import pause_external_data_schedule
+                    from products.data_warehouse.backend.facade.api import pause_external_data_schedule
 
                     await database_sync_to_async_pool(pause_external_data_schedule)(str(inputs.schema_id))
                     await logger.ainfo("Paused per-schema schedule for CDC streaming schema")

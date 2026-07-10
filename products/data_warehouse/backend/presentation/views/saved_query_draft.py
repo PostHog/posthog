@@ -2,8 +2,7 @@ from rest_framework import pagination, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft
 
 
 class DataWarehouseSavedQueryDraftPagination(pagination.LimitOffsetPagination):

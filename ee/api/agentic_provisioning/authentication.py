@@ -16,6 +16,7 @@ from rest_framework.request import Request
 
 from posthog.api.oauth.cimd import (
     apply_provisioning_defaults,
+    enqueue_cimd_refresh_if_stale,
     get_application_by_client_id,
     is_cimd_client_id,
     is_cimd_registration_in_progress,
@@ -147,6 +148,21 @@ class ProvisioningAuthentication(BaseAuthentication):
 
             app = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
             if app is not None:
+                # The raw lookup above bypasses get_or_create_cimd_application, so the
+                # CIMD document's TTL-based refresh never fires on this path. Enqueue it
+                # here so edits to live metadata (scope ceiling, redirect_uris, config)
+                # propagate instead of freezing at first registration. Refresh stays
+                # async; this request still serves the existing app.
+                try:
+                    enqueue_cimd_refresh_if_stale(client_id)
+                except Exception as e:
+                    logger.warning(
+                        "provisioning_cimd_refresh_enqueue_error",
+                        client_id=client_id,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+
                 try:
                     if not app.is_provisioning_partner:
                         apply_provisioning_defaults(app)

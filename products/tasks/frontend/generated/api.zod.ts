@@ -20,6 +20,51 @@ export const CodeInvitesRedeemCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create a draft custom image and start its interactive image-builder agent task. The returned builder_task_id points at the conversation.
+ */
+export const sandboxCustomImagesCreateBodyNameMax = 255
+
+export const sandboxCustomImagesCreateBodyDescriptionDefault = ``
+export const sandboxCustomImagesCreateBodyRepositoryMax = 255
+
+export const sandboxCustomImagesCreateBodyPrivateDefault = false
+
+export const SandboxCustomImagesCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(sandboxCustomImagesCreateBodyNameMax).describe('Display name for the custom image.'),
+        description: zod
+            .string()
+            .default(sandboxCustomImagesCreateBodyDescriptionDefault)
+            .describe('What should go into the image; seeds the image-builder agent conversation.'),
+        repository: zod
+            .string()
+            .max(sandboxCustomImagesCreateBodyRepositoryMax)
+            .nullish()
+            .describe(
+                "Optional 'org\/repo' the builder session clones so it can verify the image brings up that repository's dependencies."
+            ),
+        private: zod
+            .boolean()
+            .default(sandboxCustomImagesCreateBodyPrivateDefault)
+            .describe('If true, only you can see and use this image; otherwise the whole team can.'),
+    })
+    .describe('Request body for creating a custom sandbox base image.')
+
+/**
+ * Persist the image spec (from the request body or the builder agent's sandbox), run the security scan, and on pass build and publish the image.
+ */
+export const SandboxCustomImagesBuildCreateBody = /* @__PURE__ */ zod
+    .object({
+        spec_yaml: zod
+            .string()
+            .nullish()
+            .describe(
+                "Image spec YAML to build. When omitted, the spec is read from the builder agent's live sandbox."
+            ),
+    })
+    .describe('Request body for scanning and building a custom sandbox base image.')
+
+/**
  * API for managing sandbox environments that control network access for task runs.
  */
 export const sandboxCreateBodyNameMax = 255
@@ -62,6 +107,12 @@ export const SandboxCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(sandboxCreateBodyPrivateDefault)
             .describe('If true, only the creator can see this environment; otherwise the whole team can.'),
+        custom_image_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "Custom base image for this environment's sandboxes (Modal VM runtime only); null uses the default base."
+            ),
     })
     .describe('Request body for creating or updating a sandbox environment.')
 
@@ -112,6 +163,12 @@ export const SandboxPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .default(sandboxPartialUpdateBodyPrivateDefault)
             .describe('If true, only the creator can see this environment; otherwise the whole team can.'),
+        custom_image_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "Custom base image for this environment's sandboxes (Modal VM runtime only); null uses the default base."
+            ),
     })
     .describe('Request body for creating or updating a sandbox environment.')
 
@@ -223,6 +280,39 @@ export const TaskAutomationsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for creating or updating a task automation.')
 
 /**
+ * Returns the existing public channel with the (normalized) name, creating it if needed.
+ * @summary Resolve or create a public channel
+ */
+export const taskChannelsCreateBodyNameMax = 128
+
+export const TaskChannelsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(taskChannelsCreateBodyNameMax)
+            .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+    })
+    .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
+
+/**
+ * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
+ * provisions the requester's personal "#me" channel; creation is resolve-or-create
+ * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * @summary Rename a public channel
+ */
+export const taskChannelsPartialUpdateBodyNameMax = 128
+
+export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(taskChannelsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+    })
+    .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
+
+/**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
 export const tasksCreateBodyTitleMax = 255
@@ -230,6 +320,8 @@ export const tasksCreateBodyTitleMax = 255
 export const tasksCreateBodyRepositoryMax = 255
 
 export const tasksCreateBodyBranchMax = 255
+
+export const tasksCreateBodyPendingUserArtifactIdsItemMax = 128
 
 export const TasksCreateBody = /* @__PURE__ */ zod
     .object({
@@ -248,6 +340,7 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
         origin_product: zod
             .enum([
+                'onboarding',
                 'error_tracking',
                 'eval_clusters',
                 'user_created',
@@ -256,16 +349,19 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'support_queue',
                 'session_summaries',
                 'posthog_ai',
+                'experiments',
                 'signal_report',
                 'signals_scout',
                 'support_reply',
+                'hogdesk',
+                'image_builder',
             ])
             .describe(
-                '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -300,25 +396,49 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
             ),
         runtime_adapter: zod
-            .enum(['claude', 'codex'])
-            .describe('\* `claude` - claude\n\* `codex` - codex')
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
             .optional()
             .describe(
                 "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
             ),
         model: zod
             .string()
-            .optional()
+            .nullish()
             .describe(
                 'Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.'
             ),
         reasoning_effort: zod
-            .enum(['low', 'medium', 'high', 'xhigh', 'max'])
-            .describe('\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max')
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                    ),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
             ),
+        pending_user_message: zod
+            .string()
+            .nullish()
+            .describe(
+                'First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.'
+            ),
+        pending_user_artifact_ids: zod
+            .array(zod.string().max(tasksCreateBodyPendingUserArtifactIdsItemMax))
+            .optional()
+            .describe(
+                "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched."
+            ),
+        auto_publish: zod
+            .boolean()
+            .nullish()
+            .describe(
+                "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
+            ),
+        channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
     })
     .describe(
         'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
@@ -332,6 +452,8 @@ export const tasksUpdateBodyTitleMax = 255
 export const tasksUpdateBodyRepositoryMax = 255
 
 export const tasksUpdateBodyBranchMax = 255
+
+export const tasksUpdateBodyPendingUserArtifactIdsItemMax = 128
 
 export const TasksUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -350,6 +472,7 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
         origin_product: zod
             .enum([
+                'onboarding',
                 'error_tracking',
                 'eval_clusters',
                 'user_created',
@@ -358,16 +481,19 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'support_queue',
                 'session_summaries',
                 'posthog_ai',
+                'experiments',
                 'signal_report',
                 'signals_scout',
                 'support_reply',
+                'hogdesk',
+                'image_builder',
             ])
             .describe(
-                '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -402,25 +528,49 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
             ),
         runtime_adapter: zod
-            .enum(['claude', 'codex'])
-            .describe('\* `claude` - claude\n\* `codex` - codex')
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
             .optional()
             .describe(
                 "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
             ),
         model: zod
             .string()
-            .optional()
+            .nullish()
             .describe(
                 'Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.'
             ),
         reasoning_effort: zod
-            .enum(['low', 'medium', 'high', 'xhigh', 'max'])
-            .describe('\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max')
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                    ),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
             ),
+        pending_user_message: zod
+            .string()
+            .nullish()
+            .describe(
+                'First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.'
+            ),
+        pending_user_artifact_ids: zod
+            .array(zod.string().max(tasksUpdateBodyPendingUserArtifactIdsItemMax))
+            .optional()
+            .describe(
+                "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched."
+            ),
+        auto_publish: zod
+            .boolean()
+            .nullish()
+            .describe(
+                "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
+            ),
+        channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
     })
     .describe(
         'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
@@ -434,6 +584,8 @@ export const tasksPartialUpdateBodyTitleMax = 255
 export const tasksPartialUpdateBodyRepositoryMax = 255
 
 export const tasksPartialUpdateBodyBranchMax = 255
+
+export const tasksPartialUpdateBodyPendingUserArtifactIdsItemMax = 128
 
 export const TasksPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -452,6 +604,7 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
         origin_product: zod
             .enum([
+                'onboarding',
                 'error_tracking',
                 'eval_clusters',
                 'user_created',
@@ -460,16 +613,19 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'support_queue',
                 'session_summaries',
                 'posthog_ai',
+                'experiments',
                 'signal_report',
                 'signals_scout',
                 'support_reply',
+                'hogdesk',
+                'image_builder',
             ])
             .describe(
-                '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -504,25 +660,49 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
             ),
         runtime_adapter: zod
-            .enum(['claude', 'codex'])
-            .describe('\* `claude` - claude\n\* `codex` - codex')
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
             .optional()
             .describe(
                 "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
             ),
         model: zod
             .string()
-            .optional()
+            .nullish()
             .describe(
                 'Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.'
             ),
         reasoning_effort: zod
-            .enum(['low', 'medium', 'high', 'xhigh', 'max'])
-            .describe('\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max')
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                    ),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
             ),
+        pending_user_message: zod
+            .string()
+            .nullish()
+            .describe(
+                'First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.'
+            ),
+        pending_user_artifact_ids: zod
+            .array(zod.string().max(tasksPartialUpdateBodyPendingUserArtifactIdsItemMax))
+            .optional()
+            .describe(
+                "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched."
+            ),
+        auto_publish: zod
+            .boolean()
+            .nullish()
+            .describe(
+                "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
+            ),
+        channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
     })
     .describe(
         'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
@@ -592,12 +772,24 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .uuid()
                 .optional()
                 .describe('Optional sandbox environment to apply for this cloud run.'),
+            custom_image_id: zod
+                .uuid()
+                .optional()
+                .describe(
+                    "Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image."
+                ),
             pr_authorship_mode: zod
                 .enum(['user', 'bot'])
                 .describe('\* `user` - user\n\* `bot` - bot')
                 .optional()
                 .describe(
                     'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
+                ),
+            auto_publish: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.'
                 ),
             run_source: zod
                 .enum(['manual', 'signal_report'])
@@ -639,6 +831,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     'Initial permission mode for Claude runtimes.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto'
                 ),
+            rtk_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
+                ),
         })
         .describe('Request body for creating a new task run'),
     zod
@@ -671,12 +869,24 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .uuid()
                 .optional()
                 .describe('Optional sandbox environment to apply for this cloud run.'),
+            custom_image_id: zod
+                .uuid()
+                .optional()
+                .describe(
+                    "Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image."
+                ),
             pr_authorship_mode: zod
                 .enum(['user', 'bot'])
                 .describe('\* `user` - user\n\* `bot` - bot')
                 .optional()
                 .describe(
                     'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
+                ),
+            auto_publish: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.'
                 ),
             run_source: zod
                 .enum(['manual', 'signal_report'])
@@ -710,11 +920,19 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                     'Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
                 ),
             initial_permission_mode: zod
-                .enum(['auto', 'read-only', 'full-access'])
-                .describe('\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access')
+                .enum(['plan', 'auto', 'read-only', 'full-access'])
+                .describe(
+                    '\* `plan` - plan\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                )
                 .optional()
                 .describe(
-                    'Initial permission mode for Codex runtimes.\n\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                    'Initial permission mode for Codex runtimes.\n\n\* `plan` - plan\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                ),
+            rtk_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
                 ),
         })
         .describe('Request body for creating a new task run'),
@@ -743,6 +961,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
             .uuid()
             .optional()
             .describe('Optional sandbox environment to apply for this cloud run.'),
+        custom_image_id: zod
+            .uuid()
+            .optional()
+            .describe(
+                "Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image."
+            ),
         pr_authorship_mode: zod
             .enum(['user', 'bot'])
             .describe('\* `user` - user\n\* `bot` - bot')
@@ -783,6 +1007,12 @@ export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemStoragePat
 
 export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemContentTypeMax = 255
 
+export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSkillNameMax = 255
+
+export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp(
+    '^[a-f0-9]{64}$'
+)
+
 export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -793,12 +1023,21 @@ export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.
                     .max(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemNameMax)
                     .describe('File name associated with the staged artifact'),
                 type: zod
-                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
+                    .enum([
+                        'plan',
+                        'context',
+                        'reference',
+                        'output',
+                        'artifact',
+                        'tree_snapshot',
+                        'user_attachment',
+                        'skill_bundle',
+                    ])
                     .describe(
-                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     )
                     .describe(
-                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     ),
                 source: zod
                     .string()
@@ -814,6 +1053,37 @@ export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.
                     .max(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemContentTypeMax)
                     .optional()
                     .describe('Optional MIME type recorded for the artifact'),
+                metadata: zod
+                    .object({
+                        skill_name: zod
+                            .string()
+                            .max(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .describe('Name of the local skill included in a skill_bundle artifact.'),
+                        skill_source: zod
+                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .describe(
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            )
+                            .describe(
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            ),
+                        content_sha256: zod
+                            .string()
+                            .regex(
+                                tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp
+                            )
+                            .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
+                        bundle_format: zod
+                            .enum(['zip'])
+                            .describe('\* `zip` - zip')
+                            .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
+                        schema_version: zod
+                            .number()
+                            .min(1)
+                            .describe('Version of the local skill bundle metadata schema.'),
+                    })
+                    .optional()
+                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
             })
         )
         .describe('Array of staged artifacts to finalize after upload'),
@@ -832,6 +1102,12 @@ export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemSizeMax = 3
 
 export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemContentTypeMax = 255
 
+export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSkillNameMax = 255
+
+export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp(
+    '^[a-f0-9]{64}$'
+)
+
 export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -841,12 +1117,21 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
                     .max(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemNameMax)
                     .describe('File name to associate with the staged artifact'),
                 type: zod
-                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
+                    .enum([
+                        'plan',
+                        'context',
+                        'reference',
+                        'output',
+                        'artifact',
+                        'tree_snapshot',
+                        'user_attachment',
+                        'skill_bundle',
+                    ])
                     .describe(
-                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     )
                     .describe(
-                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     ),
                 source: zod
                     .string()
@@ -863,6 +1148,37 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
                     .max(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemContentTypeMax)
                     .optional()
                     .describe('Optional MIME type for the artifact upload'),
+                metadata: zod
+                    .object({
+                        skill_name: zod
+                            .string()
+                            .max(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .describe('Name of the local skill included in a skill_bundle artifact.'),
+                        skill_source: zod
+                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .describe(
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            )
+                            .describe(
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            ),
+                        content_sha256: zod
+                            .string()
+                            .regex(
+                                tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp
+                            )
+                            .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
+                        bundle_format: zod
+                            .enum(['zip'])
+                            .describe('\* `zip` - zip')
+                            .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
+                        schema_version: zod
+                            .number()
+                            .min(1)
+                            .describe('Version of the local skill bundle metadata schema.'),
+                    })
+                    .optional()
+                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
             })
         )
         .describe('Array of staged artifacts to prepare before creating a run'),
@@ -903,12 +1219,24 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .uuid()
             .optional()
             .describe('Optional sandbox environment to apply for this cloud run.'),
+        custom_image_id: zod
+            .uuid()
+            .optional()
+            .describe(
+                "Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image."
+            ),
         pr_authorship_mode: zod
             .enum(['user', 'bot'])
             .describe('\* `user` - user\n\* `bot` - bot')
             .optional()
             .describe(
                 'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
+            ),
+        auto_publish: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.'
             ),
         run_source: zod
             .enum(['manual', 'signal_report'])
@@ -947,7 +1275,13 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+                "Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+            ),
+        rtk_enabled: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
             ),
         home_quick_action: zod
             .string()
@@ -1011,6 +1345,10 @@ export const tasksRunsArtifactsCreateBodyArtifactsItemSourceMax = 64
 export const tasksRunsArtifactsCreateBodyArtifactsItemContentEncodingDefault = `utf-8`
 export const tasksRunsArtifactsCreateBodyArtifactsItemContentTypeMax = 255
 
+export const tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneSkillNameMax = 255
+
+export const tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp('^[a-f0-9]{64}$')
+
 export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -1020,12 +1358,21 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                     .max(tasksRunsArtifactsCreateBodyArtifactsItemNameMax)
                     .describe('File name to associate with the artifact'),
                 type: zod
-                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
+                    .enum([
+                        'plan',
+                        'context',
+                        'reference',
+                        'output',
+                        'artifact',
+                        'tree_snapshot',
+                        'user_attachment',
+                        'skill_bundle',
+                    ])
                     .describe(
-                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     )
                     .describe(
-                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     ),
                 source: zod
                     .string()
@@ -1045,6 +1392,35 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                     .max(tasksRunsArtifactsCreateBodyArtifactsItemContentTypeMax)
                     .optional()
                     .describe('Optional MIME type for the artifact'),
+                metadata: zod
+                    .object({
+                        skill_name: zod
+                            .string()
+                            .max(tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .describe('Name of the local skill included in a skill_bundle artifact.'),
+                        skill_source: zod
+                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .describe(
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            )
+                            .describe(
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            ),
+                        content_sha256: zod
+                            .string()
+                            .regex(tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneContentSha256RegExp)
+                            .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
+                        bundle_format: zod
+                            .enum(['zip'])
+                            .describe('\* `zip` - zip')
+                            .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
+                        schema_version: zod
+                            .number()
+                            .min(1)
+                            .describe('Version of the local skill bundle metadata schema.'),
+                    })
+                    .optional()
+                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
             })
         )
         .describe('Array of artifacts to upload'),
@@ -1076,6 +1452,12 @@ export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemStoragePathM
 
 export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemContentTypeMax = 255
 
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSkillNameMax = 255
+
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp(
+    '^[a-f0-9]{64}$'
+)
+
 export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -1086,12 +1468,21 @@ export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.ob
                     .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemNameMax)
                     .describe('File name associated with the artifact'),
                 type: zod
-                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
+                    .enum([
+                        'plan',
+                        'context',
+                        'reference',
+                        'output',
+                        'artifact',
+                        'tree_snapshot',
+                        'user_attachment',
+                        'skill_bundle',
+                    ])
                     .describe(
-                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     )
                     .describe(
-                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     ),
                 source: zod
                     .string()
@@ -1107,6 +1498,37 @@ export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.ob
                     .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemContentTypeMax)
                     .optional()
                     .describe('Optional MIME type recorded for the artifact'),
+                metadata: zod
+                    .object({
+                        skill_name: zod
+                            .string()
+                            .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .describe('Name of the local skill included in a skill_bundle artifact.'),
+                        skill_source: zod
+                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .describe(
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            )
+                            .describe(
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            ),
+                        content_sha256: zod
+                            .string()
+                            .regex(
+                                tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp
+                            )
+                            .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
+                        bundle_format: zod
+                            .enum(['zip'])
+                            .describe('\* `zip` - zip')
+                            .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
+                        schema_version: zod
+                            .number()
+                            .min(1)
+                            .describe('Version of the local skill bundle metadata schema.'),
+                    })
+                    .optional()
+                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
             })
         )
         .describe('Array of uploaded artifacts to finalize'),
@@ -1125,6 +1547,12 @@ export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemSizeMax = 314
 
 export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemContentTypeMax = 255
 
+export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSkillNameMax = 255
+
+export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp(
+    '^[a-f0-9]{64}$'
+)
+
 export const TasksRunsArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -1134,12 +1562,21 @@ export const TasksRunsArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.obj
                     .max(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemNameMax)
                     .describe('File name to associate with the artifact'),
                 type: zod
-                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
+                    .enum([
+                        'plan',
+                        'context',
+                        'reference',
+                        'output',
+                        'artifact',
+                        'tree_snapshot',
+                        'user_attachment',
+                        'skill_bundle',
+                    ])
                     .describe(
-                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        '\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     )
                     .describe(
-                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment'
+                        'Classification for the artifact\n\n\* `plan` - plan\n\* `context` - context\n\* `reference` - reference\n\* `output` - output\n\* `artifact` - artifact\n\* `tree_snapshot` - tree_snapshot\n\* `user_attachment` - user_attachment\n\* `skill_bundle` - skill_bundle'
                     ),
                 source: zod
                     .string()
@@ -1156,6 +1593,35 @@ export const TasksRunsArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.obj
                     .max(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemContentTypeMax)
                     .optional()
                     .describe('Optional MIME type for the artifact upload'),
+                metadata: zod
+                    .object({
+                        skill_name: zod
+                            .string()
+                            .max(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .describe('Name of the local skill included in a skill_bundle artifact.'),
+                        skill_source: zod
+                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .describe(
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            )
+                            .describe(
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            ),
+                        content_sha256: zod
+                            .string()
+                            .regex(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp)
+                            .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
+                        bundle_format: zod
+                            .enum(['zip'])
+                            .describe('\* `zip` - zip')
+                            .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
+                        schema_version: zod
+                            .number()
+                            .min(1)
+                            .describe('Version of the local skill bundle metadata schema.'),
+                    })
+                    .optional()
+                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
             })
         )
         .describe('Array of artifacts to prepare'),
@@ -1203,8 +1669,17 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
  */
 export const tasksRunsRelayMessageCreateBodyTextMax = 10000
 
+export const tasksRunsRelayMessageCreateBodyTextPartsItemMax = 10000
+
 export const TasksRunsRelayMessageCreateBody = /* @__PURE__ */ zod.object({
-    text: zod.string().max(tasksRunsRelayMessageCreateBodyTextMax),
+    text: zod
+        .string()
+        .max(tasksRunsRelayMessageCreateBodyTextMax)
+        .describe('Joined message body. Used when text_parts is absent.'),
+    text_parts: zod
+        .array(zod.string().max(tasksRunsRelayMessageCreateBodyTextPartsItemMax))
+        .optional()
+        .describe('Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.'),
 })
 
 /**
@@ -1236,6 +1711,177 @@ export const TasksRunsStartCreateBody = /* @__PURE__ */ zod.object({
             'Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox.'
         ),
 })
+
+/**
+ * Create a stable, editable artifact handle from direct markdown/text content or an existing run artifact. Slack adapters deliver into the mapped Slack thread; document artifacts use external connector storage when available.
+ * @summary Create a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsCreateBodyNameMax = 255
+
+export const tasksRunsLivingArtifactsCreateBodyArtifactTypeDefault = `document`
+export const tasksRunsLivingArtifactsCreateBodyContentMax = 500000
+
+export const tasksRunsLivingArtifactsCreateBodyContentTypeMax = 255
+
+export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tasksRunsLivingArtifactsCreateBodyNameMax)
+        .describe('Human-readable artifact name, used as the title.'),
+    artifact_type: zod
+        .enum(['slack_message', 'slack_canvas', 'document', 'spreadsheet', 'dashboard', 'file', 'github_pr'])
+        .describe(
+            '\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `document` - document\n\* `spreadsheet` - spreadsheet\n\* `dashboard` - dashboard\n\* `file` - file\n\* `github_pr` - github_pr'
+        )
+        .default(tasksRunsLivingArtifactsCreateBodyArtifactTypeDefault)
+        .describe(
+            'Artifact format or delivery surface to create, such as document, spreadsheet, slack_canvas, or file.\n\n\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `document` - document\n\* `spreadsheet` - spreadsheet\n\* `dashboard` - dashboard\n\* `file` - file\n\* `github_pr` - github_pr'
+        ),
+    adapter: zod
+        .enum(['slack_message', 'slack_canvas', 'slack_file', 'document_connector', 'github_pr'])
+        .describe(
+            '\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `slack_file` - slack_file\n\* `document_connector` - document_connector\n\* `github_pr` - github_pr'
+        )
+        .optional()
+        .describe(
+            'Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.\n\n\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `slack_file` - slack_file\n\* `document_connector` - document_connector\n\* `github_pr` - github_pr'
+        ),
+    content: zod
+        .string()
+        .max(tasksRunsLivingArtifactsCreateBodyContentMax)
+        .optional()
+        .describe('Markdown or text content for the initial artifact version.'),
+    content_base64: zod
+        .string()
+        .optional()
+        .describe(
+            'Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts.'
+        ),
+    content_type: zod
+        .string()
+        .max(tasksRunsLivingArtifactsCreateBodyContentTypeMax)
+        .optional()
+        .describe(
+            'MIME type for content_base64 or source-backed artifacts, such as application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet.'
+        ),
+    source_artifact_id: zod
+        .string()
+        .optional()
+        .describe('Existing run artifact id to use as the initial content source.'),
+    source_storage_path: zod
+        .string()
+        .optional()
+        .describe('Existing run artifact storage_path to use as the initial content source.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Optional metadata to persist with the living artifact.'),
+})
+
+/**
+ * Commit a new version to an existing living artifact handle.
+ * @summary Edit a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsEditBodyNameMax = 255
+
+export const tasksRunsLivingArtifactsEditBodyContentMax = 500000
+
+export const tasksRunsLivingArtifactsEditBodyContentTypeMax = 255
+
+export const TasksRunsLivingArtifactsEditBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tasksRunsLivingArtifactsEditBodyNameMax)
+        .optional()
+        .describe('Optional new human-readable artifact name.'),
+    content: zod
+        .string()
+        .max(tasksRunsLivingArtifactsEditBodyContentMax)
+        .optional()
+        .describe('Markdown or text content for the next version.'),
+    content_base64: zod
+        .string()
+        .optional()
+        .describe('Base64-encoded binary content for the next version, used by adapters such as slack_file.'),
+    content_type: zod
+        .string()
+        .max(tasksRunsLivingArtifactsEditBodyContentTypeMax)
+        .optional()
+        .describe('MIME type for content_base64 or source-backed edits.'),
+    source_artifact_id: zod
+        .string()
+        .optional()
+        .describe('Existing run artifact id to use as the next version content source.'),
+    source_storage_path: zod
+        .string()
+        .optional()
+        .describe('Existing run artifact storage_path to use as the next version content source.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Optional metadata to merge into the artifact registry record.'),
+})
+
+/**
+ * API for a task's thread — the human-only side conversation around a task. Messages
+ * reach the agent only via the explicit send_to_agent action, gated to the task author.
+ * @summary Post a thread message
+ */
+export const TasksThreadMessagesCreateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod.string().describe('Message text.'),
+    })
+    .describe('Request body for posting a thread message.')
+
+/**
+ * Task author only: forwards the message into the task's latest live run.
+ * @summary Send a thread message to the agent
+ */
+export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
+    .object({
+        id: zod.uuid(),
+        task: zod.uuid(),
+        content: zod.string(),
+        created_at: zod.iso.datetime({ offset: true }),
+        author: zod
+            .union([
+                zod
+                    .object({
+                        id: zod.number(),
+                        uuid: zod.uuid(),
+                        distinct_id: zod.string(),
+                        first_name: zod.string(),
+                        last_name: zod.string(),
+                        email: zod.string(),
+                        is_email_verified: zod.boolean().nullish(),
+                        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                        role_at_organization: zod.string().nullish(),
+                    })
+                    .describe('Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.'),
+                zod.null(),
+            ])
+            .optional(),
+        forwarded_to_agent_at: zod.iso.datetime({ offset: true }).nullish(),
+        forwarded_by: zod
+            .union([
+                zod
+                    .object({
+                        id: zod.number(),
+                        uuid: zod.uuid(),
+                        distinct_id: zod.string(),
+                        first_name: zod.string(),
+                        last_name: zod.string(),
+                        email: zod.string(),
+                        is_email_verified: zod.boolean().nullish(),
+                        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                        role_at_organization: zod.string().nullish(),
+                    })
+                    .describe('Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.'),
+                zod.null(),
+            ])
+            .optional(),
+    })
+    .describe("Response shape for one message in a task's thread.")
 
 /**
  * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
@@ -1275,21 +1921,26 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
                 "Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted."
             ),
         runtime_adapter: zod
-            .enum(['claude', 'codex'])
-            .describe('\* `claude` - claude\n\* `codex` - codex')
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
             .optional()
             .describe(
                 "Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the agent on this runtime so a matching submit reuses it; a submit selecting a different runtime falls through to a cold Run instead of reusing a mismatched warm session.\n\n\* `claude` - claude\n\* `codex` - codex"
             ),
         model: zod
             .string()
-            .optional()
+            .nullish()
             .describe(
                 "LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run."
             ),
         reasoning_effort: zod
-            .enum(['low', 'medium', 'high', 'xhigh', 'max'])
-            .describe('\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max')
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                    ),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'Reasoning effort to warm the sandbox on for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'

@@ -16,6 +16,7 @@ use crate::observability::metrics::{
     COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_SKIPPED_LEAVES,
 };
 use crate::stage1::key::LeafStateKey;
+use crate::stage1::person_record::CatalogFingerprint;
 use crate::stage1::pick_state::{
     effective_window_days, pick_state_variant, EvictionWindow, PredicateOp,
 };
@@ -47,7 +48,18 @@ pub struct TeamFilters {
     pub by_lsk: HashMap<LeafStateKey, LeafStateMeta>,
     /// conditionHashes whose leaves are behavioral. Disjoint from person-property conditions.
     pub behavioral_conditions: HashSet<[u8; 16]>,
+    /// Event name → the behavioral conditionHashes whose bytecode roots at `event == <name>`; the
+    /// fan-out gate evaluates only the incoming event's bucket.
+    pub behavioral_by_event_name: HashMap<String, Vec<[u8; 16]>>,
     pub person_property_conditions: HashSet<[u8; 16]>,
+    /// `person_property_conditions` sorted — the stable order the person record's catalog fingerprint
+    /// is computed over.
+    pub person_conditions_ordered: Vec<[u8; 16]>,
+    /// SHA-256 over `person_conditions_ordered`, computed once at freeze. A content fingerprint of the
+    /// team's person conditions: a stored [`PersonRecord`](crate::stage1::PersonRecord) whose catalog
+    /// fingerprint matches this needs no re-evaluation, and a no-op catalog refresh (same conditions)
+    /// leaves it unchanged, so records are not needlessly invalidated.
+    pub catalog_fingerprint: CatalogFingerprint,
     /// `LeafStateKey → [CohortId]` for single-leaf cohorts.
     pub by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
     /// `LeafStateKey → [CohortId]` for `Stage2Composable` cohorts.
@@ -73,7 +85,11 @@ impl Default for TeamFilters {
             unique_condition_hashes: HashSet::new(),
             by_lsk: HashMap::new(),
             behavioral_conditions: HashSet::new(),
+            behavioral_by_event_name: HashMap::new(),
             person_property_conditions: HashSet::new(),
+            person_conditions_ordered: Vec::new(),
+            // Fingerprint of the empty condition set, matching a `freeze` of no person conditions.
+            catalog_fingerprint: CatalogFingerprint::of_sorted(&[]),
             by_lsk_to_single_leaf_cohorts: HashMap::new(),
             by_lsk_to_composable_cohorts: HashMap::new(),
             by_referenced_cohort: HashMap::new(),
@@ -163,6 +179,7 @@ impl TeamFiltersBuilder {
     pub fn freeze_with(self, timezone: Tz, cascade_enabled: bool) -> TeamFilters {
         let mut by_lsk = HashMap::new();
         let mut behavioral_conditions = HashSet::new();
+        let mut behavioral_by_event_name: HashMap<String, HashSet<[u8; 16]>> = HashMap::new();
         let mut person_property_conditions = HashSet::new();
 
         let mut eligibility: HashMap<CohortId, CohortEligibility> = HashMap::new();
@@ -171,6 +188,7 @@ impl TeamFiltersBuilder {
                 &tree.root,
                 &mut by_lsk,
                 &mut behavioral_conditions,
+                &mut behavioral_by_event_name,
                 &mut person_property_conditions,
             );
             let flags = self.flags.get(&tree.cohort_id).copied().unwrap_or_default();
@@ -247,6 +265,20 @@ impl TeamFiltersBuilder {
             cohorts.sort_unstable();
         }
 
+        let mut person_conditions_ordered: Vec<[u8; 16]> =
+            person_property_conditions.iter().copied().collect();
+        person_conditions_ordered.sort_unstable();
+        let catalog_fingerprint = CatalogFingerprint::of_sorted(&person_conditions_ordered);
+
+        let behavioral_by_event_name = behavioral_by_event_name
+            .into_iter()
+            .map(|(name, hashes)| {
+                let mut hashes: Vec<[u8; 16]> = hashes.into_iter().collect();
+                hashes.sort_unstable();
+                (name, hashes)
+            })
+            .collect();
+
         TeamFilters {
             by_condition_to_lsk: sorted_vec_map(self.by_condition_to_lsk),
             by_condition_to_cohorts: sorted_vec_map(self.by_condition_to_cohorts),
@@ -254,7 +286,10 @@ impl TeamFiltersBuilder {
             unique_condition_hashes: self.unique_condition_hashes,
             by_lsk,
             behavioral_conditions,
+            behavioral_by_event_name,
             person_property_conditions,
+            person_conditions_ordered,
+            catalog_fingerprint,
             by_lsk_to_single_leaf_cohorts,
             by_lsk_to_composable_cohorts,
             by_referenced_cohort,
@@ -285,6 +320,7 @@ fn collect_leaf_meta(
     node: &FilterNode,
     by_lsk: &mut HashMap<LeafStateKey, LeafStateMeta>,
     behavioral_conditions: &mut HashSet<[u8; 16]>,
+    behavioral_by_event_name: &mut HashMap<String, HashSet<[u8; 16]>>,
     person_property_conditions: &mut HashSet<[u8; 16]>,
 ) {
     match node {
@@ -294,6 +330,7 @@ fn collect_leaf_meta(
                     child,
                     by_lsk,
                     behavioral_conditions,
+                    behavioral_by_event_name,
                     person_property_conditions,
                 );
             }
@@ -322,6 +359,10 @@ fn collect_leaf_meta(
                     },
                 );
                 behavioral_conditions.insert(leaf.condition_hash);
+                behavioral_by_event_name
+                    .entry(leaf.event_key.clone())
+                    .or_default()
+                    .insert(leaf.condition_hash);
             }
         }
         FilterNode::Leaf(CohortLeaf::PersonProperty(leaf)) => {
@@ -367,6 +408,16 @@ mod tests {
         json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
     }
 
+    /// HogVM `RETURN` opcode, appended to stored bytecode by the catalog loader.
+    const OP_RETURN: i64 = 38;
+
+    /// The stored form of [`behavioral_bytecode`]: the loader appends a trailing `RETURN` (opcode 38).
+    fn behavioral_bytecode_loaded() -> Vec<Value> {
+        let mut bc = behavioral_bytecode().as_array().unwrap().clone();
+        bc.push(json!(OP_RETURN));
+        bc
+    }
+
     /// A `performed_event` leaf on `$pageview` with a tunable window.
     fn behavioral_performed_event(time_value: i64) -> Value {
         json!({
@@ -393,6 +444,27 @@ mod tests {
             "key": "$pageview",
             "time_value": time_value,
             "time_interval": time_interval,
+            "operator": operator,
+            "operator_value": operator_value,
+            "conditionHash": "0123456789abcdef",
+            "bytecode": behavioral_bytecode(),
+        })
+    }
+
+    /// A `performed_event_multiple` leaf whose window comes from `explicit_datetime`(_to) rather than
+    /// `time_value`/`time_interval` (pass `Value::Null` for an absent `_to`).
+    fn behavioral_performed_event_multiple_explicit(
+        explicit_datetime: &str,
+        explicit_datetime_to: Value,
+        operator: &str,
+        operator_value: i64,
+    ) -> Value {
+        json!({
+            "type": "behavioral",
+            "value": "performed_event_multiple",
+            "key": "$pageview",
+            "explicit_datetime": explicit_datetime,
+            "explicit_datetime_to": explicit_datetime_to,
             "operator": operator,
             "operator_value": operator_value,
             "conditionHash": "0123456789abcdef",
@@ -495,7 +567,7 @@ mod tests {
             .by_condition_to_bytecode
             .get(&HASH)
             .expect("bytecode captured under the conditionHash");
-        assert_eq!(bytecode.as_ref(), behavioral_bytecode().as_array().unwrap());
+        assert_eq!(bytecode.as_ref(), &behavioral_bytecode_loaded());
     }
 
     #[test]
@@ -597,6 +669,109 @@ mod tests {
     }
 
     #[test]
+    fn freeze_explicit_relative_lower_multiple_carries_window_days_and_op() {
+        // The UI stores "in the last N days" as `explicit_datetime: "-Nd"`; the frozen metadata must
+        // carry the resolved window days and predicate op so the worker can bucket and compare.
+        for (explicit_datetime, expected_variant, expected_days, why) in [
+            (
+                "-30d",
+                StateVariant::BehavioralDailyBuckets,
+                30,
+                "-30d → 30 days → daily",
+            ),
+            (
+                "-1y",
+                StateVariant::BehavioralCompressedHistory,
+                365,
+                "-1y → 365 days → compressed",
+            ),
+        ] {
+            let mut builder = TeamFiltersBuilder::default();
+            builder
+                .add_cohort(
+                    CohortId(1),
+                    TeamId(7),
+                    &wrap(vec![behavioral_performed_event_multiple_explicit(
+                        explicit_datetime,
+                        Value::Null,
+                        "gte",
+                        3,
+                    )]),
+                )
+                .unwrap();
+            let frozen = builder.freeze(UTC);
+
+            let lsk = frozen.by_condition_to_lsk[&HASH][0];
+            let meta = frozen.by_lsk[&lsk];
+            assert_eq!(meta.variant, expected_variant, "{why}");
+            assert_eq!(meta.window, None, "{why}");
+            assert_eq!(meta.window_days, Some(expected_days), "{why}");
+            assert_eq!(meta.predicate_op, Some(PredicateOp::Gte(3)), "{why}");
+        }
+    }
+
+    #[test]
+    fn freeze_drops_an_explicit_absolute_range_multiple() {
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event_multiple_explicit(
+                    "2026-01-01",
+                    json!("2026-12-31"),
+                    "gte",
+                    3,
+                )]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+        assert!(
+            frozen.by_lsk.is_empty(),
+            "an absolute-range multiple has no sliding window and leaves no worker metadata",
+        );
+    }
+
+    #[test]
+    fn freeze_explicit_relative_lower_matches_the_time_value_interval_window_days() {
+        // A relative `explicit_datetime` and the equivalent `time_value`/`time_interval` resolve to the
+        // same frozen window metadata — they are the same oracle query.
+        let mut explicit_builder = TeamFiltersBuilder::default();
+        explicit_builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event_multiple_explicit(
+                    "-30d",
+                    Value::Null,
+                    "gte",
+                    3,
+                )]),
+            )
+            .unwrap();
+        let explicit = explicit_builder.freeze(UTC);
+        let explicit_meta = explicit.by_lsk[&explicit.by_condition_to_lsk[&HASH][0]];
+
+        let mut interval_builder = TeamFiltersBuilder::default();
+        interval_builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event_multiple(
+                    30, "day", "gte", 3,
+                )]),
+            )
+            .unwrap();
+        let interval = interval_builder.freeze(UTC);
+        let interval_meta = interval.by_lsk[&interval.by_condition_to_lsk[&HASH][0]];
+
+        assert_eq!(explicit_meta.window_days, Some(30));
+        assert_eq!(explicit_meta.window_days, interval_meta.window_days);
+        assert_eq!(explicit_meta.variant, interval_meta.variant);
+        assert_eq!(explicit_meta.predicate_op, interval_meta.predicate_op);
+    }
+
+    #[test]
     fn freeze_partitions_conditions_by_kind() {
         let mut builder = TeamFiltersBuilder::default();
         builder
@@ -621,6 +796,194 @@ mod tests {
         assert!(frozen
             .behavioral_conditions
             .is_disjoint(&frozen.person_property_conditions));
+    }
+
+    #[test]
+    fn person_conditions_ordered_is_the_sorted_person_condition_set() {
+        let mut other_person = person_leaf();
+        other_person
+            .as_object_mut()
+            .unwrap()
+            .insert("conditionHash".to_string(), json!("0011223344556677"));
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![
+                    person_leaf(),
+                    other_person,
+                    behavioral_performed_event(7),
+                ]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        let mut expected: Vec<[u8; 16]> =
+            frozen.person_property_conditions.iter().copied().collect();
+        expected.sort_unstable();
+        assert_eq!(frozen.person_conditions_ordered, expected);
+        assert!(
+            frozen
+                .person_conditions_ordered
+                .windows(2)
+                .all(|w| w[0] < w[1]),
+            "the order is strictly ascending and carries no behavioral hash",
+        );
+    }
+
+    /// Build a person leaf carrying a specific conditionHash literal.
+    fn person_leaf_with_hash(hash: &str) -> Value {
+        let mut leaf = person_leaf();
+        leaf.as_object_mut()
+            .unwrap()
+            .insert("conditionHash".to_string(), json!(hash));
+        leaf
+    }
+
+    fn freeze_person_conditions(leaves: Vec<Value>) -> TeamFilters {
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &wrap(leaves))
+            .unwrap();
+        builder.freeze(UTC)
+    }
+
+    #[test]
+    fn catalog_fingerprint_matches_the_sorted_conditions_and_is_freeze_stable() {
+        let a = freeze_person_conditions(vec![
+            person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
+            person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
+        ]);
+        assert_eq!(
+            a.catalog_fingerprint,
+            CatalogFingerprint::of_sorted(&a.person_conditions_ordered),
+        );
+        let b = freeze_person_conditions(vec![
+            person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
+            person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
+        ]);
+        assert_eq!(a.catalog_fingerprint, b.catalog_fingerprint);
+    }
+
+    #[test]
+    fn catalog_fingerprint_is_invariant_to_insertion_order() {
+        let ordered = freeze_person_conditions(vec![
+            person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
+            person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
+        ]);
+        let reversed = freeze_person_conditions(vec![
+            person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
+            person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
+        ]);
+        assert_eq!(ordered.catalog_fingerprint, reversed.catalog_fingerprint);
+    }
+
+    #[test]
+    fn catalog_fingerprint_changes_when_a_condition_is_added_or_removed() {
+        let two = freeze_person_conditions(vec![
+            person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
+            person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
+        ]);
+        let one = freeze_person_conditions(vec![person_leaf_with_hash("aaaaaaaaaaaaaaaa")]);
+        let three = freeze_person_conditions(vec![
+            person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
+            person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
+            person_leaf_with_hash("cccccccccccccccc"),
+        ]);
+        assert_ne!(two.catalog_fingerprint, one.catalog_fingerprint);
+        assert_ne!(two.catalog_fingerprint, three.catalog_fingerprint);
+    }
+
+    #[test]
+    fn catalog_fingerprint_of_no_person_conditions_is_the_empty_constant() {
+        // A team with only a behavioral leaf has no person conditions.
+        let behavioral_only = freeze_person_conditions(vec![behavioral_performed_event(7)]);
+        assert!(behavioral_only.person_conditions_ordered.is_empty());
+        assert_eq!(
+            behavioral_only.catalog_fingerprint,
+            CatalogFingerprint::of_sorted(&[]),
+            "no person conditions ⇒ the stable empty-input fingerprint",
+        );
+        assert_eq!(
+            behavioral_only.catalog_fingerprint,
+            TeamFilters::default().catalog_fingerprint,
+        );
+    }
+
+    #[test]
+    fn behavioral_by_event_name_buckets_each_name_and_unions_to_behavioral_conditions() {
+        const PURCHASE_HASH: [u8; 16] = *b"purchasehash0002";
+        let purchase = json!({
+            "type": "behavioral",
+            "value": "performed_event",
+            "key": "purchase",
+            "time_value": 7,
+            "time_interval": "day",
+            "conditionHash": "purchasehash0002",
+            "bytecode": ["_H", 1, 32, "purchase", 32, "event", 1, 1, 11],
+        });
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7), purchase, person_leaf()]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        assert_eq!(frozen.behavioral_by_event_name["$pageview"], vec![HASH]);
+        assert_eq!(
+            frozen.behavioral_by_event_name["purchase"],
+            vec![PURCHASE_HASH],
+        );
+        assert!(
+            !frozen.behavioral_by_event_name.contains_key("email"),
+            "a person leaf is not bucketed by event name",
+        );
+
+        let union: HashSet<[u8; 16]> = frozen
+            .behavioral_by_event_name
+            .values()
+            .flatten()
+            .copied()
+            .collect();
+        assert_eq!(
+            union, frozen.behavioral_conditions,
+            "the buckets partition exactly the behavioral conditions",
+        );
+    }
+
+    #[test]
+    fn same_event_name_collects_distinct_hashes_deduped_and_sorted() {
+        const HASH2: [u8; 16] = *b"0011223344556677";
+        let mut other = behavioral_performed_event_multiple(7, "day", "gte", 3);
+        other
+            .as_object_mut()
+            .unwrap()
+            .insert("conditionHash".to_string(), json!("0011223344556677"));
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![
+                    behavioral_performed_event(7),
+                    behavioral_performed_event(7),
+                    other,
+                ]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        let mut expected = [HASH, HASH2];
+        expected.sort_unstable();
+        assert_eq!(
+            frozen.behavioral_by_event_name["$pageview"],
+            expected.to_vec(),
+            "the bucket dedupes the repeated leaf and sorts its two distinct hashes",
+        );
     }
 
     #[test]

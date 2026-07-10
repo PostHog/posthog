@@ -4,15 +4,20 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import * as shockedPng from '@posthog/brand/hoggies/png/shocked'
 import { LemonButton, LemonCheckbox, LemonModal, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { HeartHog, MailHog, SurprisedHog } from 'lib/components/hedgehogs'
+import { HeartHog, MailHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { verifyEmailLogic } from '../../verifyEmailLogic'
+
+const HedgehogShocked = pngHoggie(shockedPng)
 
 interface SupportButtonsProps {
     disabledReason?: string
@@ -152,7 +157,7 @@ function VerifyEmail(): JSX.Element {
                             <>
                                 <h1 className="text-3xl font-bold">Whoops!</h1>
                                 <div className="max-w-60 mb-12">
-                                    <SurprisedHog className="w-full h-full" />
+                                    <HedgehogShocked className="w-full h-full" />
                                 </div>
                                 <p className="mb-6">Seems like that link isn't quite right. Try again?</p>
 
@@ -169,10 +174,10 @@ function VerifyEmail(): JSX.Element {
                         {view === 'success' && (
                             <div aria-hidden className="VerifyEmail__ProgressBar">
                                 <div
-                                    className={clsx(
-                                        'VerifyEmail__ProgressBarTrack',
-                                        process.env.STORYBOOK && 'VerifyEmail__ProgressBarTrack--static'
-                                    )}
+                                    className={clsx('VerifyEmail__ProgressBarTrack', {
+                                        'VerifyEmail__ProgressBarTrack--static':
+                                            inStorybook() || inStorybookTestRunner(),
+                                    })}
                                 />
                             </div>
                         )}

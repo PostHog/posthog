@@ -30,7 +30,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
-import { sandboxStreamLogic } from 'products/posthog_ai/frontend/sandbox/sandboxStreamLogic'
+import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { EnhancedToolCall, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
@@ -1781,6 +1781,8 @@ describe('maxThreadLogic', () => {
             expect(names).not.toContain(SlashCommandName.SlashRemember)
             expect(names).toContain(SlashCommandName.SlashUsage)
             expect(names).toContain(SlashCommandName.SlashFeedback)
+            // /ticket must be offered even when no billing context is available — the backend decides eligibility
+            expect(names).toContain(SlashCommandName.SlashTicket)
         })
 
         it('keeps the full command set for langgraph conversations', async () => {
@@ -1790,6 +1792,7 @@ describe('maxThreadLogic', () => {
             expect(names).toContain(SlashCommandName.SlashRemember)
             expect(names).toContain(SlashCommandName.SlashUsage)
             expect(names).toContain(SlashCommandName.SlashFeedback)
+            expect(names).toContain(SlashCommandName.SlashTicket)
         })
     })
 
@@ -3498,7 +3501,7 @@ describe('maxThreadLogic', () => {
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(1)
 
             // The thread logic connects to the instance keyed by its own conversationId
-            const sandboxStreamInstance = sandboxStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
+            const sandboxStreamInstance = runStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
 
             // The release listeners are synchronous, so the lock state settles with the dispatch
             sandboxStreamInstance.actions.markTurnComplete()
@@ -3521,7 +3524,7 @@ describe('maxThreadLogic', () => {
                 )
             }).toDispatchActions(['openSandboxSse'])
 
-            const sandboxStreamInstance = sandboxStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
+            const sandboxStreamInstance = runStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
 
             // queued / in_progress frames arrive before the turn is done — the lock must stay held.
             sandboxStreamInstance.actions.handleTerminalStatus({ status: 'queued' })
@@ -3532,6 +3535,20 @@ describe('maxThreadLogic', () => {
             // Only an actually-terminal status releases it.
             sandboxStreamInstance.actions.handleTerminalStatus({ status: 'completed' })
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
+        })
+
+        it('lights the optimistic boot indicator before the open POST and clears it once the SSE opens', async () => {
+            jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
+
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { agent_mode: null, is_sandbox: true, content: 'hello', conversation: MOCK_CONVERSATION_ID },
+                    0
+                )
+            }).toDispatchActions(['setSandboxRunOpening', 'openSandboxSse'])
+
+            // openSandboxSse clears the optimistic flag via the reducer, so it never sticks on success.
+            expect(runStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.runOpening).toEqual(false)
         })
 
         it('releases the lock immediately and surfaces an error when the send POST fails', async () => {
@@ -3545,8 +3562,10 @@ describe('maxThreadLogic', () => {
             }).toDispatchActions(['pushSandboxError', 'decrActiveStreamingThreads'])
 
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
+            // The boot indicator must not stick once the failed send unwinds.
+            expect(runStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.runOpening).toEqual(false)
             expect(
-                sandboxStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.threadItems.some(
+                runStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.threadItems.some(
                     (item) =>
                         item.type === 'error' && item.errorMessage === 'Failed to send your message. Please try again.'
                 )
@@ -3591,7 +3610,7 @@ describe('maxThreadLogic', () => {
             delete (globalThis as any).EventSource
         })
 
-        async function startSandboxTurn(): Promise<ReturnType<typeof sandboxStreamLogic.build>> {
+        async function startSandboxTurn(): Promise<ReturnType<typeof runStreamLogic.build>> {
             await expectLogic(logic, () => {
                 logic.actions.streamConversation(
                     { agent_mode: null, is_sandbox: true, content: 'hello', conversation: MOCK_CONVERSATION_ID },
@@ -3599,7 +3618,7 @@ describe('maxThreadLogic', () => {
                 )
             }).toDispatchActions(['openSandboxSse'])
             expect(logic.values.streamingActive).toBe(true)
-            return sandboxStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
+            return runStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
         }
 
         it('tears down streamingActive on markTurnComplete', async () => {
@@ -3695,7 +3714,7 @@ describe('maxThreadLogic', () => {
         it('history-replay terminal events do not fire teardown while streamingActive is false', async () => {
             // No live turn: streamingActive is false (no streamConversation was dispatched)
             expect(logic.values.streamingActive).toBe(false)
-            const sandboxStreamInstance = sandboxStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
+            const sandboxStreamInstance = runStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
 
             await expectLogic(logic, () => {
                 sandboxStreamInstance.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })

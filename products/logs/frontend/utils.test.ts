@@ -6,7 +6,7 @@ import {
     isSessionIdKey,
 } from './utils'
 
-jest.mock('products/logs/frontend/components/LogsViewer/Filters/LogsDateRangePicker/utils', () => ({
+jest.mock('lib/components/DateFilter/DateRangePicker/utils', () => ({
     formatDateRangeLabel: () => '-1h \u2192 now',
 }))
 

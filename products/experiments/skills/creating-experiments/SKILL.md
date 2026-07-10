@@ -45,6 +45,8 @@ If the user doesn't mention rollout specifics, use defaults: 50/50 control/test,
 ### Step 3: How to measure impact?
 
 This is about analytics and metrics. **Load the `configuring-experiment-analytics` skill** for guidance.
+That skill's first step checks for an existing **shared metric** to reuse before building a new one —
+don't duplicate a metric the project already has set up.
 
 **Do NOT configure metrics on creation.** Metrics are not passed to `experiment-create` — they are added
 afterwards via `experiment-update`. This keeps the creation call lightweight.
@@ -61,25 +63,32 @@ Call `experiment-create` with:
   "name": "Descriptive experiment name",
   "feature_flag_key": "kebab-case-key",
   "description": "Hypothesis: [what you expect to happen]",
-  "parameters": {
-    "feature_flag_variants": [
-      { "key": "control", "name": "Control", "split_percent": 50 },
-      { "key": "test", "name": "Test", "split_percent": 50 }
-    ],
-    "rollout_percentage": 100
+  "feature_flag": {
+    "filters": {
+      "multivariate": {
+        "variants": [
+          { "key": "control", "name": "Control", "rollout_percentage": 50 },
+          { "key": "test", "name": "Test", "rollout_percentage": 50 }
+        ]
+      },
+      "groups": [{ "properties": [], "rollout_percentage": 100 }]
+    },
+    "ensure_experience_continuity": false
   }
 }
 ```
 
-Two different percentages — do NOT mix them up:
+Flag config goes in the `feature_flag` object, in the flag's own filters shape (not the deprecated `parameters` keys).
+Two different percentages live in there, do NOT mix them up:
 
-- `feature_flag_variants[].split_percent` — how users **inside** the experiment are split across variants (must sum to 100, recommended to have an even split).
-- `parameters.rollout_percentage` — what fraction of **all** users enter the experiment at all (0-100, defaults to 100).
+- `filters.multivariate.variants[].rollout_percentage` is how users **inside** the experiment are split across variants (must sum to 100, recommended to have an even split).
+- `filters.groups[0].rollout_percentage` is the overall gate: what fraction of **all** users enter the experiment at all (0-100, defaults to 100).
 
 Key details:
 
-- First variant must have key `"control"`. Minimum 2, maximum 20 variants.
-- `rollout_percentage` defaults to 100 if omitted.
+- Exactly one variant key must be the literal string `"control"` (the baseline). Minimum 2, maximum 20 variants.
+- `filters.groups[0].rollout_percentage` defaults to 100 if omitted.
+- `ensure_experience_continuity` persists a user's variant across authentication steps; leave it `false` unless the flag is shown to both logged-out and logged-in users (see `configuring-experiment-rollout`).
 - Stats default to Bayesian. Only set `stats_config` if the user requests Frequentist.
 
 ## After creation

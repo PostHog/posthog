@@ -1,8 +1,6 @@
 import clsx from 'clsx'
-import { useActions } from 'kea'
 import { useRef } from 'react'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { percentage } from 'lib/utils/numbers'
 
 import {
@@ -10,9 +8,8 @@ import {
     ExperimentQuery,
     isExperimentFunnelMetric,
     NodeKind,
-    SessionData,
 } from '~/queries/schema/schema-general'
-import { getVariantColor } from '~/scenes/experiments/utils'
+import { getExperimentVariants, getVariantColor } from '~/scenes/experiments/utils'
 import { funnelTitle } from '~/scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from '~/scenes/trends/persons-modal/PersonsModal'
 import type { Experiment } from '~/types'
@@ -20,7 +17,6 @@ import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { useTooltip } from './FunnelBarVertical'
 import { useFunnelChartData } from './FunnelChart'
-import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
 
 export interface StepBarProps {
     step: FunnelStepWithConversionMetrics
@@ -119,9 +115,7 @@ function openExperimentPersonsModalForSeries({
 export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
     const { showTooltip, hideTooltip } = useTooltip()
-    const { experimentResult, experiment, experimentQuery } = useFunnelChartData()
-    const { openModal } = useActions(sampledSessionsModalLogic)
-    const hasActorsQueryFeature = useFeatureFlag('EXPERIMENT_FUNNEL_ACTORS_QUERY')
+    const { experiment, experimentQuery } = useFunnelChartData()
 
     /**
      * bail if the experiment is not loaded. also, this serves as type guard for the experiment.
@@ -135,37 +129,12 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
         : step.breakdown_value?.toString() || ''
 
     // Source variants from the feature flag (the source of truth used by VariantTag and the rest
-    // of the experiment UI). `parameters.feature_flag_variants` is an optional mirror that some
-    // experiments never populate, which would otherwise leave the bars uncolored.
-    const seriesColor =
-        experiment.feature_flag?.filters.multivariate?.variants && variantKey
-            ? getVariantColor(variantKey, experiment.feature_flag?.filters.multivariate?.variants)
-            : 'var(--muted)'
+    // of the experiment UI). A saved experiment always has a linked flag; if it somehow lacks
+    // variants, the bars fall back to the muted color.
+    const seriesColor = variantKey ? getVariantColor(variantKey, getExperimentVariants(experiment)) : 'var(--muted)'
 
-    // Get sampled sessions from the experiment result
-    let sessionData: SessionData[] | undefined
-    if (experimentResult && variantKey) {
-        if (variantKey === experimentResult.baseline.key) {
-            sessionData = experimentResult.baseline.step_sessions?.[stepIndex]
-        } else {
-            const variantResult = experimentResult.variant_results?.find((v: any) => v.key === variantKey)
-            sessionData = variantResult?.step_sessions?.[stepIndex] as SessionData[] | undefined
-        }
-    }
-    // Legacy click handler for sampled sessions modal
-    const handleLegacyClick = (): void => {
-        if (sessionData) {
-            openModal({
-                sessionData,
-                stepName: step.custom_name || step.name,
-                variant: variantKey,
-            })
-        }
-    }
-
-    // New click handlers for actors query (with feature flag)
     const handleDropoffClick = (): void => {
-        if (hasActorsQueryFeature && experimentQuery) {
+        if (experimentQuery) {
             openExperimentPersonsModalForSeries({
                 step: step,
                 stepIndex: stepIndex,
@@ -173,14 +142,11 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                 experimentQuery,
                 experiment,
             })
-        } else {
-            // Fall back to legacy behavior
-            handleLegacyClick()
         }
     }
 
     const handleConversionClick = (): void => {
-        if (hasActorsQueryFeature && experimentQuery) {
+        if (experimentQuery) {
             openExperimentPersonsModalForSeries({
                 step: step,
                 stepIndex: stepIndex,
@@ -188,9 +154,6 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                 experimentQuery,
                 experiment,
             })
-        } else {
-            // Fall back to legacy behavior
-            handleLegacyClick()
         }
     }
 
@@ -210,11 +173,10 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                     if (ref.current) {
                         const rect = ref.current.getBoundingClientRect()
                         // Only show "Click to inspect actors" hint when clicking will actually work:
-                        // - Step 0 (exposure) with new feature enabled: can't use actors query (returns early), so don't show hint
-                        // - Step 1 (first metric) drop-offs with new feature: can't query (no exposure in backend funnel), conversions work
-                        // - Step 2+ with new feature: both conversions and drop-offs work
-                        // - Legacy mode: show hint if sessionData exists
-                        const hasClickableData = hasActorsQueryFeature ? stepIndex > 0 : !!sessionData
+                        // - Step 0 (exposure): can't use actors query (returns early), so don't show hint
+                        // - Step 1 (first metric) drop-offs: can't query (no exposure in backend funnel), conversions work
+                        // - Step 2+: both conversions and drop-offs work
+                        const hasClickableData = stepIndex > 0
                         showTooltip([rect.x, rect.y, rect.width], stepIndex, step, hasClickableData)
                     }
                 }}
@@ -224,26 +186,14 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                     className="StepBar__backdrop"
                     onClick={handleDropoffClick}
                     style={{
-                        cursor: hasActorsQueryFeature
-                            ? stepIndex > 1
-                                ? 'pointer'
-                                : 'default'
-                            : sessionData
-                              ? 'pointer'
-                              : 'default',
+                        cursor: stepIndex > 1 ? 'pointer' : 'default',
                     }}
                 />
                 <div
                     className="StepBar__fill"
                     onClick={handleConversionClick}
                     style={{
-                        cursor: hasActorsQueryFeature
-                            ? stepIndex > 0
-                                ? 'pointer'
-                                : 'default'
-                            : sessionData
-                              ? 'pointer'
-                              : 'default',
+                        cursor: stepIndex > 0 ? 'pointer' : 'default',
                     }}
                 />
             </div>

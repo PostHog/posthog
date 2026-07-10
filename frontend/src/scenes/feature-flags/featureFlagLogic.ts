@@ -84,10 +84,12 @@ import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTempl
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
-import { defaultReleaseConditionsLogic } from './defaultReleaseConditionsLogic'
+import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from './defaultReleaseConditionsLogic'
+import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
+import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInProject'
 
 const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
 
@@ -644,6 +646,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         createPairedSchedule: true,
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
+        toggleProjectFlagActive: (teamId: number, flagId: number, active: boolean) => ({ teamId, flagId, active }),
+        projectFlagActiveUpdated: (teamId: number, flagId: number, active: boolean) => ({ teamId, flagId, active }),
+        projectFlagActiveUpdateFailed: (teamId: number, flagId: number) => ({ teamId, flagId }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setBucketingIdentifier: (bucketingIdentifier: FeatureFlagBucketingIdentifier | null) => ({
             bucketingIdentifier,
@@ -978,6 +983,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setCopyDestinationProject: (_, { id }) => id,
             },
         ],
+        projectFlagsToggling: [
+            {} as Record<string, boolean>,
+            {
+                toggleProjectFlagActive: (state, { teamId, flagId }) => ({
+                    ...state,
+                    [flagToggleKey(teamId, flagId)]: true,
+                }),
+                projectFlagActiveUpdated: (state, { teamId, flagId }) => {
+                    const { [flagToggleKey(teamId, flagId)]: _, ...rest } = state
+                    return rest
+                },
+                projectFlagActiveUpdateFailed: (state, { teamId, flagId }) => {
+                    const { [flagToggleKey(teamId, flagId)]: _, ...rest } = state
+                    return rest
+                },
+            },
+        ],
         copySchedule: [
             false as boolean,
             {
@@ -1300,13 +1322,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
 
                     if (flagType !== 'remote_config') {
-                        const conditionsConfig = values.defaultReleaseConditions
+                        // Use cached value if already loaded; fetch directly if not yet available
+                        // to avoid a race where defaultReleaseConditionsLogic's async load hasn't
+                        // completed before loadFeatureFlag reads values.defaultReleaseConditions.
+                        const conditionsConfig = await resolveDefaultReleaseConditions(
+                            values.defaultReleaseConditions,
+                            values.currentTeam?.id
+                        )
                         if (conditionsConfig?.enabled && conditionsConfig.default_groups?.length > 0) {
                             baseFlagConfig = {
                                 ...baseFlagConfig,
                                 filters: {
                                     ...baseFlagConfig.filters,
                                     groups: conditionsConfig.default_groups,
+                                    aggregation_group_type_index: uniformAggregationGroupTypeIndex(
+                                        conditionsConfig.default_groups
+                                    ),
                                 },
                             }
                         }
@@ -1387,10 +1418,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             ?.values.featureFlags.results.find((flag) => flag.id === props.id)
 
                         // If we've got a cached flag and the filters have changed, we've updated the release conditions
-                        if (
-                            cachedFlag &&
-                            JSON.stringify(cachedFlag?.filters) !== JSON.stringify(values.featureFlag.filters)
-                        ) {
+                        if (cachedFlag && !objectsEqual(cachedFlag?.filters, values.featureFlag.filters)) {
                             globalSetupLogic
                                 .findMounted()
                                 ?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureFlagReleaseConditions)
@@ -1561,10 +1589,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // Put current project first. We need teamIdsInCurrentProject here, because as of Feb 2025,
                 // FeatureFlag only has `team_id`, but not `project_id`
                 return organizationFeatureFlags.sort((a, b) => {
-                    if (teamIdsInCurrentProject.includes(a.team_id)) {
+                    if (a.team_id !== null && teamIdsInCurrentProject.includes(a.team_id)) {
                         return -1
                     }
-                    if (teamIdsInCurrentProject.includes(b.team_id)) {
+                    if (b.team_id !== null && teamIdsInCurrentProject.includes(b.team_id)) {
                         return 1
                     }
                     return 0
@@ -1688,6 +1716,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
     })),
+    // Extends the projectsWithCurrentFlag loader's reducer. Must stay after loaders(); do NOT merge
+    // into the reducers() block above — it runs before the loader defines projectsWithCurrentFlag,
+    // so the extension would be silently dropped.
+    reducers({
+        projectsWithCurrentFlag: {
+            projectFlagActiveUpdated: (state, { teamId, flagId, active }) =>
+                state.map((p) => (p.team_id === teamId && p.flag_id === flagId ? { ...p, active } : p)),
+        },
+    }),
     listeners(({ actions, values, props, sharedListeners }) => ({
         setCronExpression: ({ cronExpression }) => {
             if (!cronExpression) {
@@ -1938,6 +1975,28 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.updateFlag(featureFlagActiveUpdate)
             }
         },
+        toggleProjectFlagActive: async ({ teamId, flagId, active }) => {
+            const updatedFlag = await updateFlagActiveInProject({ teamId, flagId, active })
+            if (!updatedFlag) {
+                actions.projectFlagActiveUpdateFailed(teamId, flagId)
+                return
+            }
+            const newActive = updatedFlag.active ?? active
+            actions.projectFlagActiveUpdated(teamId, flagId, newActive)
+            // Keep the flag page and the flags list in sync when the toggled row is this page's flag.
+            // Flag ids are globally unique, so the id match alone identifies the page's flag even
+            // when it lives in a sibling environment of the current project.
+            if (flagId === values.featureFlag.id) {
+                const syncedFlag = {
+                    ...values.featureFlag,
+                    active: newActive,
+                    version: updatedFlag.version ?? values.featureFlag.version,
+                }
+                actions.setFeatureFlag(syncedFlag)
+                actions.updateFlag(syncedFlag)
+                refreshTreeItem('feature_flag', String(flagId))
+            }
+        },
         updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.archived ? 'archived' : 'unarchived'}`)
@@ -2022,14 +2081,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 maybeApplyUrlIntent(values, actions)
             }
         },
-        applyTemplate: ({ templateId }) => {
+        applyTemplate: async ({ templateId }, breakpoint) => {
             const template = values.templates.find((t) => t.id === templateId)
             if (!template || !values.featureFlag) {
                 return
             }
             const templateValues = template.getValues(values.featureFlag)
 
-            const defaultConfig = values.defaultReleaseConditions
+            const defaultConfig = await resolveDefaultReleaseConditions(
+                values.defaultReleaseConditions,
+                values.currentTeam?.id
+            )
+            // Bail if the logic unmounted or applyTemplate was re-invoked while release conditions
+            // were loading — otherwise the reads below hit a store path that no longer exists and kea throws.
+            breakpoint()
             const defaultGroups =
                 defaultConfig?.enabled && defaultConfig.default_groups?.length > 0 ? defaultConfig.default_groups : []
             const templateGroups = templateValues.filters?.groups ?? []
@@ -2072,6 +2137,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     : 'copied'
                 lemonToast.success(`Feature flag ${operation} successfully!`)
                 eventUsageLogic.actions.reportFeatureFlagCopySuccess()
+
+                // Surface any warnings the copy returned (e.g. a flag dependency dropped because it
+                // doesn't exist in the target, or scheduled changes that failed to copy).
+                const warnings = featureFlagCopy.success.flatMap((flag) => [
+                    ...(flag.flag_dependency_warnings ?? []),
+                    ...(flag.schedule_copy_warning ? [flag.schedule_copy_warning] : []),
+                ])
+                warnings.forEach((warning) => lemonToast.warning(warning))
             } else {
                 const errorMessage = JSON.stringify(featureFlagCopy?.failed) || featureFlagCopy
                 lemonToast.error(`Error while saving feature flag: ${errorMessage}`)

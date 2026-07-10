@@ -308,9 +308,24 @@ export interface GitHubBranchesResponseApi {
 }
 
 export interface GitHubRepoApi {
+    /** GitHub repository numeric identifier. */
     id: number
+    /** Repository short name (without the owner prefix). */
     name: string
+    /** Fully-qualified repository name as 'owner/repo'. */
     full_name: string
+    /** Whether the repository is private. */
+    private?: boolean
+    /** The repository's default branch (e.g. 'main'). */
+    default_branch?: string
+    /** Primary programming language GitHub detected for the repository. */
+    language?: string
+    /** ISO 8601 timestamp of the most recent push, useful for sorting by recent activity. */
+    pushed_at?: string
+    /** Whether the repository is archived. */
+    archived?: boolean
+    /** Whether the PostHog GitHub App has write access — required to open pull requests. */
+    can_push?: boolean
 }
 
 export interface GitHubReposResponseApi {
@@ -340,15 +355,30 @@ export interface GitHubTeamsResponseApi {
     has_more: boolean
 }
 
-export interface GoogleSearchConsoleSiteApi {
-    /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
-    siteUrl: string
-    /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
-    permissionLevel: string
+export interface JiraProjectApi {
+    /** Jira project ID. */
+    id: string
+    /** Jira project key to pass as error tracking config.project_key. */
+    key: string
+    /** Jira project display name. */
+    name: string
 }
 
-export interface GoogleSearchConsoleSitesResponseApi {
-    sites: GoogleSearchConsoleSiteApi[]
+export interface JiraProjectsResponseApi {
+    /** Jira projects available to this integration. */
+    projects: JiraProjectApi[]
+}
+
+export interface LinearTeamApi {
+    /** Linear team ID to pass as error tracking config.team_id. */
+    id: string
+    /** Linear team display name. */
+    name: string
+}
+
+export interface LinearTeamsResponseApi {
+    /** Linear teams available to this integration. */
+    teams: LinearTeamApi[]
 }
 
 export interface GitHubLinkExistingRequestApi {

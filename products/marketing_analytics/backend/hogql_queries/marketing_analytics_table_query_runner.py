@@ -79,7 +79,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             if isinstance(query, ast.SelectQuery)
             else []
         )
-
         # Check if there are more results
         has_more = len(results) > requested_limit
 
@@ -121,45 +120,24 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             right=ast.Field(chain=self.config.get_unified_conversion_field_chain(self.config.source_field)),
         )
 
-    def _build_compare_join(
-        self, current_period_query: ast.SelectQuery, previous_period_query: ast.SelectQuery
-    ) -> ast.JoinExpr:
-        """Build the join expression for comparing current and previous periods.
+    def _get_compare_pivot_keys(self) -> list[str]:
+        """Columns that uniquely identify a row at the current drill-down level.
 
-        Join keys must uniquely identify a row at each drill-down level. Names alone
-        don't satisfy this for ad-group / ad levels — two campaigns can both have an
-        ad-group named "All Audiences", and renaming an entity between periods would
-        appear as "deleted + created". So at AD_GROUP / AD we join by the platform ID
-        + source. This assumes (AD_GROUP_ID, SOURCE) and (AD_ID, SOURCE) are unique
-        per source — true for Meta; future adapters must preserve it or add campaign_id
-        to the join.
+        These are the keys the compare pivot groups by — the same keys the old
+        LEFT JOIN matched on. Names alone don't uniquely identify a row at ad-group /
+        ad levels (two campaigns can both have an ad-group named "All Audiences", and
+        renaming an entity between periods would appear as "deleted + created"), so at
+        AD_GROUP / AD we key by the platform ID + source. This assumes (AD_GROUP_ID,
+        SOURCE) and (AD_ID, SOURCE) are unique per source — true for Meta; future
+        adapters must preserve it or add campaign_id to the key.
         """
         level = self.config.drill_down_level
         campaign_alias = self.config.get_campaign_column_alias()
 
-        def _eq(column: str) -> ast.CompareOperation:
-            return ast.CompareOperation(
-                left=ast.Field(chain=["current_period", column]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Field(chain=["previous_period", column]),
-            )
-
         if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
-            # Group-by key is (ad_group_id, source). Join on the same so renamed
-            # ad-groups still match across periods.
-            join_condition: ast.Expr = ast.And(
-                exprs=[
-                    _eq(MarketingAnalyticsBaseColumns.AD_GROUP_ID.value),
-                    _eq(MarketingAnalyticsBaseColumns.SOURCE.value),
-                ]
-            )
+            return [MarketingAnalyticsBaseColumns.AD_GROUP_ID.value, MarketingAnalyticsBaseColumns.SOURCE.value]
         elif level == MarketingAnalyticsDrillDownLevel.AD:
-            join_condition = ast.And(
-                exprs=[
-                    _eq(MarketingAnalyticsBaseColumns.AD_ID.value),
-                    _eq(MarketingAnalyticsBaseColumns.SOURCE.value),
-                ]
-            )
+            return [MarketingAnalyticsBaseColumns.AD_ID.value, MarketingAnalyticsBaseColumns.SOURCE.value]
         elif level in (
             MarketingAnalyticsDrillDownLevel.CHANNEL,
             MarketingAnalyticsDrillDownLevel.SOURCE,
@@ -169,24 +147,10 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         ):
             # Repurposed-alias levels: campaign_alias holds the unique grouping value
             # (channel type / source / utm value). Names are stable identifiers here.
-            join_condition = _eq(campaign_alias)
+            return [campaign_alias]
         else:
-            # Campaign level joins on both Campaign + Source
-            join_condition = ast.And(exprs=[_eq(campaign_alias), _eq(MarketingAnalyticsBaseColumns.SOURCE.value)])
-
-        return ast.JoinExpr(
-            table=current_period_query,
-            alias="current_period",
-            next_join=ast.JoinExpr(
-                table=previous_period_query,
-                alias="previous_period",
-                join_type="LEFT JOIN",
-                constraint=ast.JoinConstraint(
-                    expr=join_condition,
-                    constraint_type="ON",
-                ),
-            ),
-        )
+            # Campaign level keys on both Campaign + Source.
+            return [campaign_alias, MarketingAnalyticsBaseColumns.SOURCE.value]
 
     def _build_paginated_query(
         self, select_columns: list[ast.Expr], select_from: ast.JoinExpr | None, ctes=None
@@ -227,13 +191,14 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             date_to=previous_date_range.date_to().isoformat(),
         )
 
-        # Create a new runner for the previous period
+        # user= is required: a user-less previous runner loses warehouse access and runs RBAC user-less.
         previous_runner = MarketingAnalyticsTableQueryRunner(
             query=previous_query,
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            user=self.user,
         )
         # Share the prebuilt HogQL database across both periods so the compare query pays the ~1s
         # Database.create_for once, not twice. Pre-populates the previous runner's cached_property.
@@ -242,28 +207,12 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()
 
-        # Create the join manually with proper AST structure
-        join_expr = self._build_compare_join(current_period_query, previous_period_query)
-
         # Get column names for the compare query
         select_columns = self._get_filtered_select_columns(current_period_query)
 
-        # Create tuple columns for comparison
-        tuple_columns: list[ast.Expr] = [
-            ast.Alias(
-                alias=col.alias if isinstance(col, ast.Alias) else str(col),
-                expr=ast.Call(
-                    name="tuple",
-                    args=[
-                        ast.Field(chain=["current_period", col.alias if isinstance(col, ast.Alias) else str(col)]),
-                        ast.Field(chain=["previous_period", col.alias if isinstance(col, ast.Alias) else str(col)]),
-                    ],
-                ),
-            )
-            for col in select_columns
-        ]
-
-        return self._build_paginated_query(tuple_columns, join_expr)
+        return self._build_compare_pivot(
+            current_period_query, previous_period_query, select_columns, self._get_compare_pivot_keys()
+        )
 
     def _build_select_columns_mapping(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None

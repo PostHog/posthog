@@ -19,10 +19,9 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -42,14 +41,13 @@ import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import {
     evaluationSupportsReports,
-    evaluationTypeCanBeCreated,
     evaluationTypeHasEditableCriteria,
     evaluationTypeSupportsSignalEmission,
     evaluationTypeUsesModelConfiguration,
 } from './evaluationCapabilities'
-import { LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
-import { statusReasonLabel } from './statusDisplay'
-import { EvaluationType } from './types'
+import { DEFAULT_TRACE_WINDOW_SECONDS, LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
+import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
+import { EvaluationTarget, EvaluationType } from './types'
 
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
@@ -65,10 +63,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
         activeTab,
         canEnable,
         canEnableReason,
-        originalEvaluation,
     } = useValues(llmEvaluationLogic)
     const { user } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
     const {
         setEvaluationName,
@@ -78,6 +74,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
         saveEvaluation,
         resetEvaluation,
         setEvaluationType,
+        setEvaluationTarget,
+        setTraceWindowSeconds,
         setSignalEmission,
         setActiveTab,
     } = useActions(llmEvaluationLogic)
@@ -101,14 +99,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const isSentiment = evaluation.evaluation_type === 'sentiment'
     const isReportableEvaluation = evaluationSupportsReports(evaluation)
     const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
-    const canUseEvaluationType = evaluationTypeCanBeCreated(evaluation.evaluation_type, featureFlags)
-    const canSaveEvaluationType =
-        canUseEvaluationType || originalEvaluation?.evaluation_type === evaluation.evaluation_type
-    const effectiveCanEnable = canEnable && (evaluation.enabled || canUseEvaluationType)
-    const effectiveCanEnableReason =
-        !evaluation.enabled && !canUseEvaluationType
-            ? 'Sentiment evaluations are not available for this project.'
-            : canEnableReason
 
     const trendInsightUrl =
         isReportableEvaluation && !isNewEvaluation && evaluation.id
@@ -177,15 +167,13 @@ export function AIObservabilityEvaluation(): JSX.Element {
         (c) => (c.rollout_percentage ?? 0) > 100 || (c.rollout_percentage ?? 0) < 0
     )
     const hasConditions = evaluation.conditions.length > 0
-    const saveButtonDisabledReason = !canSaveEvaluationType
-        ? 'Sentiment evaluations are not available for this project'
-        : !hasName
-          ? 'Add a name for this evaluation'
-          : !configValid
-            ? isHog
-                ? 'Add evaluation code before saving'
-                : 'Add an evaluation prompt before saving'
-            : undefined
+    const saveButtonDisabledReason = !hasName
+        ? 'Add a name for this evaluation'
+        : !configValid
+          ? isHog
+              ? 'Add evaluation code before saving'
+              : 'Add an evaluation prompt before saving'
+          : undefined
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
@@ -229,22 +217,16 @@ export function AIObservabilityEvaluation(): JSX.Element {
             label: 'Hog code',
         },
     ]
-    const sentimentEvaluationMethodOptions: { value: EvaluationType; label: string }[] =
-        evaluationTypeCanBeCreated('sentiment', featureFlags) || isSentiment
-            ? [
-                  {
-                      value: 'sentiment',
-                      label: 'Sentiment analysis',
-                  },
-              ]
-            : []
     const evaluationMethodOptions: { value: EvaluationType; label: string }[] = [
         {
             value: 'llm_judge',
             label: 'LLM as a judge',
         },
         ...hogEvaluationMethodOptions,
-        ...sentimentEvaluationMethodOptions,
+        {
+            value: 'sentiment',
+            label: 'Sentiment analysis',
+        },
     ]
 
     return (
@@ -321,10 +303,17 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     <div className="space-y-1">
                         <p className="font-semibold">This evaluation was automatically disabled</p>
                         <p>
-                            {statusReasonLabel(evaluation.status_reason)}. Update the configuration below (e.g. choose a
-                            supported model or add a provider API key in settings), then re-enable the evaluation to
-                            resume running.
+                            {statusReasonLabel(evaluation.status_reason)}.{' '}
+                            {statusReasonRecoveryLabel(evaluation.status_reason)}
                         </p>
+                        {evaluation.status_reason_detail && (
+                            <div className="space-y-1">
+                                <p className="font-semibold">Error details</p>
+                                <pre className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border bg-bg-light p-2 font-mono text-xs">
+                                    {evaluation.status_reason_detail}
+                                </pre>
+                            </div>
+                        )}
                     </div>
                 </LemonBanner>
             )}
@@ -395,8 +384,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         ),
                     },
                     !isNewEvaluation &&
-                        isReportableEvaluation &&
-                        !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && {
+                        isReportableEvaluation && {
                             key: 'reports',
                             label: 'Reports',
                             'data-attr': 'llma-evaluation-reports-tab',
@@ -454,6 +442,52 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 )}
                                             </p>
 
+                                            {!isSentiment && (
+                                                <>
+                                                    <Field name="target" label="Evaluate">
+                                                        <LemonSelect<EvaluationTarget>
+                                                            value={evaluation.target ?? 'generation'}
+                                                            onChange={setEvaluationTarget}
+                                                            options={[
+                                                                {
+                                                                    value: 'generation',
+                                                                    label: 'Each generation',
+                                                                },
+                                                                {
+                                                                    value: 'trace',
+                                                                    label: 'Whole trace',
+                                                                },
+                                                            ]}
+                                                            fullWidth
+                                                        />
+                                                    </Field>
+                                                    <p className="text-muted text-sm -mt-2">
+                                                        {evaluation.target === 'trace'
+                                                            ? 'Runs once per trace on all of its events together, after a delay that lets the trace complete.'
+                                                            : 'Runs on each matching generation event individually, right after it is ingested.'}
+                                                    </p>
+                                                    {evaluation.target === 'trace' && (
+                                                        <Field name="trace_window" label="Wait before evaluating">
+                                                            <div className="space-y-1">
+                                                                <DurationPicker
+                                                                    value={
+                                                                        evaluation.target_config.window_seconds ??
+                                                                        DEFAULT_TRACE_WINDOW_SECONDS
+                                                                    }
+                                                                    onChange={setTraceWindowSeconds}
+                                                                />
+                                                                <p className="text-muted text-xs">
+                                                                    How long to wait after the first matching generation
+                                                                    before pulling the whole trace (10s–2h). Captured
+                                                                    when the run is scheduled — changing it won't affect
+                                                                    trace runs already in flight.
+                                                                </p>
+                                                            </div>
+                                                        </Field>
+                                                    )}
+                                                </>
+                                            )}
+
                                             <Field name="description" label="Description (optional)">
                                                 <LemonTextArea
                                                     value={evaluation.description || ''}
@@ -466,21 +500,21 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
                                             <div className="flex items-center gap-2">
                                                 <Tooltip
-                                                    title={effectiveCanEnableReason}
-                                                    visible={effectiveCanEnableReason ? undefined : false}
+                                                    title={canEnableReason}
+                                                    visible={canEnableReason ? undefined : false}
                                                 >
                                                     <span>
                                                         <LemonSwitch
                                                             checked={evaluation.enabled}
                                                             onChange={setEvaluationEnabled}
                                                             label="Enable evaluation"
-                                                            disabled={!effectiveCanEnable && !evaluation.enabled}
+                                                            disabled={!canEnable && !evaluation.enabled}
                                                         />
                                                     </span>
                                                 </Tooltip>
                                                 <span className="text-muted text-sm">
-                                                    {!effectiveCanEnable && !evaluation.enabled
-                                                        ? effectiveCanEnableReason
+                                                    {!canEnable && !evaluation.enabled
+                                                        ? canEnableReason
                                                         : evaluation.enabled
                                                           ? 'This evaluation will run automatically based on triggers'
                                                           : 'This evaluation is paused and will not run'}
@@ -564,21 +598,17 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     </div>
 
                                     {/* Scheduled Reports (inline config for new evaluations) */}
-                                    {isNewEvaluation &&
-                                        isReportableEvaluation &&
-                                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
-                                            <EvaluationReportConfig evaluationId="new" />
-                                        )}
+                                    {isNewEvaluation && isReportableEvaluation && (
+                                        <EvaluationReportConfig evaluationId="new" />
+                                    )}
                                 </Form>
 
                                 {/* Scheduled Reports (for existing evaluations, outside the form) */}
-                                {!isNewEvaluation &&
-                                    isReportableEvaluation &&
-                                    featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
-                                        <div className="mt-6">
-                                            <EvaluationReportConfig evaluationId={evaluation.id} />
-                                        </div>
-                                    )}
+                                {!isNewEvaluation && isReportableEvaluation && (
+                                    <div className="mt-6">
+                                        <EvaluationReportConfig evaluationId={evaluation.id} />
+                                    </div>
+                                )}
                             </div>
                         ),
                     },
@@ -599,13 +629,14 @@ function EvaluationModelPicker(): JSX.Element {
         trialModelsLoading,
         providerKeysLoading,
     } = useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId } = useValues(llmEvaluationLogic)
+    const { selectedModel, selectedPickerProviderKeyId, requiresProviderKey } = useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
-    const allModels = hasByokKeys ? byokModels : trialModels
+    const showTrialModels = !hasByokKeys && !requiresProviderKey
+    const allModels = showTrialModels ? trialModels : byokModels
     const selectedModelName = allModels.find((m) => m.id === selectedModel)?.name
-    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
-    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
+    const groups = showTrialModels ? trialProviderModelGroups : providerModelGroups
+    const loading = showTrialModels ? trialModelsLoading : byokModelsLoading || providerKeysLoading
 
     const footerLink = getModelPickerFooterLink(hasByokKeys)
 

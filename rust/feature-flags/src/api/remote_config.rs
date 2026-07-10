@@ -81,9 +81,8 @@ pub async fn remote_config(
     // `?api_key=` is an alias). SDKs call this with `@current` as the URL segment plus a
     // `?token=phc_...` project key; Django resolves the project from the token first, so the token
     // wins when present (and `@current` never needs interpreting). Without a token, a numeric
-    // segment is the project id; `@current` and other non-numeric values 404 (Django's `int()`
-    // ValueError), and the `@current`-without-token path that resolves the caller's current team
-    // is not an SDK call and is not ported.
+    // segment is the project id, and `@current` resolves to the bearer credential's project (see
+    // `resolve_current_team`); any other non-numeric segment 404s (Django's `int()` ValueError).
     let token_param = params
         .token
         .as_deref()
@@ -94,13 +93,24 @@ pub async fn remote_config(
     // team. The project id is needed solely for the flag lookup, so it is computed after auth and
     // the throttle — no DB read happens before an unauthenticated caller is rejected.
     // `verify_token_and_get_team` is cache-backed, so the `?token=` path does no uncached DB work
-    // at this point either.
+    // at this point either, and `resolve_current_team` goes through the shared auth-token cache so
+    // the bearer-only `@current` path doesn't either.
     let (scope_team_id, resolved_team): (i32, Option<Team>) = if let Some(token) = token_param {
         match state.flag_service().verify_token_and_get_team(token).await {
             // Keep the team so the personal-key auth path and the project lookup below don't
             // re-query it. Django raises AuthenticationFailed for an invalid `?token=`.
             Ok(team) => (team.id, Some(team)),
             Err(_) => return Ok(StatusCode::UNAUTHORIZED.into_response()),
+        }
+    } else if project_segment == "@current" {
+        // `@current` without a `?token=`: resolve the project from the bearer credential,
+        // mirroring Django (`current_team = team_from_request or user.current_team`). Server
+        // SDKs fetch remote config exactly this way — a `phs_`/`phx_` bearer, `@current`, no
+        // query token — so this must resolve, not 404. `Ok(None)` is a valid credential with no
+        // current team (Django: 404 "Project not found"); a missing credential surfaces as 401.
+        match resolve_current_team(&state, &headers).await? {
+            Some(team) => (team.id, Some(team)),
+            None => return Ok(StatusCode::NOT_FOUND.into_response()),
         }
     } else {
         match project_segment.parse::<i32>() {
@@ -117,18 +127,7 @@ pub async fn remote_config(
                 rate_limit_key,
             } => (should_decrypt, team_id, rate_limit_key),
             AuthOutcome::Forbidden => return Ok(StatusCode::FORBIDDEN.into_response()),
-            AuthOutcome::ProjectNotFound => {
-                // TEMPORARY (remote_config shadow phase 2): diagnose Django↔Rust 404 mismatches.
-                // Delete with the shadow at cutover.
-                warn!(
-                    scope_team_id,
-                    key = %key,
-                    via_token = token_param.is_some(),
-                    reason = "auth_project_not_found",
-                    "remote_config 404"
-                );
-                return Ok(StatusCode::NOT_FOUND.into_response());
-            }
+            AuthOutcome::ProjectNotFound => return Ok(StatusCode::NOT_FOUND.into_response()),
         };
 
     // Throttle mirroring Django's RemoteConfigThrottle: only personal-API-key requests are
@@ -167,18 +166,6 @@ pub async fn remote_config(
     let Some((filters, has_encrypted_payloads)) =
         load_remote_config_flag(&state, scope_project_id, &key).await?
     else {
-        // TEMPORARY (remote_config shadow phase 2): a 404 from here while Django serves the flag is
-        // the mismatch we are chasing. Log what Rust actually resolved so we can tell "wrong project
-        // resolved" (scope_project_id != Django's project) from "reader missing the row"
-        // (scope_project_id correct, but the read replica returns nothing). Delete with the shadow.
-        warn!(
-            scope_project_id,
-            scope_team_id,
-            key = %key,
-            via_token = token_param.is_some(),
-            reason = "flag_not_found",
-            "remote_config 404"
-        );
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
 
@@ -345,6 +332,30 @@ async fn authenticate(
         });
     }
 
+    Err(FlagError::NoAuthenticationProvided)
+}
+
+/// Resolves the project scope for an `@current` request that has no `?token=`, from the bearer
+/// credential — mirroring Django's `current_team = team_from_request or user.current_team`: a
+/// team/project secret token (`phs_`) resolves its own team; a personal API key (`phx_`) resolves
+/// its user's current team. `Ok(None)` means the credential is valid but has no current team
+/// (Django: 404 "Project not found"); an absent or invalid credential surfaces as 401 via the
+/// propagated error. The resolved team is re-validated by `authenticate`, so this only establishes scope.
+async fn resolve_current_team(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<Option<Team>, FlagError> {
+    if let Some(token) = auth::extract_team_secret_token(headers) {
+        let (team_id, _api_token, _is_project_secret) =
+            auth::validate_secret_api_token(state, &token).await?;
+        return Ok(Some(state.flag_service().get_team_by_id(team_id).await?));
+    }
+    if let Some(key) = auth::extract_personal_api_key(headers)? {
+        return match auth::current_team_id_for_personal_api_key(state, &key).await? {
+            Some(team_id) => Ok(Some(state.flag_service().get_team_by_id(team_id).await?)),
+            None => Ok(None),
+        };
+    }
     Err(FlagError::NoAuthenticationProvided)
 }
 

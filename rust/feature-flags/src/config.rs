@@ -452,6 +452,13 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub flags_redis_enabled: FlexBool,
 
+    // Kill-switch for the flag-definitions self-heal path. When enabled, a
+    // /flags/definitions cache miss enqueues a (debounced) rebuild request that a
+    // Celery worker drains and rebuilds. Default on; set to "false" to instantly
+    // stop enqueuing if it ever misbehaves in prod.
+    #[envconfig(from = "FLAG_DEFINITIONS_SELF_HEAL_ENABLED", default = "true")]
+    pub flag_definitions_self_heal_enabled: FlexBool,
+
     // S3 configuration for HyperCache fallback
     #[envconfig(default = "posthog")]
     pub object_storage_bucket: String,
@@ -1014,6 +1021,7 @@ impl Config {
             flags_redis_url: "".to_string(),
             flags_redis_reader_url: "".to_string(),
             flags_redis_enabled: FlexBool(false),
+            flag_definitions_self_heal_enabled: FlexBool(false),
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
@@ -1191,6 +1199,7 @@ impl Config {
             shutdown_flush_timeout: std::time::Duration::from_millis(
                 self.billing_shutdown_flush_timeout_ms,
             ),
+            jitter_override: None,
         }
     }
 
@@ -1676,6 +1685,7 @@ mod service_mode_tests {
         assert_eq!(bcfg.max_pending_entries, 99);
         assert_eq!(bcfg.per_flush_batch_size, 7);
         assert_eq!(bcfg.shutdown_flush_timeout, Duration::from_millis(5_000));
+        assert_eq!(bcfg.jitter_override, None);
     }
 }
 

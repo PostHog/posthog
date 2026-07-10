@@ -243,6 +243,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                 # - if insight + dashboard combinations have the same cache key, we prevent needless recalculations
                 limit_context=LimitContext.QUERY_ASYNC,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                user=insight.created_by,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
                 analytics_props={"source": EventSource.CACHE_WARMING},

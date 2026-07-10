@@ -15,12 +15,12 @@ import type {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import type { accountLinksLogicType } from './accountLinksLogicType'
+import { SALESFORCE_ORIGIN } from './constants'
 
 const ORGANIZATION_GROUP_TYPE_INDEX = 0
 const REVENUE_DASHBOARD_ID = 259114
 const BILLING_ADMIN_ORIGIN = 'https://billing.posthog.com'
 const SLACK_ARCHIVES_ORIGIN = 'https://posthog.slack.com/archives'
-const SALESFORCE_ORIGIN = 'https://posthog.my.salesforce.com'
 
 export interface AccountLinksLogicProps {
     accountId: string

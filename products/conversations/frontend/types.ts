@@ -47,6 +47,24 @@ export interface AITriage {
     finished_at?: string
     workflow_id?: string
     run_id?: string
+    ai_trace_id?: string
+    missing?: string[]
+}
+
+export type AiReplyFeedbackRating = 'good' | 'bad'
+
+export type GapSuggestionStatus = 'pending' | 'accepted' | 'dismissed'
+
+export interface KnowledgeGapSuggestion {
+    id: string
+    ticket_id: string
+    topic: string
+    normalized_topic: string
+    ticket_type: string
+    outcome: string
+    status: GapSuggestionStatus
+    resolved_source_id: string | null
+    created_at: string
 }
 
 export interface TicketViewFilters {
@@ -54,6 +72,7 @@ export interface TicketViewFilters {
     priority?: TicketPriority[]
     channel?: TicketChannel | 'all'
     sla?: TicketSlaState | 'all'
+    aiTriageResult?: AITriageFilterValue[]
     assignee?: AssigneeFilterValue
     tags?: string[]
     tagsMatch?: TicketTagsMatch
@@ -102,6 +121,7 @@ export interface Ticket {
     channel_source: TicketChannel
     channel_detail?: TicketChannelDetail | null
     anonymous_traits: Record<string, any>
+    identity_verified: boolean | null
     ai_resolved: boolean
     escalation_reason?: string
     created_at: string
@@ -128,6 +148,7 @@ export interface Ticket {
     cc_participants?: string[]
     github_repo?: string | null
     github_issue_number?: number | null
+    zendesk_ticket_id?: number | null
     organization_id?: string | null
     person?: TicketPerson | null
     tags?: string[]
@@ -180,6 +201,9 @@ export interface ChatMessage {
     createdAt: string
     isPrivate?: boolean
     emailDeliveryStatus?: EmailDeliveryStatus
+    /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
+     * is rendered with external image auto-loading disabled. */
+    fromZendesk?: boolean
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
@@ -239,12 +263,21 @@ export const slaOptions: { value: TicketSlaState | 'all'; label: string }[] = [
 
 export const aiTriageResultLabel: Record<AITriageResult, string> = {
     persisted: 'Resolved',
-    escalated_with_best: 'Escalated (best)',
-    escalated_no_reply: 'Escalated',
+    escalated_with_best: 'Escalated with draft',
+    escalated_no_reply: 'Escalated, no draft',
     skipped_unactionable: 'Skipped',
-    blocked_unsafe: 'Blocked',
-    blocked_unsafe_reply: 'Blocked (reply)',
+    blocked_unsafe: 'Blocked unsafe ticket',
+    blocked_unsafe_reply: 'Blocked unsafe reply',
 }
+
+export const aiTriageProcessingLabel = 'Processing'
+
+export type AITriageFilterValue = AITriageResult | 'in_progress'
+
+export const aiTriageFilterOptions: { key: AITriageFilterValue; label: string }[] = [
+    { key: 'in_progress', label: aiTriageProcessingLabel },
+    ...(Object.entries(aiTriageResultLabel) as [AITriageResult, string][]).map(([key, label]) => ({ key, label })),
+]
 
 export type AITriageTagType = 'success' | 'warning' | 'danger' | 'default'
 

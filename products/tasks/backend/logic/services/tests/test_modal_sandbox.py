@@ -1,5 +1,8 @@
+import json
+import shlex
 import asyncio
 import builtins
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -7,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
 from requests.exceptions import ConnectionError, Timeout
@@ -17,6 +21,7 @@ from products.tasks.backend.exceptions import (
     SnapshotCreationError,
     SnapshotTimeoutError,
 )
+from products.tasks.backend.logic.services.local_packages import LocalPackage
 from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     MAX_PROVISION_LOG_EXCERPT_LINES,
     summarize_modal_output,
@@ -25,11 +30,14 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     _GHCR_RESOLVE_MAX_ATTEMPTS,
     AGENT_SERVER_PORT,
     DEFAULT_MODAL_REGION,
+    DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS,
     SANDBOX_IMAGE,
     ModalSandbox,
+    _attach_local_package_mounts,
     _get_modal_region,
     _get_sandbox_image_reference,
     _image_ref_cache,
+    _merge_runtime_dependency_specs,
     _resource_create_kwargs,
 )
 from products.tasks.backend.logic.services.sandbox import (
@@ -269,6 +277,95 @@ class TestGetModalRegion:
             assert _get_modal_region() == expected_region
 
 
+class TestAttachLocalPackageMounts:
+    @pytest.mark.parametrize(
+        "existing,candidate",
+        [
+            ("github:example/runtime#v1", "github:example/runtime#v2"),
+            ("git+https://example.com/runtime.git#v1", "git+https://example.com/runtime.git#v2"),
+            ("file:../runtime-v1", "file:../runtime-v2"),
+            ("https://example.com/runtime-v1.tgz", "https://example.com/runtime-v2.tgz"),
+            ("npm:runtime-v1@^1.0.0", "npm:runtime-v2@^1.0.0"),
+            ("latest", "next"),
+        ],
+    )
+    def test_rejects_conflicting_non_semver_runtime_dependency_specs(self, existing: str, candidate: str) -> None:
+        with pytest.raises(ValueError, match="Conflicting non-semver runtime dependency specs for runtime"):
+            _merge_runtime_dependency_specs("runtime", existing, candidate)
+
+    def test_installs_runtime_dependencies_before_mounting_local_builds(self, tmp_path: Path) -> None:
+        source_path = tmp_path / "agent"
+        build_output_path = source_path / "dist"
+        build_output_path.mkdir(parents=True)
+        (source_path / "package.json").write_text(
+            json.dumps(
+                {
+                    "dependencies": {
+                        "@openai/codex": "0.140.0",
+                        "custom-runtime": "github:example/custom-runtime#v1.2.3",
+                        "@posthog/shared": "workspace:*",
+                        "zod": "^4.2.0",
+                    }
+                }
+            )
+        )
+        package = LocalPackage(
+            name="agent",
+            source_path=source_path,
+            sandbox_install_path="/scripts/node_modules/@posthog/agent",
+        )
+        shared_source_path = tmp_path / "shared"
+        shared_build_output_path = shared_source_path / "dist"
+        shared_build_output_path.mkdir(parents=True)
+        (shared_source_path / "package.json").write_text(json.dumps({"dependencies": {"zod": "^4.1.12"}}))
+        shared_package = LocalPackage(
+            name="shared",
+            source_path=shared_source_path,
+            sandbox_install_path="/scripts/node_modules/@posthog/shared",
+        )
+        base_image = MagicMock()
+        system_dependency_image = MagicMock()
+        dependency_image = MagicMock()
+        mounted_image = MagicMock()
+        final_image = MagicMock()
+        base_image.apt_install.return_value = system_dependency_image
+        system_dependency_image.run_commands.return_value = dependency_image
+        dependency_image.add_local_dir.return_value = mounted_image
+        mounted_image.add_local_dir.return_value = final_image
+
+        with patch(
+            "products.tasks.backend.logic.services.modal_sandbox.get_local_posthog_code_packages",
+            return_value=(package, shared_package),
+        ):
+            result = _attach_local_package_mounts(base_image, SandboxTemplate.DEFAULT_BASE)
+
+        base_image.apt_install.assert_called_once_with("musl")
+        command = system_dependency_image.run_commands.call_args.args[0]
+        command_parts = shlex.split(command)
+        assert command_parts[:2] == ["node", "-e"]
+        assert json.loads(command_parts[3]) == {
+            "@openai/codex": "0.140.0",
+            "custom-runtime": "github:example/custom-runtime#v1.2.3",
+            "zod": "^4.2.0 ^4.1.12",
+        }
+        assert "npm install --prefix /scripts" in command
+        assert "[ -d " not in command
+        assert "@openai/codex@0.140.0" not in command
+        assert "custom-runtime@github:" not in command
+        assert "@posthog/shared" not in command
+        dependency_image.add_local_dir.assert_called_once_with(
+            str(build_output_path),
+            "/scripts/node_modules/@posthog/agent/dist",
+            copy=False,
+        )
+        mounted_image.add_local_dir.assert_called_once_with(
+            str(shared_build_output_path),
+            "/scripts/node_modules/@posthog/shared/dist",
+            copy=False,
+        )
+        assert result is final_image
+
+
 class TestModalSandboxAgentServer:
     @pytest.fixture
     def mock_sandbox(self) -> Any:
@@ -350,6 +447,24 @@ class TestModalSandboxAgentServer:
         assert "--createPr true" in command
         assert "agentsh exec" not in command
         assert "nohup" in command
+
+    def test_start_agent_server_waits_for_repository_before_launch(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            repo_ready_file="/tmp/workspace/.repo-ready",
+            wait_for_health=False,
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        assert "while [ ! -f /tmp/workspace/.repo-ready ]; do sleep 0.1; done; exec env" in command
+        assert "--repoReadyFile /tmp/workspace/.repo-ready" in command
 
     def test_start_agent_server_wraps_with_agentsh_when_domains_provided(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
@@ -434,6 +549,7 @@ class TestModalSandboxAgentServer:
             provider="openai",
             model="gpt-5.3-codex",
             reasoning_effort="high",
+            initial_permission_mode="plan",
             event_ingest_token="ingest-token",
             event_ingest_url="https://agent-proxy.example.com",
         )
@@ -443,9 +559,60 @@ class TestModalSandboxAgentServer:
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=high" in command
+        assert "POSTHOG_CODE_INITIAL_PERMISSION_MODE=plan" in command
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
         # Modal sandboxes reach the proxy by its real URL, no Docker-host rewrite.
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_URL=https://agent-proxy.example.com" in command
+        assert "POSTHOG_RTK=1" in command
+
+    @pytest.mark.parametrize(
+        "rtk_enabled, expected_env",
+        [
+            (True, "POSTHOG_RTK=1"),
+            (False, "POSTHOG_RTK=0"),
+        ],
+    )
+    def test_start_agent_server_rtk_env(self, mock_sandbox: Any, rtk_enabled, expected_env):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            rtk_enabled=rtk_enabled,
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        assert expected_env in command
+
+    @pytest.mark.parametrize(
+        "keep_stream_open, expected_env_present",
+        [
+            (True, True),
+            (False, False),
+        ],
+    )
+    def test_start_agent_server_keep_stream_open_env(self, mock_sandbox: Any, keep_stream_open, expected_env_present):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            event_ingest_keep_stream_open=keep_stream_open,
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        if expected_env_present:
+            assert "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN=true" in command
+        else:
+            assert "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN" not in command
 
     def test_start_agent_server_raises_when_not_running(self, mock_sandbox: Any):
         mock_sandbox._sandbox.poll.return_value = 0
@@ -963,6 +1130,7 @@ class TestModalSandboxCreateSnapshot:
         [
             ModalTimeoutError("Deadline exceeded"),
             ModalConnectionError("connection reset"),
+            ModalServiceError("Timeout expired"),
             builtins.TimeoutError("timed out"),
             builtins.ConnectionError("connection error"),
             asyncio.CancelledError(),
@@ -991,3 +1159,12 @@ class TestModalSandboxCreateSnapshot:
             mock_sandbox.create_snapshot()
 
         capture_exception.assert_called_once()
+
+    def test_create_directory_snapshot_overrides_modal_default_timeout(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.snapshot_directory.return_value = MagicMock(object_id="im-dir-123")
+
+        assert mock_sandbox.create_directory_snapshot("/tmp/workspace") == "im-dir-123"
+
+        mock_sandbox._sandbox.snapshot_directory.assert_called_once_with(
+            "/tmp/workspace", timeout=DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS, ttl=None
+        )

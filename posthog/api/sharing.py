@@ -15,7 +15,6 @@ import jwt
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
-from loginas.utils import is_impersonated_session
 from pydantic import BaseModel
 from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -33,6 +32,7 @@ from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtec
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.query_runner import ExecutionMode, shared_insights_execution_mode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import SessionRecording, SharePassword, SharingConfiguration, Team
@@ -43,6 +43,7 @@ from posthog.rbac.user_access_control import UserAccessControl, access_level_sat
 from posthog.scopes import APIScopeObject
 from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
+from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
@@ -445,7 +446,11 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                         dashboard.is_shared = False
                     dashboard.save(update_fields=["share_token", "is_shared"])
                 else:
-                    instance.enabled = dashboard.is_shared
+                    # The legacy token isn't owned by any config, so adopt it onto this one. Only
+                    # migrate the token, never ``enabled``: this helper runs on the read path
+                    # (``list``), and ``dashboard.is_shared`` is a deprecated field holding stale
+                    # legacy data, so enabling off it would let a plain GET silently make a
+                    # dashboard public. Sharing is only ever turned on through an explicit PATCH.
                     instance.access_token = dashboard.share_token
                     instance.save()
 
@@ -490,7 +495,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=instance.insight.pk,
                 scope="Insight",
                 activity="sharing " + ("enabled" if serializer.data.get("enabled") else "disabled"),
@@ -513,7 +518,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=instance.dashboard.pk,
                 scope="Dashboard",
                 activity="sharing " + ("enabled" if serializer.data.get("enabled") else "disabled"),
@@ -535,7 +540,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=instance.notebook.short_id,
                 scope="Notebook",
                 activity="sharing " + ("enabled" if serializer.data.get("enabled") else "disabled"),
@@ -580,7 +585,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=new_instance.insight.pk,
                 scope="Insight",
                 activity="access token refreshed",
@@ -595,7 +600,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=new_instance.dashboard.pk,
                 scope="Dashboard",
                 activity="access token refreshed",
@@ -607,7 +612,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=new_instance.notebook.short_id,
                 scope="Notebook",
                 activity="access token refreshed",
@@ -698,13 +703,15 @@ def custom_404_response(request):
     return render(request, "shared_resource_404.html", status=404)
 
 
-def _compute_inline_query_results_for_shared_notebook(notebook: Notebook, team: Team) -> dict[str, Any]:
+def _compute_inline_query_results_for_shared_notebook(
+    notebook: Notebook, team: Team, user: Optional[User]
+) -> dict[str, Any]:
     """Pre-compute results for every inline (non-saved-insight) ``ph-query`` node in a notebook.
 
     Mirrors the shared-insight path (`InsightSerializer.insight_result`) but for queries that
     live inline in node attrs rather than as a `SavedInsightNode`. Each query is executed under
     `shared_insights_execution_mode`, which uses the cache aggressively and refreshes async if
-    stale — the same throttle dashboards use.
+    stale — the same throttle dashboards use. Queries run as the shared-link user (anonymous).
 
     Returns a map of ``nodeId -> serialized result dict``. Nodes whose query fails to execute
     are silently omitted; the frontend renders ``UnsupportedNodePlaceholder`` for any inline
@@ -723,7 +730,7 @@ def _compute_inline_query_results_for_shared_notebook(notebook: Notebook, team: 
                 team,
                 query,
                 execution_mode=execution_mode,
-                user=None,
+                user=user,
             )
             if isinstance(result, BaseModel):
                 serialized = result.model_dump(mode="json")
@@ -924,6 +931,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     message="Failed to parse cache_keys parameter - continuing without it",
                 )
 
+        # The /shared/ page resolves the token from the URL, so no authenticator runs and request.user
+        # is a bare AnonymousUser. Shared queries execute without warehouse access control.
+        shared_link_user = (
+            cast("User | None", SharedLinkUser(resource)) if isinstance(resource, SharingConfiguration) else None
+        )
+
         context = {
             "view": self,
             "request": request,
@@ -932,11 +945,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "get_team": lambda: resource.team,
             "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
             "export_cache_keys": export_cache_keys,
+            "shared_link_user": shared_link_user,
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
-        available_features = resource.team.organization.available_product_features or []
-        if "whitelabel" in request.GET and "white_labelling" in [feature["key"] for feature in available_features]:
+        if "whitelabel" in request.GET and resource.team.organization.is_feature_available(
+            AvailableFeature.WHITE_LABELLING
+        ):
             exported_data.update({"whitelabel": True})
 
         if isinstance(resource, SharingConfiguration) and resource.password_required:
@@ -1240,7 +1255,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update(
                 {
                     "inline_query_results": _compute_inline_query_results_for_shared_notebook(
-                        resource.notebook, resource.team
+                        resource.notebook, resource.team, shared_link_user
                     )
                 }
             )

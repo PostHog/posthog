@@ -34,6 +34,7 @@ import {
     Experiment,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
+    FeatureFlagBasicType,
     FeatureFlagType,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -44,6 +45,11 @@ import {
     type QueryBasedInsightModel,
     UniversalFiltersGroupValue,
 } from '~/types'
+
+import type {
+    ExperimentFeatureFlagFiltersApi,
+    ExperimentFeatureFlagInputApi,
+} from 'products/experiments/frontend/generated/api.schemas'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
@@ -80,14 +86,24 @@ export function getVariantColor(variantKey: string, featureFlagVariants: Multiva
 }
 
 /**
- * Variants for an experiment, read flag-first. The linked feature flag is the source of truth;
- * `parameters.feature_flag_variants` is a legacy mirror that only matters while creating an
- * experiment, before its flag exists. Saved experiments always resolve from the flag.
+ * Variants for an experiment. Saved experiments resolve from the linked feature flag (the source
+ * of truth); an unsaved draft has no flag yet, so it resolves from the draft flag config instead.
  */
 export function getExperimentVariants(experiment: Partial<Experiment> | null | undefined): MultivariateFlagVariant[] {
     return (
-        experiment?.feature_flag?.filters?.multivariate?.variants ?? experiment?.parameters?.feature_flag_variants ?? []
+        experiment?.feature_flag?.filters?.multivariate?.variants ??
+        experiment?.feature_flag_config?.filters?.multivariate?.variants ??
+        []
     )
+}
+
+/**
+ * Variants for a standalone feature flag (no experiment in hand). Reads the flag's saved config only.
+ */
+export function getFlagVariants(
+    flag: FeatureFlagBasicType | FeatureFlagType | null | undefined
+): MultivariateFlagVariant[] {
+    return flag?.filters?.multivariate?.variants ?? []
 }
 
 export function formatUnitByQuantity(value: number, unit: string): string {
@@ -360,8 +376,9 @@ export function getViewRecordingFiltersLegacy(
 }
 
 export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): true {
-    if (featureFlag.filters.multivariate?.variants?.length && featureFlag.filters.multivariate.variants.length > 1) {
-        if (featureFlag.filters.multivariate.variants[0].key !== 'control') {
+    const variants = getFlagVariants(featureFlag)
+    if (variants.length > 1) {
+        if (variants[0].key !== 'control') {
             throw new Error('Feature flag must have control as the first variant.')
         }
         return true
@@ -981,6 +998,53 @@ export type MetricWithResult = {
  */
 export const isSavedExperiment = (experiment: Experiment | null | undefined): experiment is Experiment =>
     experiment?.id != null && experiment.id !== 'new'
+
+export type ExperimentWritePayload<T> = Omit<T, 'feature_flag' | 'feature_flag_config'> & {
+    feature_flag?: ExperimentFeatureFlagInputApi
+}
+
+/** Update payload for the experiment API: flag config travels in the write shape. An echoed
+ * read-only flag is also accepted — the backend ignores flag objects carrying a non-null id. */
+export type ExperimentUpdatePayload = Omit<Partial<Experiment>, 'feature_flag'> & {
+    feature_flag?: ExperimentFeatureFlagInputApi | Experiment['feature_flag']
+    update_feature_flag_params?: boolean
+}
+
+/** Maps UI variants to the flag's write shape, dropping null names the generated type disallows. */
+export function toFlagVariantsInput(
+    variants: MultivariateFlagVariant[]
+): NonNullable<ExperimentFeatureFlagFiltersApi['multivariate']>['variants'] {
+    return variants.map(({ key, name, rollout_percentage }) => ({
+        key,
+        ...(name != null ? { name } : {}),
+        rollout_percentage,
+    }))
+}
+
+/**
+ * Builds an experiment write payload. Draft flag config lives on `feature_flag_config` in the
+ * flag's own input shape; it moves to the `feature_flag` write field. The read-only `feature_flag`
+ * echoed by a GET response is dropped, and `feature_flag_config` never travels literally.
+ *
+ * Pass `omitFlagConfig` when the experiment links to a pre-existing flag: the flag is linked
+ * as-is, and the API rejects explicit config for it.
+ */
+export function toExperimentWritePayload<T extends Pick<Experiment, 'feature_flag_config'>>(
+    experiment: T,
+    { omitFlagConfig = false }: { omitFlagConfig?: boolean } = {}
+): ExperimentWritePayload<T> {
+    const {
+        feature_flag: _echoedFlag,
+        feature_flag_config,
+        ...rest
+    } = experiment as T & { feature_flag?: unknown; feature_flag_config?: ExperimentFeatureFlagInputApi }
+    const payload = { ...rest } as ExperimentWritePayload<T>
+
+    if (!omitFlagConfig && feature_flag_config) {
+        payload.feature_flag = feature_flag_config
+    }
+    return payload
+}
 
 /**
  * Pure zip of one metric type (`primary` | `secondary`) with its results and errors, in display order.

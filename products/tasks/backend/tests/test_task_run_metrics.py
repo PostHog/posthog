@@ -228,3 +228,69 @@ class TestTaskRunMetrics(TestCase):
             )
 
         assert _sample_value("posthog_tasks_task_run_failed_total", labels) == before + 1
+
+    @parameterized.expand(
+        [
+            ("failed", 1.0),
+            ("completed", 0.0),
+        ]
+    )
+    def test_agent_turn_failure_counter_only_on_failed_transition(self, new_status: str, expected_delta: float) -> None:
+        from products.tasks.backend.facade import api as facade
+
+        run = self.task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            mode="interactive",
+            extra_state={"run_source": "manual", "runtime_adapter": "codex"},
+        )
+        labels = {
+            "origin_product": "user_created",
+            "mode": "interactive",
+            "run_source": "manual",
+            "runtime_adapter": "codex",
+        }
+        before = _sample_value("posthog_tasks_agent_turn_failed_total", labels)
+
+        with patch.object(facade, "signal_workflow_completion"):
+            facade.update_task_run(
+                run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"status": new_status, "error_message": "boom"},
+            )
+
+        assert _sample_value("posthog_tasks_agent_turn_failed_total", labels) == before + expected_delta
+
+    @parameterized.expand(
+        [
+            ("unbound_wizard_run", {"wizard_head_branch": "posthog/instrumentation-ab12cd"}, {}, 1.0),
+            (
+                "bound_wizard_run",
+                {"wizard_head_branch": "posthog/instrumentation-ab12cd"},
+                {"pr_url": "https://x/pull/1"},
+                0.0,
+            ),
+            ("non_wizard_run", {}, {}, 0.0),
+        ]
+    )
+    def test_terminal_transition_counts_unbound_wizard_runs(
+        self, _name: str, extra_state: dict, output: dict, expected_delta: float
+    ) -> None:
+        from products.tasks.backend.facade import api as facade
+
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD, extra_state=extra_state)
+        if output:
+            run.output = output
+            run.save(update_fields=["output"])
+        labels = {"status": "completed"}
+        before = _sample_value("posthog_tasks_wizard_run_unbound_total", labels)
+
+        with patch.object(facade, "signal_workflow_completion"):
+            facade.update_task_run(
+                run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"status": "completed"},
+            )
+
+        assert _sample_value("posthog_tasks_wizard_run_unbound_total", labels) == before + expected_delta

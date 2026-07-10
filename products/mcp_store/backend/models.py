@@ -1,6 +1,7 @@
 from typing import Literal, TypedDict
 
 from django.db import models
+from django.db.models import Q
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -28,6 +29,11 @@ CATEGORY_CHOICES = [
     ("productivity", "Productivity & Collaboration"),
 ]
 
+SCOPE_CHOICES = [
+    ("personal", "Personal"),
+    ("shared", "Shared"),
+]
+
 
 class SensitiveConfig(TypedDict, total=False):
     api_key: str
@@ -42,6 +48,7 @@ class SensitiveConfig(TypedDict, total=False):
     # the install form instead of a DCR handshake.
     dcr_client_id: str
     dcr_client_secret: str
+    dcr_token_endpoint_auth_method: str
     dcr_is_user_provided: bool
 
 
@@ -101,6 +108,9 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     description = models.TextField(blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="oauth")
     is_enabled = models.BooleanField(default=True)
+    # db_default keeps a real Postgres DEFAULT so inserts from code predating
+    # this column (old pods during a rolling deploy) don't hit the NOT NULL.
+    scope = models.CharField(max_length=20, choices=SCOPE_CHOICES, default="personal", db_default="personal")
     # Cached per-installation OAuth metadata for custom (non-template) installs. Non-secret.
     oauth_issuer_url = models.URLField(max_length=2048, blank=True, default="")
     oauth_metadata = models.JSONField(default=dict, blank=True)
@@ -108,7 +118,18 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     class Meta:
         db_table = "mcp_store_mcpserverinstallation"
-        unique_together = [("team", "user", "url")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "user", "url"],
+                condition=Q(scope="personal"),
+                name="uniq_personal_install",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "url"],
+                condition=Q(scope="shared"),
+                name="uniq_shared_install",
+            ),
+        ]
 
 
 class MCPServerInstallationTool(CreatedMetaFields, UpdatedMetaFields, UUIDModel):

@@ -1,19 +1,21 @@
+import { decode } from 'he'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo, useState } from 'react'
 
 import { IconCheck, IconCheckCircle, IconPlus, IconWarning } from '@posthog/icons'
 
+import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
 
@@ -21,7 +23,7 @@ import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotic
 import { AvailableFeature } from '~/types'
 
 import { SceneExport } from '../sceneTypes'
-import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
+import { ScopeAccessLevel, oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
 export const OAuthAuthorizeError = ({ title, description }: { title: string; description: string }): JSX.Element => {
     return (
@@ -125,11 +127,11 @@ const InlineCreateForm = ({
 
 export const OAuthAuthorize = (): JSX.Element => {
     const {
-        scopeRows,
+        requiredScopeRows,
+        adjustableScopeRows,
         allScopesRequired,
         identityScopeDescriptions,
-        showReadOnlyToggle,
-        readOnlyMode,
+        showReadOnlyBulkAction,
         oauthApplication,
         oauthApplicationLoading,
         allOrganizations,
@@ -158,8 +160,8 @@ export const OAuthAuthorize = (): JSX.Element => {
         setShowCreateProject,
         setSelectedOrganization,
         setOauthAuthorizationValue,
-        setReadOnlyMode,
-        toggleDeniedScope,
+        setScopeAccess,
+        setAllScopeAccess,
     } = useActions(oauthAuthorizeLogic)
 
     const { isReadOnly: isImpersonationReadOnly, isImpersonated } = useValues(impersonationNoticeLogic)
@@ -227,12 +229,17 @@ export const OAuthAuthorize = (): JSX.Element => {
         )
     }
 
+    // The name is HTML-escaped at ingestion (see posthog/api/oauth/client_name.py). Decode it
+    // back to plain text so React's own output-escaping renders it correctly instead of showing
+    // literal entities like "&amp;".
+    const appName = decode(oauthApplication.name)
+
     if (authorizationComplete) {
-        return <OAuthAuthorizeSuccess appName={oauthApplication.name} />
+        return <OAuthAuthorizeSuccess appName={appName} />
     }
 
     if (isRedirecting) {
-        return <OAuthAuthorizeRedirecting appName={oauthApplication.name} redirectUrl={redirectUrl} />
+        return <OAuthAuthorizeRedirecting appName={appName} redirectUrl={redirectUrl} />
     }
 
     return (
@@ -243,7 +250,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                         <div className="w-16 h-16 mx-auto mb-3 rounded-full border border-border bg-bg-light p-3 flex items-center justify-center">
                             <img
                                 src={oauthApplication.logo_uri}
-                                alt={`${oauthApplication.name} logo`}
+                                alt={`${appName} logo`}
                                 className="w-full h-full object-contain"
                                 referrerPolicy="no-referrer"
                                 onError={(e) => {
@@ -258,11 +265,9 @@ export const OAuthAuthorize = (): JSX.Element => {
                         </div>
                     )}
                     <h2 className="text-xl sm:text-2xl font-semibold">
-                        Authorize <strong>{oauthApplication.name}</strong>
+                        Authorize <strong>{appName}</strong>
                     </h2>
-                    <p className="text-muted mt-2 text-sm sm:text-base">
-                        {oauthApplication.name} is requesting access to your data.
-                    </p>
+                    <p className="text-muted mt-2 text-sm sm:text-base">{appName} is requesting access to your data.</p>
                 </div>
 
                 {isImpersonated && (
@@ -385,16 +390,32 @@ export const OAuthAuthorize = (): JSX.Element => {
                         <div className="flex flex-col gap-3">
                             <div className="flex items-center justify-between gap-2 flex-wrap">
                                 <div className="text-sm font-semibold uppercase text-muted">Permissions</div>
-                                {showReadOnlyToggle && (
-                                    <LemonSegmentedButton
-                                        size="small"
-                                        value={readOnlyMode ? 'read' : 'full'}
-                                        onChange={(value) => setReadOnlyMode(value === 'read')}
-                                        options={[
-                                            { value: 'full', label: 'All requested' },
-                                            { value: 'read', label: 'Read-only' },
-                                        ]}
-                                    />
+                                {adjustableScopeRows.length > 1 && (
+                                    <div className="flex items-center gap-1">
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            onClick={() => setAllScopeAccess('write')}
+                                        >
+                                            Select all
+                                        </LemonButton>
+                                        {showReadOnlyBulkAction && (
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                onClick={() => setAllScopeAccess('read')}
+                                            >
+                                                Read-only
+                                            </LemonButton>
+                                        )}
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            onClick={() => setAllScopeAccess('none')}
+                                        >
+                                            Deselect all
+                                        </LemonButton>
+                                    </div>
                                 )}
                             </div>
                             {resourceScopesLoading ? (
@@ -404,45 +425,54 @@ export const OAuthAuthorize = (): JSX.Element => {
                                 </div>
                             ) : (
                                 <>
-                                    {identityScopeDescriptions.length > 0 && (
+                                    {(identityScopeDescriptions.length > 0 || requiredScopeRows.length > 0) && (
                                         <ul className="space-y-2">
                                             {identityScopeDescriptions.map((description, idx) => (
                                                 <li key={idx} className="flex items-center space-x-2">
-                                                    <IconCheck color="var(--success)" />
+                                                    <IconCheck color="var(--success)" className="shrink-0" />
                                                     <span className="font-medium">{description}</span>
+                                                </li>
+                                            ))}
+                                            {requiredScopeRows.map((row) => (
+                                                <li key={row.key} className="flex items-center space-x-2">
+                                                    <IconCheck color="var(--success)" className="shrink-0" />
+                                                    <span className="font-medium">{row.description}</span>
+                                                    {!allScopesRequired && (
+                                                        <Tooltip title={`${appName} requires this permission`}>
+                                                            <LemonTag>Required</LemonTag>
+                                                        </Tooltip>
+                                                    )}
                                                 </li>
                                             ))}
                                         </ul>
                                     )}
-                                    {scopeRows.length > 0 &&
-                                        (allScopesRequired ? (
-                                            <ul className="space-y-2">
-                                                {scopeRows.map((row) => (
-                                                    <li key={row.key} className="flex items-center space-x-2">
-                                                        <IconCheck color="var(--success)" />
-                                                        <span className="font-medium">{row.description}</span>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        ) : (
-                                            <div className="flex flex-col gap-2">
-                                                {scopeRows.map((row) => (
-                                                    <LemonCheckbox
-                                                        key={row.key}
-                                                        checked={row.granted}
-                                                        onChange={() =>
-                                                            row.toggleKey && toggleDeniedScope(row.toggleKey)
-                                                        }
-                                                        label={row.description}
-                                                        disabledReason={
-                                                            row.required
-                                                                ? `Required by ${oauthApplication.name}`
-                                                                : undefined
-                                                        }
-                                                    />
-                                                ))}
-                                            </div>
-                                        ))}
+                                    {adjustableScopeRows.length > 0 && (
+                                        <div className="flex flex-col">
+                                            {adjustableScopeRows.map((row) => (
+                                                <ScopeAccessRow
+                                                    key={row.key}
+                                                    label={row.label}
+                                                    info={row.info}
+                                                    muted={row.value === 'none'}
+                                                    value={row.value}
+                                                    onChange={(value) =>
+                                                        setScopeAccess(row.key, value as ScopeAccessLevel)
+                                                    }
+                                                    noneDisabledReason={
+                                                        row.minLevel !== 'none'
+                                                            ? `${appName} requires at least ${row.minLevel} access`
+                                                            : undefined
+                                                    }
+                                                    writeDisabledReason={
+                                                        row.maxLevel !== 'write'
+                                                            ? `Not requested by ${appName}`
+                                                            : undefined
+                                                    }
+                                                    warning={row.warning}
+                                                />
+                                            ))}
+                                        </div>
+                                    )}
                                 </>
                             )}
                         </div>
@@ -453,8 +483,8 @@ export const OAuthAuthorize = (): JSX.Element => {
                                     Once you authorize, you will be redirected to <strong>{redirectDomain}</strong>
                                 </p>
                                 <p>
-                                    The developer of {oauthApplication.name}'s privacy policy and terms of service apply
-                                    to this application
+                                    The developer of {appName}'s privacy policy and terms of service apply to this
+                                    application
                                 </p>
                             </div>
                         )}
@@ -494,7 +524,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                                 }
                                 onClick={() => submitOauthAuthorization()}
                             >
-                                Authorize {oauthApplication?.name}
+                                Authorize {appName}
                             </LemonButton>
                         </div>
                     </div>

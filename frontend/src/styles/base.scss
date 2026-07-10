@@ -588,14 +588,14 @@
     --font-medium: 500;
     --font-semibold: 600;
     --font-sans:
-        'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
-        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+        'Emoji Flags Polyfill', 'RoundHog', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     --font-title:
-        'Emoji Flags Polyfill', 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+        'Emoji Flags Polyfill', 'RoundHog', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
         'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     --font-button:
-        'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
-        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+        'Emoji Flags Polyfill', 'RoundHog', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     --font-mono:
         'Emoji Flags Polyfill', ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono',
         monospace;
@@ -1629,6 +1629,43 @@
             animation-iteration-count: 1 !important;
         }
 
+        // The animation-duration:0ms + forwards override above is meant to snap every
+        // animation to its final keyframe, but headless Chromium in CI handles a
+        // zero-duration animation's fill inconsistently and can paint the 0% keyframe
+        // instead. For entrance animations whose final layout exists ONLY via the
+        // forwards fill, that doesn't just dim the element — it collapses it (faded-in
+        // content stays invisible; width-expanded markers stay at width 0 and pile up at
+        // the bar's left edge). Pin the end state directly for those components; as
+        // !important author rules these override the animation regardless of how the
+        // frame settles.
+        .fade-component-container {
+            // Fade animates opacity 0 -> 1.
+            opacity: 1 !important;
+        }
+
+        .BillingGaugeItem {
+            // BillingGaugeItem animates width 0 -> --billing-gauge-item-width, which
+            // positions its marker/label along the gauge bar.
+            width: var(--billing-gauge-item-width) !important;
+        }
+
+        // Entrance animations with an opacity:0 base that fade in via forwards fill.
+        .InsightQuickStart__card,
+        .QuestionInput__SuggestionsList,
+        .QuestionInput__QuestionSuggestion,
+        // posthog-js survey preview (`ph-survey-fade-in`)
+        .survey-form,
+        .thank-you-message {
+            opacity: 1 !important;
+        }
+
+        // react-toastify zooms the toast icon in via `Toastify__zoomIn` (opacity 0 + scale(0.3)
+        // -> 1); the 0% keyframe leaves it invisible and shrunk, so pin both end values.
+        .Toastify__toast-icon {
+            opacity: 1 !important;
+            transform: none !important;
+        }
+
         // Hide hogfetti (JS-driven confetti animation) — Math.random + requestAnimationFrame
         // makes it inherently non-deterministic, CSS animation overrides don't help
         .Hogfetti {
@@ -1933,72 +1970,6 @@
     .hogqlx-redacted:focus-visible {
         outline: 2px dashed currentColor;
         outline-offset: 2px;
-    }
-
-    .animate-logomark-jump {
-        --logomark-jump-height-base: 12px;
-        --logomark-jump-magnitude: 1; // Overidden in code when someone wants a bigger jump
-        --logomark-airtime: 0.4s; // Sync with LOGOMARK_AIRTIME_MS in Intro.tsx
-
-        svg {
-            overflow: visible;
-
-            // Animate each child with a staggered delay
-            > * {
-                // Times 25 because the actual animation is 4% of the keyframes (so 1/25)
-                animation: Logomark__jump calc(var(--logomark-airtime) * 25) cubic-bezier(0.6, 0, 0.2, 0.8) infinite;
-            }
-
-            // Delay one after the other to create a nice jump effect
-            // Delay in reverse order because we want the head to jump first (it's last on SVG)
-            @for $i from 1 through 4 {
-                > *:nth-child(#{$i}) {
-                    // Dividing by 15 just because it feels good
-                    animation-delay: calc(
-                        var(--logomark-airtime) / 15 / calc(sqrt(var(--logomark-jump-magnitude))) * (4 - ($i - 1))
-                    );
-                }
-            }
-        }
-
-        @keyframes Logomark__jump {
-            0%,
-            100% {
-                transform: translateY(0);
-            }
-
-            2% {
-                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
-            }
-
-            4% {
-                // Only 4% so that this repeats every now and then nicely
-                transform: translateY(0);
-            }
-        }
-
-        @keyframes Logomark__jump-continuous {
-            0%,
-            44%,
-            100% {
-                transform: translateY(0);
-            }
-
-            22% {
-                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
-            }
-        }
-
-        /* stylelint-disable-next-line order/order */
-        &-continuous {
-            @extend .animate-logomark-jump;
-
-            /* stylelint-disable-next-line order/order */
-            svg > * {
-                animation-name: Logomark__jump-continuous;
-                animation-duration: 0.9s;
-            }
-        }
     }
 
     /* stylelint-disable-next-line order/order */

@@ -191,12 +191,40 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["workflow_name"] == "CI"
 
-    def test_workflow_health_passes_branch_through(self) -> None:
+    def test_workflow_health_passes_filters_through(self) -> None:
         with mock.patch(f"{_VIEWS}.list_workflow_health", return_value=[]) as list_health:
-            response = self.client.get(self._url("workflow_health"), {"branch": "main"})
+            response = self.client.get(
+                self._url("workflow_health"),
+                {"branch": "main", "run_scope": "pull_request"},
+            )
 
         assert response.status_code == status.HTTP_200_OK
         assert list_health.call_args.kwargs["branch"] == "main"
+        assert list_health.call_args.kwargs["run_scope"] == "pull_request"
+
+    def test_repo_run_activity_serializes_and_forwards_branch(self) -> None:
+        result = contracts.WorkflowRunActivity(
+            points=[
+                contracts.WorkflowRunActivityPoint(
+                    run_id=9601,
+                    conclusion="success",
+                    run_started_at=datetime(2026, 1, 20, tzinfo=UTC),
+                    duration_seconds=180,
+                    head_branch="main",
+                    pr_number=0,
+                )
+            ],
+            truncated=False,
+            limit=2000,
+        )
+        with mock.patch(f"{_VIEWS}.get_repo_run_activity", return_value=result) as get_activity:
+            response = self.client.get(self._url("repo_run_activity"), {"branch": "main"})
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["points"][0]["run_id"] == 9601
+        assert body["points"][0]["conclusion"] == "success"
+        assert get_activity.call_args.kwargs["branch"] == "main"
 
     def test_pr_lifecycle_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.get_pr_lifecycle", return_value=_pr_lifecycle()) as get:
@@ -212,12 +240,18 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
     def test_pr_lifecycle_404_when_not_found(self) -> None:
         with mock.patch(f"{_VIEWS}.get_pr_lifecycle", return_value=None):
-            response = self.client.get(self._url("pr_lifecycle"), {"pr_number": "999"})
+            response = self.client.get(self._url("pr_lifecycle"), {"pr_number": "999", "repo": "PostHog/posthog"})
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_pr_lifecycle_400_when_pr_number_invalid(self) -> None:
         response = self.client.get(self._url("pr_lifecycle"), {"pr_number": "not-a-number"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_pr_lifecycle_400_when_repo_missing(self) -> None:
+        # repo is required (a PR number is repo-scoped), consistent with pr_runs/pr_cost.
+        response = self.client.get(self._url("pr_lifecycle"), {"pr_number": "10"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -247,7 +281,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
     def test_workflow_runs_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.list_workflow_runs", return_value=[_workflow_run()]) as listing:
-            response = self.client.get(self._url("workflow_runs"), {"workflow_name": "CI", "repo": "PostHog/posthog"})
+            response = self.client.get(
+                self._url("workflow_runs"), {"workflow_name": "CI", "repo": "PostHog/posthog", "branch": "main"}
+            )
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -255,11 +291,24 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert body[0]["id"] == 7777
         assert listing.call_args.kwargs["workflow_name"] == "CI"
         assert listing.call_args.kwargs["repo"] == "PostHog/posthog"
+        # The detail page's branch scope must reach the read layer, or the runs list widens to all branches.
+        assert listing.call_args.kwargs["branch"] == "main"
 
     def test_workflow_runs_400_when_params_missing(self) -> None:
         response = self.client.get(self._url("workflow_runs"), {"workflow_name": "CI"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_workflow_runner_costs_passes_branch_through(self) -> None:
+        # The cost breakdown shares the detail page's branch scope, so the branch must reach the read layer.
+        with mock.patch(f"{_VIEWS}.get_workflow_runner_costs", return_value=[]) as get_costs:
+            response = self.client.get(
+                self._url("workflow_runner_costs"),
+                {"workflow_name": "CI", "repo": "PostHog/posthog", "branch": "main"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert get_costs.call_args.kwargs["branch"] == "main"
 
     def test_pr_runs_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.list_pr_runs", return_value=[_workflow_run()]) as listing:
@@ -341,9 +390,25 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "the maximum is 366" in response.json()["detail"]
 
+    def test_workflow_health_400_on_invalid_run_scope(self) -> None:
+        # A typo'd scope must 400, not silently return the all-runs population as a 200.
+        response = self.client.get(self._url("workflow_health"), {"run_scope": "bogus"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "run_scope must be one of" in response.json()["detail"]
+
     @parameterized.expand(["sources", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle", "quarantine"])
     def test_requires_authentication(self, action: str) -> None:
         self.client.logout()
         response = self.client.get(self._url(action))
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    def test_requires_rollout_feature_flag(self) -> None:
+        # The whole viewset is gated on the engineering-analytics rollout flag (which the
+        # conftest fixture enables); with the flag off, every endpoint must 403.
+        with mock.patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.get(self._url("sources"))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "engineering-analytics" in response.json()["detail"]

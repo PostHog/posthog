@@ -191,6 +191,11 @@ export function captureRapidUrlChangeWarning(
 }
 
 export function trackUrlChange(response: ActionToUrlResponse, logicPath: string, actionName: string): void {
+    // The rapid-change threshold assumes human pacing in a real browser; jest tests
+    // legitimately navigate many times per second, so the heuristic can only false-positive there.
+    if (process.env.NODE_ENV === 'test') {
+        return
+    }
     try {
         const urlString = extractUrlString(response)
         if (urlString === null) {

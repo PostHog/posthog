@@ -17,7 +17,6 @@ import type {
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     GitHubTeamsResponseApi,
-    GoogleSearchConsoleSitesResponseApi,
     IntegrationAccessRequestApi,
     IntegrationAccessRequestResponseApi,
     IntegrationConfigApi,
@@ -26,6 +25,8 @@ import type {
     IntegrationsGithubReposRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
     IntegrationsListParams,
+    JiraProjectsResponseApi,
+    LinearTeamsResponseApi,
     OrganizationIntegrationApi,
     PaginatedIntegrationConfigListApi,
     PaginatedRoleExternalReferenceListApi,
@@ -544,27 +545,6 @@ export const integrationsGoogleConversionActionsRetrieve = async (
     })
 }
 
-export const getIntegrationsGoogleSearchConsoleSitesRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/google_search_console_sites/`
-}
-
-/**
- * List the Search Console properties the connected Google account has access to.
- */
-export const integrationsGoogleSearchConsoleSitesRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<GoogleSearchConsoleSitesResponseApi> => {
-    return apiMutator<GoogleSearchConsoleSitesResponseApi>(
-        getIntegrationsGoogleSearchConsoleSitesRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
 export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/jira_projects/`
 }
@@ -573,8 +553,8 @@ export const integrationsJiraProjectsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsJiraProjectsRetrieveUrl(projectId, id), {
+): Promise<JiraProjectsResponseApi> => {
+    return apiMutator<JiraProjectsResponseApi>(getIntegrationsJiraProjectsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -588,8 +568,8 @@ export const integrationsLinearTeamsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsLinearTeamsRetrieveUrl(projectId, id), {
+): Promise<LinearTeamsResponseApi> => {
+    return apiMutator<LinearTeamsResponseApi>(getIntegrationsLinearTeamsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

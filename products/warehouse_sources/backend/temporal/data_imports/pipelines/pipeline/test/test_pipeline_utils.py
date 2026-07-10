@@ -5,7 +5,7 @@ from ipaddress import IPv4Address, IPv6Address
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
 import deltalake
@@ -19,9 +19,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _get_max_decimal_type,
     _to_list_array,
     append_partition_key_to_table,
+    apply_enabled_columns_projection,
     evolve_pyarrow_schema,
+    merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
+    observe_and_project_table,
+    observed_schema_metadata_columns,
     setup_partitioning,
+    source_uses_delta_write_column_selection,
     table_from_py_list,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
@@ -124,6 +129,23 @@ def test_table_from_py_list_inconsistent_types_with_str_and_dict():
             ]
         )
     )
+
+
+@pytest.mark.parametrize(
+    "rows,expected",
+    [
+        # bool in one row, list in another: wrapping to a list yields [true]/["x"], whose element
+        # types differ, so an intermediate pyarrow list array would raise "tried to convert to boolean".
+        ([{"column": True}, {"column": ["x"]}], ["[true]", '["x"]']),
+        # dict in one row, list in another: would raise "cannot mix struct and non-struct values".
+        ([{"column": {"a": 1}}, {"column": ["x"]}], ['[{"a":1}]', '["x"]']),
+    ],
+)
+def test_table_from_py_list_list_mixed_with_incompatible_element_types(rows, expected):
+    table = table_from_py_list(rows)
+
+    assert table.equals(pa.table({"column": expected}))
+    assert table.schema.equals(pa.schema([("column", pa.string())]))
 
 
 def test_table_from_py_list_with_lists():
@@ -416,6 +438,34 @@ def test_table_from_py_list_huge_int_column_falls_back_to_string():
 
     assert table.schema.field("column").type == pa.string()
     assert table.column("column").to_pylist() == [str(enormous), "5"]
+
+
+def test_table_from_py_list_decimal_exceeding_max_scale_is_rounded():
+    # An unconstrained Postgres `numeric` can carry more decimal places than Delta Lake's max
+    # scale (32). pyarrow refuses to rescale it ("Rescaling Decimal256 value would cause data
+    # loss"); the value must be rounded to the max scale rather than crashing the whole sync.
+    # A None is mixed in to exercise the null-passthrough in the quantize retry path.
+    value = decimal.Decimal("1." + "1" * 80)
+
+    table = table_from_py_list([{"column": value}, {"column": None}])
+
+    col_type = table.schema.field("column").type
+    assert pa.types.is_decimal256(col_type)
+    assert col_type.scale == 32
+    assert table.column("column").to_pylist() == [decimal.Decimal("1." + "1" * 32), None]
+
+
+def test_table_from_py_list_decimal_too_large_for_decimal256_falls_back_to_string():
+    # A value whose integer part can't fit decimal256(76, 32) even after rounding to the max scale
+    # is genuinely unrepresentable as a decimal. It must fall back to text rather than crash the
+    # sync, mirroring the huge-int fallback. A normal value is mixed in to confirm the whole column
+    # stringifies consistently.
+    huge = decimal.Decimal("9" * 247)
+
+    table = table_from_py_list([{"column": huge}, {"column": decimal.Decimal("1.5")}, {"column": None}])
+
+    assert table.schema.field("column").type == pa.string()
+    assert table.column("column").to_pylist() == [str(huge), "1.5", None]
 
 
 def test_table_from_py_list_normal_int_column_stays_int64():
@@ -845,6 +895,13 @@ def _mock_schema(**overrides: Any) -> MagicMock:
     schema.partitioning_keys = overrides.get("partitioning_keys")
     schema.partition_format = overrides.get("partition_format")
     schema.partition_mode = overrides.get("partition_mode")
+    # Operator-pinned overrides default to None (as on the real model). Without setting these
+    # explicitly the MagicMock would auto-create truthy attributes that win the `*_override or ...`
+    # precedence in setup_partitioning.
+    schema.partition_count_override = overrides.get("partition_count_override")
+    schema.partition_size_override = overrides.get("partition_size_override")
+    schema.partition_mode_override = overrides.get("partition_mode_override")
+    schema.partitioning_keys_override = overrides.get("partitioning_keys_override")
     schema.partitioning_enabled = overrides.get("partitioning_enabled", True)
     schema.set_partitioning_enabled = MagicMock()
     return schema
@@ -939,3 +996,205 @@ async def test_setup_partitioning_no_delta_table_no_partition_keys_returns_uncha
 
     assert result.equals(pa_table)
     assert PARTITION_KEY not in result.column_names
+
+
+@pytest.mark.asyncio
+async def test_setup_partitioning_mode_override_forces_datetime_on_non_standard_column():
+    # An operator switches a md5 table to datetime on a date column that isn't one of the
+    # auto-detected names (created_at/inserted_at/...). The mode + keys overrides must win, so the
+    # rows bucket by the date column rather than being md5-hashed by the composite primary key.
+    logger: FilteringBoundLogger = structlog.get_logger()
+    pa_table = pa.table(
+        {
+            "record_id": ["a", "b", "c"],
+            "action_date": [
+                datetime.datetime(2026, 1, 15),
+                datetime.datetime(2026, 1, 20),
+                datetime.datetime(2026, 2, 3),
+            ],
+        }
+    )
+    schema = _mock_schema(
+        partition_mode="md5",
+        partition_count=30,
+        partitioning_keys=["record_id", "action_date"],
+        partition_mode_override="datetime",
+        partitioning_keys_override=["action_date"],
+        partition_format="month",
+        partitioning_enabled=False,
+    )
+
+    result = await setup_partitioning(
+        pa_table=pa_table,
+        existing_delta_table=None,
+        schema=schema,
+        resource=_mock_resource(primary_keys=["record_id", "action_date"]),
+        logger=logger,
+    )
+
+    assert PARTITION_KEY in result.column_names
+    # datetime/month bucketing, not md5 hashing of the composite key.
+    assert result.column(PARTITION_KEY).to_pylist() == ["2026-01", "2026-01", "2026-02"]
+    schema.set_partitioning_enabled.assert_called_once()
+    applied_keys, _count, _size, applied_mode, applied_format = schema.set_partitioning_enabled.call_args.args
+    assert applied_mode == "datetime"
+    assert applied_keys == ["action_date"]
+    assert applied_format == "month"
+
+
+def _projection_input_table() -> pa.Table:
+    return pa.table(
+        {
+            "id": [1, 2],
+            "name": ["a", "b"],
+            "amount": [10, 20],
+            "updated_at": ["2026-01-01", "2026-01-02"],
+            "_ph_debug": ["{}", "{}"],
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "enabled_columns,primary_keys,incremental_field,partition_keys,expected_columns",
+    [
+        # None syncs everything untouched
+        (None, ["id"], "updated_at", None, ["id", "name", "amount", "updated_at", "_ph_debug"]),
+        # plain selection drops the rest, internals survive
+        (["name"], None, None, None, ["name", "_ph_debug"]),
+        # PK + incremental field retained even when not selected
+        (["name"], ["id"], "updated_at", None, ["id", "name", "updated_at", "_ph_debug"]),
+        # source-namespace names (e.g. Snowflake uppercase) fold onto normalized table columns
+        (["NAME"], ["ID"], None, None, ["id", "name", "_ph_debug"]),
+        # stale enabled names are ignored, not fatal
+        (["name", "dropped_upstream"], None, None, None, ["name", "_ph_debug"]),
+        # a projection that would empty the table falls back to all columns
+        (["dropped_upstream"], None, None, None, ["id", "name", "amount", "updated_at", "_ph_debug"]),
+        # [] keeps only the always-retained set
+        ([], ["id"], "updated_at", None, ["id", "updated_at", "_ph_debug"]),
+        # partition-key source columns retained
+        (["name"], None, None, ["amount"], ["name", "amount", "_ph_debug"]),
+    ],
+)
+def test_apply_enabled_columns_projection(
+    enabled_columns, primary_keys, incremental_field, partition_keys, expected_columns
+):
+    table, dropped = apply_enabled_columns_projection(
+        _projection_input_table(), enabled_columns, primary_keys, incremental_field, partition_keys
+    )
+
+    assert table.column_names == expected_columns
+    assert sorted(dropped) == sorted(set(_projection_input_table().column_names) - set(expected_columns))
+
+
+def test_apply_enabled_columns_projection_drops_spoofed_internal_lookalikes():
+    # A source can't smuggle a deselected column past the projection by giving it a name that
+    # merely looks internal (_ph_*/_dlt_*) — only the pipeline's own exact internal columns survive.
+    table = pa.table(
+        {
+            "name": ["a", "b"],
+            "_ph_debug": ["{}", "{}"],
+            "_ph_secret": ["s1", "s2"],
+            "_dlt_secret": ["d1", "d2"],
+        }
+    )
+
+    result, dropped = apply_enabled_columns_projection(table, ["name"], None, None, None)
+
+    assert result.column_names == ["name", "_ph_debug"]
+    assert sorted(dropped) == ["_dlt_secret", "_ph_secret"]
+
+
+@pytest.mark.asyncio
+async def test_observe_and_project_table_observes_then_projects_and_logs():
+    logger: FilteringBoundLogger = structlog.get_logger()
+    observed_columns: dict[str, Any] = {}
+    table = _projection_input_table()
+
+    with patch.object(logger, "adebug", new=AsyncMock()) as mock_adebug:
+        result = await observe_and_project_table(
+            table,
+            ["name"],
+            None,
+            None,
+            None,
+            observed_columns,
+            logger,
+            "Dropped non-enabled columns",
+        )
+
+    assert result.column_names == ["name", "_ph_debug"]
+    # Observed before projection, so deselected columns stay visible to the column picker.
+    assert set(observed_columns) == {"id", "name", "amount", "updated_at"}
+    mock_adebug.assert_called_once()
+    assert "Dropped non-enabled columns" in mock_adebug.call_args.args[0]
+
+
+def test_observed_schema_metadata_columns_excludes_internal_columns():
+    fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("name", pa.string()),
+        pa.field("_ph_debug", pa.string()),
+        pa.field("_dlt_id", pa.string()),
+    ]
+    schema = pa.schema(fields)
+
+    assert observed_schema_metadata_columns(schema) == [
+        {"name": "id", "data_type": "int64", "is_nullable": False},
+        {"name": "name", "data_type": "string", "is_nullable": True},
+    ]
+
+
+def test_merge_observed_columns_creates_schema_metadata_from_empty_config():
+    config: dict[str, Any] = {}
+
+    merge_observed_columns_into_schema_metadata(config, [{"name": "id", "data_type": "int64", "is_nullable": False}])
+
+    assert config["schema_metadata"]["columns"] == [{"name": "id", "data_type": "int64", "is_nullable": False}]
+
+
+def test_merge_observed_columns_unions_and_refreshes():
+    # Deselected columns must stay listed (union) or the picker could never re-enable them,
+    # while re-observed columns pick up type changes.
+    config: dict[str, Any] = {
+        "schema_metadata": {
+            "columns": [
+                {"name": "id", "data_type": "int32", "is_nullable": False},
+                {"name": "deselected", "data_type": "string", "is_nullable": True},
+            ],
+            "source_table_name": "customers",
+        }
+    }
+
+    merge_observed_columns_into_schema_metadata(
+        config,
+        [
+            {"name": "id", "data_type": "int64", "is_nullable": False},
+            {"name": "brand_new", "data_type": "string", "is_nullable": True},
+        ],
+    )
+
+    assert config["schema_metadata"]["columns"] == [
+        {"name": "id", "data_type": "int64", "is_nullable": False},
+        {"name": "deselected", "data_type": "string", "is_nullable": True},
+        {"name": "brand_new", "data_type": "string", "is_nullable": True},
+    ]
+    assert config["schema_metadata"]["source_table_name"] == "customers"
+
+
+@pytest.mark.parametrize(
+    "source_type,expected",
+    [
+        # SQL sources project enabled_columns in their SELECT — no Delta-write drop.
+        ("Postgres", False),
+        # Managed-schema sources must never drop columns (canonical HogQL schema needs them all),
+        # even if a stale enabled_columns is still persisted.
+        ("Stripe", False),
+        ("Zendesk", False),
+        # Generic API sources get the generic Delta-write drop.
+        ("Hubspot", True),
+        # Unknown source types fail closed.
+        ("NotARealSource", False),
+    ],
+)
+def test_source_uses_delta_write_column_selection(source_type, expected):
+    assert source_uses_delta_write_column_selection(source_type) is expected

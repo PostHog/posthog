@@ -19,11 +19,12 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     enrich_table_semantics as enrich,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (
+    _MAX_COLUMN_NAME_LENGTH,
     MAX_BUSINESS_CONTEXT_CHARS,
     MAX_PROMPT_CHARS,
     EnrichTableSemanticsInputs,
     EnrichTableSemanticsWorkflow,
-    _columns_from_table,
+    _columns_for_enrichment,
     _extract_json_object,
     build_bounded_enrichment_prompt,
     build_enrichment_prompt,
@@ -315,8 +316,16 @@ class TestColumnsFromTable:
                 "_ph_partition_key": {"clickhouse": "String"},
             }
         )
-        names = {column["name"] for column in _columns_from_table(table)}
+        names = {column["name"] for column in table.get_user_facing_columns()}
         assert names == {"id", "amount"}
+
+    def test_skips_columns_whose_name_exceeds_annotation_key_length(self):
+        # A column name longer than the annotation's varchar key can't be stored — including it would
+        # crash the whole table's enrichment with a DataError. It must be dropped, not enriched.
+        long_name = "a" * (_MAX_COLUMN_NAME_LENGTH + 1)
+        table = DataWarehouseTable(columns={"id": {"clickhouse": "String"}, long_name: {"clickhouse": "String"}})
+        names = {column["name"] for column in _columns_for_enrichment(table)}
+        assert names == {"id"}
 
 
 class TestExtractJsonObject:
@@ -471,6 +480,41 @@ class TestEnrichTableSemanticsSync:
         assert annotations["amount"].description == "charge amount in cents"
         assert annotations["amount"].description_source == WarehouseColumnAnnotation.DescriptionSource.CANONICAL
         assert annotations["amount"].ai_model is None
+
+    def test_renamed_columns_are_annotated_under_hogql_visible_name(self):
+        # Stripe's HogQL layer renames some raw columns (`created` -> `created_at`, `customer` ->
+        # `customer_id`). Canonical descriptions are keyed by the raw name, but `information_schema`
+        # and the AI agent read annotations back by the visible name — so the annotation (and the LLM
+        # ask for whatever has no canonical entry) must land on the visible name, not the raw one.
+        team = _team()
+        schema, table = _make_schema(
+            team,
+            columns=[
+                {"name": "created", "data_type": "Int64", "is_nullable": False},
+                {"name": "customer", "data_type": "String", "is_nullable": True},
+                {"name": "payment_method", "data_type": "String", "is_nullable": True},
+            ],
+        )
+        canonical = {"Charge": {"columns": {"created": "Unix creation time.", "customer": "Customer ID."}}}
+        generated = {"columns": {"payment_method_id": "Payment method used."}}
+        with (
+            patch.object(enrich, "enrichment_enabled", return_value=True),
+            patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
+            patch.object(enrich, "_get_business_context", return_value=""),
+            patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
+        ):
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+
+        assert result["status"] == "done"
+        annotations = _annotations(team, table)
+        # Canonical descriptions land on the HogQL-visible names, not the raw `created` / `customer`.
+        assert annotations["created_at"].description == "Unix creation time."
+        assert annotations["customer_id"].description == "Customer ID."
+        assert "created" not in annotations
+        assert "customer" not in annotations
+        # The un-canonical column is asked of the LLM — and stored — under its visible name too.
+        assert mock_llm.call_args.kwargs["columns_needing_description"] == ["payment_method_id"]
+        assert annotations["payment_method_id"].description == "Payment method used."
 
     def test_ai_fills_columns_without_canonical_description(self):
         team = _team()

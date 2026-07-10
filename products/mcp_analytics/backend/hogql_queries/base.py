@@ -10,6 +10,9 @@ from typing import TYPE_CHECKING
 
 import posthoganalytics
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
+
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.rbac.user_access_control import UserAccessControlError
 
@@ -22,6 +25,29 @@ if TYPE_CHECKING:
 # Gates these runners behind the same flag the product's DRF endpoints require, so the
 # generic /query/ endpoint can't bypass it (see PostHogFeatureFlagPermission).
 MCP_ANALYTICS_FEATURE_FLAG = "mcp-analytics"
+
+# The effective tool name for new-SDK events: the inner tool when the call went through the
+# single-exec wrapper, else the directly-registered tool name. Shared by every runner that
+# scopes to one tool, so the expression lives OnceAndOnlyOnce.
+EFFECTIVE_TOOL_SQL = (
+    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))"
+)
+# Marker the posthog-node MCP analytics SDK stamps on the events it sends.
+NEW_SDK_SOURCE = "posthog_mcp_analytics"
+
+
+def tool_scope_exprs(tool: str) -> list[ast.Expr]:
+    """Predicates scoping new-SDK $mcp_tool_call events to one effective tool.
+
+    `tool` is bound as an ast.Constant, never string-interpolated.
+    """
+    return [
+        parse_expr(
+            "{EFFECTIVE_TOOL_SQL} = {tool}",
+            placeholders={"EFFECTIVE_TOOL_SQL": parse_expr(EFFECTIVE_TOOL_SQL), "tool": ast.Constant(value=tool)},
+        ),
+        parse_expr("properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)}),
+    ]
 
 
 def validate_mcp_analytics_access(team: "Team", user: "User") -> bool:

@@ -39,38 +39,42 @@ plus `latest.md`), which is the deliverable of the sweep.
 
 The run is deliberately read-and-propose: the skill forbids
 freeze / promote / archive / delete, leaving the validated drafts for
-the user to review and promote themselves. See
-[`skills/auditing-the-fleet/SKILL.md`](skills/auditing-the-fleet/SKILL.md).
+the user to review and promote themselves. `auditing-the-fleet` is a
+kernel skill, injected at freeze — see
+[`backend/kernel_skills/auditing-the-fleet/SKILL.md`](../../../../../backend/kernel_skills/auditing-the-fleet/SKILL.md).
 
 For each mode, the Agent Builder calls the same `agent-applications-*`
 native tools that the authoring AI uses,
 acting under the connected user's principal so every write shows
 up in the activity log as **the user**, not as the Agent Builder.
 
+## Where its guidance lives — three homes, none of them this bundle
+
+The Agent Builder's instructional content sits in exactly one of three
+places, chosen by **what the content is for**. None of it ships in this
+author-facing bundle — the bundle is just `agent.md`, `spec.json`, and
+the faux test cases.
+
+| Home              | What                                                                                                                                                              | How it reaches the agent                                                                                                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Kernel skills** | The concierge's own runtime behaviour, coupled to the platform (safety, console UI, working outside it, fleet audit)                                              | Injected from backend code (`products/agent_platform/backend/kernel_skills/`) at **freeze**; read via `@posthog/load-skill`. Code-locked, identical across accounts, never in the DB. |
+| **MCP playbooks** | Reusable builder knowledge — how to read / debug / edit / author agents, identity, secrets, Slack, MCP-surface design, model choice, testing, cost, observability | Served by the MCP `agent-resolve-resource`, fetched on demand. Versioned with the MCP code.                                                                                           |
+| **Skill store**   | Team-authored reusable agent skills                                                                                                                               | Pinned via `skill_refs`, materialized into the bundle at freeze.                                                                                                                      |
+
+Kernel skills are platform-injected (see
+[`logic/kernel_skills.py`](../../../../../backend/logic/kernel_skills.py) — a
+folder of SKILL.md files whose frontmatter declares an `agents:` mapping).
+Authors never write skills inline; `skill_refs` → the store is the only
+author path into a bundle's `skills/`.
+
 ## Bundle layout
 
 ```text
 agent-builder/
-├── README.md                            # this file
-├── spec.json                            # triggers, tools, mcps, skills
-├── agent.md                             # short system prompt; defers to skills
-└── skills/                                       # one folder per skill, each with a SKILL.md
-    ├── platform-mental-model/SKILL.md       # spec / bundle / revision / session
-    ├── reading-an-agent/SKILL.md            # standard inspection flow
-    ├── debugging-sessions/SKILL.md          # failure taxonomy + triage
-    ├── editing-agents-safely/SKILL.md       # branch → validate → freeze → test → promote
-    ├── authoring-new-agents/SKILL.md        # fresh creation flow
-    ├── choosing-the-model/SKILL.md          # match model + reasoning to the job
-    ├── secrets-and-integrations/SKILL.md    # punch-out flow, integrations table
-    ├── designing-mcp-surfaces/SKILL.md      # spec.mcp.tools[] design
-    ├── running-and-evaluating-tests/SKILL.md # tests + judge skills
-    ├── setting-up-slack-app/SKILL.md        # Slack app creation + scopes
-    ├── using-the-console-ui/SKILL.md        # focus_* + toast etiquette
-    ├── working-outside-the-console/SKILL.md # MCP / IDE mode; no client tools
-    ├── cost-and-quota-analysis/SKILL.md     # LLM analytics views
-    ├── querying-ai-observability/SKILL.md   # $ai_* event contract + debug/improve queries
-    ├── auditing-the-fleet/SKILL.md          # fleet-wide sweep (on request)
-    └── safety-and-boundaries/SKILL.md       # hard rules
+├── README.md     # this file
+├── spec.json     # triggers, tools, mcps — NO skills[] (kernel injected at freeze)
+├── agent.md      # system prompt; loads kernel skills + fetches MCP playbooks
+└── tests/        # faux wiring cases
 ```
 
 ## Tool surface
@@ -126,8 +130,9 @@ agent-applications-create slug=agent-builder name="Agent Builder"
 agent-applications-revisions-create application_id=<id>
 # write bundle resources via the granular per-resource tools:
 #   agent-applications-revisions-agent-md-update / -tools-update
-# skills come from the store: llm-skills-create / -search, then
-#   agent-applications-revisions-skill-refs-set
+# kernel skills are injected from backend code at freeze (no author step);
+# store skills come from the store: llm-skills-create / -search, then
+#   agent-applications-revisions-skill-refs-update
 agent-applications-revisions-partial-update revision_id=<rid> spec=<contents of spec.json>
 agent-applications-revisions-validate-create revision_id=<rid>
 agent-applications-revisions-freeze-create revision_id=<rid>
@@ -146,7 +151,8 @@ session-principal token (`posthog_internal`) + verified user PATs
 [`services/agent-tests/src/cases/example-agent-builder.test.ts`](../../cases/example-agent-builder.test.ts)
 loads the bundle from disk and asserts:
 
-- Every `spec.skills[].path` exists in the bundle
+- The bundle carries NO inline skills (kernel skills are injected at
+  freeze from backend code; builder playbooks are served by the MCP)
 - `agent.md` is present and non-trivial
 - `spec.mcps` is empty (the Agent Builder authors via native tools only —
   no external MCP server in the write path) **and** every declared
@@ -175,9 +181,11 @@ Two ways:
 1. **Fork.** Clone the bundle, edit, deploy under a different
    slug. Useful for teams that want bespoke review steps,
    internal links, or a different tone.
-2. **Add a skill upstream.** New shared workflow (e.g.
-   `judge-test-results`) → add a skill file + a
-   `spec.skills[]` entry + a one-line description. Re-freeze.
+2. **Add guidance upstream**, in the right home (see the table
+   above): a new **kernel** behaviour → drop a folder under
+   `backend/kernel_skills/<id>/SKILL.md` with an `agents:` mapping in
+   its frontmatter; a new **builder playbook** → add it to the MCP
+   playbook set; team content → the skill store.
 
 Don't fork to add a tool that should be universally available —
 add it to the canonical bundle so every team benefits.
@@ -190,9 +198,11 @@ add it to the canonical bundle so every team benefits.
 - `limits.max_turns: 80` is generous; most flows finish in 5-15
   turns. The cap protects against pathological loops while
   allowing complex multi-step audits.
-- The skill descriptions in `spec.skills[]` are deliberately
-  prescriptive ("Load when..." / "Load IMMEDIATELY if...") —
-  this is the only signal the model gets about when to fetch
-  the skill body. Tune the descriptions before the bodies.
+- Kernel skill descriptions live in each SKILL.md's frontmatter
+  (`backend/kernel_skills/`) and are deliberately prescriptive
+  ("Load when..." / "Load IMMEDIATELY if...") — this is the only
+  signal the model gets about when to fetch the skill body. Tune the
+  descriptions before the bodies.
 - `agent.md` is intentionally short. Anything beyond identity,
-  mode-selection, hard rules, and tone belongs in a skill.
+  mode-selection, hard rules, and tone belongs in a kernel skill or
+  an MCP playbook.

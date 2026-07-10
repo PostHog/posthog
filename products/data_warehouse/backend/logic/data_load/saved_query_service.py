@@ -28,11 +28,11 @@ from posthog.temporal.common.schedule import (
 )
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY, POSTHOG_ORG_ID_KEY, POSTHOG_TEAM_ID_KEY
 
-from products.data_modeling.backend.models.node import Node
-from products.data_modeling.backend.schedule import build_schedule_spec
+from products.data_modeling.backend.facade.models import Node
+from products.data_modeling.backend.facade.tasks import build_schedule_spec
 
 if TYPE_CHECKING:
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 
 def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule:

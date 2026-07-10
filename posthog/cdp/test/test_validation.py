@@ -5,23 +5,27 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql import ast
+
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     MappingsSerializer,
+    RecordAliasRewriter,
     compile_hog,
+    generate_template_bytecode,
 )
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
-def validate_inputs(schema, inputs, function_type="destination"):
+def validate_inputs(schema, inputs, function_type="destination", is_dwh_source=False):
     serializer = MappingsSerializer(
         data={
             "inputs_schema": schema,
             "inputs": inputs,
         },
-        context={"function_type": function_type},
+        context={"function_type": function_type, "is_dwh_source": is_dwh_source},
     )
     serializer.is_valid(raise_exception=True)
     return serializer.validated_data["inputs"]
@@ -549,6 +553,48 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         else:
             validate_inputs(inputs_schema, inputs)
 
+    @parameterized.expand(
+        [
+            ("simple", "{record.name}", "{event.properties.name}"),
+            ("nested", "{record.address.city}", "{event.properties.address.city}"),
+            ("bare", "{record}", "{event.properties}"),
+            ("alongside_event", "{concat(record.id, event.event)}", "{concat(event.properties.id, event.event)}"),
+            ("bracket", "{record['self-serve']}", "{event.properties['self-serve']}"),
+        ]
+    )
+    def test_record_alias_rewritten_for_dwh_source(self, _name, template, equivalent):
+        # With a warehouse source, `{record.x}` compiles identically to `{event.properties.x}`.
+        rewritten = generate_template_bytecode(template, set(), function_type="destination", is_dwh_source=True)
+        expected = generate_template_bytecode(equivalent, set(), function_type="destination", is_dwh_source=False)
+        assert rewritten == expected
+
+    def test_record_alias_not_rewritten_without_dwh_source(self):
+        # Without a warehouse source, `record` is left untouched (compiles like any other global).
+        untouched = generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=False)
+        rewritten = generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=True)
+        assert untouched != rewritten
+
+    def test_record_alias_rewriter_only_touches_record_fields(self):
+        # AST-level: a `record` field is rewritten; a non-record field and a same-named string
+        # constant are structurally immune (the rewriter only visits ast.Field chains).
+        record_field = ast.Field(chain=["record", "id"])
+        other_field = ast.Field(chain=["event", "properties", "id"])
+        literal = ast.Constant(value="record.name")
+        node = ast.Call(name="concat", args=[record_field, other_field, literal])
+
+        RecordAliasRewriter().visit(node)
+
+        assert record_field.chain == ["event", "properties", "id"]
+        assert other_field.chain == ["event", "properties", "id"]
+        assert literal.value == "record.name"
+
+    def test_record_alias_rewritten_through_inputs_serializer(self):
+        inputs_schema = [{"key": "msg", "type": "string", "required": True}]
+        inputs = {"msg": {"value": "{record.id}"}}
+        validated = validate_inputs(inputs_schema, inputs, is_dwh_source=True)
+        expected = generate_template_bytecode("{event.properties.id}", set())
+        assert validated["msg"]["bytecode"] == expected
+
     def test_validate_boolean_input_with_bool_value(self):
         inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
         inputs = {"opt_out": {"value": True}}
@@ -676,6 +722,26 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         validated = validate_inputs_schema(inputs_schema)
         assert validated[0]["type"] == "posthog_ticket_tags"
         assert validated[0]["key"] == "tags"
+
+    def test_customer_analytics_account_properties_compiles_dict_values_to_bytecode(self):
+        # Without the opt-in into transpilation, the dict values ship without bytecode and the
+        # Node runtime sets the literal placeholder string instead of the interpolated value.
+        inputs_schema = [{"key": "properties", "type": "customer_analytics_account_properties", "required": True}]
+        inputs = {"properties": {"value": {"Plan tier": "{event.properties.plan}", "MRR": "5000"}}}
+
+        validated = validate_inputs(inputs_schema, inputs)
+
+        assert validated["properties"].get("bytecode") is not None
+
+    def test_customer_analytics_account_relationships_validates_assignment_dict(self):
+        # Guards the type's registration in InputsSchemaItemSerializer's ChoiceField —
+        # without it, publishing a workflow with the relationships node 400s.
+        inputs_schema = [{"key": "relationships", "type": "customer_analytics_account_relationships", "required": True}]
+        inputs = {"relationships": {"value": {"0197f9f0-1111-0000-0000-000000000000": {"type": "user", "id": 42}}}}
+
+        validated = validate_inputs(inputs_schema, inputs)
+
+        assert validated["relationships"].get("bytecode") is not None
 
     @parameterized.expand(
         [

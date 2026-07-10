@@ -60,15 +60,15 @@ describe('buildToolDomainsBlock', () => {
     it('keeps a singleton tool whole but collapses siblings to a shared root', () => {
         const tools = [
             { name: 'execute-sql', category: 'SQL' },
-            { name: 'read-data-schema', category: 'Data schema' },
-            { name: 'read-data-warehouse-schema', category: 'Data schema' },
+            { name: 'external-data-schemas-list', category: 'Data warehouse' },
+            { name: 'external-data-sources-list', category: 'Data warehouse' },
         ]
         const result = buildToolDomainsBlock(tools)
         expect(result).toContain('- execute-sql')
-        // read-data-* siblings collapse to their shared prefix, not listed verbatim
-        expect(result).toContain('- read-data')
-        expect(result).not.toContain('- read-data-schema')
-        expect(result).not.toContain('- read-data-warehouse-schema')
+        // external-data-* siblings collapse to their shared prefix, not listed verbatim
+        expect(result).toContain('- external-data')
+        expect(result).not.toContain('- external-data-schemas-list')
+        expect(result).not.toContain('- external-data-sources-list')
     })
 
     it('splits an oversized family into sub-family roots, one level deep', () => {
@@ -231,19 +231,24 @@ describe('QueryToolCatalog', () => {
 })
 
 describe('buildActiveEnvironmentContextPrompt', () => {
+    const org = { id: 'org_1', name: 'Acme' } satisfies Partial<CachedOrg> as unknown as CachedOrg
     const project = {
         id: 1,
         name: 'My App',
         timezone: 'America/New_York',
+        api_token: 'token_1',
         person_on_events_querying_enabled: false,
-    } as unknown as CachedProject
-    const org = { id: 'org_1', name: 'Acme' } as unknown as CachedOrg
-    const user = { first_name: 'Jane', last_name: 'Doe', email: 'jane@acme.com' } as unknown as CachedUser
+    } satisfies Partial<CachedProject> as unknown as CachedProject
+    const user = {
+        first_name: 'Jane',
+        last_name: 'Doe',
+        email: 'jane@acme.com',
+    } satisfies Partial<CachedUser> as unknown as CachedUser
 
     it('renders the full project + org line when both are present', () => {
         const result = buildActiveEnvironmentContextPrompt(user, org, project)
         expect(result).toContain(
-            'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).'
+            'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).'
         )
     })
 
@@ -252,7 +257,7 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         // fetch is skipped. The line drops the "within organization …" tail
         // rather than rendering a fabricated "Unknown" placeholder.
         const result = buildActiveEnvironmentContextPrompt(user, undefined, project)
-        expect(result).toContain('You are currently in project "My App" (id: 1).')
+        expect(result).toContain('You are currently in project "My App" (id: 1, token: token_1).')
         expect(result).not.toContain('within organization')
         expect(result).not.toContain('Unknown')
         expect(result).not.toContain('unknown')
@@ -270,7 +275,9 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         // Sits right after the project/org context line.
         const lines = (result ?? '').split('\n')
         expect(lines.indexOf('Base URL: us.posthog.com — add /project/1 for project-scoped paths.')).toBe(
-            lines.indexOf('You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).') + 1
+            lines.indexOf(
+                'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).'
+            ) + 1
         )
     })
 
@@ -293,7 +300,7 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         // The org branch is unchanged — only the no-org branch was added.
         const result = buildActiveEnvironmentContextPrompt(user, org, undefined)
         expect(result).toContain(
-            'You are currently in project "Unknown" (id: unknown) within organization "Acme" (id: org_1).'
+            'You are currently in project "Unknown" (id: unknown, token: unknown) within organization "Acme" (id: org_1).'
         )
     })
 })

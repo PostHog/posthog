@@ -23,8 +23,7 @@ permissions:
     pull-requests: read
 
 env:
-    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
     changes:
@@ -46,7 +45,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -246,10 +245,14 @@ jobs:
         # skipped as success, and the ready-for-review run is the merge gate.
         if: needs.changes.outputs.mcp == 'true' && github.event.pull_request.draft != true
         env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
             OPT_OUT_CAPTURE: 1
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
             PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
+            PERSONHOG_ADDR: 'localhost:50052'
+            POSTHOG_PERSONS_DB_NAME: 'posthog_persons'
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_SECURE: 'False'
@@ -496,6 +499,13 @@ jobs:
                       exit 1
                   fi
 
+            - name: Start personhog services
+              shell: bash
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml
+                  COMPOSE_PROFILES: ingestion
+              run: bin/ci-wait-for-docker launch personhog-replica personhog-router
+
             - name: Seed test data
               run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
 
@@ -543,12 +553,25 @@ jobs:
                   verbose: true
 
             - name: Run integration tests
-              run: cd services/mcp && pnpm run test:integration
+              # The junit reporter (alongside the default console one) feeds the Trunk upload below.
+              run: cd services/mcp && pnpm run test:integration -- --reporter=default --reporter=junit --outputFile.junit=junit-integration.xml
               env:
                   TEST_POSTHOG_API_BASE_URL: http://localhost:8000
                   TEST_POSTHOG_PERSONAL_API_KEY: phx_e2e_demo_api_key
                   TEST_ORG_ID: ${{ env.TEST_ORG_ID }}
                   TEST_PROJECT_ID: ${{ env.TEST_PROJECT_ID }}
+
+            # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
+            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            - name: Upload test results to Trunk
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: services/mcp/junit-integration.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
 
             - name: Show server logs on failure
               if: failure()
@@ -623,7 +646,7 @@ jobs:
               if: steps.check-patches.outputs.has-patches == 'true'
               uses: ./.github/actions/commit-snapshots
               with:
-                  workflow-type: backend
+                  workflow-type: mcp
                   patch-path: /tmp/snapshot-patches
                   snapshot-path: 'services/mcp/tests/unit/'
                   commit-message: 'test(mcp): update unit test snapshots'
@@ -655,17 +678,17 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.build.result }}" == "failure" ]]; then
                     echo "MCP build failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.unit-tests.result }}" != "success" && "${{ needs.unit-tests.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.unit-tests.result }}" == "failure" ]]; then
                     echo "MCP unit tests failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.integration-tests.result }}" == "failure" ]]; then
                     echo "MCP integration tests failed."
                     exit 1
                   fi

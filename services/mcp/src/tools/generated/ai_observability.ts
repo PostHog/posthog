@@ -20,7 +20,6 @@ import {
     LlmAnalyticsClusteringJobsRetrieveParams,
     LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody,
     LlmAnalyticsEvaluationReportsCreateBody,
-    LlmAnalyticsEvaluationReportsDestroyParams,
     LlmAnalyticsEvaluationReportsGenerateCreateParams,
     LlmAnalyticsEvaluationReportsListQueryParams,
     LlmAnalyticsEvaluationReportsPartialUpdateBody,
@@ -31,6 +30,8 @@ import {
     LlmAnalyticsEvaluationSummaryCreateBody,
     LlmAnalyticsModelsRetrieveQueryParams,
     LlmAnalyticsPersonalSpendListQueryParams,
+    LlmAnalyticsProviderKeysListQueryParams,
+    LlmAnalyticsProviderKeysRetrieveParams,
     LlmAnalyticsReviewQueueItemsCreateBody,
     LlmAnalyticsReviewQueueItemsDestroyParams,
     LlmAnalyticsReviewQueueItemsListQueryParams,
@@ -291,6 +292,12 @@ const llmaEvaluationCreate = (): ToolBase<typeof LlmaEvaluationCreateSchema, Sch
         if (params.conditions !== undefined) {
             body['conditions'] = params.conditions
         }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
+        }
         if (params.model_configuration !== undefined) {
             body['model_configuration'] = params.model_configuration
         }
@@ -383,7 +390,7 @@ const llmaEvaluationList = (): ToolBase<typeof LlmaEvaluationListSchema, Schemas
     },
 })
 
-const LlmaEvaluationReportCreateSchema = LlmAnalyticsEvaluationReportsCreateBody.omit({ deleted: true })
+const LlmaEvaluationReportCreateSchema = LlmAnalyticsEvaluationReportsCreateBody
 
 const llmaEvaluationReportCreate = (): ToolBase<typeof LlmaEvaluationReportCreateSchema, Schemas.EvaluationReport> => ({
     name: 'llma-evaluation-report-create',
@@ -399,12 +406,6 @@ const llmaEvaluationReportCreate = (): ToolBase<typeof LlmaEvaluationReportCreat
         }
         if (params.rrule !== undefined) {
             body['rrule'] = params.rrule
-        }
-        if (params.starts_at !== undefined) {
-            body['starts_at'] = params.starts_at
-        }
-        if (params.timezone_name !== undefined) {
-            body['timezone_name'] = params.timezone_name
         }
         if (params.delivery_targets !== undefined) {
             body['delivery_targets'] = params.delivery_targets
@@ -431,22 +432,6 @@ const llmaEvaluationReportCreate = (): ToolBase<typeof LlmaEvaluationReportCreat
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/`,
             body,
-        })
-        return result
-    },
-})
-
-const LlmaEvaluationReportDeleteSchema = LlmAnalyticsEvaluationReportsDestroyParams.omit({ project_id: true })
-
-const llmaEvaluationReportDelete = (): ToolBase<typeof LlmaEvaluationReportDeleteSchema, Schemas.EvaluationReport> => ({
-    name: 'llma-evaluation-report-delete',
-    schema: LlmaEvaluationReportDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationReportDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.EvaluationReport>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/${encodeURIComponent(String(params.id))}/`,
-            body: { deleted: true },
         })
         return result
     },
@@ -496,6 +481,7 @@ const llmaEvaluationReportList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/`,
             query: {
+                evaluation: params.evaluation,
                 limit: params.limit,
                 offset: params.offset,
             },
@@ -532,26 +518,20 @@ const LlmaEvaluationReportUpdateSchema = LlmAnalyticsEvaluationReportsPartialUpd
     project_id: true,
 }).extend(LlmAnalyticsEvaluationReportsPartialUpdateBody.shape)
 
-const llmaEvaluationReportUpdate = (): ToolBase<typeof LlmaEvaluationReportUpdateSchema, Schemas.EvaluationReport> => ({
+const llmaEvaluationReportUpdate = (): ToolBase<
+    typeof LlmaEvaluationReportUpdateSchema,
+    Schemas.EvaluationReportUpdate
+> => ({
     name: 'llma-evaluation-report-update',
     schema: LlmaEvaluationReportUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof LlmaEvaluationReportUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.evaluation !== undefined) {
-            body['evaluation'] = params.evaluation
-        }
         if (params.frequency !== undefined) {
             body['frequency'] = params.frequency
         }
         if (params.rrule !== undefined) {
             body['rrule'] = params.rrule
-        }
-        if (params.starts_at !== undefined) {
-            body['starts_at'] = params.starts_at
-        }
-        if (params.timezone_name !== undefined) {
-            body['timezone_name'] = params.timezone_name
         }
         if (params.delivery_targets !== undefined) {
             body['delivery_targets'] = params.delivery_targets
@@ -561,9 +541,6 @@ const llmaEvaluationReportUpdate = (): ToolBase<typeof LlmaEvaluationReportUpdat
         }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
-        }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
         }
         if (params.report_prompt_guidance !== undefined) {
             body['report_prompt_guidance'] = params.report_prompt_guidance
@@ -577,7 +554,7 @@ const llmaEvaluationReportUpdate = (): ToolBase<typeof LlmaEvaluationReportUpdat
         if (params.daily_run_cap !== undefined) {
             body['daily_run_cap'] = params.daily_run_cap
         }
-        const result = await context.api.request<Schemas.EvaluationReport>({
+        const result = await context.api.request<Schemas.EvaluationReportUpdate>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/${encodeURIComponent(String(params.id))}/`,
             body,
@@ -713,6 +690,12 @@ const llmaEvaluationUpdate = (): ToolBase<typeof LlmaEvaluationUpdateSchema, Sch
         if (params.conditions !== undefined) {
             body['conditions'] = params.conditions
         }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
+        }
         if (params.model_configuration !== undefined) {
             body['model_configuration'] = params.model_configuration
         }
@@ -762,6 +745,9 @@ const llmaPromptCreate = (): ToolBase<typeof LlmaPromptCreateSchema, Schemas.LLM
         }
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
+        }
+        if (params.version_description !== undefined) {
+            body['version_description'] = params.version_description
         }
         const result = await context.api.request<Schemas.LLMPrompt>({
             method: 'POST',
@@ -860,12 +846,52 @@ const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLM
         if (params.base_version !== undefined) {
             body['base_version'] = params.base_version
         }
+        if (params.version_description !== undefined) {
+            body['version_description'] = params.version_description
+        }
         const result = await context.api.request<Schemas.LLMPrompt>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/`,
             body,
         })
         return result
+    },
+})
+
+const LlmaProviderKeyGetSchema = LlmAnalyticsProviderKeysRetrieveParams.omit({ project_id: true })
+
+const llmaProviderKeyGet = (): ToolBase<typeof LlmaProviderKeyGetSchema, Schemas.LLMProviderKey> => ({
+    name: 'llma-provider-key-get',
+    schema: LlmaProviderKeyGetSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaProviderKeyGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.LLMProviderKey>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/provider_keys/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const LlmaProviderKeyListSchema = LlmAnalyticsProviderKeysListQueryParams
+
+const llmaProviderKeyList = (): ToolBase<
+    typeof LlmaProviderKeyListSchema,
+    WithPostHogUrl<Schemas.PaginatedLLMProviderKeyList>
+> => ({
+    name: 'llma-provider-key-list',
+    schema: LlmaProviderKeyListSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaProviderKeyListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedLLMProviderKeyList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/provider_keys/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/ai-observability')
     },
 })
 
@@ -1529,7 +1555,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-evaluation-judge-models': llmaEvaluationJudgeModels,
     'llma-evaluation-list': llmaEvaluationList,
     'llma-evaluation-report-create': llmaEvaluationReportCreate,
-    'llma-evaluation-report-delete': llmaEvaluationReportDelete,
     'llma-evaluation-report-generate': llmaEvaluationReportGenerate,
     'llma-evaluation-report-get': llmaEvaluationReportGet,
     'llma-evaluation-report-list': llmaEvaluationReportList,
@@ -1545,6 +1570,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-prompt-get': llmaPromptGet,
     'llma-prompt-list': llmaPromptList,
     'llma-prompt-update': llmaPromptUpdate,
+    'llma-provider-key-get': llmaProviderKeyGet,
+    'llma-provider-key-list': llmaProviderKeyList,
     'llma-review-queue-create': llmaReviewQueueCreate,
     'llma-review-queue-delete': llmaReviewQueueDelete,
     'llma-review-queue-get': llmaReviewQueueGet,

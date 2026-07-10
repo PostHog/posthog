@@ -9,7 +9,6 @@ from datetime import datetime
 from typing import Any, Iterator, List, Optional, Union, cast  # noqa: UP035
 
 from django.conf import settings
-from django.core.cache import cache
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
@@ -35,14 +34,11 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.clickhouse.client import query_with_columns
-from posthog.clickhouse.client.limit import get_events_list_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Element, Filter, Person, PropertyDefinition, User
-from posthog.models.event.query_event_list import query_events_list
-from posthog.models.event.sql import SELECT_ONE_EVENT_SQL
+from posthog.models import Element, Person, PropertyDefinition, User
+from posthog.models.event.legacy_events_query import LegacyEventsListQuery, get_one_event
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
@@ -55,13 +51,7 @@ from posthog.rate_limit import (
     EventValuesSustainedThrottle,
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from posthog.utils import (
-    convert_property_value,
-    flatten,
-    generate_short_id,
-    refresh_requested_by_client,
-    relative_date_parse,
-)
+from posthog.utils import convert_property_value, flatten, refresh_requested_by_client, relative_date_parse
 
 tracer = trace.get_tracer(__name__)
 
@@ -74,46 +64,40 @@ EVENT_VALUES_COUNTER = Counter(
 QUERY_DEFAULT_EXPORT_LIMIT = 1_000
 EVENT_LIST_MAX_LIMIT = 1_000
 
-# Progressive time windows in seconds: 1min, 5min, 15min, 1hr, 6hr, 24hr
-EVENT_LIST_TIME_WINDOWS = [60, 300, 900, 3600, 21600, 86400]
-EVENT_LIST_CACHE_TTL = 86400  # 24 hours
-EVENT_LIST_CACHE_KEY_PREFIX = "event_list_good_period"
+
+# Legacy property-filter keys the frontend still appends but EventsQuery's schema forbids.
+# They are render hints with no filter semantics, so dropping them preserves old behavior. Any
+# OTHER unexpected key is left in place so the schema rejects it (fail loud) rather than being
+# silently ignored.
+_LEGACY_PROPERTY_KEYS_TO_DROP = {"property_type", "property_type_format"}
 
 
-def _get_limit_size_category(limit: int) -> str:
-    """Groups limits into size categories to limit cache key cardinality."""
-    if limit < 1000:
-        return "s"
-    elif limit < 10000:
-        return "m"
-    return "l"
+def _clean_property_node(node: dict) -> dict:
+    """Drop legacy render-hint keys from a property filter, recursing into property groups.
 
-
-def _get_event_list_cache_key(
-    team_id: int,
-    has_event_filter: bool,
-    has_distinct_id: bool,
-    limit: int,
-) -> str:
+    A group node (`{"type": "AND"/"OR", "values": [...]}`) keeps its structure so the runner's
+    `property_to_expr` preserves nested AND/OR; only leaf filters are key-filtered.
     """
-    Generate a cache key for the event list progressive window optimization.
+    values = node.get("values")
+    if isinstance(values, list):
+        return {"type": node.get("type"), "values": [_clean_property_node(v) for v in values if isinstance(v, dict)]}
+    return {k: v for k, v in node.items() if k not in _LEGACY_PROPERTY_KEYS_TO_DROP}
 
-    The cache stores {"window": int, "result_count": int} to track which time
-    window worked and how many results it returned. When reading from cache,
-    we only use the cached window if its result_count >= half_limit for the
-    current request. This prevents the bug where a cached window that succeeded
-    for a smaller limit (e.g., 4999 with half_limit=2499) is incorrectly used
-    for a larger limit (e.g., 6000 with half_limit=3000) that needs more results.
 
-    We use size categories (s/m/l) instead of exact limits to bound cache key
-    cardinality to ~3 keys per team/filter combination. Within a size category,
-    different limits share the same cache key but have different half_limit
-    thresholds - the result_count validation handles this.
-    """
-    event_flag = "1" if has_event_filter else "0"
-    distinct_id_flag = "1" if has_distinct_id else "0"
-    size_category = _get_limit_size_category(limit)
-    return f"{EVENT_LIST_CACHE_KEY_PREFIX}:{team_id}:{event_flag}:{distinct_id_flag}:{size_category}"
+def _iter_leaf_property_filters(properties: "builtins.list[dict] | dict | None") -> Iterator[dict]:
+    """Yield the leaf filter dicts in a flat list or a (possibly nested) property group."""
+    stack: builtins.list[dict] = []
+    if isinstance(properties, dict):
+        stack.append(properties)
+    elif properties:
+        stack.extend(p for p in properties if isinstance(p, dict))
+    while stack:
+        node = stack.pop()
+        values = node.get("values")
+        if isinstance(values, list):
+            stack.extend(v for v in values if isinstance(v, dict))
+        else:
+            yield node
 
 
 @dataclasses.dataclass(frozen=True)
@@ -298,115 +282,42 @@ class EventViewSet(
                 if offset > 50000 and (deprecate_offset or random.random() < 0.01):  # 1% of queries fail
                     raise serializers.ValidationError("Offset is deprecated. Max supported offset value is 50000")
 
-            filter = Filter(request=request, team=team)
+            properties = self._parse_properties_param(request)
             order_by: list[str] = (
                 list(json.loads(request.GET["orderBy"])) if request.GET.get("orderBy") else ["-timestamp"]
             )
+            order = "DESC" if len(order_by) == 1 and order_by[0] == "-timestamp" else "ASC"
 
             restricted_context = self._get_restricted_properties_context(request, team)
-            self._reject_restricted_property_references(filter, order_by, restricted_context)
+            self._reject_restricted_property_references(properties, order_by, restricted_context)
 
-            # Progressive time window optimization
-            # Start with cached good_period or smallest window
-            has_event_filter = bool(request.GET.get("event"))
-            has_distinct_id = bool(request.GET.get("distinct_id"))
-            cache_key = _get_event_list_cache_key(team.pk, has_event_filter, has_distinct_id, limit)
-            cached_data = cache.get(cache_key)
-
-            # Calculate the user's requested time range in seconds
-            request_window_seconds: Optional[int] = None
-            if request.GET.get("before") and request.GET.get("after"):
-                try:
-                    before = relative_date_parse(request.GET["before"], team.timezone_info)
-                    after = relative_date_parse(request.GET["after"], team.timezone_info)
-                    request_window_seconds = int((before - after).total_seconds())
-                except (ValueError, TypeError):
-                    pass
-
-            # Build list of windows to try, only those shorter than request window
-            windows_to_try = [
-                w for w in EVENT_LIST_TIME_WINDOWS if request_window_seconds is None or w < request_window_seconds
-            ]
-
-            half_limit = max(limit // 2, 1)  # At least 1 result required
-
-            # Only use cached window if it returned enough results for our threshold.
-            # This prevents the bug where a cached window that succeeded for a smaller
-            # limit (e.g., 4999 with half_limit=2499) is used for a larger limit
-            # (e.g., 6000 with half_limit=3000) that needs more results.
-            cached_window = None
-            if cached_data and isinstance(cached_data, dict):
-                cached_result_count = cached_data.get("result_count", 0)
-                if cached_result_count >= half_limit:
-                    cached_window = cached_data.get("window")
-            elif cached_data and isinstance(cached_data, int):
-                # Backwards compatibility: old cache format was just the window integer
-                cached_window = cached_data
-
-            if cached_window and cached_window in windows_to_try:
-                windows_to_try.remove(cached_window)
-                windows_to_try.insert(0, cached_window)
-
-            task_id = generate_short_id()
-
-            with get_events_list_rate_limiter().run(team_id=team.pk, task_id=task_id):
-                query_result: list = []
-                successful_window: Optional[int] = None
-                applied_window: Optional[int] = None
-
-                for window in windows_to_try:
-                    query_result, applied_window = query_events_list(
-                        filter=filter,
-                        team=team,
-                        limit=limit,
-                        offset=offset,
-                        request_get_query_dict=request.GET.dict(),
-                        order_by=order_by,
-                        action_id=request.GET.get("action_id"),
-                        time_window_seconds=window,
-                    )
-
-                    # If window wasn't applied (e.g., ASC order), don't try other windows
-                    if applied_window is None:
-                        break
-
-                    if len(query_result) >= half_limit:
-                        successful_window = window
-                        break
-
-                if successful_window:
-                    # Cache the successful window AND result count for future requests.
-                    # This allows requests with smaller limits to reuse cached windows,
-                    # while requests with larger limits will find their own windows.
-                    # Cache format: {"window": int, "result_count": int} (or int for legacy)
-                    new_cache_data = {"window": successful_window, "result_count": len(query_result)}
-                    if new_cache_data != cached_data:
-                        cache.set(cache_key, new_cache_data, EVENT_LIST_CACHE_TTL)
-                elif applied_window is not None or not windows_to_try:
-                    # Windows were applied but didn't return enough results, or no windows to try - run full query
-                    query_result, _ = query_events_list(
-                        filter=filter,
-                        team=team,
-                        limit=limit,
-                        offset=offset,
-                        request_get_query_dict=request.GET.dict(),
-                        order_by=order_by,
-                        action_id=request.GET.get("action_id"),
-                    )
+            request_user = cast(Optional[User], request.user if request.user.is_authenticated else None)
+            query_result, has_more = LegacyEventsListQuery(team, request_user).run(
+                limit=limit,
+                offset=offset,
+                order=order,
+                before=request.GET.get("before"),
+                after=request.GET.get("after"),
+                event=request.GET.get("event"),
+                person_id=request.GET.get("person_id"),
+                distinct_id=request.GET.get("distinct_id"),
+                properties=properties,
+                action_id=request.GET.get("action_id"),
+            )
 
             context = {**restricted_context}
             if request.query_params.get("include_person", "").lower() in ("true", "1"):
                 context["people"] = self._get_people(query_result, team)
 
             result = ClickhouseEventSerializer(
-                query_result[0:limit],
+                query_result,
                 many=True,
                 context=context,
             ).data
 
             next_url: Optional[str] = None
-            if not is_csv_request and len(query_result) > limit:
-                next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"], order_by)
+            if not is_csv_request and has_more and query_result:
+                next_url = self._build_next_url(request, query_result[-1]["timestamp"], order_by)
             headers = None
             if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
                 headers = {"X-PostHog-Warn": "https://posthog.com/docs/api/events"}
@@ -456,14 +367,11 @@ class EventViewSet(
                 status=400,
             )
         tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
-        query_result = query_with_columns(
-            SELECT_ONE_EVENT_SQL,
-            {"team_id": self.team.pk, "event_id": pk.replace("-", "")},
-            team_id=self.team.pk,
-        )
-        if len(query_result) == 0:
+        event = get_one_event(self.team, pk)
+        if event is None:
             raise NotFound(detail=f"No events exist for event UUID {pk}")
 
+        query_result = [event]
         query_context = {**self._get_restricted_properties_context(request, self.team)}
         if request.query_params.get("include_person", "").lower() in ("true", "1"):
             query_context["people"] = self._get_people(query_result, self.team)
@@ -682,9 +590,30 @@ class EventViewSet(
         resp["Cache-Control"] = "max-age=10"
         return resp
 
+    def _parse_properties_param(self, request: request.Request) -> "builtins.list[dict] | dict | None":
+        """Parse the `properties` query param for `EventsQuery`.
+
+        A flat list of leaf filters maps to `EventsQuery.properties`; a property group
+        (`{"type": "AND"/"OR", "values": [...]}`, possibly nested) is returned intact and later
+        forwarded to the runner's `property_to_expr` via `fixedProperties`, so its AND/OR survives.
+        Legacy-only keys (`property_type`, `property_type_format`) the schema rejects are dropped;
+        missing `type` defaults to `event` as before. Invalid JSON raises the legacy 400."""
+        raw = request.GET.get("properties")
+        if not raw:
+            return None
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            raise serializers.ValidationError("Properties are unparsable!")
+        if isinstance(parsed, dict) and isinstance(parsed.get("values"), list):
+            return _clean_property_node(parsed)
+        if isinstance(parsed, list):
+            return [_clean_property_node(prop) for prop in parsed if isinstance(prop, dict)]
+        return None
+
     def _reject_restricted_property_references(
         self,
-        filter: Filter,
+        properties: "builtins.list[dict] | dict | None",
         order_by: builtins.list[str],
         restricted_context: dict,
     ) -> None:
@@ -696,10 +625,12 @@ class EventViewSet(
         if not restricted_event and not restricted_person:
             return
 
-        for prop in filter.property_groups.flat:
-            if prop.type == "event" and prop.key in restricted_event:
+        for prop in _iter_leaf_property_filters(properties):
+            prop_type = prop.get("type", "event")
+            key = prop.get("key")
+            if prop_type == "event" and key in restricted_event:
                 raise serializers.ValidationError("Filter references a restricted property")
-            if prop.type == "person" and prop.key in restricted_person:
+            if prop_type == "person" and key in restricted_person:
                 raise serializers.ValidationError("Filter references a restricted property")
 
         for entry in order_by:
@@ -722,7 +653,7 @@ class EventViewSet(
 
         user = request.user if request.user.is_authenticated else None
 
-        restricted = get_restricted_properties_for_team(team_id=team.pk, user=cast(User | None, user))
+        restricted = get_restricted_properties_for_team(user=cast(User | None, user), team=team)
         restricted_event_properties = {name for name, ptype in restricted if ptype == PropertyDefinition.Type.EVENT}
         restricted_person_properties = {name for name, ptype in restricted if ptype == PropertyDefinition.Type.PERSON}
 

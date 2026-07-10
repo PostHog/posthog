@@ -6,6 +6,7 @@ from typing import Any, Optional, TypeVar
 from django.conf import settings
 
 import gspread
+import requests
 from cachetools import Cache, TTLCache, cached
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
@@ -67,6 +68,17 @@ _RETRYABLE_API_ERROR_CODES = {429, 500, 502, 503, 504}
 # stable, descriptive message so downstream matching can identify it.
 _PERMISSION_DENIED_MESSAGE = "Spreadsheet access denied. Please share the spreadsheet with the PostHog service account."
 
+# gspread converts the Sheets API 404 into `SpreadsheetNotFound` — see gspread/client.py
+# `open_by_key`: `raise SpreadsheetNotFound(ex.response) from ex`. Its `str()` is just the bare
+# response repr (`<Response [404]>`); the "Requested entity was not found" text lives only on the
+# chained APIError cause. The non-retryable matcher does a substring match over `str(e)`, so it has
+# nothing to match on and a deleted/moved/unshared sheet gets retried indefinitely. Re-raise with a
+# stable, descriptive message (mirroring `_PERMISSION_DENIED_MESSAGE` above) so it stops retrying.
+_SPREADSHEET_NOT_FOUND_MESSAGE = (
+    "Spreadsheet not found. The Google Sheet could not be found — it may have been deleted or "
+    "moved, or is no longer shared with the PostHog service account."
+)
+
 T = TypeVar("T")
 
 
@@ -108,8 +120,25 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
     while True:
         try:
             return execute()
-        except gspread.exceptions.APIError as e:
-            if not _is_retryable_api_error(e) or attempts >= max_attempts:
+        except (
+            gspread.exceptions.APIError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            requests.exceptions.ChunkedEncodingError,
+        ) as e:
+            # A dropped connection or read timeout is raised by `requests` before gspread can wrap
+            # it in an APIError, so the status-code check never sees it, and the tracked adapter's
+            # transport retries are already spent by the time it reaches us. It's a transient
+            # network blip, so retry inline like a 5xx; APIErrors still gate on their status. Once
+            # the budget is spent, let it bubble so Temporal retries the activity.
+            #
+            # `ChunkedEncodingError` is listed separately because a connection reset mid-download
+            # surfaces as one: `requests` catches the underlying urllib3 `ProtocolError` while
+            # streaming the response body and re-raises it as `ChunkedEncodingError`, which is a
+            # sibling of `ConnectionError` in the `requests` hierarchy (not a subclass), so the
+            # `ConnectionError` entry above would not catch it.
+            is_retryable = _is_retryable_api_error(e) if isinstance(e, gspread.exceptions.APIError) else True
+            if not is_retryable or attempts >= max_attempts:
                 raise
 
             jitter = random.uniform(-jitter_in_seconds, jitter_in_seconds)
@@ -127,6 +156,8 @@ def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet
             spreadsheet = client.open_by_url(spreadsheet_url)
         except PermissionError as e:
             raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
+        except gspread.exceptions.SpreadsheetNotFound as e:
+            raise gspread.exceptions.SpreadsheetNotFound(_SPREADSHEET_NOT_FOUND_MESSAGE) from e
         return spreadsheet.get_worksheet_by_id(worksheet_id)
 
     return _retry_on_transient_api_error(execute)
@@ -144,6 +175,8 @@ def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
             spreadsheet = client.open_by_url(config.spreadsheet_url)
         except PermissionError as e:
             raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
+        except gspread.exceptions.SpreadsheetNotFound as e:
+            raise gspread.exceptions.SpreadsheetNotFound(_SPREADSHEET_NOT_FOUND_MESSAGE) from e
         return spreadsheet.worksheets()
 
     worksheets = _retry_on_transient_api_error(execute)

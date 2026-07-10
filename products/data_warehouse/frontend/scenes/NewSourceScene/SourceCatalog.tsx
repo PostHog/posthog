@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { memo } from 'react'
 
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -11,6 +12,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { SourceReleaseTag } from '../../shared/components/SourceReleaseTag'
+import { WarehouseWizardHint } from '../../shared/components/WarehouseWizardHint'
 import { CatalogItem, sourceCatalogLogic } from './sourceCatalogLogic'
 
 // Horizontal card: logo on the left, name/status/action stacked on the right. `min-h` (not a fixed
@@ -22,7 +24,10 @@ export interface SourceCatalogProps {
     allowedSources?: ExternalDataSourceType[]
 }
 
-function SourceTile({
+// Memoized so the whole grid doesn't re-render per keystroke in the search input or request
+// modal: item references are stable across unrelated updates (catalogItems has a result
+// equality check) and the callbacks are kea actions.
+const SourceTile = memo(function SourceTile({
     item,
     accessDisabledReason,
     onNotify,
@@ -82,7 +87,7 @@ function SourceTile({
             {content}
         </Link>
     )
-}
+})
 
 function RequestSourceTile({ onRequest }: { onRequest: () => void }): JSX.Element {
     return (
@@ -140,6 +145,7 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
             </div>
 
             <div className="flex flex-col gap-4 flex-1">
+                <WarehouseWizardHint />
                 <LemonInput type="search" placeholder="Search sources..." value={search} onChange={setSearch} />
 
                 {filteredItems.length === 0 && (

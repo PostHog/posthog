@@ -26,8 +26,8 @@ from zoneinfo import ZoneInfo
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
-from django.db import ProgrammingError
-from django.db.models.functions import Lower
+from django.db import ProgrammingError, models
+from django.db.models.functions import Coalesce, Lower
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -247,6 +247,15 @@ def relative_date_parse_with_delta_mapping(
     else:
         parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
 
+    if match_group_dict["kind"] == "q":
+        # Quarter boundaries depend on the resulting month, so they can't be expressed
+        # as a static delta mapping like mStart/yStart — snap after applying the delta
+        quarter_start_month = ((parsed_dt.month - 1) // 3) * 3 + 1
+        if match_group_dict["position"] == "Start":
+            parsed_dt += relativedelta(month=quarter_start_month, day=1)
+        elif match_group_dict["position"] == "End":
+            parsed_dt += relativedelta(month=quarter_start_month + 2, day=31)
+
     if always_truncate:
         # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
         # TODO: Remove this from this function, this should not be the responsibility of it
@@ -329,7 +338,11 @@ def get_delta_mapping_for(
             delta_mapping["seconds"] = int(number)
     elif kind == "q":
         if number:
-            delta_mapping["weeks"] = 13 * int(number)
+            if human_friendly_comparison_periods:
+                # 13 whole weeks keeps weekdays aligned when comparing to the previous quarter
+                delta_mapping["weeks"] = 13 * int(number)
+            else:
+                delta_mapping["months"] = 3 * int(number)
     elif kind == "y":
         if number:
             if human_friendly_comparison_periods:
@@ -401,6 +414,62 @@ def get_js_url(request: HttpRequest) -> str:
         # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         return f"http://{domain}:{parsed.port}"
     return settings.JS_URL
+
+
+@lru_cache(maxsize=2)
+def _resolve_entry_assets(include_authenticated_shell: bool) -> tuple[str, tuple[str, ...], str]:
+    """
+    Return (css_url, js_preload_urls, font_url) for <head> preload tags, relative to JS_URL.
+    Preloading lets the browser fetch the boot chain (entry -> App -> AuthenticatedShell chunks,
+    the CSS bundle, and the Inter font, which is otherwise discovered only once the CSS is parsed)
+    in parallel instead of as a waterfall.
+
+    Reads the esbuild preload manifest (see writePreloadManifest in frontend/build.mjs). Returns
+    empty values in debug/test mode and when no manifest exists (e.g. a Vite build, which isn't
+    wired for production serving). Cached per process: manifests are immutable within a deploy.
+    """
+    if settings.DEBUG or settings.TEST:
+        return ("", (), "")
+    return _read_preload_manifest(
+        os.path.join(settings.BASE_DIR, "frontend", "dist", "preload-manifest.json"),
+        include_authenticated_shell,
+    )
+
+
+def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool) -> tuple[str, tuple[str, ...], str]:
+    """
+    Parse preload-manifest.json defensively: hints are an optimization, so any failure must
+    degrade to "no hints" rather than break page rendering — but loudly, because the caller
+    caches the result for the process lifetime, so a silent failure would turn the
+    optimization off fleet-wide until the next deploy.
+    """
+    try:
+        if not os.path.isfile(manifest_path):
+            return ("", (), "")
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        css = manifest.get("css", "")
+        font = manifest.get("font", "")
+        js = manifest.get("js", [])
+        authenticated_js = manifest.get("authenticatedJs", []) if include_authenticated_shell else []
+        if not (
+            isinstance(css, str)
+            and isinstance(font, str)
+            and isinstance(js, list)
+            and isinstance(authenticated_js, list)
+        ):
+            raise ValueError("preload manifest fields have unexpected types")
+        js_urls: list[str] = []
+        for url in [*js, *authenticated_js]:
+            if not isinstance(url, str):
+                raise ValueError("preload manifest fields have unexpected types")
+            if url not in js_urls:
+                js_urls.append(url)
+        return (css, tuple(js_urls), font)
+    except Exception as e:
+        logger.warning("preload_manifest_unreadable", manifest_path=manifest_path, error=str(e))
+        capture_exception(e)
+        return ("", (), "")
 
 
 @tracer.start_as_current_span("template.context")
@@ -572,6 +641,7 @@ def _build_template_context(
                 posthog_app_context["default_event_name"] = event_info["default_event_name"]
                 posthog_app_context["has_pageview"] = event_info["has_pageview"]
                 posthog_app_context["has_screen"] = event_info["has_screen"]
+                posthog_app_context["has_person_email"] = get_has_person_email(user.team)
 
                 with tracer.start_as_current_span("template.user_product_list"):
                     user_product_list = UserProductListSerializer(
@@ -628,6 +698,19 @@ def _build_template_context(
     context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
+
+    # Only the SPA shell references these; other templates (exporter, layout, ...) load different bundles
+    if template_name == "index.html":
+        context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
+            bool(request.user and request.user.is_authenticated)
+        )
+        # Theme for the pre-React shell (critical CSS in index.html), mirroring the app's
+        # themeLogic.isDarkModeOn: anonymous pages are always light, a missing theme_mode
+        # means light, and only "system" defers to prefers-color-scheme.
+        user_theme_mode = (
+            getattr(request.user, "theme_mode", None) if request.user and request.user.is_authenticated else None
+        )
+        context["boot_theme"] = user_theme_mode or "light"
 
     if posthog_distinct_id:
         from posthog.models.instance_setting import get_instance_setting
@@ -846,6 +929,58 @@ def get_default_event_name(team: "Team") -> str | None:
     return get_default_event_info(team)["default_event_name"]
 
 
+HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS = 24 * 60 * 60
+HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS = 30 * 60
+HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS = 60
+YOUNG_PROJECT_AGE = datetime.timedelta(days=7)
+
+
+def _has_person_email_cache_key(project_id: int) -> str:
+    return f"has_person_email:project:{project_id}"
+
+
+def _has_person_email_ttl(team: "Team", has_person_email: bool) -> int:
+    if has_person_email:
+        return HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS
+    # Most writes bypass the invalidation signal (raw-SQL ingestion via
+    # property-defs-rs, bulk_create/queryset.update, renames, the EE subclass), so
+    # these TTLs are the real freshness bound — for a project still setting up, the
+    # only thing standing between "started sending email" and the flag flipping.
+    if timezone.now() - team.project.created_at < YOUNG_PROJECT_AGE:
+        return HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS
+    return HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS
+
+
+@tracer.start_as_current_span("template.has_person_email")
+def get_has_person_email(team: "Team") -> bool:
+    from posthog.models import PropertyDefinition
+
+    from products.event_definitions.backend.models.property_definition import PERSON_EMAIL_PROPERTY_NAME
+
+    cache_key = _has_person_email_cache_key(team.project_id)
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    has_person_email = (
+        PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        )
+        .filter(
+            effective_project_id=team.project_id, type=PropertyDefinition.Type.PERSON, name=PERSON_EMAIL_PROPERTY_NAME
+        )
+        .exists()
+    )
+
+    safe_cache_set(cache_key, has_person_email, timeout=_has_person_email_ttl(team, has_person_email))
+
+    return has_person_email
+
+
+def invalidate_has_person_email_cache(project_id: int) -> None:
+    safe_cache_delete(_has_person_email_cache_key(project_id))
+
+
 @tracer.start_as_current_span("template.frontend_apps")
 def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
     from products.cdp.backend.models.plugin import Plugin, PluginSourceFile
@@ -942,6 +1077,42 @@ def get_ip_address(request: HttpRequest) -> str:
     return ip
 
 
+def _normalize_ip(ip: str) -> Optional[str]:
+    """Strip an optional port and validate; returns None if the result isn't a valid IP."""
+    if ip.startswith("["):
+        # IPv6 with brackets, possibly with port: [2001:db8::1]:8080 -> 2001:db8::1
+        bracket_end = ip.find("]")
+        if bracket_end != -1:
+            ip = ip[1:bracket_end]
+    elif ip.count(":") == 1:
+        # IPv4 with port: 192.168.1.1:8080 -> 192.168.1.1
+        ip = ip.split(":")[0]
+    return ip if _is_valid_ip_address(ip) else None
+
+
+def get_trusted_client_ip(request: HttpRequest) -> Optional[str]:
+    """Client IP validated against the trusted-proxy chain (settings.TRUSTED_PROXIES / TRUST_ALL_PROXIES).
+
+    Unlike get_ip_address, which trusts the left-most X-Forwarded-For value, this accepts the
+    forwarded client IP only when every proxy hop is a trusted proxy — otherwise it returns None.
+    Use it for security decisions so a spoofed X-Forwarded-For header can't dictate the result.
+    """
+    client_ip = request.META.get("REMOTE_ADDR")
+    if getattr(settings, "USE_X_FORWARDED_HOST", False):
+        forwarded_for = [ip.strip() for ip in (request.headers.get("x-forwarded-for") or "").split(",") if ip.strip()]
+        if forwarded_for:
+            closest_proxy = client_ip
+            client_ip = forwarded_for.pop(0)
+            if settings.TRUST_ALL_PROXIES:
+                return _normalize_ip(client_ip)
+            trusted = [p.strip() for p in (settings.TRUSTED_PROXIES or "").split(",") if p.strip()]
+            for proxy in [closest_proxy, *forwarded_for]:
+                normalized = _normalize_ip(proxy) if proxy else None
+                if normalized is None or normalized not in trusted:
+                    return None
+    return _normalize_ip(client_ip) if client_ip else None
+
+
 def get_short_user_agent(request: HttpRequest) -> str:
     """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
     user_agent_str = request.headers.get("user-agent")
@@ -984,6 +1155,7 @@ def get_compare_period_dates(
     date_from_delta_mapping: Optional[dict[str, int]],
     date_to_delta_mapping: Optional[dict[str, int]],
     interval: str,
+    exclude_incomplete_periods: bool = False,
 ) -> tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
@@ -1009,6 +1181,9 @@ def get_compare_period_dates(
             and date_from_delta_mapping.get("days", None)
             and date_from_delta_mapping["days"] % 7 == 0
             and not date_to_delta_mapping
+            # With excludeIncompletePeriods the ongoing day is clipped out of the range, so -7d
+            # covers exactly 7 complete days and the extra day would misalign the previous period.
+            and not exclude_incomplete_periods
         ):
             # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
             # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges

@@ -9,6 +9,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { BaseMathType, InsightLogicProps } from '~/types'
 
+import __trendsLineBreakdown from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
 import { InsightsTable, InsightsTableProps } from './InsightsTable'
 
 type Story = StoryObj<InsightsTableProps>
@@ -24,7 +25,7 @@ const renderInsightsTable = (props: any, { parameters }: any): JSX.Element => {
     const [dashboardItemId] = useState(() => `InsightTableStory.${uniqueNode++}`)
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
+    const insight = __trendsLineBreakdown as any
     const cachedInsight = {
         ...insight,
         short_id: dashboardItemId,
@@ -101,7 +102,7 @@ const renderCompareInsightsTable = (props: any): JSX.Element => {
     const [dashboardItemId] = useState(() => `InsightTableStory.${uniqueNode++}`)
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
+    const insight = __trendsLineBreakdown as any
 
     // Duplicate each result series with "current" and "previous" compare labels
     const currentResults = insight.result.map((r: Record<string, any>) => ({
@@ -159,4 +160,67 @@ export const ComparePrevious: Story = {
     args: {
         isMainInsightView: true,
     },
+}
+
+// A HogQL breakdown expression that is far too long to fit in a column. The header should be clipped
+// with an ellipsis rather than overflowing into neighbouring columns.
+const LONG_SQL_BREAKDOWN =
+    "concat(toString(properties.$browser), ' - ', toString(properties.$os), ' - ', toString(properties.$device_type), ' - ', toString(properties.$geoip_country_name))"
+
+const LONG_BREAKDOWN_VALUES = [
+    'Google Chrome - Mac OS X - Desktop - United States of America',
+    'Mozilla Firefox - Windows - Desktop - United Kingdom of Great Britain and Northern Ireland',
+    'Safari - iOS - Mobile - Federated States of Micronesia',
+    'Microsoft Edge - Windows - Desktop - United Republic of Tanzania',
+]
+
+const renderSqlBreakdownInsightsTable = (props: any): JSX.Element => {
+    const [dashboardItemId] = useState(() => `InsightTableStory.${uniqueNode++}`)
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const insight = __trendsLineBreakdown as any
+
+    // Give each result a long, compound breakdown value too
+    const result = insight.result
+        .slice(0, LONG_BREAKDOWN_VALUES.length)
+        .map((r: Record<string, any>, index: number) => ({
+            ...r,
+            breakdown_value: LONG_BREAKDOWN_VALUES[index],
+            label: `$pageview - ${LONG_BREAKDOWN_VALUES[index]}`,
+        }))
+
+    const cachedInsight = {
+        ...insight,
+        short_id: dashboardItemId,
+        result,
+        query: {
+            ...insight.query,
+            source: {
+                ...insight.query.source,
+                breakdownFilter: { breakdown: LONG_SQL_BREAKDOWN, breakdown_type: 'hogql' },
+            },
+        },
+    }
+
+    const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
+
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: cachedInsight.query.source,
+        key: insightVizDataNodeKey(insightProps),
+        cachedResults: getCachedResults(cachedInsight, cachedInsight.query.source),
+        doNotLoad: insightProps.doNotLoad,
+    }
+
+    return (
+        <BindLogic logic={insightLogic} props={insightProps}>
+            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                <InsightsTable {...props} />
+            </BindLogic>
+        </BindLogic>
+    )
+}
+
+export const SqlBreakdown: Story = {
+    render: renderSqlBreakdownInsightsTable,
+    args: {},
 }

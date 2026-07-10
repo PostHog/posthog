@@ -11,21 +11,42 @@ from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from products.customer_analytics.backend.models import Account, CustomPropertyDefinition, CustomPropertyValue, DataType
+from products.customer_analytics.backend.models import (
+    Account,
+    CustomPropertyDefinition,
+    CustomPropertyValue,
+    DataType,
+    DisplayType,
+)
 from products.customer_analytics.backend.models.custom_property_value import ACTIVE_VALUE_CONSTRAINT_NAME
 
 CoercedValue = float | bool | str | datetime
 
 
 class InvalidCustomPropertyValue(ValueError):
-    """Raised when a value can't be coerced to its definition's data type."""
+    """Raised when a value can't be coerced to its definition's data type.
+
+    ``field`` carries the definition id when set from a batch write, so the caller can
+    point at which property failed.
+    """
+
+    field: str | None = None
 
 
 class CustomPropertyDefinitionNotFound(Exception):
-    """Raised when the target custom property definition does not exist for the team."""
+    """Raised when the target custom property definition does not exist for the team.
+
+    ``identifier`` is the id or name that failed to resolve, so callers can surface which
+    property was at fault.
+    """
+
+    def __init__(self, identifier: Any) -> None:
+        super().__init__(f"Custom property definition '{identifier}' not found.")
+        self.identifier = identifier
 
 
 class CustomPropertyValueConflict(Exception):
@@ -58,21 +79,67 @@ def set_custom_property_value(
     try:
         definition = CustomPropertyDefinition.objects.for_team(team_id).get(id=definition_id)
     except CustomPropertyDefinition.DoesNotExist as exc:
-        raise CustomPropertyDefinitionNotFound(
-            f"Custom property definition {definition_id} not found for team {team_id}."
-        ) from exc
+        raise CustomPropertyDefinitionNotFound(definition_id) from exc
     _assert_account_in_team(team_id=team_id, account_id=account_id)
-    column, coerced = _coerce_to_column(definition, value)
+    return _set_value(
+        team_id=team_id, account_id=account_id, definition=definition, value=value, created_by_id=created_by_id
+    )
 
+
+def set_account_custom_properties_by_id(
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    properties: dict[str, Any],
+    created_by_id: int | None = None,
+) -> list[CustomPropertyValue]:
+    """Set several of an account's custom property values, addressing each by definition id.
+
+    Resolves each id to its team-scoped definition, then applies the same coerce + soft-delete +
+    insert as `set_custom_property_value`. Caller is responsible for wrapping the batch in a
+    transaction when all-or-nothing semantics are required.
+
+    Raises `CustomPropertyDefinitionNotFound` (unknown id, carrying the id),
+    `InvalidCustomPropertyValue` (value doesn't match the data type, carrying the id in `field`),
+    `Account.DoesNotExist`, or `CustomPropertyValueConflict`.
+    """
+    _assert_account_in_team(team_id=team_id, account_id=account_id)
+    rows: list[CustomPropertyValue] = []
+    for definition_id, value in properties.items():
+        try:
+            definition = CustomPropertyDefinition.objects.for_team(team_id).get(id=definition_id)
+        except (CustomPropertyDefinition.DoesNotExist, ValidationError) as exc:
+            raise CustomPropertyDefinitionNotFound(definition_id) from exc
+        try:
+            row = _set_value(
+                team_id=team_id, account_id=account_id, definition=definition, value=value, created_by_id=created_by_id
+            )
+        except InvalidCustomPropertyValue as exc:
+            exc.field = str(definition_id)
+            raise
+        rows.append(row)
+    return rows
+
+
+def _set_value(
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    definition: CustomPropertyDefinition,
+    value: Any,
+    created_by_id: int | None,
+) -> CustomPropertyValue:
+    """Coerce `value` and atomically supersede the account's active row for `definition`."""
+    column, coerced = _coerce_to_column(definition, value)
     try:
         with transaction.atomic():
             CustomPropertyValue.objects.for_team(team_id).filter(
-                account_id=account_id, definition_id=definition_id, is_deleted=False
+                account_id=account_id, definition_id=definition.id, is_deleted=False
             ).update(is_deleted=True)
             row = CustomPropertyValue.objects.for_team(team_id).create(
                 team_id=team_id,
                 account_id=account_id,
-                definition_id=definition_id,
+                definition_id=definition.id,
                 created_by_id=created_by_id,
                 **{column: coerced},
             )
@@ -100,6 +167,70 @@ def list_active_custom_property_values(*, team_id: int, account_id: str | UUID) 
         .select_related("definition", "created_by")
         .order_by("-created_at")
     )
+
+
+VALUE_SUGGESTIONS_LIMIT = 50
+
+
+def list_custom_property_value_suggestions(*, team_id: int, definition_id: str | UUID, search: str | None) -> list[str]:
+    """Suggested filter values for a custom property: a select's option labels, a boolean's
+    true/false, otherwise distinct active values across the team's accounts. Empty when the
+    definition doesn't exist — suggestions are best-effort, not an error surface."""
+    try:
+        definition = CustomPropertyDefinition.objects.for_team(team_id).get(id=definition_id)
+    except (CustomPropertyDefinition.DoesNotExist, ValidationError, ValueError):
+        return []
+
+    needle = (search or "").strip().lower()
+
+    if definition.display_type == DisplayType.SELECT:
+        labels = [str(option.get("label") or "") for option in definition.options or []]
+        return [label for label in labels if label and needle in label.lower()][:VALUE_SUGGESTIONS_LIMIT]
+    if definition.data_type == DataType.BOOLEAN:
+        return [value for value in ("true", "false") if needle in value]
+    if definition.data_type == DataType.DATETIME:
+        # Date filters render a date picker, not text suggestions.
+        return []
+
+    queryset = CustomPropertyValue.objects.for_team(team_id).filter(definition_id=definition.id, is_deleted=False)
+
+    if definition.data_type == DataType.NUMERIC:
+        numeric_values = (
+            queryset.exclude(value_num__isnull=True)
+            .values_list("value_num", flat=True)
+            .distinct()
+            .order_by("value_num")
+        )
+        # The needle matches the *formatted* numeric string, which the database can't compute —
+        # filter in Python and stop once the limit fills, instead of slicing the queryset first.
+        suggestions: list[str] = []
+        for value in numeric_values.iterator():
+            formatted = _format_numeric_suggestion(value)
+            if formatted is None or needle not in formatted:
+                continue
+            suggestions.append(formatted)
+            if len(suggestions) == VALUE_SUGGESTIONS_LIMIT:
+                break
+        return suggestions
+
+    if needle:
+        queryset = queryset.filter(value_str__icontains=needle)
+    string_values = (
+        queryset.exclude(value_str__isnull=True)
+        .values_list("value_str", flat=True)
+        .distinct()
+        .order_by("value_str")[:VALUE_SUGGESTIONS_LIMIT]
+    )
+    return [value for value in string_values if value is not None]
+
+
+def _format_numeric_suggestion(value: float | None) -> str | None:
+    # Integral floats render without a trailing ".0", matching how the filter column displays
+    # them. Non-finite values can't pass write-path coercion; skip a stray row rather than crash.
+    # None only occurs in the type, not at runtime — the caller excludes null rows.
+    if value is None or not math.isfinite(value):
+        return None
+    return str(int(value)) if value == int(value) else str(value)
 
 
 def _assert_account_in_team(*, team_id: int, account_id: str | UUID) -> None:
@@ -159,6 +290,13 @@ def _coerce_string(definition: CustomPropertyDefinition, value: Any) -> str:
     raise InvalidCustomPropertyValue(_expects(definition, "a text value"))
 
 
+def _coerce_select(definition: CustomPropertyDefinition, value: Any) -> str:
+    labels = [option["label"] for option in definition.options or []]
+    if isinstance(value, str) and value in labels:
+        return value
+    raise InvalidCustomPropertyValue(_expects(definition, f"one of its options: {', '.join(labels)}"))
+
+
 # Each data type maps to its CustomPropertyValue column and the coercer that validates a raw value
 # into it (defined here, after the coercers it references).
 _HANDLER_BY_DATA_TYPE: dict[DataType, tuple[str, Callable[[CustomPropertyDefinition, Any], CoercedValue]]] = {
@@ -170,6 +308,8 @@ _HANDLER_BY_DATA_TYPE: dict[DataType, tuple[str, Callable[[CustomPropertyDefinit
 
 
 def _coerce_to_column(definition: CustomPropertyDefinition, value: Any) -> tuple[str, CoercedValue]:
+    if definition.display_type == DisplayType.SELECT:
+        return "value_str", _coerce_select(definition, value)
     column, coerce = _HANDLER_BY_DATA_TYPE[definition.data_type]
     return column, coerce(definition, value)
 

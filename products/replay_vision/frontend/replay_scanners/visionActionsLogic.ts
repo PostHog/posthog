@@ -1,14 +1,90 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { visionActionsDestroy, visionActionsList, visionActionsPartialUpdate } from '../generated/api'
-import type { VisionActionApi } from '../generated/api.schemas'
+import {
+    visionActionsCreate,
+    visionActionsDestroy,
+    visionActionsList,
+    visionActionsPartialUpdate,
+} from '../generated/api'
+import { DeliveryTargetTypeEnumApi } from '../generated/api.schemas'
+import type { VerdictEnumApi, VisionActionApi } from '../generated/api.schemas'
+import { CadenceState, cadenceToRrule, DEFAULT_CADENCE } from './cadence'
 import type { visionActionsLogicType } from './visionActionsLogicType'
 
 export interface VisionActionsLogicProps {
     scannerId: string
+}
+
+// UI-shaped form values, mapped to/from the API shape on submit/edit.
+export interface VisionActionForm {
+    name: string
+    cadence: CadenceState
+    timezone: string
+    prompt_guide: string
+    integration_id: number | null
+    channel: string
+    // Targeting ("run this on…") — empty means all of the scanner's observations.
+    verdict: VerdictEnumApi[]
+    tags: string[]
+    min_score: number | null
+    max_score: number | null
+}
+
+export const NEW_ACTION_FORM = (): VisionActionForm => ({
+    name: '',
+    cadence: { ...DEFAULT_CADENCE },
+    timezone: dayjs.tz.guess(),
+    prompt_guide: '',
+    integration_id: null,
+    channel: '',
+    verdict: [],
+    tags: [],
+    min_score: null,
+    max_score: null,
+})
+
+// Map the UI form shape to the API body shared by create + partial-update. Kept standalone so the
+// rrule + delivery-target mapping (the part most likely to grow beyond a single Slack target) is
+// unit-testable without the form machinery.
+export function buildActionBody(form: VisionActionForm, scannerId: string): Parameters<typeof visionActionsCreate>[1] {
+    // Always send selection (even empty) so clearing every targeting control on edit persists as
+    // "run on everything" rather than silently keeping the previous predicate.
+    const selection: NonNullable<Parameters<typeof visionActionsCreate>[1]['selection']> = {}
+    if (form.verdict.length) {
+        selection.verdict = form.verdict
+    }
+    if (form.tags.length) {
+        selection.tags = form.tags
+    }
+    if (form.min_score != null) {
+        selection.min_score = form.min_score
+    }
+    if (form.max_score != null) {
+        selection.max_score = form.max_score
+    }
+    return {
+        name: form.name.trim(),
+        scanner: scannerId,
+        trigger_config: { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
+        selection,
+        synthesis_config: { prompt_guide: form.prompt_guide },
+        delivery_config:
+            form.integration_id && form.channel
+                ? [
+                      {
+                          type: DeliveryTargetTypeEnumApi.Slack,
+                          integration_id: form.integration_id,
+                          // Store the `${id}|#${name}` picker composite so the table can show the
+                          // channel name; delivery.py strips it to the bare id for the Slack destination.
+                          channel: form.channel,
+                      },
+                  ]
+                : [],
+    }
 }
 
 export const visionActionsLogic = kea<visionActionsLogicType>([
@@ -68,7 +144,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                 const response = await visionActionsList(String(teamId), { scanner: props.scannerId, limit: 100 })
                 actions.loadActionsSuccess(response.results ?? [])
             } catch (error: any) {
-                lemonToast.error(`Failed to load actions${error.detail ? `: ${error.detail}` : ''}`)
+                lemonToast.error(`Failed to load summaries${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadActionsFailure()
             }
         },
@@ -86,7 +162,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                 actions.toggleActionEnabledDone(id)
             } catch (error: any) {
                 const verb = action.enabled ? 'enable' : 'disable'
-                lemonToast.error(`Failed to ${verb} action${error.detail ? `: ${error.detail}` : ''}`)
+                lemonToast.error(`Failed to ${verb} summary${error.detail ? `: ${error.detail}` : ''}`)
                 actions.revertActionEnabled(id)
             }
         },
@@ -99,9 +175,9 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             try {
                 await visionActionsDestroy(String(teamId), id)
                 actions.deleteActionSuccess(id)
-                lemonToast.success('Action deleted')
+                lemonToast.success('Summary deleted')
             } catch (error: any) {
-                lemonToast.error(`Failed to delete action${error.detail ? `: ${error.detail}` : ''}`)
+                lemonToast.error(`Failed to delete summary${error.detail ? `: ${error.detail}` : ''}`)
             }
         },
     })),

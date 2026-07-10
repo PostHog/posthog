@@ -79,7 +79,7 @@ async fn async_main(config: Config) -> Result<()> {
 
     tracing_subscriber::registry().with(log_layer).init();
 
-    info!(?config, "Starting ingestion consumer");
+    info!("Starting ingestion consumer");
 
     // Lifecycle manager handles signals, health, and shutdown coordination
     let mut manager = Manager::builder("ingestion-consumer")
@@ -103,31 +103,44 @@ async fn async_main(config: Config) -> Result<()> {
     // Install Prometheus recorder with custom histogram buckets matching the
     // Node.js ingestion consumer, so existing dashboards and alerts work during switchover.
     let recorder_handle = if config.export_prometheus {
+        let mut builder = PrometheusBuilder::new()
+            .set_buckets_for_metric(
+                Matcher::Full("ingestion_lag_ms_histogram".into()),
+                &[
+                    1_000.0, 2_000.0, 5_000.0, 10_000.0, 30_000.0, 60_000.0, 120_000.0, 300_000.0,
+                    600_000.0, 900_000.0,
+                ],
+            )
+            .expect("ingestion_lag_ms_histogram buckets")
+            .set_buckets_for_metric(
+                Matcher::Full("consumer_batch_size".into()),
+                &[
+                    0.0, 50.0, 100.0, 250.0, 500.0, 750.0, 1_000.0, 1_500.0, 2_000.0, 3_000.0,
+                ],
+            )
+            .expect("consumer_batch_size buckets")
+            .set_buckets_for_metric(
+                Matcher::Full("consumer_batch_size_kb".into()),
+                &[
+                    0.0, 128.0, 512.0, 1_024.0, 5_120.0, 10_240.0, 20_480.0, 51_200.0, 102_400.0,
+                    204_800.0,
+                ],
+            )
+            .expect("consumer_batch_size_kb buckets");
+
+        // Global default labels (match the Node.js `initializePrometheusLabels`
+        // defaults): every metric carries ingestion_pipeline / ingestion_lane so
+        // dashboards, alerts, and the lag-based KEDA autoscaler select this
+        // consumer's series — notably `ingestion_lag_ms` for the scaling triggers.
+        if let Some(pipeline) = config.ingestion_pipeline.as_deref() {
+            builder = builder.add_global_label("ingestion_pipeline", pipeline);
+        }
+        if let Some(lane) = config.ingestion_lane.as_deref() {
+            builder = builder.add_global_label("ingestion_lane", lane);
+        }
+
         Some(
-            PrometheusBuilder::new()
-                .set_buckets_for_metric(
-                    Matcher::Full("ingestion_lag_ms_histogram".into()),
-                    &[
-                        1_000.0, 2_000.0, 5_000.0, 10_000.0, 30_000.0, 60_000.0, 120_000.0,
-                        300_000.0, 600_000.0, 900_000.0,
-                    ],
-                )
-                .expect("ingestion_lag_ms_histogram buckets")
-                .set_buckets_for_metric(
-                    Matcher::Full("consumer_batch_size".into()),
-                    &[
-                        0.0, 50.0, 100.0, 250.0, 500.0, 750.0, 1_000.0, 1_500.0, 2_000.0, 3_000.0,
-                    ],
-                )
-                .expect("consumer_batch_size buckets")
-                .set_buckets_for_metric(
-                    Matcher::Full("consumer_batch_size_kb".into()),
-                    &[
-                        0.0, 128.0, 512.0, 1_024.0, 5_120.0, 10_240.0, 20_480.0, 51_200.0,
-                        102_400.0, 204_800.0,
-                    ],
-                )
-                .expect("consumer_batch_size_kb buckets")
+            builder
                 .install_recorder()
                 .expect("failed to install Prometheus recorder"),
         )
