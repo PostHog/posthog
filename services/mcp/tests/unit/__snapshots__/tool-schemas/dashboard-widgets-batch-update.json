@@ -669,7 +669,7 @@
                                     "status": {
                                         "default": "all",
                                         "description": "Experiment status filter.",
-                                        "enum": ["draft", "running", "paused", "stopped", "all"],
+                                        "enum": ["draft", "running", "paused", "exposure_frozen", "stopped", "all"],
                                         "type": "string"
                                     }
                                 },

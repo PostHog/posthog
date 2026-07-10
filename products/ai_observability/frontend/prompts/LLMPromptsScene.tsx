@@ -6,6 +6,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -33,7 +34,8 @@ export const scene: SceneExport = {
 
 export function LLMPromptsScene(): JSX.Element {
     const { setFilters, deletePrompt, duplicatePrompt } = useActions(llmPromptsLogic)
-    const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel } = useValues(llmPromptsLogic)
+    const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel, shouldShowEmptyState } =
+        useValues(llmPromptsLogic)
     const { searchParams } = useValues(router)
     const promptUrl = (name: string): string => combineUrl(urls.aiObservabilityPrompt(name), searchParams).url
 
@@ -181,48 +183,74 @@ export function LLMPromptsScene(): JSX.Element {
                 }
             />
 
-            <div className="space-y-4">
-                <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search prompts..."
-                        value={filters.search}
-                        data-attr="prompts-search-input"
-                        onChange={(value) => setFilters({ search: value })}
-                        className="max-w-md"
-                    />
-                    <div className="text-muted-alt">{promptCountLabel}</div>
-                    <div className="flex-1" />
-                    <span>
-                        <b>Created by</b>
-                    </span>
-                    <MemberSelect
-                        defaultLabel="Any user"
-                        value={filters.created_by_id ?? null}
-                        size="xsmall"
-                        onChange={(user) => setFilters({ created_by_id: user?.id, page: 1 })}
+            {shouldShowEmptyState ? (
+                <ProductIntroduction
+                    productName="Prompt management"
+                    productKey={ProductKey.LLM_PROMPTS}
+                    thingName="prompt"
+                    description="Create and version LLM prompts in PostHog, then fetch them from your code at runtime — update prompts without deploying. Every change is an immutable version you can compare, restore, and A/B test."
+                    docsURL="https://posthog.com/docs/prompt-management"
+                    isEmpty
+                    actionElementOverride={
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="primary"
+                                to={promptUrl('new')}
+                                icon={<IconPlusSmall />}
+                                data-attr="llma-prompts-empty-state-new-prompt"
+                            >
+                                New prompt
+                            </LemonButton>
+                        </AccessControlAction>
+                    }
+                />
+            ) : (
+                <div className="space-y-4">
+                    <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search prompts..."
+                            value={filters.search}
+                            data-attr="prompts-search-input"
+                            onChange={(value) => setFilters({ search: value })}
+                            className="max-w-md"
+                        />
+                        <div className="text-muted-alt">{promptCountLabel}</div>
+                        <div className="flex-1" />
+                        <span>
+                            <b>Created by</b>
+                        </span>
+                        <MemberSelect
+                            defaultLabel="Any user"
+                            value={filters.created_by_id ?? null}
+                            size="xsmall"
+                            onChange={(user) => setFilters({ created_by_id: user?.id, page: 1 })}
+                        />
+                    </div>
+
+                    <LemonTable
+                        loading={promptsLoading}
+                        columns={columns}
+                        dataSource={prompts.results}
+                        pagination={pagination}
+                        noSortingCancellation
+                        sorting={sorting}
+                        onSort={(newSorting) =>
+                            setFilters({
+                                order_by: newSorting
+                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                    : undefined,
+                            })
+                        }
+                        rowKey="id"
+                        loadingSkeletonRows={PROMPTS_PER_PAGE}
+                        nouns={['prompt', 'prompts']}
                     />
                 </div>
-
-                <LemonTable
-                    loading={promptsLoading}
-                    columns={columns}
-                    dataSource={prompts.results}
-                    pagination={pagination}
-                    noSortingCancellation
-                    sorting={sorting}
-                    onSort={(newSorting) =>
-                        setFilters({
-                            order_by: newSorting
-                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                : undefined,
-                        })
-                    }
-                    rowKey="id"
-                    loadingSkeletonRows={PROMPTS_PER_PAGE}
-                    nouns={['prompt', 'prompts']}
-                />
-            </div>
+            )}
         </SceneContent>
     )
 }

@@ -1,5 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
+import { hogApiErrorMessageFn } from './api-error'
+
 export const template: HogFunctionTemplate = {
     free: true,
     status: 'hidden',
@@ -11,6 +13,8 @@ export const template: HogFunctionTemplate = {
     category: ['Custom'],
     code_language: 'hog',
     code: `
+${hogApiErrorMessageFn}
+
 if (empty(inputs.external_id)) {
   throw Error('Account external ID is required')
 }
@@ -49,9 +53,10 @@ if (response.status == 404) {
 }
 
 if (response.status >= 400) {
-  throw Error(f'Failed to update account: {response.status}')
+  throw Error(f'Failed to update account ({response.status}): {apiErrorMessage(response)}')
 }
 
+print(f'Updated account {inputs.external_id}')
 return response.body
 `,
     inputs_schema: [

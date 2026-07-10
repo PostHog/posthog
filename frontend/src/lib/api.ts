@@ -174,8 +174,8 @@ import {
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     ObjectMediaPreview,
+    OrganizationFeatureFlag,
     OrganizationFeatureFlagKeysResponse,
-    OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
     OrganizationMemberType,
@@ -750,19 +750,6 @@ export class ApiRequest {
 
     public logsExport(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('export')
-    }
-
-    // # Metrics
-    public metrics(projectId?: ProjectType['id']): ApiRequest {
-        return this.environmentsDetail(projectId).addPathComponent('metrics')
-    }
-
-    public metricsHasMetrics(projectId?: ProjectType['id']): ApiRequest {
-        return this.metrics(projectId).addPathComponent('has_metrics')
-    }
-
-    public metricsValues(projectId?: ProjectType['id']): ApiRequest {
-        return this.metrics(projectId).addPathComponent('values')
     }
 
     // # Tracing
@@ -2602,7 +2589,7 @@ const api = {
         async get(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
             featureFlagKey: FeatureFlagType['key']
-        ): Promise<OrganizationFeatureFlags> {
+        ): Promise<OrganizationFeatureFlag[]> {
             return await new ApiRequest().organizationFeatureFlags(orgId, featureFlagKey).get()
         },
         async copy(
@@ -2850,6 +2837,9 @@ const api = {
             hasMore: boolean
             nextCursor?: string
             maxExportableLogs: number
+            // Aliases for the requested customColumns, in request order; rows carry
+            // their custom values under these keys. Null without custom columns.
+            columns?: string[] | null
         }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
@@ -2895,29 +2885,6 @@ const api = {
             filename: string
         }> {
             return new ApiRequest().logsExport().create({ data: { query, columns } })
-        },
-    },
-
-    metrics: {
-        async hasMetrics(): Promise<boolean> {
-            return new ApiRequest()
-                .metricsHasMetrics()
-                .get()
-                .then((response) => Boolean(response.hasMetrics))
-        },
-        async values({
-            search,
-            limit,
-            signal,
-        }: {
-            search?: string
-            limit?: number
-            signal?: AbortSignal
-        } = {}): Promise<{ results: { name: string; metric_type: string }[] }> {
-            return new ApiRequest()
-                .metricsValues()
-                .withQueryString({ value: search ?? '', limit: limit ?? 100 })
-                .get({ signal })
         },
     },
 
