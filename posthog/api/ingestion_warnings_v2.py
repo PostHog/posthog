@@ -183,7 +183,7 @@ FROM (
         {bucket_fn}(timestamp) AS bucket,
         count() OVER (PARTITION BY type, category, severity, {bucket_fn}(timestamp)) AS bucket_count
     FROM {table}
-    WHERE team_id = %(team_id)s
+    WHERE (team_id = %(team_id)s OR (team_id = 0 AND token = %(token)s))
         AND timestamp >= %(since)s
         AND timestamp <= %(until)s
         {filter_clauses}
@@ -226,6 +226,10 @@ class IngestionWarningsV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         query_params = {
             "team_id": self.team_id,
+            # Capture-sourced warnings are emitted without database access, so they
+            # carry team_id=0 and the project's API token instead; match them here.
+            # The team_id=0 guard keeps the token predicate off other teams' rows.
+            "token": self.team.api_token,
             "since": since.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S"),
             "until": until.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S"),
             "limit": filters.get("limit", DEFAULT_LIMIT),

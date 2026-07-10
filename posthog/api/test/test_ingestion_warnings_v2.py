@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 
 from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -75,6 +76,14 @@ class TestIngestionWarningsV2API(ClickhouseTestMixin, APIBaseTest):
     def _list(self, **params) -> tuple[int, list]:
         response = self.client.get(f"/api/projects/{self.team.pk}/ingestion_warnings_v2/", params)
         return response.status_code, response.json()
+
+    def _use_unique_api_token(self) -> str:
+        # Test teams share the fixed CONFIG_API_TOKEN while ClickHouse rows outlive
+        # each test, so team_id=0 capture rows keyed by that token would leak between
+        # tests. A per-test token keeps them isolated.
+        self.team.api_token = f"phc_capture_test_{uuid4().hex}"
+        self.team.save()
+        return self.team.api_token
 
     def test_groups_warnings_by_type_with_counts_samples_and_sparkline(self):
         status_code, results = self._list()
@@ -167,3 +176,68 @@ class TestIngestionWarningsV2API(ClickhouseTestMixin, APIBaseTest):
     def test_invalid_params_return_400(self, params: dict):
         status_code, _ = self._list(**params)
         assert status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_capture_token_rows_surface_for_owning_team(self):
+        token = self._use_unique_api_token()
+        # Capture emits team_id=0 with the project's API token in details.
+        create_warning(
+            team_id=0,
+            type="missing_event_name",
+            timestamp="2026-07-07 11:30:00",
+            details={
+                "category": "event",
+                "severity": "error",
+                "pipelineStep": "capture_validation",
+                "token": token,
+                "distinctId": "capture-user",
+            },
+            source="capture",
+        )
+
+        status_code, results = self._list(type="missing_event_name")
+
+        assert status_code == status.HTTP_200_OK
+        assert [(r["type"], r["count"]) for r in results] == [("missing_event_name", 1)]
+        sample = results[0]["samples"][0]
+        assert sample["source"] == "capture"
+        assert sample["pipeline_step"] == "capture_validation"
+        assert sample["distinct_id"] == "capture-user"
+
+    def test_capture_rows_merge_with_plugin_server_rows_of_same_type(self):
+        token = self._use_unique_api_token()
+        # setUp created 3 in-window plugin-server message_size_too_large rows; a
+        # token-matched capture row of the same type must join that group.
+        create_warning(
+            team_id=0,
+            type="message_size_too_large",
+            timestamp="2026-07-07 11:45:00",
+            details={"category": "size", "severity": "error", "token": token},
+            source="capture",
+        )
+
+        _, results = self._list(type="message_size_too_large")
+
+        assert results[0]["count"] == 4
+        assert results[0]["samples"][0]["source"] == "capture"
+
+    @parameterized.expand(
+        [
+            ("other_team_token", {"token": "phc_other_team_secret_token"}),
+            ("no_token", {}),
+            ("empty_token", {"token": ""}),
+        ]
+    )
+    def test_team_zero_rows_without_matching_token_never_surface(self, _name: str, token_details: dict):
+        self._use_unique_api_token()
+        create_warning(
+            team_id=0,
+            type="missing_distinct_id",
+            timestamp="2026-07-07 11:30:00",
+            details={"category": "event", "severity": "error", **token_details},
+            source="capture",
+        )
+
+        status_code, results = self._list(type="missing_distinct_id")
+
+        assert status_code == status.HTTP_200_OK
+        assert results == []
