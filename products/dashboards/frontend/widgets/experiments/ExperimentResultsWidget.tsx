@@ -1,9 +1,10 @@
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { HedgehogExperiment } from '@posthog/brand/hoggies'
+import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -19,6 +20,8 @@ import type { DashboardWidgetComponentProps } from '../registry'
 import { ExperimentPickerSelect } from './ExperimentPickerSelect'
 import { patchExperimentResultsWidgetConfig } from './experimentsWidgetConfigValidation'
 import { NotebookCompactTable } from './LazyNotebookCompactTable'
+
+const HedgehogExperiment = pngHoggie(experimentPng)
 
 export type ExperimentResultsWidgetMetricEntry = {
     uuid: string | null
@@ -257,13 +260,20 @@ export function ExperimentResultsWidget({
         <WidgetCardContent>
             <div className="flex flex-col gap-3 p-2" data-attr="experiment-results-widget-body">
                 <div className="flex items-center justify-between gap-2">
+                    {/* The experiment name already shows in the tile filter bar, so link out rather than repeat it. */}
                     <Link
                         to={urls.experiment(experiment.id)}
                         target="_blank"
-                        className="truncate font-semibold text-primary"
-                        title={experiment.name}
+                        className="text-sm font-medium"
+                        onClick={() =>
+                            posthog.capture('dashboard widget open experiment clicked', {
+                                widget_type: 'experiment_results',
+                                tile_id: tileId,
+                                experiment_id: experiment.id,
+                            })
+                        }
                     >
-                        {experiment.name}
+                        See more
                     </Link>
                     <StatusTag status={experiment.status as ExperimentStatus} />
                 </div>

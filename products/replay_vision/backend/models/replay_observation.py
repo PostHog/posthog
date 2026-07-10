@@ -2,6 +2,8 @@ from django.db import models
 
 from posthog.models.utils import UUIDModel
 
+from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
+
 
 class ObservationStatus(models.TextChoices):
     PENDING = "pending", "Pending"
@@ -11,6 +13,10 @@ class ObservationStatus(models.TextChoices):
     # Terminal state for sessions the scanner can't analyze (no recording, too short, too long, etc.).
     # The reason kind is stored in `error_reason` formatted as `kind:human message`.
     INELIGIBLE = "ineligible", "Ineligible"
+
+
+# Not-yet-terminal statuses: what the quota meter reserves and the concurrency caps count as "in flight".
+IN_FLIGHT_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
 
 
 class ObservationTrigger(models.TextChoices):
@@ -42,16 +48,7 @@ class ReplayObservation(UUIDModel):
     )
 
     status = models.CharField(max_length=16, choices=ObservationStatus.choices, default=ObservationStatus.PENDING)
-    error_reason = models.TextField(
-        blank=True,
-        default="",
-        help_text=(
-            "Populated on terminal non-success statuses; formatted as `kind:human-readable message`. "
-            "For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. "
-            "For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / "
-            "validation_failed / internal_error."
-        ),
-    )
+    error_reason = models.TextField(blank=True, default="", help_text=ERROR_REASON_HELP_TEXT)
     workflow_id = models.CharField(
         max_length=255,
         blank=True,
@@ -108,7 +105,19 @@ class ReplayObservation(UUIDModel):
                 name="rlo_workflow_id_idx",
                 condition=~models.Q(workflow_id=""),
             ),
+            # Serves the per-team in-flight concurrency count (sweep headroom + on-demand 429). Partial on the
+            # in-flight statuses only, since terminal rows dominate and are never counted.
+            models.Index(
+                fields=["team", "scanner"],
+                name="rlo_team_in_flight_idx",
+                condition=models.Q(status__in=("pending", "running")),
+            ),
         ]
+
+    @classmethod
+    def in_flight_for_team(cls, team_id: int) -> "models.QuerySet[ReplayObservation]":
+        """A team's not-yet-terminal observations; the one predicate the quota meter and concurrency caps share."""
+        return cls.objects.filter(team_id=team_id, status__in=IN_FLIGHT_STATUSES)
 
     def save(self, *args, **kwargs) -> None:
         # Tenant invariant: observation.team_id must match scanner.team_id.

@@ -276,8 +276,9 @@ def get_non_writable_property_names(
 
 def get_restricted_properties_for_team(
     *,
-    team_id: int,
     user: User | None,
+    team: Team | None = None,
+    team_id: int | None = None,
 ) -> set[tuple[str, int]]:
     """
     Returns the set of (property_name, property_type) pairs that are restricted for the given user on the team.
@@ -289,11 +290,21 @@ def get_restricted_properties_for_team(
     with many insights doesn't trigger one ``PropertyAccessControl`` lookup per insight. Outside of an
     active scope (e.g. ad-hoc scripts) the lookup runs uncached so we never serve stale authorization data.
 
-    :param team_id: The team whose property restrictions we are checking.
     :param user: (optional) The user making the query. When not provided, only the default (property-level) rules apply.
+    :param team: The team whose property restrictions we are checking. Preferred over ``team_id`` when the
+        instance is already loaded, as it lets the feature-availability check skip its per-call Team lookup.
+    :param team_id: The team's id, for callers that don't have the instance loaded. Pass exactly one of
+        ``team`` and ``team_id``.
 
     :returns: A set of (property_name, property_definition_type) tuples that are restricted.
     """
+    if team is not None:
+        if team_id is not None:
+            raise ValueError("pass either team or team_id, not both")
+        team_id = team.pk
+    elif team_id is None:
+        raise ValueError("one of team or team_id is required")
+
     cache = _restriction_cache_var.get()
     cache_key = (team_id, user.pk if user is not None else None)
     if cache is not None:
@@ -302,7 +313,7 @@ def get_restricted_properties_for_team(
             return cached
 
     # Short-circuit: no PROPERTY_ACCESS_CONTROL means no property access control rules exist
-    if not is_property_access_control_enabled(team_id=team_id):
+    if not is_property_access_control_enabled(team=team, team_id=team_id):
         empty_no_feature: set[tuple[str, int]] = set()
         if cache is not None:
             cache[cache_key] = empty_no_feature

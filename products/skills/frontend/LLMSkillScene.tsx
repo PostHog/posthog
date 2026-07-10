@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
-import { Fragment, lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { Fragment, Suspense, useEffect, useRef, useState } from 'react'
 
 import {
     IconChevronRight,
@@ -25,6 +25,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -43,7 +44,7 @@ import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillCons
 import { skillFileLogic } from './skillFileLogic'
 import { openArchiveSkillDialog } from './skillSceneComponents'
 
-const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
+const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
 
 export const scene: SceneExport<SkillLogicProps> = {
     component: LLMSkillScene,

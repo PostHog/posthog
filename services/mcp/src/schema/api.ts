@@ -26,6 +26,10 @@ export interface ApiUser {
         // current org, so the consent flag is always present on the wire; it is
         // optional here because some tests construct partial users.
         is_ai_data_processing_approved?: boolean | null
+        // `/api/users/@me/` embeds the full OrganizationSerializer, so the org's
+        // plan entitlements ride along too; used by the fallback path when a
+        // team-scoped token can't fetch the org directly.
+        available_product_features?: Array<{ key: string }> | null
     } | null
 }
 

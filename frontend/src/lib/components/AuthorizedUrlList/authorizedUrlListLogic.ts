@@ -347,7 +347,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 breakpoint()
                 const result = response.results as [string, number][]
 
-                if (result && result.length === 0) {
+                if (!result || result.length === 0) {
                     return []
                 }
 

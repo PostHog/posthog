@@ -13,6 +13,8 @@ export type APIScope = {
     disabledWhenProjectScoped?: boolean
     description?: string
     warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
+    /** Mirrors `PRIVILEGED_SCOPES` in posthog/scopes.py — excluded from every unprivileged preset. */
+    unprivilegedExcluded?: boolean
 }
 
 // Scopes whose write action also writes a feature flag as a side effect (survey targeting flag,
@@ -20,9 +22,9 @@ export type APIScope = {
 // both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
 // and the copy can't drift. `ScopeAccessRow` renders warnings as plain text — no markdown formatting.
 export const SCOPES_IMPLYING_FEATURE_FLAG_WRITE: Partial<Record<APIScopeObject, string>> = {
-    survey: 'Surveys with targeting also manage a feature flag, so this key needs feature_flag:write too.',
+    survey: 'Surveys with targeting also manage a feature flag, so this key needs write access to feature flags too.',
     early_access_feature:
-        'Early access features manage a linked feature flag, so this key needs feature_flag:write too.',
+        'Early access features manage a linked feature flag, so this key needs write access to feature flags too.',
 }
 
 export const API_SCOPES: APIScope[] = [
@@ -92,13 +94,25 @@ export const API_SCOPES: APIScope[] = [
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
     { key: 'hog_flow', objectName: 'Workflow', objectPlural: 'workflows' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
+    {
+        key: 'ingestion_warning',
+        objectName: 'Ingestion warning',
+        objectPlural: 'ingestion warnings',
+        disabledActions: ['write'],
+    },
     { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
     { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
     { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
     { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
-    { key: 'llm_gateway', objectName: 'LLM gateway', objectPlural: 'LLM gateway', disabledActions: ['write'] },
+    {
+        key: 'llm_gateway',
+        objectName: 'LLM gateway',
+        objectPlural: 'LLM gateway',
+        disabledActions: ['write'],
+        unprivilegedExcluded: true,
+    },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
     { key: 'llm_provider_key', objectName: 'LLM provider key', objectPlural: 'LLM provider keys' },
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
@@ -143,9 +157,7 @@ export const API_SCOPES: APIScope[] = [
         key: 'project',
         objectName: 'Project',
         objectPlural: 'projects',
-        warnings: {
-            write: 'This scope can be used to create or modify projects, including settings about how data is ingested.',
-        },
+        info: 'If you grant write access, this scope can be used to create or modify projects, including settings about how data is ingested.',
     },
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
@@ -266,9 +278,10 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'mcp_server',
         label: 'MCP Server',
-        scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway') && !key.includes('file_system')).map(
-            ({ key }) => `${key}:write`
-        ),
+        // file_system is excluded because the MCP server doesn't request it, not because it's privileged.
+        scopes: API_SCOPES.filter(
+            ({ key, unprivilegedExcluded }) => !unprivilegedExcluded && key !== 'file_system'
+        ).map(({ key }) => `${key}:write`),
         access_type: 'all',
     },
     {
@@ -280,7 +293,7 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'read_only_access',
         label: 'Read-only access',
-        scopes: API_SCOPES.map(({ key }) => `${key}:read`),
+        scopes: API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded).map(({ key }) => `${key}:read`),
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]

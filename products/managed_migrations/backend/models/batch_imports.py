@@ -59,6 +59,92 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
     def config(self) -> "BatchImportConfigBuilder":
         return self._config_builder
 
+    def parts_progress(self) -> tuple[int, int, dict | None]:
+        """Summarize worker part state: (done_count, total_count, first_unfinished_part).
+
+        Mirrors the worker's `PartState::is_done`: a part is done when it has a known
+        `total_size` that `current_offset` has reached. The worker processes parts in
+        order, so the first unfinished part is the one in flight (or next up).
+        """
+        parts = (self.state or {}).get("parts") or []
+        # Defensive .get throughout: this renders on every admin changelist row, so
+        # one partially shaped worker-owned part dict must not 500 the whole list.
+        done = sum(
+            1 for p in parts if p.get("total_size") is not None and p.get("current_offset", 0) >= p["total_size"]
+        )
+        inflight = next(
+            (p for p in parts if p.get("total_size") is None or p.get("current_offset", 0) < p["total_size"]),
+            None,
+        )
+        return done, len(parts), inflight
+
+    def resume_after_pause(self) -> None:
+        """Resume a paused import from its saved progress.
+
+        Flips the job to running and clears the worker lease and backoff - pausing
+        keeps the worker's lease, so without clearing it no worker can re-claim the
+        row for up to 30 minutes. Part offsets are untouched: use this when the
+        source bytes behind the saved offset are unchanged (transient pauses, or a
+        data fix that preserved byte offsets). When the bytes changed underneath the
+        offset, use `resume_with_inflight_part_reset` instead. Raises ValueError if
+        the job is not paused.
+        """
+        if self.status != BatchImport.Status.PAUSED:
+            raise ValueError(f"Only paused imports can be resumed (status: {self.status})")
+        self._flip_to_running("Resumed by admin")
+
+    def resume_with_inflight_part_reset(self) -> str:
+        """Resume a paused import whose in-flight part has a poisoned byte offset.
+
+        A part's committed offset is only meaningful against the exact byte stream it
+        was measured on. When the worker re-downloads a part (pod replacement without
+        temp-bucket staging, or a source file replaced after a data-error pause), the
+        saved offset can land mid-record in the new stream and the job pauses with a
+        parse error at the resume point. The fix is to re-import that part from
+        offset 0 - safe for sources with deterministic event UUIDs (Mixpanel
+        $insert_id, Amplitude uuid), which dedupe the overlap.
+
+        Resets the first unfinished part to offset 0, then resumes as
+        `resume_after_pause` does. Returns the key of the reset part. Raises
+        ValueError if the job is not paused or has no unfinished part.
+        """
+        if self.status != BatchImport.Status.PAUSED:
+            raise ValueError(f"Only paused imports can be reset and resumed (status: {self.status})")
+
+        _done, _total, inflight = self.parts_progress()
+        if inflight is None:
+            raise ValueError("No unfinished part to reset - the job has no resumable work")
+
+        inflight["current_offset"] = 0
+        # A stale total from a previous download would be wrong too: each download of
+        # a nondeterministic export can have a different decompressed size.
+        inflight["total_size"] = None
+
+        self._flip_to_running(f"Resumed by admin with part {inflight['key']} reset to offset 0")
+        return inflight["key"]
+
+    def _flip_to_running(self, status_message: str) -> None:
+        self.status = BatchImport.Status.RUNNING
+        self.status_message = status_message
+        self.display_status_message = None
+        self.lease_id = None
+        self.leased_until = None
+        self.backoff_attempt = 0
+        self.backoff_until = None
+        self.save(
+            update_fields=[
+                "state",
+                "status",
+                "status_message",
+                "display_status_message",
+                "lease_id",
+                "leased_until",
+                "backoff_attempt",
+                "backoff_until",
+                "updated_at",
+            ]
+        )
+
 
 # Mostly used for manual job creation
 class BatchImportConfigBuilder:

@@ -13,6 +13,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
+    cleanup_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
@@ -4668,6 +4669,9 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
         ):
             assert self.team.person_on_events_mode == expected_poe_mode
             materialize("events", "rgInternal", table_column="person_properties")
+            # Materialized directly (not via the decorator), so drop it after the test — leaked
+            # columns break later runs' query snapshots when the ClickHouse schema is reused.
+            self.addCleanup(cleanup_materialized_columns)
 
             query = RecordingsQuery.model_validate(
                 {
@@ -4735,6 +4739,9 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
         if materialize_person_props:
             materialize("events", "email", table_column="person_properties")
             materialize("person", "email")
+            # Materialized directly (not via the decorator), so drop them after the test — leaked
+            # columns break later runs' query snapshots when the ClickHouse schema is reused.
+            self.addCleanup(cleanup_materialized_columns)
 
             @retry(wait=wait_exponential(multiplier=0.5, min=0.5, max=5), stop=stop_after_attempt(10))
             def wait_for_materialized_columns():
@@ -4846,6 +4853,9 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
         if materialize_person_props:
             materialize("events", "email", table_column="person_properties")
             materialize("person", "email")
+            # Materialized directly (not via the decorator), so drop them after the test — leaked
+            # columns break later runs' query snapshots when the ClickHouse schema is reused.
+            self.addCleanup(cleanup_materialized_columns)
 
         mat_mock = (
             nullcontext()

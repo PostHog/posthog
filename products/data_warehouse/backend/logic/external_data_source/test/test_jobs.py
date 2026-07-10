@@ -7,7 +7,7 @@ from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
+from products.warehouse_sources.backend.facade.pipelines import LOCK_TAKEOVER_LATEST_ERROR
 
 pytestmark = [
     pytest.mark.django_db,
@@ -299,6 +299,30 @@ class TestUpdateExternalJobStatus:
         schema.refresh_from_db()
         assert schema.status == ExternalDataSchema.Status.COMPLETED
         assert schema.latest_error is None
+
+    def test_cdc_broken_schema_status_is_not_overwritten(self):
+        # A loader finishing an in-flight batch after `mark_cdc_broken` must not repaint
+        # the schema healthy while the slot is gone — the job completes, the schema stays
+        # FAILED with the broken-state message until repair/disable clears the marker.
+        team, _source, schema, job = _create_org_team_source_schema_job()
+        schema.sync_type_config = {"cdc_broken": {"reason": "slot_missing", "at": "2026-06-29T10:40:00+00:00"}}
+        schema.status = ExternalDataSchema.Status.FAILED
+        schema.latest_error = "The replication slot no longer exists on the source database."
+        schema.save()
+
+        with patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"):
+            updated = update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.COMPLETED,
+                logger=MagicMock(),
+                latest_error=None,
+            )
+
+        assert updated.status == ExternalDataJob.Status.COMPLETED
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.FAILED
+        assert schema.latest_error == "The replication slot no longer exists on the source database."
 
     def test_rejected_transition_does_not_overwrite_schema_status(self):
         team, _source, schema, job = _create_org_team_source_schema_job()

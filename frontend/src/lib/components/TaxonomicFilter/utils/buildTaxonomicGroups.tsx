@@ -25,6 +25,7 @@ import { pluralize } from 'lib/utils/strings'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
+    getPersonPropertyDefinitionIcon,
     getPropertyDefinitionIcon,
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
@@ -500,10 +501,16 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 { key: 'severity_level', name: 'severity_level', propertyFilterType: 'log' },
                 { key: 'trace_id', name: 'trace_id', propertyFilterType: 'log' },
                 { key: 'span_id', name: 'span_id', propertyFilterType: 'log' },
-            ],
+            ].filter((o) => !excludedProperties[TaxonomicFilterGroupType.Logs]?.includes(o.key)),
             localItemsSearch: (items: any[], q: string): any[] => {
                 if (!q) {
                     return items
+                }
+                const matches = items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase()))
+                // Mirrors the legacy Logs group in taxonomicFilterLogic: the free-text message-search
+                // item only makes sense where picking `message` does.
+                if (excludedProperties[TaxonomicFilterGroupType.Logs]?.includes('message')) {
+                    return matches
                 }
                 return [
                     {
@@ -512,7 +519,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                         value: q,
                         propertyFilterType: 'log',
                     },
-                ].concat(items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase())))
+                ].concat(matches)
             },
             getName: (option: { key: string; name: string }) => option.name,
             getValue: (option: { key: string; name: string }) => option.key,
@@ -557,6 +564,22 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getPopoverHeader: () => 'Resource attributes',
         },
         {
+            name: 'Metric attributes',
+            searchPlaceholder: 'attributes',
+            type: TaxonomicFilterGroupType.MetricAttributes,
+            endpoint: combineUrl(`api/environments/${projectId}/metrics/attributes`, {
+                ...endpointFilters,
+            }).url,
+            valuesEndpoint: (key) =>
+                combineUrl(`api/environments/${projectId}/metrics/attribute_values`, {
+                    key: key,
+                    ...endpointFilters,
+                }).url,
+            getName: (option: SimpleOption) => option.name,
+            getValue: (option: SimpleOption) => option.name,
+            getPopoverHeader: () => 'Metric attributes',
+        },
+        {
             name: 'Spans',
             searchPlaceholder: 'spans',
             type: TaxonomicFilterGroupType.Spans,
@@ -576,19 +599,6 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                           ...endpointFilters,
                       }).url
                     : undefined,
-            localItemsSearch: (items: any[], q: string): any[] => {
-                if (!q) {
-                    return items
-                }
-                return [
-                    {
-                        key: 'message',
-                        name: 'Search span message for "' + q + '"',
-                        value: q,
-                        propertyFilterType: 'span',
-                    },
-                ].concat(items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase())))
-            },
             getName: (option: { key: string; name: string }) => option.name,
             getValue: (option: { key: string; name: string }) => option.key,
             getPopoverHeader: () => 'Span attributes',
@@ -658,6 +668,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getValue: (personProperty: PersonProperty) => personProperty.name,
             propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
             ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
+            getIcon: getPersonPropertyDefinitionIcon,
         },
         {
             name: 'Person metadata',
@@ -836,15 +847,18 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             endpoint: combineUrl(`api/projects/${projectId}/feature_flags/`).url,
             getName: (featureFlag: FeatureFlagType) => {
                 const name = featureFlag.key || featureFlag.name
-                const isInactive = !featureFlag.active
+                const isInactive = featureFlag.active === false
                 return isInactive ? `${name} (disabled)` : name
             },
             getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
             getPopoverHeader: () => `Feature Flags`,
             getIcon: (featureFlag: FeatureFlagType) => (
-                <IconFlag className={clsx('size-4', !featureFlag.active && 'text-muted-alt opacity-50')} />
+                <IconFlag className={clsx('size-4', featureFlag.active === false && 'text-muted-alt opacity-50')} />
             ),
-            getIsDisabled: (featureFlag: FeatureFlagType) => !featureFlag.active,
+            // Recently-used entries are stored stripped of `active`, so treat only an explicit
+            // `false` as disabled — otherwise recent flags are wrongly disabled and unselectable.
+            // Keep in sync with the Feature Flags group in taxonomicFilterLogic.tsx.
+            getIsDisabled: (featureFlag: FeatureFlagType) => featureFlag.active === false,
             localItemsSearch: (items: TaxonomicDefinitionTypes[], query: string): TaxonomicDefinitionTypes[] => {
                 // Note: This function doesn't have direct access to the current value
                 // The actual filtering logic needs to be implemented in the infinite list logic

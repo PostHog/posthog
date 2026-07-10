@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
@@ -126,6 +127,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
     listeners(({ actions, values, props }) => ({
         changeCaptureMethod: async ({ type }) => {
             actions.setType(type)
+            if (type !== 'screenshot') {
+                actions.setScreenshotError(null)
+            }
             if (!values.heatmapId) {
                 return
             }
@@ -150,6 +154,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.setBlockConsentModals(item.block_consent_modals ?? false)
                 actions.snapshotSavedBlockConsentModals(item.block_consent_modals ?? false)
                 actions.setType(item.type)
+                posthog.capture('in-app heatmap viewed', {
+                    heatmap_type: item.type,
+                    heatmap_status: item.status,
+                })
                 if (item.type === 'screenshot') {
                     const desiredWidth = values.widthOverride
                     if (item.status === 'completed' && item.has_content) {
@@ -260,6 +268,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     block_consent_modals: values.blockConsentModals,
                 }
                 const created = await api.savedHeatmaps.create(data)
+                posthog.capture('in-app heatmap created', { heatmap_type: values.type })
                 actions.loadSavedHeatmaps()
                 // Navigate to the created heatmap detail page
                 router.actions.push(`/heatmaps/${created.short_id}`)
@@ -323,6 +332,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
             if (values.type === 'screenshot') {
                 actions.regenerateScreenshot()
+            }
+        },
+        setScreenshotLoaded: ({ screenshotLoaded }) => {
+            if (screenshotLoaded) {
+                posthog.capture('in-app heatmap screenshot loaded', { width: values.widthOverride })
+            }
+        },
+        setScreenshotError: ({ error }) => {
+            if (error) {
+                posthog.capture('in-app heatmap screenshot failed', { error })
             }
         },
         exportHeatmap: () => {

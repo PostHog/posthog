@@ -272,8 +272,9 @@ func TestShowAll_cursorPreservedOnToggle(t *testing.T) {
 // ── Key enablement ──────────────────────────────────────────────────────────────
 
 func TestShowAll_keyEnablementByProcState(t *testing.T) {
-	// Expected key enablement for each process state. Ensures standby processes
-	// only expose Start, while other states follow the running/stopped rules.
+	// Expected key enablement for each process state. `r` is enabled in every
+	// state (it acts as start on standby/stopped procs); Stop stays gated on
+	// running.
 	cases := []struct {
 		name        string
 		procName    string // name of the process to focus on (from readyShowAllModel)
@@ -281,8 +282,8 @@ func TestShowAll_keyEnablementByProcState(t *testing.T) {
 		wantStop    bool
 		wantRestart bool
 	}{
-		{name: "standby", procName: "capture", wantStart: true},
-		{name: "stopped", procName: "backend", wantStart: true},
+		{name: "standby", procName: "capture", wantStart: true, wantRestart: true},
+		{name: "stopped", procName: "backend", wantStart: true, wantRestart: true},
 	}
 
 	for _, tc := range cases {

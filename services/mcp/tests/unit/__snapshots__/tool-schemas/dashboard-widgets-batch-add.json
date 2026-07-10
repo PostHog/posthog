@@ -6,7 +6,7 @@
             "type": "number"
         },
         "widgets": {
-            "description": "Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).",
+            "description": "Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).",
             "items": {
                 "anyOf": [
                     {
@@ -819,7 +819,7 @@
                                     "status": {
                                         "default": "all",
                                         "description": "Experiment status filter.",
-                                        "enum": ["draft", "running", "paused", "stopped", "all"],
+                                        "enum": ["draft", "running", "paused", "exposure_frozen", "stopped", "all"],
                                         "type": "string"
                                     }
                                 },
@@ -994,6 +994,144 @@
                             },
                             "widget_type": {
                                 "enum": ["experiment_results"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["widget_type", "config"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "config": {
+                                "description": "Configuration for the survey results widget.",
+                                "properties": {
+                                    "dateRange": {
+                                        "anyOf": [
+                                            {
+                                                "properties": {
+                                                    "date_from": {
+                                                        "anyOf": [
+                                                            {
+                                                                "enum": [
+                                                                    "-1M",
+                                                                    "-30M",
+                                                                    "-1h",
+                                                                    "-3h",
+                                                                    "-24h",
+                                                                    "-7d",
+                                                                    "-14d",
+                                                                    "-30d",
+                                                                    "-90d"
+                                                                ],
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "type": "object"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Null or omitted means all time (the survey's full lifetime)."
+                                    },
+                                    "limit": {
+                                        "default": 10,
+                                        "description": "Maximum number of recent responses to return.",
+                                        "maximum": 25,
+                                        "minimum": 1,
+                                        "type": "number"
+                                    },
+                                    "surveyId": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Survey to show performance stats and recent responses for. Null until the user picks one."
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "description": {
+                                "description": "Optional markdown description shown when show_description is enabled.",
+                                "type": "string"
+                            },
+                            "layouts": {
+                                "description": "Optional react-grid-layout positions keyed by breakpoint (sm, xs).",
+                                "properties": {
+                                    "sm": {
+                                        "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
+                                        "properties": {
+                                            "h": {
+                                                "description": "Height in grid rows.",
+                                                "type": "number"
+                                            },
+                                            "w": {
+                                                "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                                "type": "number"
+                                            },
+                                            "x": {
+                                                "description": "Column position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            },
+                                            "y": {
+                                                "description": "Row position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "xs": {
+                                        "description": "Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
+                                        "properties": {
+                                            "h": {
+                                                "description": "Height in grid rows.",
+                                                "type": "number"
+                                            },
+                                            "w": {
+                                                "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                                "type": "number"
+                                            },
+                                            "x": {
+                                                "description": "Column position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            },
+                                            "y": {
+                                                "description": "Row position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "type": "object"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "name": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 400,
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Optional custom display name for the widget tile."
+                            },
+                            "show_description": {
+                                "description": "Whether to show the description on the dashboard tile.",
+                                "type": "boolean"
+                            },
+                            "widget_type": {
+                                "enum": ["survey_results"],
                                 "type": "string"
                             }
                         },

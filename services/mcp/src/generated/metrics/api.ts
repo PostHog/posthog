@@ -173,6 +173,19 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'."
                 ),
+            metricType: zod
+                .union([
+                    zod
+                        .enum(['gauge', 'sum', 'histogram', 'exponential_histogram', 'summary'])
+                        .describe(
+                            '* `gauge` - gauge\n* `sum` - sum\n* `histogram` - histogram\n* `exponential_histogram` - exponential_histogram\n* `summary` - summary'
+                        ),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.\n\n* `gauge` - gauge\n* `sum` - sum\n* `histogram` - histogram\n* `exponential_histogram` - exponential_histogram\n* `summary` - summary"
+                ),
             aggregation: zod
                 .enum(['sum', 'avg', 'count', 'p95', 'rate', 'increase', 'histogram_quantile'])
                 .describe(
@@ -263,6 +276,19 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .max(metricsQueryCreateBodyQueryOneClausesItemMetricNameMax)
                             .describe('Exact metric name this clause queries.'),
+                        metricType: zod
+                            .union([
+                                zod
+                                    .enum(['gauge', 'sum', 'histogram', 'exponential_histogram', 'summary'])
+                                    .describe(
+                                        '* `gauge` - gauge\n* `sum` - sum\n* `histogram` - histogram\n* `exponential_histogram` - exponential_histogram\n* `summary` - summary'
+                                    ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                "Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.\n\n* `gauge` - gauge\n* `sum` - sum\n* `histogram` - histogram\n* `exponential_histogram` - exponential_histogram\n* `summary` - summary"
+                            ),
                         aggregation: zod
                             .enum(['sum', 'avg', 'count', 'p95', 'rate', 'increase', 'histogram_quantile'])
                             .describe(
@@ -364,7 +390,22 @@ export const MetricsValuesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const metricsValuesRetrieveQueryLimitDefault = 100
+export const metricsValuesRetrieveQueryLimitMax = 1000
+
+export const metricsValuesRetrieveQueryValueDefault = ``
+export const metricsValuesRetrieveQueryValueMax = 255
+
 export const MetricsValuesRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    limit: zod.number().optional().describe('Max number of names to return. Defaults to 100; maximum 1000.'),
-    value: zod.string().optional().describe('Substring filter (case-insensitive) applied to metric names.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(metricsValuesRetrieveQueryLimitMax)
+        .default(metricsValuesRetrieveQueryLimitDefault)
+        .describe('Max number of names to return. Defaults to 100; maximum 1000.'),
+    value: zod
+        .string()
+        .max(metricsValuesRetrieveQueryValueMax)
+        .default(metricsValuesRetrieveQueryValueDefault)
+        .describe('Substring filter (case-insensitive) applied to metric names.'),
 })
