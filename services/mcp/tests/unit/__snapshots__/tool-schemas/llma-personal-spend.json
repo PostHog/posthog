@@ -1,6 +1,38 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "bucket_minutes": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "const": 5,
+                            "type": "number"
+                        },
+                        {
+                            "const": 15,
+                            "type": "number"
+                        },
+                        {
+                            "const": 30,
+                            "type": "number"
+                        },
+                        {
+                            "const": 60,
+                            "type": "number"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 48 hours at 5-minute buckets).\n\n* `5` - 5\n* `15` - 15\n* `30` - 30\n* `60` - 60"
+        },
         "date_from": {
             "default": "-30d",
             "description": "Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.",
