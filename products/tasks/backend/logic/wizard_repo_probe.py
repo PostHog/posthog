@@ -67,15 +67,17 @@ class WizardRepoProbe:
     framework_detectable: bool | None = None
 
 
-def probe_wizard_repository(team: Team, repository: str) -> WizardRepoProbe:
+def probe_wizard_repository(team: Team, repository: str, branch: str | None = None) -> WizardRepoProbe:
     """Probe ``repository`` (``owner/repo``) with the team's GitHub installation.
 
     Resolves the integration exactly like ``Task._build_task`` binds ``github_integration``
     for a bot-authored run (first team GitHub integration), so the answer matches what the
-    sandbox clone will experience. Fail-open by design: rate limits, timeouts, and any
-    unexpected response map to ``UNKNOWN`` access / ``None`` detectability — only a
-    definitive 404 reports ``INACCESSIBLE``, and only a successful root listing with no
-    supported manifest reports ``framework_detectable=False``. Never raises.
+    sandbox clone will experience. ``branch`` is the ref the sandbox will check out; the
+    detectability listing must look at that ref's root, not the default branch's. Fail-open
+    by design: rate limits, timeouts, and any unexpected response map to ``UNKNOWN`` access /
+    ``None`` detectability — only a definitive 404 reports ``INACCESSIBLE``, and only a
+    successful root listing with no supported manifest reports ``framework_detectable=False``.
+    Never raises.
     """
     if not _SAFE_REPO_PATH_RE.fullmatch(repository) or ".." in repository:
         # Not a name that can exist on GitHub — the clone would fail identically.
@@ -100,21 +102,24 @@ def probe_wizard_repository(team: Team, repository: str) -> WizardRepoProbe:
         return WizardRepoProbe(access=WizardRepoAccess.UNKNOWN)
     return WizardRepoProbe(
         access=WizardRepoAccess.ACCESSIBLE,
-        framework_detectable=_root_framework_detectable(github, repository),
+        framework_detectable=_root_framework_detectable(github, repository, branch),
     )
 
 
-def _root_framework_detectable(github: GitHubIntegration, repository: str) -> bool | None:
+def _root_framework_detectable(github: GitHubIntegration, repository: str, branch: str | None) -> bool | None:
     """Whether the repo root holds any manifest the wizard's auto-detection can work from.
 
-    Conservative on purpose: any failure to list the root (error, non-200, unexpected
-    payload) returns ``None`` so uncertainty never blocks a run.
+    Lists the root of ``branch`` when given (the ref the sandbox checks out) and the
+    default branch otherwise. Conservative on purpose: any failure to list the root
+    (error, non-200, unexpected payload — including a nonexistent ref) returns ``None``
+    so uncertainty never blocks a run.
     """
     try:
         response = github.api_request(
             "GET",
             f"/repos/{repository}/contents",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
+            params={"ref": branch} if branch else None,
         )
     except Exception:
         logger.warning("Wizard repo probe root listing failed for %s", repository, exc_info=True)

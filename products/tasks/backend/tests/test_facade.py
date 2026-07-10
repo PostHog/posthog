@@ -527,3 +527,27 @@ class TestFacadeReadsAndMappers(TestCase):
                     facade.create_wizard_cloud_run(team=self.team, user_id=self.user.id, repository="acme-co/web")
                 self.assertEqual(Task.objects.count(), tasks_before)
                 self.assertFalse(TaskRun.objects.exists())
+
+    @parameterized.expand(
+        [
+            ("default_branch", None, None),
+            ("explicit_branch", "develop", {"ref": "develop"}),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_wizard_cloud_run_detectability_lists_requested_branch(
+        self, _name, branch, expected_params, _mock_workflow
+    ):
+        # The sandbox checks out the requested branch, so detectability must be judged on
+        # that ref's root — listing the default branch instead can hard-block a run that
+        # would have succeeded.
+        Integration.objects.create(team=self.team, kind="github", config={})
+        metadata_response = MagicMock(status_code=200)
+        contents_response = MagicMock(status_code=200, json=MagicMock(return_value=[{"name": "package.json"}]))
+        with patch.object(
+            GitHubIntegration, "api_request", side_effect=[metadata_response, contents_response]
+        ) as api_request:
+            facade.create_wizard_cloud_run(
+                team=self.team, user_id=self.user.id, repository="acme-co/web", branch=branch
+            )
+        self.assertEqual(api_request.call_args_list[1].kwargs.get("params"), expected_params)

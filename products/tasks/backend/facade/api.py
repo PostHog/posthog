@@ -817,12 +817,12 @@ def create_wizard_cloud_run(
 
     Raises :class:`WizardRepositoryInaccessibleError` when the pre-flight probe confirms the
     team's GitHub installation cannot access ``repository``, and
-    :class:`WizardFrameworkUndetectableError` when the repository root confirmedly has no
-    manifest the wizard's framework auto-detection can use — in both cases the sandbox run
-    would fail identically after a full sandbox boot. A probe that cannot get a definitive
+    :class:`WizardFrameworkUndetectableError` when the root of ``branch`` (default branch
+    when not given) confirmedly has no manifest the wizard's framework auto-detection can
+    use — in both cases the sandbox run would fail identically after a full sandbox boot. A probe that cannot get a definitive
     answer (timeouts, rate limits, listing failures) fails open and the run is created.
     """
-    probe = probe_wizard_repository(team, repository)
+    probe = probe_wizard_repository(team, repository, branch=branch)
     if probe.access is WizardRepoAccess.INACCESSIBLE:
         raise WizardRepositoryInaccessibleError(
             f"PostHog's GitHub integration can't access {repository}. "
