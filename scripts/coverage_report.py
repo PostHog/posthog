@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["diff-cover>=9,<11"]
+# ///
 """Per-product backend coverage reporter.
 
 Reads the coverage.xml files produced by the turbo-tests product matrix (one per
@@ -24,6 +28,8 @@ import os
 import sys
 import json
 import argparse
+import tempfile
+import subprocess
 import urllib.error
 import urllib.request
 from collections import defaultdict
@@ -85,18 +91,24 @@ def parse_xml(xml_path: Path, covered_lines: dict[str, set[int]], valid_lines: d
                 covered_lines[filename].add(number)
 
 
-def collect(artifacts_dir: Path) -> list[ProductCoverage]:
-    """Walk artifacts for products/<name>/coverage.xml and roll up per product."""
-    # product -> filename -> set of line numbers
-    covered: dict[str, dict[str, set[int]]] = defaultdict(lambda: defaultdict(set))
-    valid: dict[str, dict[str, set[int]]] = defaultdict(lambda: defaultdict(set))
+# product -> filename -> set of line numbers
+LineMap = dict[str, dict[str, set[int]]]
 
+
+def aggregate(artifacts_dir: Path) -> tuple[LineMap, LineMap]:
+    """Union covered / valid line numbers per product per source file across all shard XMLs."""
+    covered: LineMap = defaultdict(lambda: defaultdict(set))
+    valid: LineMap = defaultdict(lambda: defaultdict(set))
     for xml_path in sorted(artifacts_dir.rglob("*.xml")):
         product = product_from_path(xml_path)
         if not product:
             continue
         parse_xml(xml_path, covered[product], valid[product])
+    return covered, valid
 
+
+def collect(covered: LineMap, valid: LineMap) -> list[ProductCoverage]:
+    """Roll the per-file line sets up to one coverage figure per product."""
     results: list[ProductCoverage] = []
     for product in sorted(valid):
         total_valid = sum(len(lines) for lines in valid[product].values())
@@ -105,22 +117,119 @@ def collect(artifacts_dir: Path) -> list[ProductCoverage]:
     return results
 
 
+def write_combined_cobertura(covered: LineMap, valid: LineMap, out_path: Path) -> None:
+    """Emit one repo-relative Cobertura XML from the unioned line sets, for diff-cover.
+
+    Each product's coverage.xml stores filenames relative to the product dir (the turbo
+    CWD), e.g. ``backend/api.py``. diff-cover matches coverage filenames against ``git
+    diff`` paths, which are repo-relative, so prefix ``products/<name>/`` and point
+    <source> at the repo root.
+    """
+    coverage_el = ElementTree.Element("coverage", {"version": "diff-cover-combined"})
+    sources_el = ElementTree.SubElement(coverage_el, "sources")
+    ElementTree.SubElement(sources_el, "source").text = "."
+    classes_el = ElementTree.SubElement(
+        ElementTree.SubElement(ElementTree.SubElement(coverage_el, "packages"), "package", {"name": "products"}),
+        "classes",
+    )
+
+    for product in sorted(valid):
+        for filename in sorted(valid[product]):
+            class_el = ElementTree.SubElement(
+                classes_el, "class", {"filename": f"products/{product}/{filename}", "name": Path(filename).name}
+            )
+            lines_el = ElementTree.SubElement(class_el, "lines")
+            hit = covered[product].get(filename, set())
+            for number in sorted(valid[product][filename]):
+                ElementTree.SubElement(lines_el, "line", {"number": str(number), "hits": "1" if number in hit else "0"})
+
+    ElementTree.ElementTree(coverage_el).write(out_path, encoding="utf-8", xml_declaration=True)
+
+
+def run_diff_cover(combined_path: Path, compare_branch: str, json_out: Path | None) -> dict | None:
+    """Shell out to diff-cover and return its parsed JSON report, or None on any failure.
+
+    Best-effort: a missing diff-cover binary, no git history, or an empty diff all just
+    mean no patch section — never a hard error in a report-only job. When json_out is set
+    the report is also persisted there (CI uploads it as the machine-readable payload).
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        report = json_out if json_out is not None else Path(tmp) / "patch.json"
+        extra = ["--compare-branch", compare_branch, "--format", f"json:{report}"]
+        for invocation in (["diff-cover"], [sys.executable, "-m", "diff_cover.diff_cover_tool"]):
+            try:
+                proc = subprocess.run([*invocation, str(combined_path), *extra], capture_output=True, text=True)
+            except FileNotFoundError:
+                continue
+            if proc.returncode != 0:
+                sys.stderr.write(f"::warning::diff-cover exited {proc.returncode}: {proc.stderr.strip()}\n")
+                return None
+            try:
+                return json.loads(Path(report).read_text())
+            except (OSError, json.JSONDecodeError) as exc:
+                sys.stderr.write(f"::warning::could not read diff-cover JSON: {exc}\n")
+                return None
+        sys.stderr.write("::warning::diff-cover not installed — skipping patch coverage\n")
+        return None
+
+
 def bar(pct: float) -> str:
     filled = round(pct / 100 * BAR_WIDTH)
     return "█" * filled + "░" * (BAR_WIDTH - filled)
 
 
-def render_markdown(results: list[ProductCoverage]) -> str:
-    lines = [
-        MARKER,
-        "### 🧪 Backend test coverage — touched products",
-        "",
-    ]
+def format_line_ranges(numbers: list[int]) -> str:
+    """Compress a line-number list into compact ranges, e.g. [408,409,410,412] -> '408–410, 412'."""
+    nums = sorted(set(numbers))
+    if not nums:
+        return ""
+    ranges: list[tuple[int, int]] = []
+    start = prev = nums[0]
+    for n in nums[1:]:
+        if n == prev + 1:
+            prev = n
+            continue
+        ranges.append((start, prev))
+        start = prev = n
+    ranges.append((start, prev))
+    return ", ".join(str(a) if a == b else f"{a}–{b}" for a, b in ranges)
+
+
+def render_patch_section(data: dict) -> str:
+    """Render the human-facing patch-coverage block from diff-cover's JSON report."""
+    total_lines = int(data.get("total_num_lines", 0))
+    if not total_lines:
+        return "_No measured product-backend lines changed in this PR (patch coverage n/a)._"
+
+    pct = float(data.get("total_percent_covered", 0))
+    violations = int(data.get("total_num_violations", 0))
+    covered = total_lines - violations
+    header = f"**Patch coverage** — changed lines in product backends: `{bar(pct)}` {pct:.1f}% ({covered:,} / {total_lines:,})"
+    if not violations:
+        return f"{header}\n\nAll changed product-backend lines are covered ✅"
+
+    src = data.get("src_stats", {})
+    rows = ["", "| File | Patch | Uncovered changed lines |", "| --- | --- | --- |"]
+    for path in sorted(src, key=lambda p: src[p].get("percent_covered", 0)):
+        missing = format_line_ranges(src[path].get("violation_lines", []))
+        if not missing:
+            continue
+        rows.append(f"| `{path}` | {float(src[path].get('percent_covered', 0)):.1f}% | {missing} |")
+    return header + "\n" + "\n".join(rows)
+
+
+def render_markdown(results: list[ProductCoverage], patch_section: str | None) -> str:
+    lines = [MARKER, "### 🧪 Backend test coverage", ""]
     if not results:
         lines.append("_No product backends were touched by this PR._")
         return "\n".join(lines)
 
+    lines += [patch_section or "_Patch coverage unavailable for this run._", ""]
+
     lines += [
+        "<details>",
+        "<summary>Per-product line coverage (touched products)</summary>",
+        "",
         "| Product | Coverage | Lines |",
         "| --- | --- | --- |",
     ]
@@ -129,8 +238,10 @@ def render_markdown(results: list[ProductCoverage]) -> str:
 
     lines += [
         "",
-        "_Report-only. Line coverage of `products/<name>/backend` measured during this PR's "
-        "product test run (low-overhead `sysmon` backend). Sorted lowest first._",
+        "</details>",
+        "",
+        "_Report-only. Patch coverage compares changed lines against `origin/master`; per-product "
+        "figures cover `products/<name>/backend` measured during this PR's test run. Sorted lowest first._",
     ]
     return "\n".join(lines)
 
@@ -176,10 +287,24 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifacts", required=True, type=Path, help="dir holding downloaded coverage-xml-* artifacts")
     parser.add_argument("--out", type=Path, help="also write the markdown to this path")
+    parser.add_argument(
+        "--combined-out", type=Path, help="write a repo-relative combined Cobertura XML here (enables patch coverage)"
+    )
+    parser.add_argument("--compare-branch", default="origin/master", help="diff-cover compare branch")
+    parser.add_argument("--patch-json-out", type=Path, help="path for diff-cover's JSON report (machine payload)")
     args = parser.parse_args()
 
-    results = collect(args.artifacts)
-    markdown = render_markdown(results)
+    covered, valid = aggregate(args.artifacts)
+    results = collect(covered, valid)
+
+    patch_section: str | None = None
+    if args.combined_out is not None and results:
+        write_combined_cobertura(covered, valid, args.combined_out)
+        data = run_diff_cover(args.combined_out, args.compare_branch, args.patch_json_out)
+        if data is not None:
+            patch_section = render_patch_section(data)
+
+    markdown = render_markdown(results, patch_section)
 
     if args.out:
         args.out.write_text(markdown)
