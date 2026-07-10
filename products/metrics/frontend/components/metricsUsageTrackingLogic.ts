@@ -30,6 +30,8 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 'setLiveRefresh',
                 'setGroupByKeys',
                 'setFilterGroup',
+                'addToDashboard',
+                'saveAsInsightSuccess',
                 'fetchQueryResults',
                 'fetchQueryResultsSuccess',
                 'fetchQueryResultsFailure',
@@ -76,6 +78,14 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
         setFilterGroup: () => {
             // queryFilters counts only complete, backend-valid chips (reducers ran before us).
             posthog.capture('metrics viewer attribute filter changed', { filter_count: values.queryFilters.length })
+        },
+        addToDashboard: () => {
+            posthog.capture('metrics add to dashboard clicked', { aggregation: values.aggregation })
+        },
+        saveAsInsightSuccess: ({ savedInsight }) => {
+            if (savedInsight) {
+                posthog.capture('metrics insight saved', { aggregation: values.aggregation })
+            }
         },
         fetchQueryResults: () => {
             cache.queryStartedAt = performance.now()

@@ -11,6 +11,7 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { dayjs } from 'lib/dayjs'
 import { escapeRegex } from 'lib/utils/actions'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { objectsEqual } from 'lib/utils/objects'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -169,6 +170,11 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setGroupByKeys: (groupByKeys: string[]) => ({ groupByKeys }),
         setGroupBySearch: (groupBySearch: string) => ({ groupBySearch }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
+        // Saves the current query as an insight (reusing the last save while the
+        // query is unchanged) and opens the dashboard picker for it.
+        addToDashboard: true,
+        openAddToDashboardModal: true,
+        closeAddToDashboardModal: true,
         // AbortController plumbing mirrors logsViewerDataLogic: a `cancelInProgress`
         // action aborts the previous controller before storing the new one.
         setQueryAbortController: (controller: AbortController | null) => ({ controller }),
@@ -209,6 +215,24 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             null as AbortController | null,
             { setQueryAbortController: (_, { controller }) => controller },
         ],
+        isAddToDashboardModalOpen: [
+            false,
+            {
+                openAddToDashboardModal: () => true,
+                closeAddToDashboardModal: () => false,
+            },
+        ],
+        // Armed while an addToDashboard-initiated save is in flight, so the success
+        // path opens the modal instead of the "View insight" toast. Not reset on
+        // success by a reducer — the success listener must still read it as armed.
+        pendingAddToDashboard: [
+            false,
+            {
+                addToDashboard: () => true,
+                openAddToDashboardModal: () => false,
+                saveAsInsightFailure: () => false,
+            },
+        ],
         // A real query failure (bad regex, 500, timeout) — surfaced as a banner so it isn't mistaken
         // for the empty-result state. Cleared when a new query starts or one succeeds; an aborted
         // (superseded) query leaves the previous state untouched so refetches don't flash an error.
@@ -247,6 +271,23 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         },
         saveAsInsightFailure: ({ error }) => {
             lemonToast.error(`Failed to save insight: ${error}`)
+        },
+        addToDashboard: () => {
+            if (!values.metricsQueryNode) {
+                return
+            }
+            // Re-clicking with an unchanged query reuses the saved insight instead
+            // of littering saved insights with duplicates.
+            if (values.savedInsight && objectsEqual(values.savedInsight.query, values.metricsQueryNode)) {
+                actions.openAddToDashboardModal()
+                return
+            }
+            actions.saveAsInsight()
+        },
+        saveAsInsightSuccess: ({ savedInsight }) => {
+            if (savedInsight && values.pendingAddToDashboard) {
+                actions.openAddToDashboardModal()
+            }
         },
         setGroupBySearch: () => {
             actions.loadAttributeKeyOptions({})
@@ -350,12 +391,15 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         query,
                         saved: true,
                     })
-                    lemonToast.success('Insight saved', {
-                        button: {
-                            label: 'View insight',
-                            action: () => router.actions.push(urls.insightView(insight.short_id)),
-                        },
-                    })
+                    // The add-to-dashboard flow opens the dashboard picker instead of a toast.
+                    if (!values.pendingAddToDashboard) {
+                        lemonToast.success('Insight saved', {
+                            button: {
+                                label: 'View insight',
+                                action: () => router.actions.push(urls.insightView(insight.short_id)),
+                            },
+                        })
+                    }
                     return insight
                 },
             },

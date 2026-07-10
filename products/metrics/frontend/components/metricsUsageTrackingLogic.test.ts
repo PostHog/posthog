@@ -106,6 +106,12 @@ describe('metricsUsageTrackingLogic', () => {
             () => metricsSamplesLogic.actions.setActiveTab('samples'),
             { tab: 'samples' },
         ],
+        ['metrics add to dashboard clicked', () => metricsViewerLogic.actions.addToDashboard(), { aggregation: 'sum' }],
+        [
+            'metrics insight saved',
+            () => metricsViewerLogic.actions.saveAsInsightSuccess({ short_id: 'abc123' } as any, {} as any),
+            { aggregation: 'sum' },
+        ],
     ])('%s fires with enum/count properties only', (event, dispatch, expectedProperties) => {
         dispatch()
         expect(captures(event)).toEqual([[event, expectedProperties]])
