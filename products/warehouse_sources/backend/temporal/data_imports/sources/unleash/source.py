@@ -59,7 +59,7 @@ class UnleashSource(ResumableSource[UnleashSourceConfig, UnleashResumeConfig]):
 
 The instance URL is where you open the Unleash UI — for Unleash cloud it includes your instance name (e.g. `https://us.app.unleash-hosted.com/your-instance`); for self-hosted it's your server's URL. The token is a [personal access token](https://docs.getunleash.io/how-to/how-to-create-personal-access-tokens) or, on Enterprise, a [service account token](https://docs.getunleash.io/reference/service-accounts); it inherits the owner's permissions, and the `users` table additionally requires the Admin root role. The `features` table uses the flag search API, which requires Unleash 5.12 or newer.
 """,
-            iconPath="/static/services/unleash.png",
+            iconPath="/static/services/unleash.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/unleash",
             fields=cast(
                 list[FieldType],
