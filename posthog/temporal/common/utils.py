@@ -1,10 +1,10 @@
 import time
 import inspect
 import threading
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from datetime import datetime
 from functools import wraps
-from typing import Any, ParamSpec, TypeVar, cast
+from typing import Any, ParamSpec, TypeVar, cast, overload
 
 import django.db
 from django.conf import settings
@@ -14,6 +14,10 @@ from temporalio import activity, workflow
 
 P = ParamSpec("P")
 T = TypeVar("T")
+# Bound to coroutine-returning callables so the async overload of `close_db_connections` hands back the exact
+# activity type. A plain `Callable[P, T]` return erases the "is a coroutine function" property, which makes
+# Temporal's `execute_activity` overloads fall back to `Any` at the call site (breaking return-type narrowing).
+CallableAsyncType = TypeVar("CallableAsyncType", bound=Callable[..., Awaitable[Any]])
 
 
 def make_sync_retryable_with_exponential_backoff(
@@ -102,6 +106,14 @@ def _close_db_connections() -> None:
     """Close old database connections to prevent usage of stale connections in long-running Temporal workers."""
     if not settings.TEST:
         _close_initialized_connections()
+
+
+@overload
+def close_db_connections(fn: CallableAsyncType) -> CallableAsyncType: ...
+
+
+@overload
+def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]: ...
 
 
 def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
