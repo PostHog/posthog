@@ -4827,9 +4827,9 @@ snapshots:
     replay-tabs-home-failure--not-found--light:
         hash: v1.k794b7964.63f4edcf1afa31941d7fd4fe1cf6b2233335e5396691f5abfbeb5f32a5e77079.fT5YLbBCAptU85nyVbgAYp7DeiCCV6_bPb894JVNQFU
     replay-tabs-home-filters-banner--product-analytics-over-limit--dark:
-        hash: v1.k794b7964.9ee25b6594b07076cff0c2d285096a7e2d2031e3d30e58d4d043c8e3e0d44447.0wsqTslGRLqaidPoW0-teojry4FMwKSiOqo9E6i6AG8
+        hash: v1.k794b7964.e43831aab10f34ebb833d39856c8285ca3ec054b018c07a8eea2dc6551d12119.w0JYkgk5ujwBybY8356Xe93bi6ky_z7Skt5wuoRPX1g
     replay-tabs-home-filters-banner--product-analytics-over-limit--light:
-        hash: v1.k794b7964.9e6e0a6b500bea8a289281eaadb397a36a19381074a6d72291d186c7dbc89837.O2Q9Dv4VQBJqT5IlxRTwoYrGw7cXNkhGd2ikmDmIrZc
+        hash: v1.k794b7964.3455a8a462eb913f7d478672c16b5fa56fd4591efcc09b5ad1119707842f80b3.FMUgEs84D1HWKB2fVtRZP_Dsk6HYgaz604k3bLZqwFI
     replay-tabs-home-filters-banner--product-analytics-under-limit--dark:
         hash: v1.k794b7964.c4cc11f519896f1493409b60c0a04da6023d71a83374094c29c2666c65c205cf.aabEMRgGPdgSlwx4q2x34yULwzqiBwz2CI6LUyV5eak
     replay-tabs-home-filters-banner--product-analytics-under-limit--light:
@@ -5522,10 +5522,14 @@ snapshots:
         hash: v1.k794b7964.c5aa3840807ca349309a893b884ebc767c8fab70a82127532c1dae27d13f9f3d.51y_th6-WoFAlLgiWfsu6KUr3rxWjZzAbV84FIikvXQ
     scenes-app-data-warehouse-sql-editor--top-tools-per-server--light:
         hash: v1.k794b7964.e6420f44b86930d43085b575192d3c26ac0401919a4af6f8d7bd1c799e964836.pZmiZ4w-9QbQ60TFc6Sx94NT0YmU4EULydWdqDqxDmY
+    scenes-app-engineering-analytics-repo-overview--repo-overview--dark:
+        hash: v1.k794b7964.33da23b1f44fdfb476c70040adf6a0e7cd3181d4ebc4104e3170f1168e87a762.FBj2-1IKmG64f7qR9LToBEf74I5uJ-wQVVSFZT1YTMA
+    scenes-app-engineering-analytics-repo-overview--repo-overview--light:
+        hash: v1.k794b7964.00d52e2e14ce7b78fb3e4cd387a816133386735f031a42f08af19e6e36d858f5.mgSfjwCtQfkr2xtrBUL8L-CPJX9vNKVwcN1ROVbFzo8
     scenes-app-engineering-analytics-test-health--flaky-test-leaderboard--dark:
-        hash: v1.k794b7964.11b690fa6779c138fc78a905c08701fa1c0d14ca740712bc737cb704be689518.p4XIRGrjbbNPexcT586n6Anw8Hvzjcjmd0FS1NOVQ5I
+        hash: v1.k794b7964.b80842e3c1fcc9321fbd781d1c7aa06bdd243479eff1b407ad94466b48625e7f.vSCnKb5GwJzPTNMCRmvYw6f3fYfPbJcDlNia1tEc22E
     scenes-app-engineering-analytics-test-health--flaky-test-leaderboard--light:
-        hash: v1.k794b7964.0c9580ba54e5d865a26157ce07d53efb14f3e6bb1039d22fc7d46a5b01217346.JWsdPaiMJDKrEjpDZ1wKeTH9bHP_8iWFRTOynGQi3FA
+        hash: v1.k794b7964.fcab5b35c3e2147beaf8445febe839a6a30952a8bcba3fa634d7a3d073d561a3.-OVkVjtyzLUrkMi_4lDd7F39UmQPWKEvPhnf47_BxoA
     scenes-app-error-project-unavailable--access-revoked--dark:
         hash: v1.k794b7964.30ace8f015100159e1dedbed07ff9f0b0b770535870d5c98ea764b10ff1f7621.dTVw9qLa7D_e7ZNme4tVuPZov-0Gg1o84aiDl5zihF0
     scenes-app-error-project-unavailable--access-revoked--light:
