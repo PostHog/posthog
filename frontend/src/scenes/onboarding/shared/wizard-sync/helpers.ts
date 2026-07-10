@@ -1,8 +1,14 @@
 import { InstallationProgress, InstallationStep, InstallationStepStatus } from './installationProgressLogic'
 
+// A run's elapsed display is clamped here so a zombie run (a tab that never saw its run finish)
+// can't show an absurd multi-hour timer — the ticket that prompted this had one counting past 42
+// hours. Kept in step with activeCloudRunLogic's MAX_CLOUD_RUN_AGE_MS, past which the handle expires
+// anyway. Display-only: telemetry keeps the true elapsed.
+const MAX_DISPLAY_ELAPSED_SECONDS = 6 * 60 * 60
+
 // "m:ss", or "h:mm:ss" once a run passes the hour mark (cloud runs can be long).
 export function formatElapsed(totalSeconds: number): string {
-    const s = Math.max(0, Math.floor(totalSeconds))
+    const s = Math.min(MAX_DISPLAY_ELAPSED_SECONDS, Math.max(0, Math.floor(totalSeconds)))
     const hours = Math.floor(s / 3600)
     const minutes = Math.floor((s % 3600) / 60)
     const seconds = s % 60

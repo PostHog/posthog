@@ -202,6 +202,23 @@ export const FailedNoDetail: Story = {
     },
 }
 
+// A cloud run whose stream never delivered any state (deleted/revoked run, a transport that keeps
+// reconnecting). It used to sit on an eternal "idle" spinner; now it resolves to an error with the
+// full recovery CTAs and no step rail (no pipeline steps ever arrived).
+export const LostContact: Story = {
+    args: {
+        progress: progress({
+            phase: 'error',
+            steps: [],
+            error: {
+                title: 'Setup lost contact',
+                detail: "We stopped hearing back from this run. Dismiss it and start over — you won't lose any progress.",
+            },
+        }),
+        mode: 'cloud',
+    },
+}
+
 // The floating FAB variant, terminal, so the dismiss affordance shows.
 export const FloatingDismissible: Story = {
     args: {

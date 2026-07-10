@@ -134,7 +134,18 @@ export function cloudProgress(
     let phase: InstallationPhase
     let stalledError: { title: string; detail: string | null } | null = null
     if (!taskRunState) {
-        phase = taskConnectionStatus === 'connecting' ? 'connecting' : 'idle'
+        if (isStalled) {
+            // The stream connected but never delivered any run state (deleted/revoked run, a
+            // transport that keeps reconnecting — see taskRunStreamLogic's no-state stall timer).
+            // Surface a dead end with a start-over CTA instead of an eternal "idle" spinner.
+            phase = 'error'
+            stalledError = {
+                title: 'Setup lost contact',
+                detail: "We stopped hearing back from this run. Dismiss it and start over — you won't lose any progress.",
+            }
+        } else {
+            phase = taskConnectionStatus === 'connecting' ? 'connecting' : 'idle'
+        }
     } else if (taskRunState.status === 'queued' && isStalled) {
         // The run never left the queue (see taskRunStreamLogic's stall timer) — nothing is actually
         // running, so an eternal spinner would be a lie.
