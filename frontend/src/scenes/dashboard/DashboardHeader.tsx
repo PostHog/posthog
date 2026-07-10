@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { Suspense } from 'react'
 
 import { FullScreen } from 'lib/components/FullScreen'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -12,9 +14,15 @@ import { DashboardMode } from '~/types'
 
 import { EditModeActions, FullscreenModeActions, ViewModeActions } from './DashboardHeaderActions'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
-import { DashboardModals } from './DashboardModals'
 import { DashboardSceneMenuBar } from './DashboardSceneMenuBar'
 import { DashboardScenePanel } from './DashboardScenePanel'
+
+// The dashboard modals (sharing, subscriptions, terraform export, add-widget, template editor,
+// delete/duplicate, text/button tile, insight colors) render nothing until a user opens one, so
+// keep them off the dashboard's eager load path behind a lazy boundary.
+const DashboardModals = lazyWithRetry(() =>
+    import('./DashboardModals').then((module) => ({ default: module.DashboardModals }))
+)
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
@@ -34,7 +42,11 @@ export function DashboardHeader(): JSX.Element | null {
                 <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
             )}
 
-            {dashboard && <DashboardModals dashboard={dashboard} />}
+            {dashboard && (
+                <Suspense fallback={null}>
+                    <DashboardModals dashboard={dashboard} />
+                </Suspense>
+            )}
 
             <DashboardScenePanel />
             <DashboardSceneMenuBar />

@@ -2,12 +2,13 @@ import './InsightViz.scss'
 
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper } from 'kea'
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 
 // InsightViz renders the .InsightCard__viz wrapper whose styles live in InsightCard.scss.
 // Import it here so the viz is sized correctly wherever it renders, not only inside an InsightCard.
 import 'lib/components/Cards/InsightCard/InsightCard.scss'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -18,12 +19,18 @@ import { QueryContext } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { EditorFilters } from './EditorFilters'
 import { InsightVizDisplay } from './InsightVizDisplay'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from './insightVizKeys'
 import { getCachedResults } from './utils'
 
 export { insightVizDataCollectionId, insightVizDataNodeKey } from './insightVizKeys'
+
+// The insight editor filter panel is only shown while actively editing an insight (never on
+// read-only dashboard tiles, shared views, or exports), and it pulls in the full per-insight-type
+// editor UI — keep it off the eager path and mount it only when the panel is actually showing.
+const EditorFilters = lazyWithRetry(() =>
+    import('./EditorFilters').then((module) => ({ default: module.EditorFilters }))
+)
 
 type InsightVizProps = {
     uniqueKey?: string | number
@@ -134,11 +141,11 @@ export function InsightViz({
                                         : 'InsightCard__viz'
                                 }
                             >
-                                <EditorFilters
-                                    query={query.source}
-                                    showing={!readOnly && showingFilters}
-                                    embedded={isEmbedded}
-                                />
+                                {!readOnly && showingFilters && (
+                                    <Suspense fallback={null}>
+                                        <EditorFilters query={query.source} showing embedded={isEmbedded} />
+                                    </Suspense>
+                                )}
                                 {!isEmbedded ? (
                                     <div className="flex-1 max-h-full overflow-auto">{display}</div>
                                 ) : (

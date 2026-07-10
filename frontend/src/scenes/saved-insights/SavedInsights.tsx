@@ -1,7 +1,7 @@
 import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
-import { ComponentType } from 'react'
+import { ComponentType, Suspense } from 'react'
 
 import {
     IconAI,
@@ -54,6 +54,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -61,6 +62,7 @@ import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isNonEmptyObject } from 'lib/utils/guards'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
@@ -84,10 +86,15 @@ import {
     SavedInsightsTabs,
 } from '~/types'
 
-import { Alerts } from 'products/alerts/frontend/views/Alerts'
-
 import { ReloadInsight } from './ReloadInsight'
 import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
+
+// The alerts view (and its edit modal / detector selector) only renders on the Alerts tab, but is
+// pulled onto the eager path of anything that reads insight-type metadata from this module (e.g.
+// every insight card's heading). Load it lazily so it stays off that path.
+const Alerts = lazyWithRetry(() =>
+    import('products/alerts/frontend/views/Alerts').then((module) => ({ default: module.Alerts }))
+)
 
 export interface InsightTypeMetadata {
     name: string
@@ -1088,7 +1095,9 @@ export function SavedInsights(): JSX.Element {
             {tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />
             ) : tab === SavedInsightsTabs.Alerts ? (
-                <Alerts alertId={alertModalId} />
+                <Suspense fallback={<Spinner />}>
+                    <Alerts alertId={alertModalId} />
+                </Suspense>
             ) : (
                 <>
                     <SavedInsightsFilters

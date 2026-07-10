@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { Suspense } from 'react'
 
 import { IconLlmAnalytics, IconWarning } from '@posthog/icons'
 
@@ -8,13 +8,21 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { insightUrlForEvent } from 'scenes/insights/utils'
-import { ArchiveSurveyButton } from 'scenes/surveys/components/ArchiveSurveyButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { saveActionFromEvent } from '~/models/saveAsActionDialog'
 import { EventType, SurveyEventName } from '~/types'
+
+// Only rendered for survey-response rows, inside the row-actions dropdown — keep surveyLogic
+// (a heavy kea logic) off the eager path of every DataTable.
+const ArchiveSurveyButton = lazyWithRetry(() =>
+    import('scenes/surveys/components/ArchiveSurveyButton').then((module) => ({
+        default: module.ArchiveSurveyButton,
+    }))
+)
 
 export function EventRowActions({
     event,
@@ -60,7 +68,9 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
                 </LemonButton>
             )}
             {event.event === SurveyEventName.SENT && event.uuid && event.properties.$survey_id ? (
-                <ArchiveSurveyButton surveyId={event.properties.$survey_id} responseUuid={event.uuid} />
+                <Suspense fallback={null}>
+                    <ArchiveSurveyButton surveyId={event.properties.$survey_id} responseUuid={event.uuid} />
+                </Suspense>
             ) : null}
             {event.uuid && event.timestamp && <EventCopyLinkButton event={event} />}
             {event.event === '$exception' && '$exception_issue_id' in event.properties ? (

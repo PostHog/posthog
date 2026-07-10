@@ -1,9 +1,12 @@
 import { useValues } from 'kea'
+import { Suspense } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
@@ -21,7 +24,6 @@ import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
 import { RetentionCondition } from 'scenes/insights/EditorFilters/RetentionCondition'
 import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions'
 import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/SamplingDeprecationNotice'
-import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelVizType } from 'scenes/insights/views/Funnels/FunnelVizType'
@@ -54,6 +56,14 @@ export interface EditorFiltersProps {
     embedded: boolean
 }
 
+// Web-analytics insights use a bespoke filter UI (and pull in webAnalyticsLogic) — only load it
+// when actually editing a web-analytics insight, not for every insight/dashboard tile.
+const WebAnalyticsEditorFilters = lazyWithRetry(() =>
+    import('scenes/insights/EditorFilters/WebAnalyticsEditorFilters').then((module) => ({
+        default: module.WebAnalyticsEditorFilters,
+    }))
+)
+
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -83,11 +93,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     // Web Analytics insights use their custom filter UI
     if (isWebAnalyticsInsightQuery(query)) {
         return (
-            <WebAnalyticsEditorFilters
-                query={query as WebOverviewQuery | WebStatsTableQuery}
-                showing={showing}
-                embedded={embedded}
-            />
+            <Suspense fallback={<Spinner />}>
+                <WebAnalyticsEditorFilters
+                    query={query as WebOverviewQuery | WebStatsTableQuery}
+                    showing={showing}
+                    embedded={embedded}
+                />
+            </Suspense>
         )
     }
 

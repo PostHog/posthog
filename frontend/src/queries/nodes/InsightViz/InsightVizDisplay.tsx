@@ -1,11 +1,14 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { Suspense } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
@@ -44,7 +47,6 @@ import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
-import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
@@ -64,6 +66,12 @@ import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 
 /** When the dashboard is still streaming/refreshing tiles, prefer loading UX over "Chart data didn't load". */
+// Web-analytics insights are a specific insight type — keep their bespoke rendering (and the
+// web-analytics tiles it pulls in) off the eager path of every other insight and dashboard tile.
+const WebAnalyticsInsight = lazyWithRetry(() =>
+    import('scenes/web-analytics/WebAnalyticsInsight').then((module) => ({ default: module.WebAnalyticsInsight }))
+)
+
 function DashboardInsightRefreshHintOrLoading({
     dashboardId,
     dashboardItemId,
@@ -382,7 +390,11 @@ export function InsightVizDisplay({
             case InsightType.PATHS:
                 return isUsingPathsV2 ? <PathsV2 /> : <Paths />
             case InsightType.WEB_ANALYTICS:
-                return <WebAnalyticsInsight context={context} editMode={editMode} />
+                return (
+                    <Suspense fallback={<Spinner />}>
+                        <WebAnalyticsInsight context={context} editMode={editMode} />
+                    </Suspense>
+                )
             default:
                 return null
         }

@@ -1,12 +1,14 @@
 import './Dashboard.scss'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { Suspense } from 'react'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -20,13 +22,20 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+
+// Only shown after a user opens the "add insight" modal — keep its saved-insights picker off
+// the dashboard's eager load path.
+const AddInsightToDashboardModal = lazyWithRetry(() =>
+    import('./addInsightToDashboardModal/AddInsightToDashboardModal').then((module) => ({
+        default: module.AddInsightToDashboardModal,
+    }))
+)
 
 interface DashboardProps {
     id?: string
@@ -116,7 +125,11 @@ function DashboardScene({
     return (
         <SceneContent className={cn('dashboard')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
-            {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
+            {canEditDashboard && addInsightToDashboardModalVisible && (
+                <Suspense fallback={null}>
+                    <AddInsightToDashboardModal />
+                </Suspense>
+            )}
             <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 
             {dashboardFailedToLoad ? (

@@ -2,7 +2,7 @@ import './DataTable.scss'
 
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { Suspense, useCallback, useMemo, useState } from 'react'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -13,8 +13,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ViewLinkButton } from 'scenes/data-warehouse/ViewLinkModal'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -100,6 +101,12 @@ import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
 import { DataTableViewReplays } from './DataTableViewReplays'
 import { TableViewSupportedQueryType } from './TableView/tableViewLogic'
+
+// EventDetails only renders inside an expanded table row (a user action) and pulls in heavy
+// event-property renderers (survey responses, AI conversation display) — keep it off the eager path.
+const EventDetails = lazyWithRetry(() =>
+    import('scenes/activity/explore/EventDetails').then((module) => ({ default: module.EventDetails }))
+)
 
 export enum ColumnFeature {
     canSort = 'canSort',
@@ -746,15 +753,23 @@ export function DataTable({
                         onRowExpand: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
                         onRowCollapse: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
                         expandedRowRender: function renderExpand({ result }: DataTableRow) {
+                            let event: EventType | Record<string, any> | null = null
                             if (
                                 (isEventsQuery(query.source) || isRevenueExampleEventsQuery(query.source)) &&
                                 Array.isArray(result)
                             ) {
-                                return <EventDetails event={result[columnsInResponse.indexOf('*')] ?? {}} />
+                                event = result[columnsInResponse.indexOf('*')] ?? {}
+                            } else if (result && !Array.isArray(result)) {
+                                event = result as EventType
                             }
-                            if (result && !Array.isArray(result)) {
-                                return <EventDetails event={result as EventType} />
+                            if (event === null) {
+                                return undefined
                             }
+                            return (
+                                <Suspense fallback={<Spinner />}>
+                                    <EventDetails event={event as EventType} />
+                                </Suspense>
+                            )
                         },
                         rowExpandable: ({ result }: DataTableRow) => !!result,
                         noIndent: true,

@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatPercentage } from 'lib/utils/numbers'
 import { addProductIntent, addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
@@ -27,9 +28,14 @@ import { InsightLogicProps } from '~/types'
 
 import { SURVEY_CREATED_SOURCE } from '../constants'
 import { QuickSurveyType } from '../quick-create/types'
-import { QuickSurveyModal } from '../QuickSurveyModal'
 import { captureMaxAISurveyCreationException } from '../utils'
 import { SurveyableFunnelInsight, extractFunnelContext } from '../utils/opportunityDetection'
+
+// The quick-survey modal pulls in the survey appearance preview (posthog-js/surveys-preview),
+// which is only needed once a user opens it — keep it off the eager path of every insight card.
+const QuickSurveyModal = lazyWithRetry(() =>
+    import('../QuickSurveyModal').then((module) => ({ default: module.QuickSurveyModal }))
+)
 
 export interface SurveyOpportunityButtonProps {
     insight: SurveyableFunnelInsight
@@ -131,12 +137,14 @@ export function SurveyOpportunityButton({
     return (
         <>
             {tooltip ? <Tooltip title={tooltip}>{askUsersButton}</Tooltip> : askUsersButton}
-            {shouldUseQuickCreate && (
-                <QuickSurveyModal
-                    context={{ type: QuickSurveyType.FUNNEL, funnel: funnelContext }}
-                    isOpen={modalOpen}
-                    onCancel={() => setModalOpen(false)}
-                />
+            {shouldUseQuickCreate && modalOpen && (
+                <Suspense fallback={null}>
+                    <QuickSurveyModal
+                        context={{ type: QuickSurveyType.FUNNEL, funnel: funnelContext }}
+                        isOpen={modalOpen}
+                        onCancel={() => setModalOpen(false)}
+                    />
+                </Suspense>
             )}
         </>
     )
