@@ -1,14 +1,16 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { combineUrl } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { UniversalFiltersGroup } from '~/types'
 
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
-import { logsAttributesRetrieve, logsFacetValuesCreate } from '../../../generated/api'
+import { logsFacetValuesCreate } from '../../../generated/api'
 import { _LogFacetValueApi, _LogPropertyFilterApi, _LogsFacetValuesBodyApi } from '../../../generated/api.schemas'
 import type { facetCountsLogicType } from './facetCountsLogicType'
 import { FACETS, FacetConfig } from './facets'
@@ -158,12 +160,19 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                         if (!values.currentTeamId) {
                             return []
                         }
-                        const response = await logsAttributesRetrieve(String(values.currentTeamId), {
+                        // Build the URL by hand rather than via the generated client: its fetch URL
+                        // builder serializes query params with String(value), turning the dateRange
+                        // object into the literal "[object Object]". The backend then fails to parse it
+                        // and silently falls back to a 1h window, so the 90-day presence probe is wrong.
+                        // JSON-encode dateRange instead (matches serviceFilterLogic).
+                        const url = combineUrl(`api/environments/${values.currentTeamId}/logs/attributes`, {
                             attribute_type: 'resource',
-                            dateRange: PRESENCE_LOOKBACK,
+                            dateRange: JSON.stringify(PRESENCE_LOOKBACK),
                             limit: 100,
-                        })
-                        return response.results.map((r) => r.name)
+                        }).url
+                        // nosemgrep: prefer-codegen-api
+                        const response = await api.get(url)
+                        return ((response.results ?? []) as { name: string }[]).map((r) => r.name)
                     },
                 },
             ],
