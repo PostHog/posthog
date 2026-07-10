@@ -1738,13 +1738,13 @@ class Database(BaseModel):
                 virtual_source = sources.virtual_source
                 with timings.measure("build_virtual_tables", emit_span=True):
                     for schema_row in sources.virtual_schemas:
-                        # Warehouse access control is granted on the synced table row; a schema row
-                        # without one falls back to the source-level access the resolver enforced.
+                        # Warehouse access control is granted on the synced table row. A schema row
+                        # without one yet (discovered but not synced) has nothing to check permission
+                        # against, so fail closed and deny it rather than let it slip through unchecked.
                         if (
                             sources.is_hogql_warehouse_access_control_enabled
                             and not sources.bypass_warehouse_access_control
-                            and schema_row.table is not None
-                            and database._is_warehouse_table_denied(schema_row.table)
+                            and (schema_row.table is None or database._is_warehouse_table_denied(schema_row.table))
                         ):
                             continue
 

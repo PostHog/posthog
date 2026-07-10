@@ -1272,12 +1272,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         sources = Database._fetch_sources(team=self.team, connection_id=str(source.id))
         sources.is_hogql_warehouse_access_control_enabled = True
-        # Userless AC fails closed: any schema row with a backing synced table is denied; a row
-        # without one falls back to the source-level access the resolver enforced.
+        # Userless AC fails closed: any schema row with a backing synced table is denied, and a
+        # row without one (nothing to check permission against) is denied too.
         database = Database._build_from_sources(sources)
 
         assert not database.has_table("public.users")
-        assert database.has_table("public.events")
+        assert not database.has_table("public.events")
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_raises_when_modifier_table_has_no_backing_row(self, patch_execute):
