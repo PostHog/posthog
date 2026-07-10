@@ -840,8 +840,6 @@ function FeedbackThemeChips({
                             type={isActive ? 'highlight' : 'muted'}
                             onClick={clickable ? () => setThemeFilter(isActive ? null : theme) : undefined}
                             forceClickable={clickable}
-                            closable={isActive}
-                            onClose={() => setThemeFilter(null)}
                             data-attr="vision-quality-feedback-theme"
                         >
                             {theme.theme} · {theme.count}
