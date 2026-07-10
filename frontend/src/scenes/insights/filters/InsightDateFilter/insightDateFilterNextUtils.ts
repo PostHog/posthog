@@ -129,6 +129,15 @@ export const INSIGHT_DATE_PRESETS: InsightDatePreset[] = [
     },
 ]
 
+/** "All time" flows through the same preset machinery; the calendar preview just needs
+ * some concrete span, so it shows the last 5 years. */
+export const ALL_TIME_PRESET: InsightDatePreset = {
+    name: 'All time',
+    dateFrom: 'all',
+    dateTo: null,
+    rangeSetter: (now) => dayjs(now).subtract(5, 'year').toDate(),
+}
+
 const RETENTION_PRESET_COUNTS = [7, 14, 30, 90]
 
 /** Retention quick ranges scale with the retention period (the range selects cohort-start
@@ -191,9 +200,12 @@ export function pickerValueForDateRange(
     }
 }
 
-export function dateRangeUpdateForPickerValue(value: DateTimeValue): Pick<DateRange, 'date_from' | 'date_to'> {
+export function dateRangeUpdateForPickerValue(
+    value: DateTimeValue,
+    presets: InsightDatePreset[] = INSIGHT_DATE_PRESETS
+): Pick<DateRange, 'date_from' | 'date_to'> {
     if (value.range.id !== CUSTOM_RANGE.id) {
-        const preset = INSIGHT_DATE_PRESETS.find((p) => p.name === value.range.name)
+        const preset = presets.find((p) => p.name === value.range.name)
         if (preset) {
             return { date_from: preset.dateFrom, date_to: preset.dateTo }
         }
