@@ -1,5 +1,0 @@
-version: 1
-owners: []
-rules:
-    - match: '/groups.py'
-      owners: [team-product-analytics]

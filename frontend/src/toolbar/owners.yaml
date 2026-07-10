@@ -1,0 +1,9 @@
+version: 1
+owners: []
+rules:
+    - match: '/elements/heatmapToolbarMenuLogic.ts'
+      owners: [team-web-analytics]
+    - match: '/product-tours/'
+      owners: [team-surveys]
+    - match: '/web-vitals/'
+      owners: [team-web-analytics]

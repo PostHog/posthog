@@ -1,23 +1,23 @@
 version: 1
 owners: []
 rules:
+    - match: '/CODEOWNERS'
+      owners: [team-devex]
+    - match: '/actions/'
+      owners: [team-devex]
     - match: '/auto-assign-labels.json'
       owners: [team-feature-flags]
     - match: '/dependabot.yml'
       owners: [team-devex]
     - match: '/pull_request_template.md'
       owners: [team-devex]
-    - match: '/CODEOWNERS'
-      owners: [team-devex]
-    # owners.yaml can't live in workflows/ (Actions/actionlint parse every YAML
-    # there as a workflow), so the workflow ownership is folded in here instead.
     - match: '/workflows/'
       owners: [team-devex]
+    - match: '/workflows/cd-llm-analytics-image.yml'
+      owners: [team-devex, team-ai-observability]
     - match: '/workflows/ci-llm-gateway.yml'
       owners: [team-devex, team-ai-gateway]
     - match: '/workflows/llm-gateway-cd.yml'
       owners: [team-devex, team-ai-gateway]
     - match: '/workflows/update-ai-costs.yml'
       owners: [team-devex, team-ai-gateway]
-    - match: '/workflows/cd-llm-analytics-image.yml'
-      owners: [team-devex, team-ai-observability]

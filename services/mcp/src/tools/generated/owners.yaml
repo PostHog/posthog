@@ -1,5 +1,0 @@
-version: 1
-owners: []
-rules:
-    - match: '/ai_observability.ts'
-      owners: [team-ai-observability]

@@ -1,7 +1,0 @@
-version: 1
-owners: []
-rules:
-    - match: '/test_proxy_record.py'
-      owners: [team-platform-features]
-    - match: '/test_proxy_record_diagnostics.py'
-      owners: [team-platform-features]

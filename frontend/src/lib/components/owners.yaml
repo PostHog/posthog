@@ -1,0 +1,9 @@
+version: 1
+owners: []
+rules:
+    - match: '/ReverseProxyChecker/'
+      owners: [team-platform-features]
+    - match: '/RichContentEditor/'
+      owners: [team-data-tools]
+    - match: '/heatmaps/'
+      owners: [team-web-analytics]

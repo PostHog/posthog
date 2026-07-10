@@ -59,14 +59,10 @@ rules:
       owners: [team-self-driving]
     - match: '/insights/'
       owners: [team-product-analytics]
-    - match: '/instance/AsyncMigrations/'
-      owners: [team-growth]
-    - match: '/instance/DeadLetterQueue/'
+    - match: '/instance/'
       owners: [team-growth]
     - match: '/instance/QueryPerformance/'
       owners: [team-experiments]
-    - match: '/instance/SystemStatus/'
-      owners: [team-growth]
     - match: '/marketing-analytics/'
       owners: [team-web-analytics]
     - match: '/max/'
@@ -111,8 +107,6 @@ rules:
       owners: [team-growth]
     - match: '/startups/'
       owners: [team-growth]
-    - match: '/subscriptions/'
-      owners: [team-analytics-platform]
     - match: '/surveys/'
       owners: [team-surveys]
     - match: '/themes/'

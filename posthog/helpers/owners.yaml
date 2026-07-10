@@ -1,5 +1,0 @@
-version: 1
-owners: []
-rules:
-    - match: '/email_utils.py'
-      owners: [team-platform-features]

@@ -1,5 +1,0 @@
-version: 1
-owners: []
-rules:
-    - match: '/related_actors_query.py'
-      owners: [team-product-analytics]

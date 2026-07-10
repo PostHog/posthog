@@ -23,3 +23,39 @@ rules:
       owners: [team-devex]
     - match: greptile.json
       owners: [team-devex]
+    - match: '/.agents/skills/manage-dashboard-widgets/'
+      owners: [team-analytics-platform]
+    - match: '/.claude/'
+      owners: [team-devex]
+    - match: '/.claude/agents/ingestion/'
+      owners: [team-ingestion]
+    - match: '/cli/'
+      owners: [team-error-tracking]
+    - match: '/docs/onboarding/ai-observability/'
+      owners: [team-ai-observability]
+    - match: '/docs/published/handbook/engineering/developing-locally.md'
+      owners: [team-devex]
+    - match: '/nodejs/tests/'
+      owners: [team-ingestion]
+    - match: '/posthog/helpers/email_utils.py'
+      owners: [team-platform-features]
+    - match: '/posthog/management/commands/find_enum_collisions.py'
+      owners: [team-devex]
+    - match: '/posthog/settings/data_warehouse.py'
+      owners: [team-data-stack]
+    - match: '/posthog/settings/email.py'
+      owners: [team-platform-features]
+    - match: '/posthog/test/test_feature_flag_analytics.py'
+      owners: [team-feature-flags]
+    - match: '/services/llm-gateway/'
+      owners: [team-ai-gateway]
+    - match: '/tools/hogli-commands/'
+      owners: [team-devex]
+    - match: '/tools/hogli/'
+      owners: [team-devex]
+    - match: '/tools/phrocs/'
+      owners: [team-devex]
+    - match: '/tools/pr-approval-agent/'
+      owners: [team-devex]
+    - match: '/tools/query-performance-ai/'
+      owners: [team-analytics-platform]

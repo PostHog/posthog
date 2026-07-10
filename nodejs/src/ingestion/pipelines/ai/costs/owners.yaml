@@ -1,0 +1,7 @@
+version: 1
+owners: [team-ai-observability, team-ai-gateway]
+rules:
+    - match: '/providers/'
+      owners: [team-ai-gateway]
+    - match: '/scripts/'
+      owners: [team-ai-gateway]

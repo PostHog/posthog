@@ -1,0 +1,13 @@
+version: 1
+owners: []
+rules:
+    - match: '/ai-observability/'
+      owners: [team-ai-observability]
+    - match: '/cdp/'
+      owners: [team-workflows]
+    - match: '/ingestion/'
+      owners: [team-ingestion]
+    - match: '/ingestion/pipelines/sessionreplay/'
+      owners: [team-replay, team-ingestion]
+    - match: '/session-replay/recording-rasterizer/'
+      owners: [team-replay]

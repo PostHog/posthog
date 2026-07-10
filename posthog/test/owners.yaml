@@ -1,5 +1,0 @@
-version: 1
-owners: []
-rules:
-    - match: '/test_feature_flag_analytics.py'
-      owners: [team-feature-flags]

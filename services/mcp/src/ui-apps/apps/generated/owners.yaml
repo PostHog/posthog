@@ -1,5 +1,0 @@
-version: 1
-owners: []
-rules:
-    - match: '/llm-costs.tsx'
-      owners: [team-ai-observability]

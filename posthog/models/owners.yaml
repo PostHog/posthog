@@ -1,10 +1,6 @@
 version: 1
 owners: []
 rules:
-    - match: '/messaging.py'
-      owners: [team-workflows]
-    - match: '/proxy_record.py'
-      owners: [team-platform-features]
     - match: '/action/'
       owners: [team-product-analytics]
     - match: '/activity_logging/'
@@ -19,8 +15,12 @@ rules:
       owners: [team-feature-flags]
     - match: '/comment/'
       owners: [team-platform-features]
+    - match: '/messaging.py'
+      owners: [team-workflows]
     - match: '/person/'
       owners: [team-ingestion]
+    - match: '/proxy_record.py'
+      owners: [team-platform-features]
     - match: '/raw_sessions/'
       owners: [team-analytics-platform]
     - match: '/resource_transfer/'

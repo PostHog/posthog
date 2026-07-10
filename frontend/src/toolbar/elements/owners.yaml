@@ -1,5 +1,0 @@
-version: 1
-owners: []
-rules:
-    - match: '/heatmapToolbarMenuLogic.ts'
-      owners: [team-web-analytics]

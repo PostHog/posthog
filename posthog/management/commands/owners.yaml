@@ -1,5 +1,0 @@
-version: 1
-owners: []
-rules:
-    - match: '/find_enum_collisions.py'
-      owners: [team-devex]
