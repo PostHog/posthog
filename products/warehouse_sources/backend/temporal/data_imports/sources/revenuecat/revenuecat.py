@@ -366,11 +366,22 @@ def create_webhook(
                         success=False,
                         error="RevenueCat returned a webhook without an id; please recreate it manually.",
                     )
+                # Resend name and url alongside the header. The update input's
+                # fields are all optional (patch semantics), but echoing the
+                # delivery-critical fields costs nothing and keeps the webhook
+                # pointed at us even if the endpoint ever replaces instead of
+                # patches. `event_types` is deliberately not echoed: the list
+                # response may contain event types newer than the update
+                # enum, which would fail validation.
                 _update_webhook_integration(
                     api_key,
                     project_id,
                     str(webhook_id),
-                    {"authorization_header": authorization_header_value},
+                    {
+                        "name": str(existing.get("name") or REVENUECAT_AUTO_WEBHOOK_NAME),
+                        "url": webhook_url,
+                        "authorization_header": authorization_header_value,
+                    },
                 )
                 return WebhookCreationResult(success=True)
             # No auth header supplied yet — treat the existing webhook as

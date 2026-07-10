@@ -361,8 +361,11 @@ class TestCreateWebhook:
     def test_updates_existing_webhook_in_place_when_authorization_header_supplied(self, mock_session, mock_find):
         # Binding the header must not delete + recreate the integration —
         # RevenueCat supports in-place updates via a POST to the integration's
-        # own path, and recreating would drop deliveries in the gap.
-        mock_find.return_value = {"id": "wh_existing", "url": "https://example.com/h"}
+        # own path, and recreating would drop deliveries in the gap. The update
+        # body must carry the delivery-critical fields (existing name, our url)
+        # next to the header so a replace-semantics update can't strand the
+        # integration.
+        mock_find.return_value = {"id": "wh_existing", "url": "https://example.com/h", "name": "My custom hook"}
         mock_session.return_value.post.return_value = _ok_json_response({"id": "wh_existing"})
 
         result = api_client.create_webhook(
@@ -376,7 +379,11 @@ class TestCreateWebhook:
         assert result.pending_inputs == []
         post_args = mock_session.return_value.post.call_args
         assert post_args.args[0] == f"{REVENUECAT_API_BASE_URL}/projects/proj_test/integrations/webhooks/wh_existing"
-        assert post_args.kwargs["json"] == {"authorization_header": "Bearer my-secret"}
+        assert post_args.kwargs["json"] == {
+            "name": "My custom hook",
+            "url": "https://example.com/h",
+            "authorization_header": "Bearer my-secret",
+        }
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._find_webhook_integration"
