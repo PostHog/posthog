@@ -458,3 +458,39 @@ class TestRepartitionActivity:
         assert schema.repartition_pending["attempts"] == 0
         # The activity minted a fencing claim before starting the rewrite.
         assert schema.repartition_claim is not None
+
+    def test_superseded_after_claim_check_blip_is_not_recorded_as_failure(self, team):
+        # _still_claimant is conservative and reports True on a transient DB read, so a zombie can reach
+        # the failure handler even after a newer attempt took the claim. _handle_failure's authoritative
+        # refresh is the fence that catches that: with _still_claimant forced True (the blip) but the DB
+        # claim changed by a newer attempt, the zombie must record no failure and re-queue no attempt —
+        # otherwise it double-reports and re-increments a run the newer claimant already owns.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 0,
+            }
+        )
+
+        def _newer_attempt_steals_claim_then_fail(*args, **kwargs):
+            # A newer attempt claims the schema mid-rewrite; our own rewrite then dies on the clobber.
+            other = ExternalDataSchema.objects.get(id=schema.id)
+            other.set_repartition_claim({"token": "newer-token", "job_id": "j2", "claimed_at": "later"})
+            raise ValueError("boom from clobbered temp")
+
+        mocked = AsyncMock(side_effect=_newer_attempt_steals_claim_then_fail)
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=mocked),
+            patch.object(repartition_table, "capture_repartition_event") as capture,
+            patch.object(repartition_table, "_still_claimant", return_value=True),
+        ):
+            ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+        assert "warehouse_repartition_failed" not in [c.args[0] for c in capture.call_args_list]
+        schema.refresh_from_db()
+        assert schema.repartition_pending is not None
+        assert schema.repartition_pending["attempts"] == 0

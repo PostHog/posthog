@@ -318,8 +318,8 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             capture_exception(e)
             DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="transient").inc()
             return
-        _handle_failure(inputs, schema, pending, trigger_reason, e)
-        DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
+        outcome = _handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger)
+        DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome=outcome).inc()
         return
 
     duration = time.monotonic() - start
@@ -348,9 +348,22 @@ def _handle_failure(
     pending: dict[str, Any] | None,
     trigger_reason: str,
     error: Exception,
-) -> None:
-    """Record a failed attempt; give up (and clear the flag) after MAX_REPARTITION_ATTEMPTS."""
+    claim_token: str,
+    logger: FilteringBoundLogger,
+) -> str:
+    """Record a failed attempt; give up (and clear the flag) after MAX_REPARTITION_ATTEMPTS.
+
+    Returns the metric outcome: "failed" normally, or "superseded" when the authoritative post-refresh
+    read shows a newer attempt now owns the claim. `_still_claimant` is conservative and reports True on
+    a transient DB blip, so a zombie could reach here after a newer claimant already finished; the
+    refresh below is the authoritative read (the DB is reachable again), so re-checking the claim here
+    stops us recording a spurious failure and re-queueing `repartition_pending` the newer attempt cleared.
+    """
     schema.refresh_from_db(fields=["sync_type_config"])
+    claim = schema.repartition_claim
+    if not (claim and claim.get("token") == claim_token):
+        logger.info("repartition: superseded (claim changed under us), standing down without recording failure")
+        return "superseded"
     pending = schema.repartition_pending or pending or {}
     attempts = int(pending.get("attempts", 0)) + 1
 
@@ -374,3 +387,4 @@ def _handle_failure(
 
     capture_repartition_event("warehouse_repartition_failed", props)
     capture_exception(error)
+    return "failed"
