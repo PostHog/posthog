@@ -120,7 +120,7 @@ export function App(): JSX.Element | null {
     // root init and triggers a circular-import TDZ. Its urlToAction fires on the current URL on mount.
     useEffect(() => {
         let unmount: (() => void) | undefined
-        void import('lib/components/Support/supportRouterLogic').then(({ supportRouterLogic }) => {
+        void retryImport(() => import('lib/components/Support/supportRouterLogic')).then(({ supportRouterLogic }) => {
             unmount = supportRouterLogic.mount()
         })
         return () => unmount?.()

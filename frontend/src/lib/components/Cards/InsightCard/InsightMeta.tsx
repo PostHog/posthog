@@ -5,8 +5,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { IconInfo, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
-import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
@@ -55,6 +53,9 @@ import {
     InsightShortId,
     QueryBasedInsightModel,
 } from '~/types'
+
+import { areAlertsSupportedForInsight, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'

@@ -70,7 +70,7 @@ catalog:
     # React types
     '@types/react': ^18.3.27
     '@types/react-dom': ^18.3.7
-    '@base-ui/react': 1.5.0
+    '@base-ui/react': 1.6.0
     # Other shared
     husky: ^7.0.4
     lint-staged: ~15.4.3

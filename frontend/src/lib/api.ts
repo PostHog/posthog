@@ -228,6 +228,7 @@ import {
     WebhookInfo,
 } from '~/types'
 
+import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from 'products/alerts/frontend/types'
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import type {
     ErrorTrackingRule,
@@ -269,7 +270,6 @@ import type {
 
 import { AgentMode } from '../queries/schema'
 import type { AttachedContext, MaxUIContext } from '../scenes/max/maxTypes'
-import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
@@ -4071,6 +4071,12 @@ const api = {
         async delete(id: string): Promise<void> {
             await new ApiRequest().mcpServerInstallation(id).delete()
         },
+        async share(id: string): Promise<Record<string, any>> {
+            return await new ApiRequest().mcpServerInstallation(id).withAction('share').create({ data: {} })
+        },
+        async unshare(id: string): Promise<Record<string, any>> {
+            return await new ApiRequest().mcpServerInstallation(id).withAction('unshare').create({ data: {} })
+        },
         async installCustom(data: {
             name: string
             url: string
@@ -4079,10 +4085,15 @@ const api = {
             description?: string
             client_id?: string
             client_secret?: string
+            scope?: 'personal' | 'shared'
         }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_custom').create({ data })
         },
-        async installTemplate(data: { template_id: string; api_key?: string }): Promise<Record<string, any>> {
+        async installTemplate(data: {
+            template_id: string
+            api_key?: string
+            scope?: 'personal' | 'shared'
+        }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_template').create({ data })
         },
         async listTools(
@@ -6146,17 +6157,20 @@ const api = {
             return await new ApiRequest().subscription(subscriptionId).update({ data })
         },
         async list({
-            insightId,
+            insights,
             dashboardId,
+            dashboardTiles,
             resourceType,
         }: {
-            insightId?: number
+            insights?: number[]
             dashboardId?: number
+            dashboardTiles?: number
             resourceType?: SubscriptionType['resource_type']
         }): Promise<PaginatedResponse<SubscriptionType>> {
             const params = [
-                insightId ? `insight=${insightId}` : null,
+                insights?.length ? `insights=${insights.join(',')}` : null,
                 dashboardId ? `dashboard=${dashboardId}` : null,
+                dashboardTiles ? `dashboard_tiles=${dashboardTiles}` : null,
                 resourceType ? `resource_type=${resourceType}` : null,
             ].filter(Boolean)
             return await new ApiRequest().subscriptions().withQueryString(params.join('&')).get()
@@ -6627,9 +6641,13 @@ const api = {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
         async getBatchTriggerBlastRadius(
-            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
+            dedupeKey?: 'email'
         ): Promise<BlastRadiusApi> {
-            return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
+            return await new ApiRequest()
+                .hogFlows()
+                .withAction('user_blast_radius')
+                .create({ data: { filters, dedupe_key: dedupeKey ?? null } })
         },
         async createHogFlowBatchJob(
             hogFlowId: HogFlow['id'],

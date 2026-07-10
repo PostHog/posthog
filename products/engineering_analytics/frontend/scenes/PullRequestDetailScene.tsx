@@ -785,14 +785,15 @@ export function PullRequestDetailScene(): JSX.Element {
                         <MetricTile
                             label="Latest push"
                             tooltip="Workflows green on the newest commit, one verdict per workflow."
-                            value={latestPushStats ? `${latestPushStats.green}/${latestPushStats.total}` : '—'}
-                            valueSuffix={latestPushStats ? 'passing' : undefined}
+                            value={latestPushStats ? `${latestPushStats.green} / ${latestPushStats.total}` : '—'}
                             sub={
                                 latestPushStats && latestPushStats.failingWorkflows.length > 0
                                     ? `${latestPushStats.failingWorkflows.slice(0, 3).join(', ')} failing`
                                     : latestPushStats && latestPushStats.running > 0
                                       ? `${latestPushStats.running} still running`
-                                      : undefined
+                                      : latestPushStats
+                                        ? 'passing'
+                                        : undefined
                             }
                             loading={tilesLoading}
                         />
@@ -811,11 +812,9 @@ export function PullRequestDetailScene(): JSX.Element {
                             label="Pushes"
                             tooltip="Commits that triggered CI on this pull request."
                             value={`${pushes}`}
-                            delta={
+                            sub={
                                 rerunCycles > 0 ? (
-                                    <span className="text-xs font-semibold text-warning-dark">
-                                        +{rerunCycles} re-runs
-                                    </span>
+                                    <span className="font-semibold text-warning-dark">+{rerunCycles} re-runs</span>
                                 ) : undefined
                             }
                             loading={tilesLoading}

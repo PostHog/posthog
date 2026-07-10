@@ -4,11 +4,13 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonButton, LemonCard, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
@@ -243,6 +245,8 @@ export function RepoOverviewScene(): JSX.Element {
     const { loadOverview, loadMasterFailures, loadRepoActivity, showMorePrs, showMoreWorkflows } =
         useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
+    const { timezone } = useValues(teamLogic)
+    const chartTheme = useChartTheme()
 
     // Window/source changes reload the overview, activity, and workflow health (the date-scoped surfaces);
     // the PR backlog is current-state, not windowed, so it stays put. Surface the reload so a window change
@@ -380,21 +384,45 @@ export function RepoOverviewScene(): JSX.Element {
                         caption="Median created-to-merged time, bots and drafts excluded. Coarse: draft and ready time are fused."
                     />
 
-                    {/* CI cost per merged PR. */}
-                    <TrendCard
-                        title="Cost per merged PR"
-                        series={jobsAvailable ? costPerMergeSeries : null}
-                        formatValue={compactUsd}
-                        renderTooltipValue={compactUsd}
-                        goodWhenDown
-                        loading={overviewPending}
-                        emptyText={
-                            jobsAvailable
-                                ? 'No costable jobs in the window.'
-                                : 'Cost appears once the job-level source is synced.'
-                        }
-                        caption="Estimated Depot CI cost per merged PR, trailing-window ratio. Per-workflow spend is in Workflows below."
-                    />
+                    {/* CI cost per merged PR — the headline economic trend, so it earns a full quill line
+                        chart (axes + tooltip) rather than a sparkline. costPerMergeSeries carries ISO labels
+                        plus its interval; the chart owns tick/tooltip date formatting. Card chrome mirrors
+                        TrendCard so it sits flush in the grid. */}
+                    <LemonCard hoverEffect={false} className="flex flex-col p-4">
+                        <h3 className="mb-1 text-xs font-semibold text-secondary">Cost per merged PR</h3>
+                        {overviewPending ? (
+                            <LemonSkeleton className="h-20 w-full" />
+                        ) : jobsAvailable && costPerMergeSeries ? (
+                            <div className="h-20 w-full">
+                                <TimeSeriesLineChart
+                                    series={[
+                                        {
+                                            key: 'cost_per_merge',
+                                            label: 'Cost per merged PR',
+                                            data: costPerMergeSeries.values,
+                                        },
+                                    ]}
+                                    labels={costPerMergeSeries.labels}
+                                    theme={chartTheme}
+                                    config={{
+                                        xAxis: { timezone, interval: costPerMergeSeries.interval },
+                                        yAxis: { format: 'currency', currency: 'USD' },
+                                        tooltip: { valueFormatter: (value) => compactUsd(value) },
+                                    }}
+                                />
+                            </div>
+                        ) : (
+                            <div className="flex h-20 items-center text-xs text-secondary">
+                                {jobsAvailable
+                                    ? 'No costable jobs in the window.'
+                                    : 'Cost appears once the job-level source is synced.'}
+                            </div>
+                        )}
+                        <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
+                            Estimated Depot CI cost per merged PR, trailing-window ratio. Per-workflow spend is in
+                            Workflows below.
+                        </div>
+                    </LemonCard>
                 </div>
             </Section>
 
