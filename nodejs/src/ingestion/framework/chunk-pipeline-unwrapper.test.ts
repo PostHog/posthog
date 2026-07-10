@@ -4,7 +4,7 @@ import { OVERFLOW_OUTPUT } from '~/common/outputs'
 import { logger } from '~/common/utils/logger'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
-import { BatchPipelineUnwrapper } from './batch-pipeline-unwrapper'
+import { ChunkPipelineUnwrapper } from './chunk-pipeline-unwrapper'
 import { ChunkPipeline } from './chunk-pipeline.interface'
 import { DefaultContext, createContext, createNewBatchPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok, redirect } from './results'
@@ -18,7 +18,7 @@ jest.mock('~/common/utils/logger', () => ({
 
 const mockLogger = logger as jest.Mocked<typeof logger>
 
-describe('BatchPipelineUnwrapper', () => {
+describe('ChunkPipelineUnwrapper', () => {
     let message: Message
 
     beforeEach(() => {
@@ -37,7 +37,7 @@ describe('BatchPipelineUnwrapper', () => {
     describe('basic functionality', () => {
         it('should unwrap successful results and return values array', async () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
-            const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
+            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
 
             const batchResults = [
                 createOkContext({ message, processed: 'test1' }, { message }),
@@ -56,7 +56,7 @@ describe('BatchPipelineUnwrapper', () => {
 
         it('should return null when batch pipeline returns null', async () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
-            const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
+            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
 
             const results = await unwrapper.next()
 
@@ -71,7 +71,7 @@ describe('BatchPipelineUnwrapper', () => {
             ]
 
             const mockBatchPipeline = createMockPipeline<{ message: Message }>(batchResults)
-            const unwrapper = new BatchPipelineUnwrapper(mockBatchPipeline)
+            const unwrapper = new ChunkPipelineUnwrapper(mockBatchPipeline)
 
             const results = await unwrapper.next()
 
@@ -105,7 +105,7 @@ describe('BatchPipelineUnwrapper', () => {
                 feed: jest.fn(),
                 next: jest.fn().mockResolvedValueOnce(batchResults).mockResolvedValueOnce(null),
             }
-            const unwrapper = new BatchPipelineUnwrapper(mockBatchPipeline)
+            const unwrapper = new ChunkPipelineUnwrapper(mockBatchPipeline)
 
             const results = await unwrapper.next()
 
@@ -118,7 +118,7 @@ describe('BatchPipelineUnwrapper', () => {
 
         it('should handle mixed result types correctly', async () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
-            const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
+            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
 
             const batchResults = [
                 createOkContext({ message, value: 'string-value' }, { message }),
@@ -141,7 +141,7 @@ describe('BatchPipelineUnwrapper', () => {
     describe('side effects warning', () => {
         it('should log warning when there are remaining side effects', async () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
-            const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
+            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
 
             const sideEffect1 = Promise.resolve('effect1')
             const sideEffect2 = Promise.resolve('effect2')
@@ -159,7 +159,7 @@ describe('BatchPipelineUnwrapper', () => {
                 { message, processed: 'test2' },
             ])
             expect(mockLogger.warn).toHaveBeenCalledWith(
-                'BatchPipelineUnwrapper found 2 remaining side effects that were not handled'
+                'ChunkPipelineUnwrapper found 2 remaining side effects that were not handled'
             )
         })
 
@@ -178,19 +178,19 @@ describe('BatchPipelineUnwrapper', () => {
             ]
 
             const mockBatchPipeline = createMockPipeline<{ message: Message }>(batchResults)
-            const unwrapper = new BatchPipelineUnwrapper(mockBatchPipeline)
+            const unwrapper = new ChunkPipelineUnwrapper(mockBatchPipeline)
 
             const results = await unwrapper.next()
 
             expect(results).toEqual([{ message, processed: 'success' }])
             expect(mockLogger.warn).toHaveBeenCalledWith(
-                'BatchPipelineUnwrapper found 3 remaining side effects that were not handled'
+                'ChunkPipelineUnwrapper found 3 remaining side effects that were not handled'
             )
         })
 
         it('should handle multiple side effects on single result', async () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
-            const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
+            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
 
             const sideEffect1 = Promise.resolve('effect1')
             const sideEffect2 = Promise.resolve('effect2')
@@ -211,13 +211,13 @@ describe('BatchPipelineUnwrapper', () => {
 
             expect(results).toEqual([{ message, processed: 'test' }])
             expect(mockLogger.warn).toHaveBeenCalledWith(
-                'BatchPipelineUnwrapper found 3 remaining side effects that were not handled'
+                'ChunkPipelineUnwrapper found 3 remaining side effects that were not handled'
             )
         })
 
         it('should not log warning when no side effects remain', async () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
-            const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
+            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
 
             const batchResults = [
                 createOkContext({ message, processed: 'test1' }, { message }),
@@ -236,7 +236,7 @@ describe('BatchPipelineUnwrapper', () => {
 
         it('should handle empty side effects arrays correctly', async () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
-            const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
+            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
 
             const batchResults = [createOkContext({ message, processed: 'test' }, { message, sideEffects: [] })]
 
@@ -252,7 +252,7 @@ describe('BatchPipelineUnwrapper', () => {
         it('should delegate feed calls to the batch pipeline', () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const feedSpy = jest.spyOn(batchPipeline, 'feed')
-            const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
+            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
 
             const batchResults = [createOkContext({ message, processed: 'test' }, { message })]
 
@@ -265,7 +265,7 @@ describe('BatchPipelineUnwrapper', () => {
     describe('edge cases', () => {
         it('should handle empty batches', async () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
-            const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
+            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
 
             unwrapper.feed([])
             const results = await unwrapper.next()
@@ -276,7 +276,7 @@ describe('BatchPipelineUnwrapper', () => {
 
         it('should handle complex nested object values', async () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
-            const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
+            const unwrapper = new ChunkPipelineUnwrapper(batchPipeline)
 
             const complexValue = {
                 message,
@@ -310,7 +310,7 @@ describe('BatchPipelineUnwrapper', () => {
             ]
 
             const mockBatchPipeline = createMockPipeline<{ message: Message }>(batchResults)
-            const unwrapper = new BatchPipelineUnwrapper(mockBatchPipeline)
+            const unwrapper = new ChunkPipelineUnwrapper(mockBatchPipeline)
 
             const results = await unwrapper.next()
 

@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchPipelineUnwrapper } from './batch-pipeline-unwrapper'
 import { BatchPipelineBuilder, newBatchPipelineBuilder } from './builders'
+import { ChunkPipelineUnwrapper } from './chunk-pipeline-unwrapper'
 import { ChunkPipeline } from './chunk-pipeline.interface'
 import { OkResultWithContext, PipelineWarning } from './pipeline.interface'
 import { PipelineResult, ok } from './results'
@@ -100,6 +100,6 @@ export function createOkContext<T, C extends Record<string, unknown> = Record<st
  */
 export function createUnwrapper<TInput, TOutput, C, R extends string = never>(
     batchPipeline: ChunkPipeline<TInput, TOutput, C, C, R>
-): BatchPipelineUnwrapper<TInput, TOutput, C, R> {
-    return new BatchPipelineUnwrapper(batchPipeline)
+): ChunkPipelineUnwrapper<TInput, TOutput, C, R> {
+    return new ChunkPipelineUnwrapper(batchPipeline)
 }

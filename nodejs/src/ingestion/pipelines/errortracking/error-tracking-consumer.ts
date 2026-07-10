@@ -26,7 +26,7 @@ import { OverflowLaneOverflowRedirect } from '~/ingestion/common/overflow-redire
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
 import { IngestionLane, IngestionOverflowMode } from '~/ingestion/config'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
+import { ChunkPipelineUnwrapper } from '~/ingestion/framework/chunk-pipeline-unwrapper'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { PluginEvent } from '~/plugin-scaffold'
 import { HealthCheckResult, PluginServerService } from '~/types'
@@ -126,7 +126,7 @@ const latestOffsetTimestampGauge = new Gauge({
 export class ErrorTrackingConsumer {
     protected name = 'error-tracking-consumer'
     protected kafkaConsumer: KafkaConsumerInterface
-    protected pipeline!: BatchPipelineUnwrapper<
+    protected pipeline!: ChunkPipelineUnwrapper<
         { message: Message },
         ErrorTrackingPipelineOutput,
         { message: Message },

@@ -35,9 +35,9 @@ import { createHogTransformEventStep } from '~/ingestion/common/steps/event-proc
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { IngestionOverflowMode } from '~/ingestion/config'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
+import { ChunkPipelineUnwrapper } from '~/ingestion/framework/chunk-pipeline-unwrapper'
 import { TopHogRegistry, count, countOk, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { createBatch, createUnwrapper } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
@@ -155,7 +155,7 @@ function applyKeyedRateLimiters<TInput, TOutput, CInput, COutput, R extends stri
  */
 export function createErrorTrackingPipeline(
     config: ErrorTrackingPipelineConfig
-): BatchPipelineUnwrapper<
+): ChunkPipelineUnwrapper<
     ErrorTrackingPipelineInput,
     ErrorTrackingPipelineOutput,
     { message: Message },
@@ -322,7 +322,7 @@ export function createErrorTrackingPipeline(
  * handled by the result handling pipeline (DLQ, drop, redirect).
  */
 export async function runErrorTrackingPipeline(
-    pipeline: BatchPipelineUnwrapper<
+    pipeline: ChunkPipelineUnwrapper<
         ErrorTrackingPipelineInput,
         ErrorTrackingPipelineOutput,
         { message: Message },

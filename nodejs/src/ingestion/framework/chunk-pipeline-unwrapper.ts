@@ -4,18 +4,18 @@ import { ChunkPipeline, OkResultWithContext } from './chunk-pipeline.interface'
 import { isOkResult } from './results'
 
 /**
- * Pipeline unwrapper that extracts successful results from a batch pipeline and logs warnings about remaining side effects.
+ * Pipeline unwrapper that extracts successful results from a chunk pipeline and logs warnings about remaining side effects.
  * This unwrapper filters out non-OK results and returns only the unwrapped values.
  */
-export class BatchPipelineUnwrapper<TInput, TOutput, C, R extends string = never> {
-    constructor(private batchPipeline: ChunkPipeline<TInput, TOutput, C, C, R>) {}
+export class ChunkPipelineUnwrapper<TInput, TOutput, C, R extends string = never> {
+    constructor(private chunkPipeline: ChunkPipeline<TInput, TOutput, C, C, R>) {}
 
     feed(elements: OkResultWithContext<TInput, C>[]): void {
-        this.batchPipeline.feed(elements)
+        this.chunkPipeline.feed(elements)
     }
 
     async next(): Promise<TOutput[] | null> {
-        const results = await this.batchPipeline.next()
+        const results = await this.chunkPipeline.next()
 
         if (results === null) {
             return null
@@ -36,7 +36,7 @@ export class BatchPipelineUnwrapper<TInput, TOutput, C, R extends string = never
 
         // Log warning if there are remaining side effects
         if (totalSideEffects > 0) {
-            logger.warn(`BatchPipelineUnwrapper found ${totalSideEffects} remaining side effects that were not handled`)
+            logger.warn(`ChunkPipelineUnwrapper found ${totalSideEffects} remaining side effects that were not handled`)
         }
 
         return unwrappedValues
