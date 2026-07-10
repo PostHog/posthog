@@ -37,9 +37,10 @@ When asked for a business number (MRR, activation rate, active users, ...):
 
 2. **If an approved, non-drifted metric exists**, run it with `data-catalog-metric-run` and cite that
    you used the canonical definition. Prefer this over re-deriving. Never run a `proposed` or drifted
-   metric and present it as authoritative (the run response `status` tells you which it is). If the
-   metric's `definition_kind` is `MarkdownDefinition` (agent-calculated), the run returns the
-   calculation steps in `instructions` rather than computed results - follow those steps yourself.
+   metric and present it as authoritative — the run response reports both: `status` must be `approved`
+   and `is_drifted` must be false. If the metric's `definition_kind` is `MarkdownDefinition`
+   (agent-calculated), the run returns the calculation steps in `instructions` rather than computed
+   results - follow those steps yourself.
 
 3. **If no metric fits**, derive the number yourself — but derive it well:
    - Prefer `certified` tables/views and avoid `deprecated` ones (the `certification` column on
