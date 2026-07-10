@@ -75,21 +75,10 @@ export const SidePanelDiscussion: Story = {
 
 export const SidePanelAccessControl: Story = {
     args: { panel: SidePanelTab.AccessControl },
-    parameters: {
-        // AccessControl is only available on a scene that provides an access-control resource
-        // context. On the dashboards list it wasn't, so the panel used to fall back to the Max
-        // tab; point at a dashboard detail scene so the story renders the actual tab.
-        pageUrl: urls.dashboard('1'),
-    },
 }
 
 export const SidePanelInfo: Story = {
     args: { panel: SidePanelTab.Info },
-    parameters: {
-        // Info requires a scene that renders a ScenePanel; the dashboards list doesn't, so the
-        // panel used to fall back to the Max tab. A dashboard detail scene provides it.
-        pageUrl: urls.dashboard('1'),
-    },
 }
 
 export const SidePanelExports: Story = {
