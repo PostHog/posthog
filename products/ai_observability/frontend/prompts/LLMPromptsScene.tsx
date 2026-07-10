@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
@@ -15,8 +15,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
-import { LemonField } from '~/lib/lemon-ui/LemonField'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
@@ -24,7 +22,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
-import { PROMPT_NAME_MAX_LENGTH, openArchivePromptDialog, validatePromptName } from './utils'
+import { openArchivePromptDialog, openDuplicatePromptDialog } from './utils'
 
 export const scene: SceneExport = {
     component: LLMPromptsScene,
@@ -33,7 +31,8 @@ export const scene: SceneExport = {
 }
 
 export function LLMPromptsScene(): JSX.Element {
-    const { setFilters, deletePrompt, duplicatePrompt } = useActions(llmPromptsLogic)
+    const { setFilters, deletePrompt } = useActions(llmPromptsLogic)
+    const { duplicatePrompt } = useAsyncActions(llmPromptsLogic)
     const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel, shouldShowEmptyState } =
         useValues(llmPromptsLogic)
     const { searchParams } = useValues(router)
@@ -108,30 +107,11 @@ export function LLMPromptsScene(): JSX.Element {
                                     minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton
-                                        onClick={() => {
-                                            LemonDialog.openForm({
-                                                title: 'Duplicate prompt',
-                                                initialValues: {
-                                                    newName: `${prompt.name}-copy`,
-                                                },
-                                                content: (
-                                                    <LemonField name="newName" label="New prompt name">
-                                                        <LemonInput
-                                                            data-attr="llma-prompt-duplicate-name"
-                                                            placeholder="my-prompt-copy"
-                                                            maxLength={PROMPT_NAME_MAX_LENGTH}
-                                                            autoFocus
-                                                        />
-                                                    </LemonField>
-                                                ),
-                                                errors: {
-                                                    newName: (name: string) => validatePromptName(name),
-                                                },
-                                                onSubmit: async ({ newName }) => {
-                                                    duplicatePrompt(prompt.name, newName)
-                                                },
-                                            })
-                                        }}
+                                        onClick={() =>
+                                            openDuplicatePromptDialog(prompt.name, (newName) =>
+                                                duplicatePrompt(prompt.name, newName)
+                                            )
+                                        }
                                         data-attr="llma-prompt-dropdown-duplicate"
                                         fullWidth
                                     >

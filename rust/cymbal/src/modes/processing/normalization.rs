@@ -61,10 +61,13 @@ struct LibRule {
 
 /// The normalization table, keyed on `$lib`.
 ///
-/// All cutoffs are `None` today: no SDK has shipped the canonical-order flip
-/// yet. When an SDK ships it, change its `canonical_since` to the release
-/// version and leave everything else alone — legacy payloads keep normalizing,
-/// new payloads pass through.
+/// A `None` cutoff means the SDK has not shipped the canonical-order flip yet.
+/// When an SDK ships it, change its `canonical_since` to the release version
+/// and leave everything else alone — legacy payloads keep normalizing, new
+/// payloads pass through. The cutoff must be merged and deployed BEFORE the
+/// SDK release it names exists, and that release must be the flip: an
+/// unrelated release claiming the version would ship crash-first payloads the
+/// gate no longer fixes.
 ///
 /// Built lazily because `semver::Version` is not `const`-constructible; cached
 /// for the process lifetime since this is consulted for every ingested event.
@@ -92,7 +95,11 @@ fn lib_rules() -> &'static [LibRule] {
             .map(|lib| LibRule {
                 lib,
                 fix: WireOrderFix::FRAMES,
-                canonical_since: None,
+                canonical_since: match lib {
+                    // posthog-rs ships the flip in 0.19.0 (PostHog/posthog-rs#176).
+                    "posthog-rs" => Some(Version::new(0, 19, 0)),
+                    _ => None,
+                },
             })
             .collect();
 
@@ -306,6 +313,38 @@ mod test {
         // Natively-canonical SDKs have no legacy order.
         assert!(legacy_wire_order(Some("posthog-node"), &canonical).is_none());
         assert!(legacy_wire_order(None, &canonical).is_none());
+    }
+
+    #[test]
+    fn rs_cutoff_gates_normalization_by_version() {
+        // Below the 0.19.0 cutoff (and for unparseable versions): still
+        // crash-first on the wire, so frames reverse and a legacy snapshot is
+        // returned.
+        for version in [Some("0.18.0"), Some("0.3.7"), Some("garbage"), None] {
+            let mut list: ExceptionList =
+                vec![exception_with_frames("Boom", &["main", "boom"])].into();
+            let legacy = normalize_wire_order(&mut list, Some("posthog-rs"), version);
+            assert!(legacy.is_some(), "{version:?} should normalize");
+            assert_eq!(frame_names(&list[0]), vec!["boom", "main"]);
+        }
+
+        // At/above the cutoff: canonical on the wire, untouched.
+        for version in ["0.19.0", "0.19.1", "0.20.0", "1.0.0"] {
+            let mut list: ExceptionList =
+                vec![exception_with_frames("Boom", &["main", "boom"])].into();
+            let legacy = normalize_wire_order(&mut list, Some("posthog-rs"), Some(version));
+            assert!(legacy.is_none(), "{version} should pass through");
+            assert_eq!(frame_names(&list[0]), vec!["main", "boom"]);
+        }
+
+        // Post-flip events still reconstruct the legacy order for the legacy
+        // fingerprint versions — the cutoff stops reordering, not legacy
+        // hashing.
+        let canonical: ExceptionList =
+            vec![exception_with_frames("Boom", &["main", "boom"])].into();
+        let legacy = legacy_wire_order(Some("posthog-rs"), &canonical)
+            .expect("reconstruction must ignore the cutoff");
+        assert_eq!(frame_names(&legacy[0]), vec!["boom", "main"]);
     }
 
     #[test]

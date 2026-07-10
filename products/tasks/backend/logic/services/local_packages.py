@@ -11,6 +11,7 @@ Only active in DEBUG mode — production always uses the registry image.
 from __future__ import annotations
 
 import os
+import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,3 +76,28 @@ def get_local_posthog_code_packages() -> tuple[LocalPackage, ...] | None:
         return None
 
     return packages
+
+
+def get_local_package_runtime_dependencies(packages: tuple[LocalPackage, ...]) -> dict[str, dict[str, str]]:
+    """Collect registry dependencies needed by the overlaid local package builds."""
+    dependencies: dict[str, dict[str, str]] = {}
+
+    for package in packages:
+        manifest_path = package.source_path / "package.json"
+        manifest = json.loads(manifest_path.read_text())
+        package_dependencies = manifest.get("dependencies", {})
+        if not isinstance(package_dependencies, dict):
+            raise ValueError(f"Expected dependencies to be an object in {manifest_path}")
+
+        runtime_dependencies: dict[str, str] = {}
+        for name, version in package_dependencies.items():
+            if not isinstance(name, str) or not isinstance(version, str):
+                raise ValueError(f"Expected dependency names and versions to be strings in {manifest_path}")
+            if version.startswith("workspace:"):
+                continue
+            runtime_dependencies[name] = version
+
+        if runtime_dependencies:
+            dependencies[package.name] = dict(sorted(runtime_dependencies.items()))
+
+    return dependencies
