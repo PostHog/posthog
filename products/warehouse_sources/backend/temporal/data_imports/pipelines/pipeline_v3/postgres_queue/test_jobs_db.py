@@ -519,6 +519,31 @@ class TestBatchQueueLeaseRenewal:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestVerifyGroupLeaseSync:
+    # Must agree with the async verify_advisory_lock predicate: a divergence
+    # (e.g. dropping the expiry check) silently disarms the pre-commit guard.
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "lease_expires_in,checked_owner,expected",
+        [
+            (300, OWNER_A, True),  # live lease, right owner
+            (-1, OWNER_A, False),  # expired lease
+            (300, OWNER_B, False),  # live lease held by someone else
+            (None, OWNER_A, False),  # no lease row at all
+        ],
+    )
+    async def test_matches_lease_state(self, conn, _db_url, lease_expires_in, checked_owner, expected):
+        if lease_expires_in is not None:
+            await _insert_lease(conn, team_id=1, schema_id="s1", owner=OWNER_A, expires_in_seconds=lease_expires_in)
+
+        owns = BatchQueue.verify_group_lease_sync(
+            _db_url, team_id=1, schema_id="s1", owner_token=checked_owner, connect_timeout_seconds=5
+        )
+
+        assert owns is expected
+
+
+@pytest.mark.django_db(transaction=True)
 class TestQueueFreshnessProbe:
     @pytest.mark.asyncio
     async def test_reports_only_batches_never_picked_up(self, conn):
