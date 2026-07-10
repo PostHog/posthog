@@ -438,6 +438,23 @@ async def get_credentials_using_user_aws_role(
         )
         try:
             async with external_session.client("sts") as sts:
+                try:
+                    # This first call is expected to fail, as it does not
+                    # include an ExternalId. Passing here would indicate the
+                    # customer has not included ExternalId condition in their
+                    # policy, and we should fail.
+                    _ = await sts.assume_role(
+                        RoleArn=aws_role_arn,
+                        RoleSessionName=session_name,
+                        DurationSeconds=duration,
+                    )
+                except:
+                    pass
+                else:
+                    raise InvalidCredentialsError(
+                        "The provided role '{aws_role_arn}' allows access without a required external id condition. Update the role's policy with a condition to match '{external_id}' as a external id."
+                    )
+
                 second_response = await sts.assume_role(
                     RoleArn=aws_role_arn,
                     RoleSessionName=session_name,
