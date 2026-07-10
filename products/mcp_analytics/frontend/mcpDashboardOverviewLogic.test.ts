@@ -67,6 +67,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'OpenAI Responses API',
             'OpenAI',
             'OpenAI Codex',
+            'Grok',
             'Cursor',
             'VS Code',
             'Windsurf',

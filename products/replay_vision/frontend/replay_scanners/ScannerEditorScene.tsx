@@ -3,22 +3,17 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
+import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
-import {
-    LemonButton,
-    LemonCollapse,
-    LemonInput,
-    LemonSelect,
-    LemonSwitch,
-    LemonTag,
-    LemonTextArea,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -32,11 +27,17 @@ import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
 import { replayScannerLogic } from './replayScannerLogic'
-import { SCANNER_EDITOR_STEP_ORDER, ScannerEditorStep, scannerEditorSceneLogic } from './scannerEditorSceneLogic'
-import { ScannerEditorStepper } from './ScannerEditorStepper'
+import {
+    SCANNER_EDITOR_STEP_ORDER,
+    ScannerEditorStep,
+    scannerEditorSceneLogic,
+    scannerStepUrl,
+} from './scannerEditorSceneLogic'
+import { ScannerEditorStepper, STEP_LABELS } from './ScannerEditorStepper'
 import { MODEL_OPTIONS, SCANNER_TYPE_OPTIONS } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
+const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 const HedgehogXRay = pngHoggie(xRayPng)
 
@@ -44,6 +45,28 @@ export const scene: SceneExport = {
     component: ScannerEditorSceneComponent,
     logic: scannerEditorSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
+}
+
+// Template renders its own header, so only the form steps need one here.
+const STEP_HEADERS: Record<
+    Exclude<ScannerEditorStep, 'template'>,
+    { hedgehog: JSX.Element; title: string; subtitle: string }
+> = {
+    configure: {
+        hedgehog: <HedgehogMagnifyingGlass className="h-24 w-auto shrink-0" />,
+        title: 'Configure your scanner',
+        subtitle: 'What it looks for and how it analyzes recordings.',
+    },
+    triggers: {
+        hedgehog: <HedgehogConstruction2 className="h-24 w-auto shrink-0" />,
+        title: 'Set up scan conditions',
+        subtitle: 'Pick which recordings to scan, and how often.',
+    },
+    self_driving: {
+        hedgehog: <HedgehogImTheDriver className="h-24 w-auto shrink-0" />,
+        title: 'Self-driving',
+        subtitle: 'Close the loop: from findings to shipped fixes.',
+    },
 }
 
 export function ScannerEditorSceneComponent(): JSX.Element {
@@ -55,6 +78,11 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const { scanner, scannerLoading, isScannerSubmitting, scannerValidationErrors, showScannerErrors } =
         useValues(scannerLogic)
     const { submitScanner, setSubmitIntent } = useActions(scannerLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
+        return <NotFound object="page" />
+    }
 
     if (step !== 'template' && (scannerLoading || !scanner)) {
         return (
@@ -66,13 +94,18 @@ export function ScannerEditorSceneComponent(): JSX.Element {
 
     const title = isNew ? scanner?.name || 'New scanner' : scanner?.name || 'Scanner'
 
-    const stepErrors = showScannerErrors
-        ? {
-              template: false,
-              configure: !!(scannerValidationErrors?.name || scannerValidationErrors?.scanner_config),
-              triggers: scannerValidationErrors?.sampling_rate != null,
-          }
-        : { template: false, configure: false, triggers: false }
+    const stepErrors: Record<ScannerEditorStep, boolean> = {
+        template: false,
+        self_driving: false,
+        configure: showScannerErrors && !!(scannerValidationErrors?.name || scannerValidationErrors?.scanner_config),
+        triggers: showScannerErrors && scannerValidationErrors?.sampling_rate != null,
+    }
+
+    // Validate the current step and move on: submit routes to the next visible step on success.
+    const advance = (): void => {
+        setSubmitIntent('advance')
+        submitScanner()
+    }
 
     const goToStep = (next: ScannerEditorStep): void => {
         if (isScannerSubmitting) {
@@ -83,19 +116,10 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                 router.actions.push(urls.replayVisionScannerConfigure(scannerId))
                 return
             }
-            setSubmitIntent('advance')
-            submitScanner()
+            advance()
             return
         }
-        if (next === 'template') {
-            router.actions.push(urls.replayVisionScannerTemplate(scannerId))
-            return
-        }
-        router.actions.push(
-            next === 'configure'
-                ? urls.replayVisionScannerConfigure(scannerId)
-                : urls.replayVisionScannerTriggers(scannerId)
-        )
+        router.actions.push(scannerStepUrl(next, scannerId))
     }
 
     return (
@@ -137,32 +161,26 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                         >
                             <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-6 [&_.Field--error_.input-like]:!border-danger">
                                 <div className="flex items-center gap-3">
-                                    {step === 'configure' ? (
-                                        <HedgehogMagnifyingGlass className="h-24 w-auto shrink-0" />
-                                    ) : (
-                                        <HedgehogConstruction2 className="h-24 w-auto shrink-0" />
-                                    )}
+                                    {STEP_HEADERS[step].hedgehog}
                                     <div>
-                                        <div className="text-base font-semibold">
-                                            {step === 'configure' ? 'Configure your scanner' : 'Set up scan conditions'}
-                                        </div>
-                                        <div className="text-sm text-muted">
-                                            {step === 'configure'
-                                                ? 'What it looks for and how it analyzes recordings.'
-                                                : 'Pick which recordings to scan, and how often.'}
-                                        </div>
+                                        <div className="text-base font-semibold">{STEP_HEADERS[step].title}</div>
+                                        <div className="text-sm text-muted">{STEP_HEADERS[step].subtitle}</div>
                                     </div>
                                 </div>
-                                {step === 'configure' ? <ConfigureStep /> : <ScannerTriggers scannerId={scannerId} />}
+                                {step === 'configure' ? (
+                                    <ConfigureStep />
+                                ) : step === 'triggers' ? (
+                                    <ScannerTriggers scannerId={scannerId} />
+                                ) : (
+                                    <SelfDrivingStep />
+                                )}
                                 <EditorFooter
                                     step={step}
                                     scannerId={scannerId}
+                                    visibleSteps={visibleSteps}
                                     isNew={isNew}
                                     isSubmitting={isScannerSubmitting}
-                                    onAdvance={() => {
-                                        setSubmitIntent('advance')
-                                        submitScanner()
-                                    }}
+                                    onAdvance={advance}
                                     onSave={() => {
                                         setSubmitIntent('save')
                                         submitScanner()
@@ -254,37 +272,46 @@ function ConfigureStep(): JSX.Element {
                 </div>
             )}
 
-            <ScannerTypeConfigEditor scannerId={scannerId} />
+            <div className="flex flex-col gap-1 items-start">
+                <LemonField name="model" label="Model" className="items-start">
+                    <LemonSelect value={scanner.model} options={MODEL_OPTIONS} />
+                </LemonField>
+                <div className="text-xs text-muted">
+                    Newer models tend to produce higher-quality observations, but cost more per observation.
+                </div>
+            </div>
 
-            <LemonCollapse
-                panels={[
-                    {
-                        key: 'advanced',
-                        header: 'Advanced',
-                        content: (
-                            <div className="flex flex-col gap-4">
-                                <LemonField name="model" label="Model" className="items-start">
-                                    <LemonSelect value={scanner.model} options={MODEL_OPTIONS} />
-                                </LemonField>
-                                <LemonField name="emits_signals">
-                                    {({ value, onChange }) => (
-                                        <div className="flex items-center gap-3">
-                                            <LemonSwitch checked={!!value} onChange={onChange} />
-                                            <div>
-                                                <div className="text-sm font-medium">Hand off to Responder agents</div>
-                                                <div className="text-xs text-muted">
-                                                    Adds a side mission to each scan: clear, actionable product issues
-                                                    are handled by PostHog Responder agents.
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </LemonField>
+            <ScannerTypeConfigEditor scannerId={scannerId} />
+        </div>
+    )
+}
+
+function SelfDrivingStep(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-4">
+            <p className="text-sm text-muted m-0">
+                Don't just find problems, fix them. As this scanner reviews recordings, any issues it spots flow into
+                PostHog Signals, where agents dig into the root cause and draft a pull request. You stay in control of
+                what ships.{' '}
+                <Link to="https://posthog.com/self-driving" target="_blank">
+                    Learn more about PostHog self-driving
+                </Link>
+                .
+            </p>
+            <LemonField name="emits_signals">
+                {({ value, onChange }) => (
+                    <div className="flex items-center gap-3">
+                        <LemonSwitch checked={!!value} onChange={onChange} />
+                        <div>
+                            <div className="text-sm font-medium">Emit findings as Signals</div>
+                            <div className="text-xs text-muted">
+                                Adds a side mission to each scan: clear, actionable product issues are emitted as
+                                PostHog Signals to feed the self-driving loop.
                             </div>
-                        ),
-                    },
-                ]}
-            />
+                        </div>
+                    </div>
+                )}
+            </LemonField>
         </div>
     )
 }
@@ -292,6 +319,7 @@ function ConfigureStep(): JSX.Element {
 function EditorFooter({
     step,
     scannerId,
+    visibleSteps,
     isNew,
     isSubmitting,
     onAdvance,
@@ -299,50 +327,51 @@ function EditorFooter({
 }: {
     step: ScannerEditorStep
     scannerId: string
+    visibleSteps: readonly ScannerEditorStep[]
     isNew: boolean
     isSubmitting: boolean
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const stepIndex = visibleSteps.indexOf(step)
+    const prevStep = stepIndex > 0 ? visibleSteps[stepIndex - 1] : null
+    const nextStep = stepIndex < visibleSteps.length - 1 ? visibleSteps[stepIndex + 1] : null
+
     return (
         <div className="flex items-center justify-between">
-            {step === 'configure' ? (
-                <>
-                    {isNew && (
-                        <LemonButton type="tertiary" to={urls.replayVisionTemplates()} data-attr="vision-editor-back">
-                            Back to templates
-                        </LemonButton>
-                    )}
-                    <LemonButton
-                        type="primary"
-                        loading={isSubmitting}
-                        onClick={onAdvance}
-                        className="ml-auto"
-                        data-attr="vision-editor-next"
-                    >
-                        Next: scan conditions
-                    </LemonButton>
-                </>
+            {/* First form step of a new scanner goes back to the template picker; a mid-flow step goes to the
+                previous visible step; editing's first step (configure, no template) has no back. */}
+            {isNew && step === 'configure' ? (
+                <LemonButton type="tertiary" to={urls.replayVisionTemplates()} data-attr="vision-editor-back">
+                    Back to templates
+                </LemonButton>
+            ) : prevStep ? (
+                <LemonButton type="tertiary" to={scannerStepUrl(prevStep, scannerId)} data-attr="vision-editor-back">
+                    Back
+                </LemonButton>
+            ) : null}
+            {nextStep ? (
+                <LemonButton
+                    type="primary"
+                    loading={isSubmitting}
+                    onClick={onAdvance}
+                    className="ml-auto"
+                    data-attr="vision-editor-next"
+                >
+                    Next: {STEP_LABELS[nextStep]}
+                </LemonButton>
             ) : (
-                <>
-                    <LemonButton
-                        type="tertiary"
-                        to={urls.replayVisionScannerConfigure(scannerId)}
-                        data-attr="vision-editor-back"
-                    >
-                        Back
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        loading={isSubmitting}
-                        onClick={onSave}
-                        data-attr="vision-editor-save"
-                        data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
-                    >
-                        {isNew ? 'Create scanner' : 'Save changes'}
-                    </LemonButton>
-                </>
+                <LemonButton
+                    type="primary"
+                    loading={isSubmitting}
+                    onClick={onSave}
+                    className="ml-auto"
+                    data-attr="vision-editor-save"
+                    data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                >
+                    {isNew ? 'Create scanner' : 'Save changes'}
+                </LemonButton>
             )}
         </div>
     )

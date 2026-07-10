@@ -79,7 +79,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_query_metric,
     get_teams_with_recording_bytes_in_period,
     get_teams_with_recording_count_in_period,
-    get_teams_with_recording_observations_count_in_period,
+    get_teams_with_replay_vision_credits_used_in_period,
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
     get_teams_with_sdk_logs_records_in_period,
@@ -294,8 +294,8 @@ QUERIES: list[QuerySpec] = [
         fn=get_teams_with_mobile_billable_recording_count_in_period,
     ),
     QuerySpec(
-        name="teams_with_recording_observations_count_in_period",
-        fn=get_teams_with_recording_observations_count_in_period,
+        name="teams_with_replay_vision_credits_used_in_period",
+        fn=get_teams_with_replay_vision_credits_used_in_period,
     ),
     # ---- ClickHouse: feature flag requests -----------------------------------
     QuerySpec(

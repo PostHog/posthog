@@ -244,10 +244,9 @@ func waitRunning(t *testing.T, p *process.Process, send func(tea.Msg)) {
 }
 
 // TestUpdateProcKeys_RestartBindingGating verifies the `r` (Restart) binding
-// is enabled in exactly the states where it has meaningful work: a running
-// proc (existing behavior) or a crashed proc (new behavior). Never-started,
-// cleanly-exited, and manually-stopped procs are all the user's chosen end-
-// state and must leave `r` disabled.
+// is enabled in every proc state — running procs restart, everything else
+// (never-started, crashed, cleanly-exited one-shots, manually-stopped) starts.
+// `r` is the universal "run this thing" key.
 func TestUpdateProcKeys_RestartBindingGating(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -259,7 +258,7 @@ func TestUpdateProcKeys_RestartBindingGating(t *testing.T) {
 			setup: func(t *testing.T) Model {
 				return readyModel(t, "backend")
 			},
-			wantEnabled: false,
+			wantEnabled: true,
 		},
 		{
 			name: "running proc",
@@ -286,7 +285,7 @@ func TestUpdateProcKeys_RestartBindingGating(t *testing.T) {
 				runUntilStatus(t, findProc(t, m, "oneshot"), m.mgr.Send(), process.StatusDone)
 				return m
 			},
-			wantEnabled: false,
+			wantEnabled: true,
 		},
 		{
 			name: "manually stopped",
@@ -297,7 +296,7 @@ func TestUpdateProcKeys_RestartBindingGating(t *testing.T) {
 				p.Stop()
 				return m
 			},
-			wantEnabled: false,
+			wantEnabled: true,
 		},
 	}
 
@@ -312,36 +311,49 @@ func TestUpdateProcKeys_RestartBindingGating(t *testing.T) {
 	}
 }
 
-// ── `r` keypress on a crashed proc actually restarts it ─────────────────────────
+// ── `r` keypress on a non-running proc actually (re)starts it ────────────────────
 
-func TestHandleNormalKey_RestartKeyRevivesCrashedProc(t *testing.T) {
-	// End-to-end check that pressing `r` on a crashed proc kicks off Start
-	// (not just that the binding is enabled). We use `sleep 30` as the shell
-	// — once the second start fires, the proc should be running again.
-	m := modelWithProcs(t, map[string]string{"flaky": "exit 1"})
-	runUntilStatus(t, findProc(t, m, "flaky"), m.mgr.Send(), process.StatusCrashed)
-
-	// Swap the shell to a long-running command so the post-`r` start lands on
-	// a process that won't immediately crash again — lets us observe the
-	// running state without races.
-	p := findProc(t, m, "flaky")
-	p.Cfg.Shell = "sleep 30"
-	t.Cleanup(func() { p.Stop() })
-
-	m.updateProcKeys()
-	if !m.keys.Restart.Enabled() {
-		t.Fatal("precondition: Restart binding should be enabled on a crashed proc")
+// End-to-end check that pressing `r` kicks off Start on procs in terminal
+// states (not just that the binding is enabled). Covers the crashed case and
+// the finished one-shot case ("migrate postgres"-style tasks that exit 0).
+func TestHandleNormalKey_RestartKeyRerunsTerminalProc(t *testing.T) {
+	cases := []struct {
+		name   string
+		shell  string
+		target process.Status
+	}{
+		{name: "crashed", shell: "exit 1", target: process.StatusCrashed},
+		{name: "finished one-shot", shell: "true", target: process.StatusDone},
 	}
 
-	next, _ := m.Update(keypress('r'))
-	_ = next
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := modelWithProcs(t, map[string]string{"task": tc.shell})
+			runUntilStatus(t, findProc(t, m, "task"), m.mgr.Send(), tc.target)
 
-	deadline := time.After(2 * time.Second)
-	for !p.IsRunning() {
-		select {
-		case <-deadline:
-			t.Fatalf("crashed proc never restarted (status: %s)", p.Status())
-		case <-time.After(20 * time.Millisecond):
-		}
+			// Swap the shell to a long-running command so the post-`r` start
+			// lands on a process that won't immediately exit again — lets us
+			// observe the running state without races.
+			p := findProc(t, m, "task")
+			p.Cfg.Shell = "sleep 30"
+			t.Cleanup(func() { p.Stop() })
+
+			m.updateProcKeys()
+			if !m.keys.Restart.Enabled() {
+				t.Fatalf("precondition: Restart binding should be enabled on a %s proc", tc.name)
+			}
+
+			next, _ := m.Update(keypress('r'))
+			_ = next
+
+			deadline := time.After(2 * time.Second)
+			for !p.IsRunning() {
+				select {
+				case <-deadline:
+					t.Fatalf("%s proc never restarted (status: %s)", tc.name, p.Status())
+				case <-time.After(20 * time.Millisecond):
+				}
+			}
+		})
 	}
 }

@@ -23,6 +23,14 @@ MAX_RETRIES = 5
 
 _SUBDOMAIN_RE = re.compile(r"^[a-z0-9-]+$")
 
+# Never reflects the raw input back: it can be a full URL or website domain the user pasted by
+# mistake, and echoing it gives no guidance on what a valid value looks like.
+_INVALID_COMPANY_DOMAIN_ERROR = (
+    "Invalid Pipedrive company domain. Enter just your Pipedrive subdomain — the part before "
+    ".pipedrive.com (for example, enter 'acme' for acme.pipedrive.com) — not a full URL or your "
+    "website's domain."
+)
+
 
 class PipedriveRetryableError(Exception):
     pass
@@ -47,7 +55,7 @@ def normalize_company_domain(raw: str) -> str:
     domain = domain.split("/")[0]
     domain = domain.removesuffix(".pipedrive.com")
     if not _SUBDOMAIN_RE.match(domain):
-        raise ValueError(f"Invalid Pipedrive company domain: {raw!r}")
+        raise ValueError(_INVALID_COMPANY_DOMAIN_ERROR)
     return domain
 
 

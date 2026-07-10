@@ -16,6 +16,7 @@ const existingAction = {
     scanner: 's1',
     enabled: true,
     trigger_config: { rrule: 'FREQ=WEEKLY;BYDAY=MO,WE;BYHOUR=14;BYMINUTE=30', timezone: 'Europe/Prague' },
+    selection: { verdict: ['yes'], min_score: 2 },
     synthesis_config: { prompt_guide: 'focus on checkout' },
     delivery_config: [{ type: 'slack', integration_id: 5, channel: 'C123' }],
 } as unknown as VisionActionApi
@@ -60,6 +61,8 @@ describe('actionEditorSceneLogic', () => {
             .toMatchValues({
                 isNew: false,
                 effectiveScannerId: 's1',
+                // The stored selection must surface as the "only matching" state, not hide behind "all".
+                targetingMode: 'filtered',
                 actionForm: {
                     name: 'action-e',
                     cadence: { weekdays: [0, 2], hour: 14, minute: 30 },
@@ -67,8 +70,19 @@ describe('actionEditorSceneLogic', () => {
                     prompt_guide: 'focus on checkout',
                     integration_id: 5,
                     channel: 'C123',
+                    verdict: ['yes'],
+                    tags: [],
+                    min_score: 2,
+                    max_score: null,
                 },
             })
+
+        // Switching back to "all" must clear the filter values — otherwise a hidden filter would
+        // silently keep narrowing the summary after save.
+        logic.actions.setTargetingMode('all')
+        await expectLogic(logic).toMatchValues({
+            actionForm: expect.objectContaining({ verdict: [], tags: [], min_score: null, max_score: null }),
+        })
     })
 
     it('creating an action submits and navigates to the new action page', async () => {
