@@ -36,7 +36,7 @@ COORDINATOR_INTERVAL_MINUTES = 1
 # long. Lets someone raise a ticket and immediately fire off 1-2 follow-ups without the AI drafting
 # off only the first message. The reference is max(ticket.created_at, latest customer comment), so a
 # brand-new ticket also waits this long before its first draft — the latency we trade for completeness.
-TICKET_SETTLE_MINUTES = 2
+TICKET_SETTLE_MINUTES = 1
 
 # Scan window. Keyed on last_message_at (the same axis the settle gate uses), so a ticket stays
 # eligible until SETTLE after its *last* customer message, regardless of how long ago it was created
