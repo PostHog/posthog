@@ -376,7 +376,7 @@
   '''
   SELECT uuid,
          distinct_id
-  FROM events
+  FROM events_json
   WHERE team_id = 99999
     AND (distinct_id IN
            (SELECT distinct_id

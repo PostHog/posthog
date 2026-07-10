@@ -1839,7 +1839,7 @@
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
-            arrayJoin(arrayConcat([tuple('Total_Values_In_Query', '', '')], if(empty(event_table.event), [], arrayMap(prop -> tuple(event_table.event, prop.1, prop.2), arrayFilter(prop -> notEquals(prop.2, ''), JSONExtractKeysAndValues(event_table.properties, 'String')))))) AS prop
+            arrayJoin(arrayConcat([tuple('Total_Values_In_Query', '', '')], if(empty(event_table.event), [], arrayMap(prop -> tuple(event_table.event, prop.1, prop.2), JSONExtractKeysAndValues(event_table.properties, 'String'))))) AS prop
      FROM filtered_events AS event_table
      RIGHT JOIN funnel_actors ON and(equals(funnel_actors.actor_id, event_table.`$group_1`), greater(toTimeZone(toDateTime(toTimeZone(event_table.timestamp, 'UTC'), 'UTC'), 'UTC'), toTimeZone(funnel_actors.first_timestamp, 'UTC')), less(toTimeZone(toDateTime(toTimeZone(event_table.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(toTimeZone(funnel_actors.final_timestamp, 'UTC'), plus(toTimeZone(toTimeZone(funnel_actors.first_timestamp, 'UTC'), 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))))))
   GROUP BY name,

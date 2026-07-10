@@ -11,7 +11,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.test_prop), 'Array'), startsWith(dynamicType(events.properties.test_prop), 'Map'), startsWith(dynamicType(events.properties.test_prop), 'Tuple')), toJSONString(events.properties.test_prop), toString(events.properties.test_prop))))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -27,7 +27,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '0'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.test_prop), 'Array'), startsWith(dynamicType(events.properties.test_prop), 'Map'), startsWith(dynamicType(events.properties.test_prop), 'Tuple')), toJSONString(events.properties.test_prop), toString(events.properties.test_prop))))), '0'), 0))
   LIMIT 50000
   '''
 # ---
