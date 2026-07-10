@@ -182,7 +182,7 @@ class TestFanOut:
 class TestFetchErrors:
     def test_non_ok_response_raises(self) -> None:
         err = _response({}, status=403, ok=False)
-        err.raise_for_status.side_effect = requests.HTTPError("403 Client Error: Forbidden")
+        err.raise_for_status.side_effect = requests.HTTPError("403 Client Error: Forbidden", response=err)
         manager = _manager()
 
         with pytest.raises(requests.HTTPError):

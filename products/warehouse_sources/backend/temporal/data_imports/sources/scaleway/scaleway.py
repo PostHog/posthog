@@ -164,9 +164,12 @@ def get_rows(
         scope = scopes[scope_index]
         url = f"{BASE_URL}{_resolve_path(config, scope)}"
         # Only the scope we resumed into consumes the saved page/token cursor; later scopes start fresh.
-        resumed_scope = resume is not None and scope_index == start_index
-        start_page = resume.page if resumed_scope else None
-        start_token = resume.page_token if resumed_scope else None
+        if resume is not None and scope_index == start_index:
+            start_page = resume.page
+            start_token = resume.page_token
+        else:
+            start_page = None
+            start_token = None
 
         for items, has_more, next_cursor in _iter_pages(
             session, url, base_params, config, logger, start_page, start_token

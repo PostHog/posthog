@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ScalewaySourceConfig
@@ -29,9 +29,13 @@ class TestScalewaySource:
         # A secret leaking as a plain (non-secret) field would be stored/echoed in cleartext, so lock
         # this down: secret_key must be a secret PASSWORD field; organization_id is a plain identifier.
         fields = {f.name: f for f in self.source.get_source_config.fields}
-        assert fields["secret_key"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["secret_key"].secret is True
-        assert fields["organization_id"].secret is not True
+        secret_key_field = fields["secret_key"]
+        organization_id_field = fields["organization_id"]
+        assert isinstance(secret_key_field, SourceFieldInputConfig)
+        assert isinstance(organization_id_field, SourceFieldInputConfig)
+        assert secret_key_field.type == SourceFieldInputConfigType.PASSWORD
+        assert secret_key_field.secret is True
+        assert organization_id_field.secret is not True
 
     def test_ships_as_alpha_and_unreleased(self) -> None:
         config = self.source.get_source_config
