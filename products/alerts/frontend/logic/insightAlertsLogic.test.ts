@@ -9,8 +9,8 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
+import type { AlertType } from '../types'
 import { alertsUnsupportedReason, areAlertsSupportedForInsight, insightAlertsLogic } from './insightAlertsLogic'
-import type { AlertType } from './types'
 
 const Insight42 = '42' as InsightShortId
 

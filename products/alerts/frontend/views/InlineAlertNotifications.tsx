@@ -6,18 +6,19 @@ import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTag } from '@
 
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
+import { urls } from 'scenes/urls'
+
+import { HogFunctionType, SlackChannelType } from '~/types'
+
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
     PendingAlertNotification,
-} from 'lib/utils/alerts'
-import { urls } from 'scenes/urls'
+} from 'products/alerts/frontend/logic/alertNotifications'
 
-import { HogFunctionType, SlackChannelType } from '~/types'
-
-import { ALERT_NOTIFICATION_TYPE_OPTIONS, alertNotificationLogic } from '../alertNotificationLogic'
+import { ALERT_NOTIFICATION_TYPE_OPTIONS, alertNotificationLogic } from '../logic/alertNotificationLogic'
 
 function resolveSlackChannelName(channelValue: string, slackChannels: SlackChannelType[]): string | null {
     const channelId = channelValue.split('|')[0]

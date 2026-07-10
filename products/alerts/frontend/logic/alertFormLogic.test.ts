@@ -21,6 +21,8 @@ import {
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
+import { supportsOngoingInterval } from '../types'
+import type { AlertType } from '../types'
 import {
     alertFormLogic,
     canCheckOngoingInterval,
@@ -32,8 +34,6 @@ import { alertNotificationLogic } from './alertNotificationLogic'
 import { deriveFunnelAlertPreview } from './funnelAlertPreview'
 import { deriveHogQLAlertPreview, HOGQL_ANY_ROW_MAX_ROWS, HOGQL_LAST_ROW_MAX_ROWS } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
-import { supportsOngoingInterval } from './types'
-import type { AlertType } from './types'
 
 const Insight42 = '42' as InsightShortId
 

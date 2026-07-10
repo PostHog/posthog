@@ -8,9 +8,9 @@ import { objectClean } from 'lib/utils/objects'
 
 import { AlertState } from '~/queries/schema/schema-general'
 
+import { AlertType } from '../types'
 import { AlertLogicProps } from './alertLogic'
 import type { alertsLogicType } from './alertsLogicType'
-import { AlertType } from './types'
 
 export interface AlertsLogicProps extends AlertLogicProps {}
 

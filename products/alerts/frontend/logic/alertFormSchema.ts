@@ -1,9 +1,9 @@
 import type { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { z } from 'zod'
 
+import type { AlertType } from '../types'
 import type { AlertFormType } from './alertFormLogic'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
-import type { AlertType } from './types'
 
 export const THRESHOLD_BOUNDS_FORM_ERROR = 'Enter at least one threshold (less than or more than)'
 
