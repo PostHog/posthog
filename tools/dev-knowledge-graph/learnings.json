@@ -203,6 +203,27 @@
       "concepts": [
         "ci-bot-comment"
       ]
+    },
+    {
+      "id": "group-types-spend-complexity",
+      "title": "Every new group type makes the taxonomic filter more complex, and we rarely go the other way",
+      "markdown": "Adding a group type is our standard move for surfacing a new data domain to users — autocapture got one, MCP analytics got one the same way. It works: users can immediately filter, funnel, and path over the new events.\n\nBut each group type spends from a complexity budget the taxonomic filter pays: another tab, more ordering and promotion interactions, more empty-search surface (users type the same canonical terms into every tab), and every behavior must be mirrored across the three live variants. Symptoms already show — the single-group-type display was confusing enough to need a fix, and cross-tab \"No results\" states come partly from tab proliferation.\n\nThe worry this strengthens: we make the filter more complex more often than we make it less complex. Treat each new group type as a deliberate spend, and pair additions with consolidation where possible.",
+      "concepts": [
+        "taxonomic-filter",
+        "mcp-analytics"
+      ],
+      "evidence_tasks": [
+        87234,
+        81895,
+        74008
+      ],
+      "skills": [
+        {
+          "name": "modifying-taxonomic-filter",
+          "status": "existing"
+        }
+      ],
+      "author": "paul"
     }
   ]
 }

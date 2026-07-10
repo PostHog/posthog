@@ -60,7 +60,7 @@
       "name": "Toolbar bundle",
       "layer": "frontend",
       "parent": "toolbar",
-      "markdown": "Ships as a single bundle to customer pages. Hard constraint: **CloudFront won't gzip files over 10 MB**, and the bundle crossed 13 MB — so size regressions ship uncompressed to every customer page load. Fixes that worked: lazy-loading feature menus, cutting app-zone edges from the bundle graph, trimming serialized element attributes."
+      "markdown": "Ships as a single bundle to customer pages. Hard constraint: **CloudFront won't gzip files over 10 MB**, and the bundle has crossed 13 MB — past the limit, size regressions ship uncompressed to every customer page load.\n\nWhat keeps it down: feature menus load lazily, app-zone edges stay out of the bundle graph, and serialized element attributes are trimmed."
     },
     {
       "id": "heatmaps-clickmaps",
@@ -81,7 +81,7 @@
       "name": "Dashboards API & tile serialization",
       "layer": "django",
       "parent": "dashboards",
-      "markdown": "`GET /api/.../dashboards/:id` serializes every tile server-side; tile serialization is the dominant cost and was parallelized behind a feature flag ([#69660](https://github.com/PostHog/posthog/pull/69660)). Loading the `Team` model is itself expensive (wide row, many unused columns) and shows up in every request path that touches it."
+      "markdown": "`GET /api/.../dashboards/:id` serializes every tile server-side; tile serialization is the dominant cost and can run in parallel behind a feature flag ([#69660](https://github.com/PostHog/posthog/pull/69660)). Loading the `Team` model is itself expensive (wide row, many unused columns) and shows up in every request path that touches it."
     },
     {
       "id": "session-replay",
@@ -137,7 +137,7 @@
       "name": "MCP analytics",
       "layer": "django",
       "parent": null,
-      "markdown": "Analytics over MCP tool-call events (`products/mcp_analytics/`): known event schema + property set, query runners on the backend, a dashboard frontend, and harness attribution (which client called the tool). Its events get separated in the taxonomic filter the way autocapture is, so users can build funnels and paths between tool calls."
+      "markdown": "Analytics over MCP tool-call events (`products/mcp_analytics/`): a known event schema and property set, query runners on the backend, a dashboard frontend, and harness attribution (which client called the tool).\n\nIts events appear as their own group type in the taxonomic filter — the same mechanism autocapture uses — so users can build funnels and paths between tool calls."
     },
     {
       "id": "ci-system",
