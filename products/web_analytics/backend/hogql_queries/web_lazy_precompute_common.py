@@ -19,6 +19,7 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
+from prometheus_client import Counter
 
 from posthog.schema import EventPropertyFilter, PropertyOperator, SessionsV2JoinMode
 
@@ -27,6 +28,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog import redis
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -72,14 +74,134 @@ def pin_team_oom(team_id: int) -> None:
         logger.warning("web_precompute.oom_pin_failed", team_id=team_id, exc_info=True)
 
 
+# --- Stale-while-revalidate (RFC 5861) -------------------------------------------------
+#
+# The lazy executor's `stale_while_revalidate_seconds` is the *serve* half: user-facing
+# requests whose windows expired within the grace get their complete-but-stale rows
+# instantly instead of recomputing inline. The helpers below are the *revalidate* half:
+# a stale hit enqueues a debounced Celery task that re-runs the query in the background
+# so the next fetch is fresh, instead of relying solely on the hourly eager warmer
+# (which only covers warmed query shapes).
+
+# The trigger tag the revalidation task runs under. Lives here, next to the trigger set,
+# so the two cannot drift apart.
+REVALIDATION_TRIGGER = "webAnalyticsStaleRevalidation"
+
+# Requests tagged with any of these triggers ARE the refresh mechanism: they must never
+# be served stale (they'd freeze the cache serving stale to themselves) and they keep
+# the framework's full wait budget.
+BACKGROUND_WARMING_TRIGGERS = frozenset(
+    {
+        "webAnalyticsEagerBaselineWarming",
+        "webAnalyticsQueryWarming",
+        REVALIDATION_TRIGGER,
+    }
+)
+
+# Stale-while-revalidate window for *user-facing* requests: windows that expired within
+# this grace are served from their existing (complete-but-stale) rows instantly instead
+# of recomputing inline, and a background revalidation is enqueued. Refresh normally
+# arrives within the debounce window via the revalidation task (plus the hourly eager
+# warmer for warmed shapes) — the grace is the ceiling for revalidation failures and
+# warmer outages. Must stay well under the framework's 48h ClickHouse expiry buffer
+# (rows must still exist).
+STALE_WHILE_REVALIDATE_SECONDS = 6 * 60 * 60
+
+# Debounce on enqueueing the revalidation task, keyed per (team, query shape). Must
+# exceed the worst-case task duration (two ensure phases x 180s framework budget + the
+# read, ~7min) so a running revalidation can't be double-enqueued; short enough that a
+# failed revalidation is retried by the next stale hit well within the 6h grace.
+REVALIDATION_DEBOUNCE_SECONDS = 15 * 60
+
+SWR_REVALIDATE_REDIS_PREFIX = "web_analytics:swr_revalidate:"
+
+WEB_ANALYTICS_LAZY_PRECOMPUTE_STALE_SERVED = Counter(
+    "web_analytics_lazy_precompute_stale_served_total",
+    "Reads served from expired-within-grace jobs instead of recomputing inline (stale-while-revalidate).",
+    labelnames=["family"],
+)
+
+WEB_ANALYTICS_LAZY_PRECOMPUTE_REVALIDATION_ENQUEUED = Counter(
+    "web_analytics_lazy_precompute_revalidation_enqueued_total",
+    "Background revalidation tasks enqueued after a stale-served read.",
+    labelnames=["family"],
+)
+
+WEB_ANALYTICS_LAZY_PRECOMPUTE_REVALIDATION_DEBOUNCED = Counter(
+    "web_analytics_lazy_precompute_revalidation_debounced_total",
+    "Stale-served reads that skipped enqueueing because a revalidation was already pending.",
+    labelnames=["family"],
+)
+
+
+def is_background_warming_request() -> bool:
+    return get_query_tag_value("trigger") in BACKGROUND_WARMING_TRIGGERS
+
+
+def _swr_revalidate_key(team: Team, query: Any) -> str:
+    # The eligibility hash fragments along the same dimensions as the precompute cache
+    # key (filters, date range, breakdown, ...) while ignoring volatile fields
+    # (modifiers, pagination), so one key debounces exactly one job shape.
+    return f"{SWR_REVALIDATE_REDIS_PREFIX}{team.id}:{compute_filters_eligibility_hash(query, team.timezone)}"
+
+
+def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
+    """Enqueue a background re-run of `query` so a stale-served read gets fresh data next time.
+
+    Debounced per (team, query shape); fails closed — a Redis error enqueues nothing
+    (the hourly warmer still refreshes warmed shapes, and the next stale hit retries).
+    """
+    try:
+        acquired = redis.get_client().set(
+            _swr_revalidate_key(team, query), "1", nx=True, ex=REVALIDATION_DEBOUNCE_SECONDS
+        )
+    except Exception:
+        logger.warning("web_precompute.swr_debounce_failed", team_id=team.id, family=family, exc_info=True)
+        return
+    if not acquired:
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_REVALIDATION_DEBOUNCED.labels(family=family).inc()
+        return
+
+    # The task module imports this module (for the trigger + debounce constants), so the
+    # reverse import must stay local to avoid a cycle.
+    from products.web_analytics.backend.tasks.lazy_precompute_revalidation import (  # noqa: PLC0415
+        revalidate_web_analytics_precompute,
+    )
+
+    revalidate_web_analytics_precompute.delay(team_id=team.id, query=query.model_dump(mode="json", exclude_none=True))
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_REVALIDATION_ENQUEUED.labels(family=family).inc()
+    logger.info("web_precompute.swr_revalidation_enqueued", team_id=team.id, family=family)
+
+
+def handle_stale_served(*, runner: Any, family: str) -> None:
+    """Everything a read path does when an ensure came back `stale=True`.
+
+    Counts the stale-served read, tags the upcoming read query so query_log can split
+    stale-served vs fresh reads, and enqueues the debounced background revalidation.
+    """
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_STALE_SERVED.labels(family=family).inc()
+    tag_queries(precompute_stale=True)
+    enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family)
+
+
 def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResult:
-    """`ensure_precomputed` for web analytics, with reactive per-team OOM capping.
+    """`ensure_precomputed` for web analytics, with reactive per-team OOM capping and
+    the web-wide stale-while-revalidate policy.
 
     A team runs uncapped until one of its precompute inserts OOMs; that pins it so later
     requests build their TTL schedule with a 1-day `max_window_days` cap (job width bounded
     at any window age). The request that hits the OOM still fails here and falls back to the
     live query — the cap only takes effect next time.
+
+    Every user-facing call gets the stale-while-revalidate grace by default; requests
+    tagged with a background warming trigger never do (they are the refresh mechanism
+    and would serve stale to themselves). Callers that see `stale=True` must hand the
+    result to `handle_stale_served` so the background revalidation actually happens.
     """
+    if "stale_while_revalidate_seconds" not in kwargs:
+        kwargs["stale_while_revalidate_seconds"] = (
+            None if is_background_warming_request() else STALE_WHILE_REVALIDATE_SECONDS
+        )
     pinned = is_team_oom_pinned(team.id)
     if "ttl_seconds" in kwargs:
         existing = kwargs["ttl_seconds"]

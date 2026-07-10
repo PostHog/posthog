@@ -771,6 +771,9 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("user_request", None),
             ("eager_warmer", "webAnalyticsEagerBaselineWarming"),
             ("replay_warmer", "webAnalyticsQueryWarming"),
+            # The SWR revalidation task's re-run must count as background too, or it
+            # would be served stale itself and never refresh anything.
+            ("stale_revalidation", "webAnalyticsStaleRevalidation"),
         ]
     )
     @freeze_time("2024-01-15T12:00:00Z")
@@ -796,16 +799,13 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                     runner, datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC)
                 )
 
+        # The stale-while-revalidate grace is applied centrally by web_ensure_precomputed
+        # (see test_web_lazy_precompute_common), so only the wait budget is paths policy.
         budget = ensure_mock.call_args.kwargs["wait_timeout_seconds"]
-        grace = ensure_mock.call_args.kwargs["stale_while_revalidate_seconds"]
         if trigger is None:
             assert budget == mod.PATHS_USER_ENSURE_WAIT_SECONDS
-            assert grace == mod.PATHS_USER_STALE_GRACE_SECONDS
         else:
-            # Warmers keep the full budget AND must never serve stale to themselves —
-            # they are the refresh mechanism the stale path relies on.
-            assert budget is None, f"warmer trigger {trigger} must keep the framework default budget"
-            assert grace is None, f"warmer trigger {trigger} must not serve stale"
+            assert budget is None, f"background trigger {trigger} must keep the framework default budget"
 
     @parameterized.expand(
         [

@@ -5,6 +5,7 @@ from unittest import mock
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from structlog.contextvars import get_contextvars
 
 from posthog.schema import (
@@ -20,7 +21,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import get_query_tag_value
+from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags, tags_context
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -29,14 +30,19 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     OOM_PIN_TTL_SECONDS,
+    REVALIDATION_TRIGGER,
     SESSION_SETTLING_SECONDS,
+    STALE_WHILE_REVALIDATE_SECONDS,
     PerQueryOptedOut,
     PerQueryOptInNotSet,
     TooManyFilters,
     UnsupportedFilterKey,
     _oom_pin_key,
+    _swr_revalidate_key,
     check_common_eligibility,
     compute_filters_eligibility_hash,
+    enqueue_stale_revalidation,
+    handle_stale_served,
     host_filter_expr,
     is_precompute_enabled_for_team,
     is_precompute_unrestricted_for_team,
@@ -437,3 +443,68 @@ class TestWebEnsurePrecomputed(BaseTest):
         assert isinstance(passed, TtlSchedule)
         assert passed.max_window_days == 1
         assert passed.default_ttl_seconds == 3600
+
+    @parameterized.expand(
+        [
+            ("user_request", None),
+            ("eager_warmer", "webAnalyticsEagerBaselineWarming"),
+            ("replay_warmer", "webAnalyticsQueryWarming"),
+            # The revalidation task itself must never get the grace — a re-run that can
+            # be served stale would never refresh anything and freeze the cache.
+            ("stale_revalidation", REVALIDATION_TRIGGER),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_stale_while_revalidate_grace_by_trigger(self, _name, trigger, mock_ensure):
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        reset_query_tags()
+        if trigger is not None:
+            with tags_context(trigger=trigger):
+                web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        else:
+            web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        grace = mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"]
+        if trigger is None:
+            assert grace == STALE_WHILE_REVALIDATE_SECONDS
+        else:
+            assert grace is None, f"background trigger {trigger} must not be served stale"
+
+
+class TestStaleRevalidationEnqueue(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.query = WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[])
+
+    def tearDown(self):
+        redis.get_client().delete(_swr_revalidate_key(self.team, self.query))
+        reset_query_tags()
+        super().tearDown()
+
+    def _delay_patch(self):
+        return mock.patch(
+            "products.web_analytics.backend.tasks.lazy_precompute_revalidation"
+            ".revalidate_web_analytics_precompute.delay"
+        )
+
+    def test_enqueues_once_within_debounce_window(self):
+        with self._delay_patch() as delay:
+            enqueue_stale_revalidation(team=self.team, query=self.query, family="web_overview")
+            enqueue_stale_revalidation(team=self.team, query=self.query, family="web_overview")
+        assert delay.call_count == 1
+        payload = delay.call_args.kwargs
+        assert payload["team_id"] == self.team.pk
+        assert payload["query"]["kind"] == "WebOverviewQuery"
+
+    @mock.patch(f"{_COMMON}.redis.get_client", side_effect=Exception("redis down"))
+    def test_redis_error_fails_closed_without_raising(self, _client):
+        with self._delay_patch() as delay:
+            enqueue_stale_revalidation(team=self.team, query=self.query, family="web_overview")
+        assert delay.call_count == 0
+
+    def test_handle_stale_served_tags_read_and_enqueues(self):
+        runner = WebOverviewQueryRunner(team=self.team, query=self.query)
+        reset_query_tags()
+        with self._delay_patch() as delay:
+            handle_stale_served(runner=runner, family="web_overview")
+        assert get_query_tag_value("precompute_stale") is True
+        assert delay.call_count == 1
