@@ -581,6 +581,9 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
                 # Empty string becomes "/", prefixes without a leading "/" get one,
                 # and for everything else this is a no-op.
                 key_prefix = posixpath.join("/", key_prefix)
+                # Ensures a trailing slash, as all of our object keys join on the prefix,
+                # which means they end up after a slash.
+                key_prefix = posixpath.join(key_prefix, "")
 
                 policy_statements = [
                     PolicyStatement(
