@@ -23,6 +23,7 @@ import {
     parsePrUrlParts,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
+import { derivePrState, PrBadge } from '../badges/PrStateBadge'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
@@ -240,6 +241,8 @@ interface InboxDetailFrameProps {
     tab: InboxTabKey
     /** Summary section heading icon + title. */
     summary: { icon: ReactNode; title: string }
+    /** Badge rendered beside the title (e.g. the PR open/merged/closed state), matching the list card. */
+    headerBadge?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
     primaryAction?: ReactNode
     /** Diff body. When present, the overview and this render behind two tabs (GitHub-style PR view). */
@@ -260,6 +263,7 @@ export function InboxDetailFrame({
     report,
     tab,
     summary,
+    headerBadge,
     primaryAction,
     diffSection,
     diffBranchTag,
@@ -383,15 +387,18 @@ export function InboxDetailFrame({
                             </div>
                         )}
                         <div className="flex flex-col gap-2 min-w-0">
-                            <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
-                                {conventionalTitle && (
-                                    <ConventionalCommitScopeTag
-                                        type={conventionalTitle.type}
-                                        scope={conventionalTitle.scope}
-                                    />
-                                )}
-                                {displayTitle}
-                            </h1>
+                            <div className="flex items-start gap-2 flex-wrap min-w-0">
+                                <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
+                                    {conventionalTitle && (
+                                        <ConventionalCommitScopeTag
+                                            type={conventionalTitle.type}
+                                            scope={conventionalTitle.scope}
+                                        />
+                                    )}
+                                    {displayTitle}
+                                </h1>
+                                {headerBadge}
+                            </div>
                             <ReportDetailMeta
                                 report={report}
                                 evidenceCount={evidenceCount}
@@ -484,6 +491,11 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
             report={report}
             tab={tab}
             summary={{ icon: hasPr ? <IconPullRequest /> : <IconDocument />, title: 'Summary' }}
+            headerBadge={
+                hasPr ? (
+                    <PrBadge prNumber={prRef.number} prUrl={prUrl} state={derivePrState(report.status)} />
+                ) : undefined
+            }
             primaryAction={
                 hasPr ? (
                     <LemonButton
