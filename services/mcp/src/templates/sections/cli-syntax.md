@@ -4,7 +4,7 @@ CLI-style command string. Supported commands:
 tools — list available tool names
 search <regex_pattern> — search tools by JavaScript regex (matches name, title, description)
 info [--json] <tool_name> — show tool name, description, and input schema (summarized if too large). Pass `--json` for raw JSON output.
-schema <tool_name> [field_path] — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
+schema <tool_name> [field_path ...] — drill into one or more field schemas in a single call (supports dot-notation and `*` globs, e.g. `series breakdownFilter.breakdowns`, `series.*`)
 call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns raw JSON instead of optimized output in supported tools. Use raw JSON for scripts. --confirm is required by the CLI for destructive tools.)
 ```
 

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from '../../src/tools/schema-utils'
+import {
+    TOKEN_CHAR_LIMIT,
+    budgetSchemaFields,
+    expandSchemaPathPattern,
+    listAvailablePaths,
+    resolveSchemaPath,
+    type SchemaFieldEntry,
+    summarizeSchema,
+} from '../../src/tools/schema-utils'
 
 describe('schema-utils', () => {
     describe('summarizeSchema', () => {
@@ -580,6 +588,226 @@ describe('schema-utils', () => {
             }
             const paths = listAvailablePaths(schema)
             expect(paths).toEqual(expect.arrayContaining(['foo', 'bar', '0 (A)', '1 (B)']))
+        })
+    })
+
+    describe('expandSchemaPathPattern', () => {
+        const schema = {
+            type: 'object',
+            properties: {
+                name: { type: 'string' },
+                filter: { type: 'object', properties: { key: { type: 'string' }, value: { type: 'number' } } },
+                grouped: {
+                    type: 'object',
+                    properties: {
+                        x: { type: 'object', properties: { c: { type: 'string' }, d: { type: 'number' } } },
+                        y: { type: 'object', properties: { c: { type: 'boolean' } } },
+                    },
+                },
+                series: {
+                    type: 'array',
+                    items: {
+                        anyOf: [
+                            {
+                                type: 'object',
+                                title: 'EventsNode',
+                                properties: { event: { type: 'string' }, math: { type: 'string' } },
+                            },
+                            {
+                                type: 'object',
+                                title: 'ActionsNode',
+                                properties: { id: { type: 'number' }, math: { type: 'string' } },
+                            },
+                        ],
+                    },
+                },
+            },
+        }
+
+        // A literal (glob-free) pattern must resolve to exactly the node
+        // resolveSchemaPath returns — they share first-match-wins traversal, so a
+        // divergence here would silently return a different schema than the drill-down.
+        it.each(['name', 'filter.key', 'series.event', 'series.math'])(
+            'matches resolveSchemaPath for the literal path %s',
+            (path) => {
+                const expansion = expandSchemaPathPattern(schema, path, 25)
+                expect(expansion.truncated).toBe(false)
+                expect(expansion.matches).toHaveLength(1)
+                expect(expansion.matches[0]!.path).toBe(path)
+                expect(expansion.matches[0]!.schema).toEqual(resolveSchemaPath(schema, path))
+            }
+        )
+
+        // A glob segment enumerates the resolvable child names of each frontier node,
+        // including through array items and union variants, deduped across variants.
+        it.each([
+            ['mid-path glob', 'grouped.*.c', ['grouped.x.c', 'grouped.y.c']],
+            ['object glob', 'filter.*', ['filter.key', 'filter.value']],
+            ['array-of-union glob (dedupes shared props)', 'series.*', ['series.event', 'series.math', 'series.id']],
+        ])('expands the %s pattern to its concrete paths', (_label, pattern, expected) => {
+            const expansion = expandSchemaPathPattern(schema, pattern, 25)
+            expect(expansion.truncated).toBe(false)
+            // Sorted set equality: a missing dedupe would surface as a duplicate path.
+            expect(expansion.matches.map((m) => m.path).sort()).toEqual([...expected].sort())
+        })
+
+        it('reports available names from the failing depth, not the root, on a zero match', () => {
+            const expansion = expandSchemaPathPattern(schema, 'filter.nope', 25)
+            expect(expansion.matches).toEqual([])
+            // Names come from `filter` (where the walk stopped), not the root's fields.
+            expect(expansion.available!.sort()).toEqual(['key', 'value'])
+            expect(expansion.available).not.toContain('name')
+            expect(expansion.available).not.toContain('series')
+        })
+
+        // A JSON Schema object with `count` scalar props plus one `zz` object
+        // holding an `event` child, with `zz` enumerated LAST — the shape that
+        // used to lose `zz` to premature per-segment truncation.
+        function wideSchema(count: number): Record<string, unknown> {
+            const properties: Record<string, unknown> = {}
+            for (let i = 0; i < count; i++) {
+                properties[`a${i}`] = { type: 'string' }
+            }
+            properties.zz = { type: 'object', properties: { event: { type: 'string' } } }
+            return { type: 'object', properties }
+        }
+
+        // The `limit` cap must apply to the FINAL matches only: a mid-pattern
+        // frontier wider than `limit` used to be cut before later segments could
+        // filter it, silently dropping reachable paths AND flagging `truncated`
+        // on results that were actually complete.
+        it('keeps a wide intermediate frontier alive so later segments can filter it, without a bogus truncated flag', () => {
+            const expansion = expandSchemaPathPattern(wideSchema(30), '*.event', 25)
+            expect(expansion.matches.map((m) => m.path)).toEqual(['zz.event'])
+            expect(expansion.truncated).toBe(false)
+        })
+
+        it('caps only the final matches at the limit and flags truncation', () => {
+            const expansion = expandSchemaPathPattern(wideSchema(30), '*', 25)
+            expect(expansion.matches).toHaveLength(25)
+            expect(expansion.truncated).toBe(true)
+        })
+
+        it('clamps the available list on a zero match so error entries stay small', () => {
+            const expansion = expandSchemaPathPattern(wideSchema(60), 'nope', 25)
+            expect(expansion.matches).toEqual([])
+            expect(expansion.available).toHaveLength(50)
+        })
+
+        // All-digit property names are ambiguous: literal resolution tries the
+        // index first (`findIndexedChild`), so glob emission must bind the same
+        // way or an emitted path would re-resolve to a different node.
+        it('binds glob-matched all-digit names to the node a literal re-resolution returns', () => {
+            const quirky = {
+                type: 'object',
+                properties: {
+                    parent: {
+                        anyOf: [
+                            { type: 'object', properties: { '0': { type: 'string' }, other: { type: 'number' } } },
+                            { type: 'array', items: { type: 'boolean' } },
+                        ],
+                    },
+                },
+            }
+            const expansion = expandSchemaPathPattern(quirky, 'parent.*', 25)
+            expect(expansion.matches.length).toBeGreaterThan(0)
+            for (const match of expansion.matches) {
+                expect(resolveSchemaPath(quirky, match.path)).toBe(match.schema)
+            }
+        })
+    })
+
+    describe('budgetSchemaFields', () => {
+        const TOOL = 'mock-tool'
+
+        // Full JSON Schema overflows, but the summary is far smaller: each group
+        // collapses to a name list + hint instead of its full inner shape. That gap
+        // is exactly what the degrade ladder trades on.
+        function nestedObject(groups: number): Record<string, unknown> {
+            const properties: Record<string, unknown> = {}
+            for (let g = 0; g < groups; g++) {
+                const inner: Record<string, unknown> = {}
+                for (let i = 0; i < 20; i++) {
+                    inner[`inner_${i}`] = { type: 'string', description: 'padding padding padding padding' }
+                }
+                properties[`group_${g}`] = { type: 'object', properties: inner }
+            }
+            return { type: 'object', properties }
+        }
+
+        const entryLen = (entry: SchemaFieldEntry): number => JSON.stringify(entry).length
+        const combinedLen = (entries: SchemaFieldEntry[]): number =>
+            entries.reduce((sum, entry) => sum + entryLen(entry), 0) + Math.max(0, entries.length - 1)
+        const summaryLen = (field: string, schema: Record<string, unknown>): number =>
+            entryLen({ field, schema: summarizeSchema(schema, TOOL, field) })
+
+        const smallA: SchemaFieldEntry = {
+            field: 'a',
+            schema: { type: 'object', properties: { x: { type: 'string' } } },
+        }
+        const smallB: SchemaFieldEntry = {
+            field: 'b',
+            schema: { type: 'object', properties: { y: { type: 'number' } } },
+        }
+        const bigA = nestedObject(60)
+        const bigB = nestedObject(90)
+        const errorEntry: SchemaFieldEntry = {
+            field: 'bad',
+            error: 'Unknown path "bad"',
+            available: Array.from({ length: 60 }, (_, i) => `name_${i}`),
+        }
+
+        // Each case pins one rung of the degrade ladder. `states[i]` is the expected
+        // final state of entry i: full (schema untouched), summary, stub, or error.
+        const cases: Array<{ label: string; entries: SchemaFieldEntry[]; budget: number; states: string[] }> = [
+            {
+                label: 'all entries fit so all stay full',
+                entries: [smallA, smallB],
+                budget: TOKEN_CHAR_LIMIT,
+                states: ['full', 'full'],
+            },
+            {
+                label: 'one oversized entry is summarized while its small sibling stays full',
+                entries: [{ field: 'big', schema: bigA }, smallA],
+                budget: summaryLen('big', bigA) + entryLen(smallA) + 1,
+                states: ['summary', 'full'],
+            },
+            {
+                label: 'summaries that still overflow degrade the largest to a stub',
+                entries: [
+                    { field: 'bigA', schema: bigA },
+                    { field: 'bigB', schema: bigB },
+                ],
+                budget: summaryLen('bigA', bigA) + 250,
+                states: ['summary', 'stub'],
+            },
+            {
+                label: 'an error entry passes through untouched and counts toward the total',
+                entries: [errorEntry, { field: 'big', schema: bigA }],
+                budget: entryLen(errorEntry) + summaryLen('big', bigA) + 1,
+                states: ['error', 'summary'],
+            },
+        ]
+
+        // Derives an entry's final ladder state from the output alone (vs its input),
+        // folding the stub-hint check into the state so one array-equality assertion
+        // covers every entry — a mismatched hint surfaces as `stub-bad-hint`.
+        const classify = (out: SchemaFieldEntry, input: SchemaFieldEntry): string => {
+            if ('error' in out) {
+                return 'error'
+            }
+            if ('hint' in out) {
+                return /run `schema mock-tool \w+` alone/.test(out.hint) ? 'stub' : 'stub-bad-hint'
+            }
+            return JSON.stringify(out.schema) === JSON.stringify((input as { schema: unknown }).schema)
+                ? 'full'
+                : 'summary'
+        }
+
+        it.each(cases)('$label', ({ entries, budget, states }) => {
+            const result = budgetSchemaFields(entries, TOOL, budget)
+            expect(result.map((out, i) => classify(out, entries[i]!))).toEqual(states)
+            expect(combinedLen(result)).toBeLessThanOrEqual(budget)
         })
     })
 

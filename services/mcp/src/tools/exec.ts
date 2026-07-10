@@ -7,7 +7,15 @@ import { ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
-import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
+import {
+    TOKEN_CHAR_LIMIT,
+    budgetSchemaFields,
+    expandSchemaPathPattern,
+    listAvailablePaths,
+    resolveSchemaPath,
+    summarizeSchema,
+    type SchemaFieldEntry,
+} from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
 import {
@@ -25,6 +33,16 @@ const MAX_SEARCH_PATTERN_LENGTH = 400
 /** Ranked (plain-word) search can match loosely on a common token like
  *  "create"; cap the returned names so a vague query can't dump the catalog. */
 const MAX_RANKED_SEARCH_RESULTS = 25
+
+/** A `schema` glob (`series.*`) or a wide space-separated list can expand to many
+ *  paths; cap the combined batch so one command can't dump an unbounded response.
+ *  Stubs are ~120 chars, so a fully-stubbed capped batch always fits the budget. */
+const MAX_SCHEMA_PATHS = 25
+
+/** Upper bound on a `schema` field-path list, mirroring MAX_SEARCH_PATTERN_LENGTH:
+ *  every pattern triggers a full schema expansion, so unbounded input means
+ *  unbounded work even though the response itself is capped. */
+const MAX_SCHEMA_INPUT_LENGTH = 1000
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
@@ -368,43 +386,180 @@ export function createExecTool(
 
                 case 'schema': {
                     if (!rest) {
-                        throw new Error('Usage: schema <tool_name> [field_path]')
+                        throw new Error('Usage: schema <tool_name> [field_path ...]')
                     }
-                    const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
+                    const { verb: schemaToolName, rest: fieldPathInput } = parseCommand(rest)
                     const schemaTool = findTool(allTools, schemaToolName)
                     const fullJsonSchema = stripOutputFormatProperty(
                         z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
                     )
 
-                    if (!fieldPath) {
+                    if (!fieldPathInput) {
                         // The bare `schema <tool>` view is always a summary. Any
                         // field that still needs drilling carries the imperative
                         // in its own `hint`, so the summary stands on its own.
                         return JSON.stringify(summarizeSchema(fullJsonSchema, schemaToolName))
                     }
 
-                    const resolved = resolveSchemaPath(fullJsonSchema, fieldPath)
-                    if (!resolved) {
-                        const available = listAvailablePaths(fullJsonSchema)
-                        throw new Error(`Unknown path "${fieldPath}". Available: ${available.join(', ')}`)
+                    if (fieldPathInput.length > MAX_SCHEMA_INPUT_LENGTH) {
+                        throw new Error(
+                            `Field path list too long (${fieldPathInput.length} chars, max ${MAX_SCHEMA_INPUT_LENGTH}). Request fewer paths per command.`
+                        )
+                    }
+                    const fieldPaths = fieldPathInput.split(/\s+/)
+
+                    // Fast path: a single literal path keeps today's `{ field, schema }`
+                    // output. Only a glob or a second path takes the batch path below.
+                    if (fieldPaths.length === 1 && !fieldPaths[0]!.includes('*')) {
+                        const fieldPath = fieldPaths[0]!
+                        const resolved = resolveSchemaPath(fullJsonSchema, fieldPath)
+                        if (!resolved) {
+                            // Root failures keep the classic path labels; a deep failure
+                            // lists the failing depth's children so the agent corrects
+                            // the offending segment, not the first one.
+                            const available = fieldPath.includes('.')
+                                ? (expandSchemaPathPattern(fullJsonSchema, fieldPath, 1).available ?? [])
+                                : listAvailablePaths(fullJsonSchema)
+                            throw new Error(
+                                available.length
+                                    ? `Unknown path "${fieldPath}". Available: ${available.join(', ')}`
+                                    : `Unknown path "${fieldPath}".`
+                            )
+                        }
+
+                        const serialized = JSON.stringify({
+                            field: fieldPath,
+                            schema: resolved,
+                        })
+                        if (serialized.length <= TOKEN_CHAR_LIMIT) {
+                            return serialized
+                        }
+
+                        // Field schema too large — return a summary instead. The
+                        // summary's complex sub-fields carry the drill-down `hint`,
+                        // so the response shape stays the same as the inline case
+                        // (`{ field, schema }`) — no separate top-level note.
+                        const summarized = JSON.stringify({
+                            field: fieldPath,
+                            schema: summarizeSchema(resolved as Record<string, unknown>, schemaToolName, fieldPath),
+                        })
+                        if (summarized.length <= TOKEN_CHAR_LIMIT) {
+                            return summarized
+                        }
+
+                        // Even the summary overflows: point at the subfields rather than
+                        // blow the budget (the batch path stubs the same way).
+                        const subfields = expandSchemaPathPattern(
+                            fullJsonSchema,
+                            `${fieldPath}.*`,
+                            MAX_SCHEMA_PATHS
+                        ).matches.map((m) => m.path.slice(fieldPath.length + 1))
+                        return JSON.stringify({
+                            field: fieldPath,
+                            hint: `Schema too large even summarized; drill into a subfield with \`schema ${schemaToolName} ${fieldPath}.<subfield>\`. Subfields: ${subfields.join(', ')}`,
+                        })
                     }
 
-                    const serialized = JSON.stringify({
-                        field: fieldPath,
-                        schema: resolved,
-                    })
-                    if (serialized.length <= TOKEN_CHAR_LIMIT) {
-                        return serialized
+                    // Batch path: multiple paths and/or `*` globs. Expand each pattern in
+                    // request order, dedupe concrete paths (first wins), keep partial
+                    // successes as per-field errors, and cap the combined list.
+                    const entries: SchemaFieldEntry[] = []
+                    const seenFields = new Set<string>()
+                    let truncated = false
+                    const pushEntry = (entry: SchemaFieldEntry): void => {
+                        if (seenFields.has(entry.field)) {
+                            return
+                        }
+                        if (entries.length >= MAX_SCHEMA_PATHS) {
+                            truncated = true
+                            return
+                        }
+                        seenFields.add(entry.field)
+                        entries.push(entry)
                     }
 
-                    // Field schema too large — return a summary instead. The
-                    // summary's complex sub-fields carry the drill-down `hint`,
-                    // so the response shape stays the same as the inline case
-                    // (`{ field, schema }`) — no separate top-level note.
-                    return JSON.stringify({
-                        field: fieldPath,
-                        schema: summarizeSchema(resolved as Record<string, unknown>, schemaToolName, fieldPath),
-                    })
+                    // Literal paths get reserved slots so a wide glob earlier in the
+                    // list can never evict a field the agent named explicitly.
+                    let literalsPending = fieldPaths.filter((p) => !p.includes('*')).length
+                    for (const pattern of fieldPaths) {
+                        const isGlob = pattern.includes('*')
+                        if (!isGlob) {
+                            literalsPending--
+                        }
+                        if (entries.length >= MAX_SCHEMA_PATHS) {
+                            // Only reachable with more than MAX_SCHEMA_PATHS literal
+                            // paths; further expansion work would all be discarded.
+                            truncated = true
+                            break
+                        }
+                        if (isGlob) {
+                            const globBudget = MAX_SCHEMA_PATHS - entries.length - literalsPending
+                            if (globBudget <= 0) {
+                                truncated = true
+                                continue
+                            }
+                            const expansion = expandSchemaPathPattern(fullJsonSchema, pattern, globBudget)
+                            truncated ||= expansion.truncated
+                            if (expansion.matches.length === 0) {
+                                pushEntry({
+                                    field: pattern,
+                                    error: `Unknown path "${pattern}"`,
+                                    ...(expansion.available?.length ? { available: expansion.available } : {}),
+                                })
+                                continue
+                            }
+                            for (const match of expansion.matches) {
+                                pushEntry({ field: match.path, schema: match.schema })
+                            }
+                            continue
+                        }
+                        // A literal expands to at most one match; expansion (rather than
+                        // resolveSchemaPath) supplies the failing-depth `available`.
+                        const expansion = expandSchemaPathPattern(fullJsonSchema, pattern, 1)
+                        if (expansion.matches.length === 0) {
+                            pushEntry({
+                                field: pattern,
+                                error: `Unknown path "${pattern}"`,
+                                ...(expansion.available?.length ? { available: expansion.available } : {}),
+                            })
+                            continue
+                        }
+                        pushEntry({ field: pattern, schema: expansion.matches[0]!.schema })
+                    }
+
+                    // Throw only when the whole request resolved nothing, consistent with
+                    // the single-path throw. A partial success returns its error entries.
+                    if (!entries.some((e) => 'schema' in e)) {
+                        const errors = entries.filter(
+                            (e): e is { field: string; error: string; available?: string[] } => 'error' in e
+                        )
+                        const lists = errors.map((e) => (e.available ?? []).join(', '))
+                        const failed = errors.map((e) => `"${e.field}"`).join(', ')
+                        // One shared list reads best when every path failed at the same
+                        // depth; otherwise each path names its own failing-depth options.
+                        if (lists.every((l) => l === lists[0])) {
+                            throw new Error(
+                                lists[0]
+                                    ? `Unknown path(s): ${failed}. Available: ${lists[0]}`
+                                    : `Unknown path(s): ${failed}.`
+                            )
+                        }
+                        const detailed = errors
+                            .map((e, i) => (lists[i] ? `"${e.field}" (available: ${lists[i]})` : `"${e.field}"`))
+                            .join('; ')
+                        throw new Error(`Unknown path(s): ${detailed}`)
+                    }
+
+                    // Reserve the envelope keys (`truncated`/`hint`) before budgeting so
+                    // the degraded entries plus the envelope fit inside TOKEN_CHAR_LIMIT.
+                    const envelope: { truncated?: true; hint?: string } = {}
+                    if (truncated) {
+                        envelope.truncated = true
+                        envelope.hint = `Some matching paths were dropped (cap: ${MAX_SCHEMA_PATHS} per command). Narrow the globs or request specific fields.`
+                    }
+                    const overhead = JSON.stringify({ fields: [], ...envelope }).length
+                    const fields = budgetSchemaFields(entries, schemaToolName, TOKEN_CHAR_LIMIT - overhead)
+                    return JSON.stringify({ fields, ...envelope })
                 }
 
                 case 'call': {

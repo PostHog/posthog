@@ -16,7 +16,7 @@ const COMMAND_REFERENCE = `CLI-style command string. Supported commands:
 tools
 search <regex_pattern>
 info [--json] <tool_name>
-schema <tool_name> [field_path]
+schema <tool_name> [field_path ...]
 call [--json] [--confirm] <tool_name> <json_input>`
 
 interface BuiltExec {
@@ -38,7 +38,7 @@ Usage:
   posthog-cli api tools
   posthog-cli api search <regex>
   posthog-cli api info [--json] <tool>
-  posthog-cli api schema <tool> [field.path]
+  posthog-cli api schema <tool> [field.path ...]   (quote globs, e.g. 'series.*', so the shell doesn't expand them)
   posthog-cli api call [--json] [--dry-run] [--confirm] <tool> '<json>'
   posthog-cli api skill list [--json]
   posthog-cli api skill install [--force] <skill-id>
@@ -235,11 +235,19 @@ async function main(): Promise<void> {
             return
         }
         case 'schema': {
+            // Accepted for the `info [--json]` habit; schema output is always JSON.
+            takeFlag(args, '--json')
             const toolName = args.shift()
             if (!toolName) {
-                throw new Error('Usage: posthog-cli api schema <tool> [field.path]')
+                throw new Error('Usage: posthog-cli api schema <tool> [field.path ...]')
             }
-            await runStaticExecCommand(`schema ${toolName}${args[0] ? ` ${args[0]}` : ''}`)
+            // Reject other flags instead of forwarding them as bogus field paths.
+            const flag = args.find((arg) => arg.startsWith('--'))
+            if (flag) {
+                throw new Error(`Unknown flag "${flag}". schema takes field paths only, e.g. schema <tool> series`)
+            }
+            // Forward every remaining positional arg; exec re-splits on whitespace.
+            await runStaticExecCommand(`schema ${toolName}${args.length ? ` ${args.join(' ')}` : ''}`)
             return
         }
         case 'call': {

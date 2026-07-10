@@ -388,11 +388,17 @@ function findIndexedChild(node: JSONSchema, idx: number): JSONSchema | null {
 /**
  * Collect every named child reachable from a node by walking composition keywords.
  * Dedupes across variants.
+ *
+ * `descendItems` controls whether the walk crosses the array boundary. It must stay
+ * off for `listAvailablePaths`, which labels item children separately as
+ * `[items].<name>`; glob expansion turns it on to reach every name a literal segment
+ * could resolve (see `collectResolvableChildNames`).
  */
 function collectNamedChildren(
     node: JSONSchema,
     into: Set<string> = new Set(),
-    seen: WeakSet<JSONSchema> = new WeakSet()
+    seen: WeakSet<JSONSchema> = new WeakSet(),
+    descendItems = false
 ): Set<string> {
     if (seen.has(node)) {
         return into
@@ -410,10 +416,21 @@ function collectNamedChildren(
             continue
         }
         for (const variant of variants) {
-            collectNamedChildren(variant, into, seen)
+            collectNamedChildren(variant, into, seen, descendItems)
         }
     }
+    if (descendItems && node.items && !Array.isArray(node.items)) {
+        collectNamedChildren(node.items as JSONSchema, into, seen, descendItems)
+    }
     return into
+}
+
+/** Resolve one literal path segment: numeric segments try the index first, then the name. */
+function resolveLiteralSegment(node: JSONSchema, segment: string): JSONSchema | null {
+    if (/^\d+$/.test(segment)) {
+        return findIndexedChild(node, parseInt(segment, 10)) ?? findNamedChild(node, segment)
+    }
+    return findNamedChild(node, segment)
 }
 
 /**
@@ -423,10 +440,7 @@ function collectNamedChildren(
 export function resolveSchemaPath(schema: JSONSchema, dotPath: string): JSONSchema | null {
     let current: JSONSchema = schema
     for (const segment of dotPath.split('.')) {
-        const isNumeric = /^\d+$/.test(segment)
-        const next = isNumeric
-            ? (findIndexedChild(current, parseInt(segment, 10)) ?? findNamedChild(current, segment))
-            : findNamedChild(current, segment)
+        const next = resolveLiteralSegment(current, segment)
         if (!next) {
             return null
         }
@@ -473,4 +487,209 @@ export function listAvailablePaths(schema: JSONSchema): string[] {
     }
 
     return paths
+}
+
+/**
+ * The named children `findNamedChild` can resolve on a node: `collectNamedChildren`'s
+ * walk with `descendItems` on, since a literal segment reaches through `items` too.
+ */
+function collectResolvableChildNames(node: JSONSchema, into: Set<string> = new Set()): Set<string> {
+    return collectNamedChildren(node, into, new WeakSet(), true)
+}
+
+/** Escape a string for literal use inside a `RegExp`. */
+function escapeRegex(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** The concrete paths a single `schema` pattern expands to, plus the schema at each. */
+export interface SchemaPathExpansion {
+    matches: Array<{ path: string; schema: JSONSchema }>
+    truncated: boolean
+    /** Populated only when nothing matched — the resolvable names at the failing depth. */
+    available?: string[]
+}
+
+/**
+ * Backstop against a combinatorial mid-pattern blow-up (`*.*.*` across wide unions).
+ * Deliberately far above any caller's `limit`: intermediate frontiers must survive
+ * uncut so later segments can still filter them; only the FINAL matches are capped
+ * at `limit`. Cutting mid-walk both hides reachable paths and flags `truncated` on
+ * results that end up complete.
+ */
+const MAX_FRONTIER_NODES = 512
+
+/** Cap on the `available` names reported when a pattern matches nothing; keeps error
+ *  entries small enough that a failing batch can't blow the response budget. */
+const MAX_AVAILABLE_NAMES = 50
+
+/**
+ * Expand one dot-path pattern into concrete `(path, schema)` pairs.
+ *
+ * A segment containing `*` is a glob matched against the resolvable child names of
+ * each frontier node; every segment (glob-matched names included) binds through
+ * `resolveLiteralSegment`, so an emitted path always re-resolves to the same node in
+ * a later single-path `resolveSchemaPath` call, even for all-digit property names
+ * where the index-first rule would otherwise win.
+ *
+ * When the frontier collapses to nothing, `available` lists the names reachable at
+ * the depth that failed (not the root), so the caller's error points at the
+ * offending segment.
+ */
+export function expandSchemaPathPattern(schema: JSONSchema, pattern: string, limit: number): SchemaPathExpansion {
+    let frontier: Array<{ path: string; node: JSONSchema }> = [{ path: '', node: schema }]
+    let truncated = false
+
+    for (const segment of pattern.split('.')) {
+        const matcher = segment.includes('*') ? new RegExp(`^${escapeRegex(segment).replaceAll('\\*', '.*')}$`) : null
+        const next: Array<{ path: string; node: JSONSchema }> = []
+
+        for (const entry of frontier) {
+            if (matcher) {
+                for (const name of collectResolvableChildNames(entry.node)) {
+                    if (!matcher.test(name)) {
+                        continue
+                    }
+                    const child = resolveLiteralSegment(entry.node, name)
+                    if (child) {
+                        next.push({ path: entry.path ? `${entry.path}.${name}` : name, node: child })
+                    }
+                }
+            } else {
+                const child = resolveLiteralSegment(entry.node, segment)
+                if (child) {
+                    next.push({ path: entry.path ? `${entry.path}.${segment}` : segment, node: child })
+                }
+            }
+        }
+
+        if (next.length === 0) {
+            // Frontier collapsed here: report the names that WERE reachable on the
+            // nodes we tried to descend from, so the error names the failing depth.
+            const available = new Set<string>()
+            for (const entry of frontier) {
+                collectResolvableChildNames(entry.node, available)
+            }
+            return { matches: [], truncated, available: [...available].slice(0, MAX_AVAILABLE_NAMES) }
+        }
+        if (next.length > MAX_FRONTIER_NODES) {
+            next.length = MAX_FRONTIER_NODES
+            truncated = true
+        }
+        frontier = next
+    }
+
+    if (frontier.length > limit) {
+        frontier.length = limit
+        truncated = true
+    }
+    return { matches: frontier.map((e) => ({ path: e.path, schema: e.node })), truncated }
+}
+
+/**
+ * One entry in a batched `schema` response: a resolved sub-schema, a per-path error,
+ * or a stub pointing at a solo `schema` call when the sub-schema can't fit inline
+ * alongside its siblings.
+ */
+export type SchemaFieldEntry =
+    | { field: string; schema: unknown }
+    | { field: string; error: string; available?: string[] }
+    | { field: string; hint: string }
+
+/** Stub text for a field dropped from a combined response to stay within budget. */
+function schemaStubHint(toolName: string, field: string): string {
+    return `Too large for a combined response; run \`schema ${toolName} ${field}\` alone.`
+}
+
+interface BudgetedEntry {
+    field: string
+    /** The full resolved schema; present only for degradable (schema) entries. */
+    schema?: JSONSchema
+    /** 'error' entries can shed their `available` list; 'fixed' entries cannot shrink. */
+    state: 'full' | 'summary' | 'stub' | 'error' | 'fixed'
+    current: SchemaFieldEntry
+    len: number
+}
+
+/** The largest entry in a given state; ties keep the earliest request index. */
+function largestInState(entries: BudgetedEntry[], state: BudgetedEntry['state']): BudgetedEntry | undefined {
+    let best: BudgetedEntry | undefined
+    for (const entry of entries) {
+        if (entry.state === state && (!best || entry.len > best.len)) {
+            best = entry
+        }
+    }
+    return best
+}
+
+/**
+ * Fit a batch of resolved schema entries within `charBudget` (the combined `fields`
+ * array minus the response envelope). Accounts for each serialized entry plus the
+ * commas that join them. Degrades greedily, largest-first, cheapest information
+ * loss first: a full schema becomes a `summarizeSchema` summary, then error entries
+ * shed their `available` sibling lists (guidance, not content), and only then does
+ * a summary collapse to a one-line stub. One huge field can't force its siblings to
+ * collapse. Preserves request order.
+ */
+export function budgetSchemaFields(
+    entries: SchemaFieldEntry[],
+    toolName: string,
+    charBudget: number
+): SchemaFieldEntry[] {
+    const tracked: BudgetedEntry[] = entries.map((entry) => {
+        const len = JSON.stringify(entry).length
+        if ('schema' in entry) {
+            return { field: entry.field, schema: entry.schema as JSONSchema, state: 'full', current: entry, len }
+        }
+        if ('error' in entry && entry.available?.length) {
+            return { field: entry.field, state: 'error', current: entry, len }
+        }
+        return { field: entry.field, state: 'fixed', current: entry, len }
+    })
+
+    // Total = serialized entries + the commas joining them (the enclosing `fields`
+    // array and envelope keys are already subtracted from `charBudget` by the caller).
+    const total = (): number => tracked.reduce((sum, e) => sum + e.len, 0) + Math.max(0, tracked.length - 1)
+
+    // Summarize the largest still-full schema until it fits or none remain.
+    while (total() > charBudget) {
+        const target = largestInState(tracked, 'full')
+        if (!target) {
+            break
+        }
+        const summarized: SchemaFieldEntry = {
+            field: target.field,
+            schema: summarizeSchema(target.schema!, toolName, target.field),
+        }
+        target.current = summarized
+        target.len = JSON.stringify(summarized).length
+        target.state = 'summary'
+    }
+
+    // Still over: drop `available` from the largest error entries before touching
+    // any summary, so schema content survives the longest.
+    while (total() > charBudget) {
+        const target = largestInState(tracked, 'error')
+        if (!target) {
+            break
+        }
+        const bare: SchemaFieldEntry = { field: target.field, error: (target.current as { error: string }).error }
+        target.current = bare
+        target.len = JSON.stringify(bare).length
+        target.state = 'fixed'
+    }
+
+    // Still over: stub the largest summary until it fits or none remain.
+    while (total() > charBudget) {
+        const target = largestInState(tracked, 'summary')
+        if (!target) {
+            break
+        }
+        const stub: SchemaFieldEntry = { field: target.field, hint: schemaStubHint(toolName, target.field) }
+        target.current = stub
+        target.len = JSON.stringify(stub).length
+        target.state = 'stub'
+    }
+
+    return tracked.map((e) => e.current)
 }

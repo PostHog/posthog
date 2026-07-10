@@ -22,7 +22,7 @@ posthog:exec({ "command": "tools" })            # fallback: list all
 posthog:exec({ "command": "info <tool_name>" })
 
 # 3. Drill into complex fields — REQUIRED for any field with a `hint`
-posthog:exec({ "command": "schema <tool_name> <field_path>" })
+posthog:exec({ "command": "schema <tool_name> <field_path ...>" })
 
 # 4. Call the tool
 posthog:exec({ "command": "call <tool_name> <json_input>" })
@@ -33,14 +33,13 @@ posthog:exec({ "command": "call --json <tool_name> <json_input>" })
 
 - `info` returns the full schema if it fits the token budget; otherwise it auto-summarizes (names, types, required, enums, defaults) and attaches `hint` entries pointing to `schema <tool> <path>` for complex fields.
 - `schema <tool>` (no path) returns the summarized top-level schema.
-- `schema <tool> <path>` resolves a dot path, descending through:
+- `schema <tool> <path ...>` resolves one or more dot paths (plus `*` globs, e.g. `series.*`), descending through:
   - object `properties` (e.g. `query.source`)
   - array `items` — numeric segments step into items (`events.0.properties`), or jump to a property on the item type (`events.id`)
   - `anyOf`/`oneOf` — numeric segment picks a variant by index, or a property name matches any object variant defining it
-- Oversized sub-schemas are also summarized with a `note` to drill further.
-- Unknown paths return an error listing available child paths.
+- Oversized entries degrade to summaries, then stubs.
+- Unknown paths: an error (single path) or per-field `error` entries (batch).
 
 **Not supported:**
 
 - `search` matches tool metadata only, not input schemas.
-- No pattern-based field projection — drill one path at a time.

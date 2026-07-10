@@ -10,6 +10,7 @@ import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import { createExecTool, type ExecInnerCallProperties, parseExecCallInnerToolName } from '@/tools/exec'
+import { TOKEN_CHAR_LIMIT } from '@/tools/schema-utils'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -57,6 +58,30 @@ function createExec(
         [],
         options ?? {}
     )
+}
+
+// Full Context for tests that load the real tool catalog via getToolsFromContext.
+function createExecContext(): Context {
+    return {
+        api: {} as any,
+        cache: {} as any,
+        env: {
+            MCP_APPS_BASE_URL: undefined,
+            POSTHOG_ANALYTICS_API_KEY: undefined,
+            POSTHOG_ANALYTICS_HOST: undefined,
+            POSTHOG_API_BASE_URL: undefined,
+            POSTHOG_PUBLIC_URL: undefined,
+            POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
+            POSTHOG_UI_APPS_TOKEN: undefined,
+        },
+        stateManager: {
+            getApiKey: async () => ({ scopes: ['*'] }),
+            getAiConsentGiven: async () => true,
+        } as any,
+        sessionManager: new SessionManager({} as any),
+        getDistinctId: async () => 'test-distinct-id',
+        trackEvent: async () => {},
+    }
 }
 
 describe('exec tool', () => {
@@ -641,10 +666,26 @@ describe('exec tool', () => {
     })
 
     describe('schema command', () => {
+        // Builds a Zod object whose full JSON Schema overflows the budget (many
+        // complex nested groups) but whose SUMMARY is far smaller — each group
+        // collapses to a name list + hint rather than its full inner shape. That
+        // gap is what the degrade ladder relies on.
+        function oversizedGroupObject(groups: number): z.ZodTypeAny {
+            const shape: Record<string, z.ZodType> = {}
+            for (let g = 0; g < groups; g++) {
+                const inner: Record<string, z.ZodType> = {}
+                for (let i = 0; i < 20; i++) {
+                    inner[`inner_${i}`] = z.string().describe('padding padding padding padding')
+                }
+                shape[`group_${g}`] = z.object(inner)
+            }
+            return z.object(shape)
+        }
+
         it('throws usage error for bare schema', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'schema' })).rejects.toThrow(
-                'Usage: schema <tool_name> [field_path]'
+                'Usage: schema <tool_name> [field_path ...]'
             )
         })
 
@@ -713,15 +754,8 @@ describe('exec tool', () => {
         })
 
         it('returns a summary in the same { field, schema } shape when a sub-field overflows the budget', async () => {
-            // Build a sub-field large enough to exceed TOKEN_CHAR_LIMIT (~48k chars)
-            // once serialized. Each property entry is ~70 chars, so 1500 of them
-            // comfortably crosses the threshold.
-            const wideShape: Record<string, z.ZodType> = {}
-            for (let i = 0; i < 1500; i++) {
-                wideShape[`field_${i}`] = z.string().describe(`Description for field ${i} with extra padding text`)
-            }
             const tool = makeMockTool({
-                schema: z.object({ wide: z.object(wideShape) }),
+                schema: z.object({ wide: oversizedGroupObject(100) }),
             })
             const exec = createExec([tool])
             const result = (await exec.handler(mockContext, { command: 'schema mock-tool wide' })) as string
@@ -731,6 +765,28 @@ describe('exec tool', () => {
             expect(parsed.note).toBeUndefined()
             // Summary still preserves field names so the model can pick where to drill
             expect(Object.keys(parsed.schema.properties).length).toBeGreaterThan(0)
+            expect(result.length).toBeLessThanOrEqual(TOKEN_CHAR_LIMIT)
+        })
+
+        it('falls back to a subfield drill hint when even the summary overflows the budget', async () => {
+            // A flat run of described scalar fields summarizes to nearly its full
+            // size (the summary keeps every name and description), so the raw
+            // schema AND its summary both blow the budget.
+            const wideShape: Record<string, z.ZodType> = {}
+            for (let i = 0; i < 1500; i++) {
+                wideShape[`field_${i}`] = z.string().describe(`Description for field ${i} with extra padding text`)
+            }
+            const tool = makeMockTool({
+                schema: z.object({ wide: z.object(wideShape) }),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'schema mock-tool wide' })) as string
+            const parsed = JSON.parse(result) as { field?: string; schema?: unknown; hint?: string }
+            expect(parsed.field).toBe('wide')
+            expect(parsed.schema).toBeUndefined()
+            expect(parsed.hint).toMatch(/drill into a subfield/)
+            expect(parsed.hint).toContain('field_0')
+            expect(result.length).toBeLessThanOrEqual(TOKEN_CHAR_LIMIT)
         })
 
         it('errors with available paths when the field path is unknown', async () => {
@@ -743,32 +799,31 @@ describe('exec tool', () => {
             )
         })
 
+        it('lists the failing depth children, not root paths, for an unknown deep path', async () => {
+            const tool = makeMockTool({
+                schema: z.object({ name: z.string(), filter: z.object({ key: z.string() }) }),
+            })
+            const exec = createExec([tool])
+            await expect(exec.handler(mockContext, { command: 'schema mock-tool filter.nope' })).rejects.toThrow(
+                /Unknown path "filter\.nope"\. Available: key$/
+            )
+        })
+
+        it('rejects a field path list beyond the input length cap', async () => {
+            const exec = createExec()
+            const paths = Array.from({ length: 300 }, (_, i) => `path_${i}`).join(' ')
+            await expect(exec.handler(mockContext, { command: `schema mock-tool ${paths}` })).rejects.toThrow(
+                /Field path list too long/
+            )
+        })
+
         // Eval case for `query-retention`, the canonical large-schema query tool
         // (>200k chars when fully serialized). Validates the end-to-end drill-down
         // flow against the real tool: bare schema → imperative hints → drill
         // → resolved sub-schema. If the hint imperative ever loosens or the
         // schema-summary pipeline regresses, this test catches it.
         it('eval: query-retention bare schema view produces imperative hints, and a drilled sub-field resolves', async () => {
-            const context: Context = {
-                api: {} as any,
-                cache: {} as any,
-                env: {
-                    MCP_APPS_BASE_URL: undefined,
-                    POSTHOG_ANALYTICS_API_KEY: undefined,
-                    POSTHOG_ANALYTICS_HOST: undefined,
-                    POSTHOG_API_BASE_URL: undefined,
-                    POSTHOG_PUBLIC_URL: undefined,
-                    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
-                    POSTHOG_UI_APPS_TOKEN: undefined,
-                },
-                stateManager: {
-                    getApiKey: async () => ({ scopes: ['*'] }),
-                    getAiConsentGiven: async () => true,
-                } as any,
-                sessionManager: new SessionManager({} as any),
-                getDistinctId: async () => 'test-distinct-id',
-                trackEvent: async () => {},
-            }
+            const context = createExecContext()
             const v2Tools = await getToolsFromContext(context)
             const queryRetention = v2Tools.find((t) => t.name === 'query-retention')
             expect(queryRetention).not.toBeUndefined()
@@ -815,26 +870,7 @@ describe('exec tool', () => {
         // forced callers onto the prose examples instead. The series item shapes must
         // now be visible in the summary.
         it('eval: query-trends series drill-down exposes the item variant shapes (not an empty array)', async () => {
-            const context: Context = {
-                api: {} as any,
-                cache: {} as any,
-                env: {
-                    MCP_APPS_BASE_URL: undefined,
-                    POSTHOG_ANALYTICS_API_KEY: undefined,
-                    POSTHOG_ANALYTICS_HOST: undefined,
-                    POSTHOG_API_BASE_URL: undefined,
-                    POSTHOG_PUBLIC_URL: undefined,
-                    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
-                    POSTHOG_UI_APPS_TOKEN: undefined,
-                },
-                stateManager: {
-                    getApiKey: async () => ({ scopes: ['*'] }),
-                    getAiConsentGiven: async () => true,
-                } as any,
-                sessionManager: new SessionManager({} as any),
-                getDistinctId: async () => 'test-distinct-id',
-                trackEvent: async () => {},
-            }
+            const context = createExecContext()
             const v2Tools = await getToolsFromContext(context)
             const exec = createExecTool(v2Tools, context, 'test', 'test', undefined)
 
@@ -859,6 +895,212 @@ describe('exec tool', () => {
             const variantFields = variants!.flatMap((v) => Object.keys(v.properties ?? {}))
             expect(variantFields).toContain('kind')
             expect(variantFields).toContain('event')
+        })
+
+        // Batch mode: a glob or two-plus paths returns `{ fields: [...] }`, degrading
+        // over-budget entries so the combined response still fits TOKEN_CHAR_LIMIT.
+        describe('multi-path and glob batch', () => {
+            it('returns full inline sub-schemas for multiple literal paths, in request order', async () => {
+                const tool = makeMockTool({
+                    schema: z.object({
+                        name: z.string(),
+                        filter: z.object({ key: z.string(), value: z.number() }),
+                        breakdownFilter: z.object({ breakdown: z.string() }),
+                    }),
+                })
+                const exec = createExec([tool])
+                const result = (await exec.handler(mockContext, {
+                    command: 'schema mock-tool filter breakdownFilter',
+                })) as string
+                const parsed = JSON.parse(result) as {
+                    fields: Array<{ field: string; schema?: { properties?: Record<string, { type?: string }> } }>
+                    truncated?: boolean
+                }
+                expect(parsed.truncated).toBeUndefined()
+                // Request order is preserved, not expansion or alphabetical order.
+                expect(parsed.fields.map((f) => f.field)).toEqual(['filter', 'breakdownFilter'])
+                // Both small enough to inline the full resolved JSON Schema.
+                expect(parsed.fields[0]!.schema!.properties!.key!.type).toBe('string')
+                expect(parsed.fields[0]!.schema!.properties!.value!.type).toBe('number')
+                expect(parsed.fields[1]!.schema!.properties!.breakdown!.type).toBe('string')
+            })
+
+            // Glob expansion must walk array `items` and union variants, not just
+            // top-level `properties` — otherwise `series.*` would resolve to nothing.
+            it.each([
+                ['full-segment wildcard', '*', ['breakdownFilter', 'properties', 'series']],
+                ['partial suffix wildcard', '*Filter', ['breakdownFilter']],
+                ['wildcard through an array-of-union field', 'series.*', ['series.kind', 'series.event', 'series.id']],
+            ])('expands a %s into batch entries', async (_label, pattern, expectedFields) => {
+                const tool = makeMockTool({
+                    schema: z.object({
+                        breakdownFilter: z.object({ breakdown: z.string() }),
+                        properties: z.object({ key: z.string() }),
+                        series: z.array(
+                            z.union([
+                                z.object({ kind: z.literal('EventsNode'), event: z.string() }),
+                                z.object({ kind: z.literal('ActionsNode'), id: z.number() }),
+                            ])
+                        ),
+                    }),
+                })
+                const exec = createExec([tool])
+                const result = (await exec.handler(mockContext, { command: `schema mock-tool ${pattern}` })) as string
+                const parsed = JSON.parse(result) as { fields: Array<{ field: string; schema?: unknown }> }
+                expect(parsed.fields.map((f) => f.field).sort()).toEqual([...expectedFields].sort())
+                // Every expanded entry resolves to a real sub-schema, not an error.
+                for (const entry of parsed.fields) {
+                    expect(entry.schema).not.toBeUndefined()
+                }
+            })
+
+            it('keeps resolved fields and reports per-field errors for unknown paths (no throw)', async () => {
+                const tool = makeMockTool({
+                    schema: z.object({ name: z.string(), filter: z.object({ key: z.string() }) }),
+                })
+                const exec = createExec([tool])
+                const result = (await exec.handler(mockContext, {
+                    command: 'schema mock-tool filter nope',
+                })) as string
+                const parsed = JSON.parse(result) as {
+                    fields: Array<{ field: string; schema?: unknown; error?: string; available?: string[] }>
+                }
+                expect(parsed.fields).toHaveLength(2)
+                expect(parsed.fields[0]!.field).toBe('filter')
+                expect(parsed.fields[0]!.schema).not.toBeUndefined()
+                expect(parsed.fields[1]!.field).toBe('nope')
+                expect(parsed.fields[1]!.error).toMatch(/Unknown path "nope"/)
+                expect(parsed.fields[1]!.available).toEqual(expect.arrayContaining(['name', 'filter']))
+            })
+
+            it('throws with the available list only when the whole request resolves nothing', async () => {
+                const tool = makeMockTool({
+                    schema: z.object({ name: z.string(), filter: z.object({ key: z.string() }) }),
+                })
+                const exec = createExec([tool])
+                await expect(exec.handler(mockContext, { command: 'schema mock-tool nope alsonope' })).rejects.toThrow(
+                    /Unknown path\(s\): "nope", "alsonope"\. Available: .*name.*filter/
+                )
+            })
+
+            it('summarizes an oversized entry while a small sibling keeps its full raw schema', async () => {
+                const tool = makeMockTool({
+                    schema: z.object({
+                        wide: oversizedGroupObject(100),
+                        small: z.object({ inner: z.object({ x: z.string() }) }),
+                    }),
+                })
+                const exec = createExec([tool])
+                const result = (await exec.handler(mockContext, { command: 'schema mock-tool wide small' })) as string
+                const parsed = JSON.parse(result) as {
+                    fields: Array<{
+                        field: string
+                        schema?: {
+                            properties?: Record<string, { hint?: string; properties?: Record<string, unknown> }>
+                        }
+                    }>
+                }
+                expect(parsed.fields.map((f) => f.field)).toEqual(['wide', 'small'])
+                // `wide` degraded to a summary: its complex sub-fields carry a drill-down
+                // hint and no longer inline their full nested `properties`.
+                const wideGroup = parsed.fields[0]!.schema!.properties!.group_0!
+                expect(wideGroup.hint).toContain('DO NOT GUESS')
+                expect(wideGroup.properties).toBeUndefined()
+                // `small` stayed full: its nested object is inlined raw, no hint.
+                const smallInner = parsed.fields[1]!.schema!.properties!.inner!
+                expect(smallInner.properties).not.toBeUndefined()
+                expect(smallInner.hint).toBeUndefined()
+                expect(result.length).toBeLessThanOrEqual(TOKEN_CHAR_LIMIT)
+            })
+
+            it('stubs the largest entry when summarized siblings still overflow the budget', async () => {
+                const tool = makeMockTool({
+                    schema: z.object({
+                        wideA: oversizedGroupObject(80),
+                        wideB: oversizedGroupObject(140),
+                    }),
+                })
+                const exec = createExec([tool])
+                const result = (await exec.handler(mockContext, { command: 'schema mock-tool wideA wideB' })) as string
+                const parsed = JSON.parse(result) as {
+                    fields: Array<{ field: string; schema?: unknown; hint?: string }>
+                }
+                // At least one entry degraded all the way to a solo-drill stub, and at
+                // least one survived as a (summarized) schema.
+                const stub = parsed.fields.find((f) => f.hint !== undefined)
+                expect(stub).not.toBeUndefined()
+                expect(stub!.hint).toMatch(/run `schema mock-tool \w+` alone/)
+                expect(parsed.fields.some((f) => f.schema !== undefined)).toBe(true)
+                expect(result.length).toBeLessThanOrEqual(TOKEN_CHAR_LIMIT)
+            })
+
+            it('caps expansion at 25 concrete paths and flags truncation', async () => {
+                const shape: Record<string, z.ZodType> = {}
+                for (let i = 0; i < 30; i++) {
+                    shape[`field_${i}`] = z.string()
+                }
+                const tool = makeMockTool({ schema: z.object(shape) })
+                const exec = createExec([tool])
+                const result = (await exec.handler(mockContext, { command: 'schema mock-tool *' })) as string
+                const parsed = JSON.parse(result) as { fields: unknown[]; truncated?: boolean; hint?: string }
+                expect(parsed.fields).toHaveLength(25)
+                expect(parsed.truncated).toBe(true)
+                // The hint steers the agent to narrow the glob; it does not name the
+                // pre-cap total (the expansion interface doesn't carry it).
+                expect(parsed.hint).toBeTruthy()
+                expect(parsed.hint).toMatch(/narrow/i)
+            })
+
+            it('reserves slots for literal paths so a leading wide glob cannot evict them', async () => {
+                const shape: Record<string, z.ZodType> = {}
+                for (let i = 0; i < 30; i++) {
+                    shape[`field_${i}`] = z.string()
+                }
+                shape.important = z.object({ x: z.string() })
+                const tool = makeMockTool({ schema: z.object(shape) })
+                const exec = createExec([tool])
+                const result = (await exec.handler(mockContext, { command: 'schema mock-tool * important' })) as string
+                const parsed = JSON.parse(result) as {
+                    fields: Array<{ field: string; schema?: unknown }>
+                    truncated?: boolean
+                }
+                // The glob fills the batch, but the explicitly named field still
+                // arrives with its schema instead of being silently dropped.
+                const important = parsed.fields.find((f) => f.field === 'important')
+                expect(important?.schema).not.toBeUndefined()
+                expect(parsed.fields).toHaveLength(25)
+                expect(parsed.truncated).toBe(true)
+            })
+
+            // Eval against the real query-trends tool: a two-path batch keeps the
+            // series item variant shapes visible after summarization and stays within
+            // budget. Mirrors the single-path evals' Context scaffolding.
+            it('eval: query-trends batch keeps series item variants visible within budget', async () => {
+                const context = createExecContext()
+                const v2Tools = await getToolsFromContext(context)
+                const exec = createExecTool(v2Tools, context, 'test', 'test', undefined)
+
+                const result = (await exec.handler(context, {
+                    command: 'schema query-trends series breakdownFilter',
+                })) as string
+                const parsed = JSON.parse(result) as {
+                    fields: Array<{
+                        field: string
+                        schema?: {
+                            type?: string
+                            items?: { variants?: Array<{ properties?: Record<string, unknown> }> }
+                        }
+                    }>
+                }
+                expect(parsed.fields.map((f) => f.field)).toEqual(['series', 'breakdownFilter'])
+                const series = parsed.fields.find((f) => f.field === 'series')!
+                const variants = series.schema?.items?.variants
+                expect(variants?.length).toBeGreaterThan(0)
+                const variantFields = variants!.flatMap((v) => Object.keys(v.properties ?? {}))
+                expect(variantFields).toContain('kind')
+                expect(variantFields).toContain('event')
+                expect(result.length).toBeLessThanOrEqual(TOKEN_CHAR_LIMIT)
+            })
         })
     })
 
@@ -1027,29 +1269,6 @@ describe('exec tool', () => {
     })
 
     describe('exec tool description', () => {
-        function createExecContext(): Context {
-            return {
-                api: {} as any,
-                cache: {} as any,
-                env: {
-                    MCP_APPS_BASE_URL: undefined,
-                    POSTHOG_ANALYTICS_API_KEY: undefined,
-                    POSTHOG_ANALYTICS_HOST: undefined,
-                    POSTHOG_API_BASE_URL: undefined,
-                    POSTHOG_PUBLIC_URL: undefined,
-                    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
-                    POSTHOG_UI_APPS_TOKEN: undefined,
-                },
-                stateManager: {
-                    getApiKey: async () => ({ scopes: ['*'] }),
-                    getAiConsentGiven: async () => true,
-                } as any,
-                sessionManager: new SessionManager({} as any),
-                getDistinctId: async () => 'test-distinct-id',
-                trackEvent: async () => {},
-            }
-        }
-
         // Claude Code truncates tool descriptions after 2048 characters, so the
         // exec tool's description must fit within that budget or clients will
         // silently drop the tail of the instructions.

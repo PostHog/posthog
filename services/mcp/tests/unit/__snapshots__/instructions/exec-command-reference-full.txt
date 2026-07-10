@@ -4,7 +4,7 @@ CLI-style command string. Supported commands:
 tools — list available tool names
 search <regex_pattern> — search tools by JavaScript regex (matches name, title, description)
 info [--json] <tool_name> — show tool name, description, and input schema (summarized if too large). Pass `--json` for raw JSON output.
-schema <tool_name> [field_path] — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
+schema <tool_name> [field_path ...] — drill into one or more field schemas in a single call (supports dot-notation and `*` globs, e.g. `series breakdownFilter.breakdowns`, `series.*`)
 call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns raw JSON instead of optimized output in supported tools. Use raw JSON for scripts. --confirm is required by the CLI for destructive tools.)
 ```
 
@@ -14,16 +14,15 @@ call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON inp
 
 The `info` command may return the full schema (for simple tools) or a top-level summary with drill-down hints (for complex tools). Look for `hint` fields in the response.
 
-If `info` returned a summary (fields have `hint` values), call `schema <tool_name> <field_name>` for each field you need to populate BEFORE constructing that field's value in a `call` command.
+If `info` returned a summary (fields have `hint` values), batch every field you need to populate into ONE call — `schema <tool_name> <field1> <field2> ...` (a single field still works) — BEFORE constructing those fields' values in a `call` command. `*` globs expand to sibling fields (e.g. `series.*`).
 
 If `schema` also returns a summary (because the field is too large), drill deeper using dot-notation: `schema <tool> <field>.<subfield>`.
 
 **NEVER** guess the structure of fields that have hints. **ALWAYS** drill down first.
 
-For query tools, you will typically need:
+For query tools, batch the fields you need in a single call, e.g.:
 
-- `schema <tool> series` — to see EventsNode/ActionsNode structure
-- `schema <tool> series.properties` — to see property filter structure of series
+- `schema <tool> series series.properties breakdownFilter` — the item (EventsNode/ActionsNode) structure, the series property-filter shape, and the breakdown config in one response
 
 **For multiple tools:** Run `info` for ALL tools first, then make your `call` commands.
 
