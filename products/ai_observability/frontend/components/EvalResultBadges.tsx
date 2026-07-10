@@ -51,9 +51,16 @@ function EvalTooltipContent({ latestRun, runCount }: EvalSummary): JSX.Element {
     )
 }
 
-export function EvalResultBadges({ generationEventId }: { generationEventId: string }): JSX.Element | null {
+export function EvalResultBadges({
+    traceId,
+    generationEventId,
+}: {
+    traceId: string
+    /** When set, show runs targeting this generation; otherwise show trace-target runs. */
+    generationEventId?: string
+}): JSX.Element | null {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
-        generationEvaluationRunsLogic({ lookupBy: 'generation', generationEventId })
+        generationEvaluationRunsLogic({ lookupBy: 'trace', traceId })
     )
     const traceLogic = useMountedLogic(aiObservabilityTraceLogic)
     const { setViewMode } = useActions(traceLogic)
@@ -67,7 +74,10 @@ export function EvalResultBadges({ generationEventId }: { generationEventId: str
         )
     }
 
-    const summaries = getEvalSummaries(generationEvaluationRuns)
+    const scopedRuns = generationEventId
+        ? generationEvaluationRuns.filter((run) => run.generation_id === generationEventId)
+        : generationEvaluationRuns.filter((run) => !run.generation_id)
+    const summaries = getEvalSummaries(scopedRuns)
 
     if (summaries.length === 0) {
         return null

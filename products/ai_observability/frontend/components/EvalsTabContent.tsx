@@ -7,6 +7,8 @@ import { Link } from 'lib/lemon-ui/Link'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { urls } from 'scenes/urls'
 
+import { LLMTraceEvent } from '~/queries/schema/schema-general'
+
 import { aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
@@ -15,42 +17,34 @@ import { llmEvaluationExecutionLogic } from '../llmEvaluationExecutionLogic'
 import { GenerationEvalRunsTable } from './GenerationEvalRunsTable'
 
 export function EvalsTabContent({
-    generationEventId,
-    timestamp,
-    event,
+    traceId,
+    generationEvent,
     distinctId,
 }: {
-    generationEventId: string
-    timestamp: string
-    event: string
+    traceId: string
+    generationEvent?: LLMTraceEvent
     distinctId?: string
 }): JSX.Element {
-    const generationRunsLogic = generationEvaluationRunsLogic({ lookupBy: 'generation', generationEventId })
+    const runsLogic = generationEvaluationRunsLogic({ lookupBy: 'trace', traceId })
     const traceLogic = useMountedLogic(aiObservabilityTraceLogic)
 
-    useAttachedLogic(generationRunsLogic, traceLogic)
+    useAttachedLogic(runsLogic, traceLogic)
 
     return (
         <EvalsTabContentInner
-            generationEventId={generationEventId}
-            timestamp={timestamp}
-            event={event}
+            generationEvent={generationEvent}
             distinctId={distinctId}
-            generationRunsLogic={generationRunsLogic}
+            generationRunsLogic={runsLogic}
         />
     )
 }
 
 function EvalsTabContentInner({
-    generationEventId,
-    timestamp,
-    event,
+    generationEvent,
     distinctId,
     generationRunsLogic,
 }: {
-    generationEventId: string
-    timestamp: string
-    event: string
+    generationEvent?: LLMTraceEvent
     distinctId?: string
     generationRunsLogic: BuiltLogic<generationEvaluationRunsLogicType>
 }): JSX.Element {
@@ -61,6 +55,9 @@ function EvalsTabContentInner({
     const { generationEvaluationRunsLoading, selectedEvaluationId } = useValues(generationRunsLogic)
 
     const availableEvaluations = evaluations?.filter((e) => !e.deleted) || []
+    // Manual runs go through the generation workflow, so only generation-target evals
+    // can be triggered from here, and only when there is a generation to point them at.
+    const runnableEvaluations = generationEvent ? availableEvaluations.filter((e) => e.target !== 'trace') : []
     const hasNoEvaluations = !evaluationsLoading && availableEvaluations.length === 0
 
     return (
@@ -77,12 +74,12 @@ function EvalsTabContentInner({
                                 Create your first evaluation
                             </LemonButton>
                         </Link>
-                    ) : (
+                    ) : generationEvent && runnableEvaluations.length > 0 ? (
                         <>
                             <LemonSelect
                                 value={selectedEvaluationId}
                                 onChange={setSelectedEvaluationId}
-                                options={availableEvaluations.map((evaluation) => ({
+                                options={runnableEvaluations.map((evaluation) => ({
                                     value: evaluation.id,
                                     label: evaluation.name,
                                 }))}
@@ -98,9 +95,9 @@ function EvalsTabContentInner({
                                     if (selectedEvaluationId) {
                                         runEvaluation(
                                             selectedEvaluationId,
-                                            generationEventId,
-                                            timestamp,
-                                            event,
+                                            generationEvent.id,
+                                            generationEvent.createdAt,
+                                            generationEvent.event,
                                             distinctId
                                         )
                                     }
@@ -112,7 +109,7 @@ function EvalsTabContentInner({
                                 Run Evaluation
                             </LemonButton>
                         </>
-                    )}
+                    ) : null}
                 </div>
                 <LemonButton
                     type="secondary"
