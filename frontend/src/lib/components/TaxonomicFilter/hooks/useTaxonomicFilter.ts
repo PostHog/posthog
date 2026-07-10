@@ -136,6 +136,7 @@ export interface TaxonomicFilterApi {
     value?: TaxonomicFilterValue
     selectingKeyOnly?: SelectingKeyOnly
     excludedOperators?: ExcludedOperators
+    excludedProperties?: ExcludedProperties
 
     // headless-component prop bags
     rootProps: { onKeyDown: (e: React.KeyboardEvent<any>) => void }
@@ -324,6 +325,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         taxonomicGroupTypes: groupTypes,
         excludedOperators,
         selectingKeyOnly,
+        excludedProperties,
     })
 
     const groups = useMemo(() => {
@@ -593,6 +595,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         value,
         selectingKeyOnly,
         excludedOperators,
+        excludedProperties,
         rootProps: { onKeyDown },
         inputProps: {
             value: searchQuery,

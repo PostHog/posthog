@@ -330,6 +330,7 @@ export enum TaxonomicFilterGroupType {
     Logs = 'logs',
     LogAttributes = 'log_attributes',
     LogResourceAttributes = 'log_resource_attributes',
+    MetricAttributes = 'metric_attributes',
     Spans = 'spans',
     SpanAttributes = 'span_attributes',
     SpanResourceAttributes = 'span_resource_attributes',

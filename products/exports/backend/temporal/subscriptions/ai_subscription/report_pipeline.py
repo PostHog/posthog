@@ -251,6 +251,7 @@ def _plan_to_freeze(
     total_steps: int,
     trace_correlation_id: Optional[Union[int, str]],
 ) -> Optional[dict]:
+    # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
     # Never freeze a plan the next delivery is better off re-planning: an all-failed plan would replay
     # broken HogQL forever, and a step without any window placeholder would scan unbounded every run.
     if not freshly_planned:
@@ -407,6 +408,10 @@ async def _run_steps(
                 )
                 # result values are attacker-influenceable (public project tokens) — strip framing markers
                 safe_formatted = strip_llm_framing_markers(formatted, per_step_cap)
+                # Write the succeeding query (post any fix-LLM rewrite, still window-agnostic) back onto
+                # the step so `_plan_to_freeze` freezes what actually ran — a no-op unless the fix LLM
+                # rewrote it. A failed step keeps the planner's original, never a broken rewrite.
+                step.hogql = current_hogql
                 return (
                     f"### {safe_description}\n\n{safe_formatted}",
                     QueryStepDiagnostic(description=safe_description, hogql=executable_hogql, ok=True, error_type=None),

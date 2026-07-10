@@ -40,6 +40,8 @@ export type NotebookTextBlockNode = {
     id: string
     type: 'paragraph' | 'heading' | 'blockquote'
     level?: 1 | 2 | 3 | 4 | 5 | 6
+    /** A heading that is part of a blockquote: serialized with a `> ` prefix on every line. */
+    blockquote?: boolean
     children: NotebookInlineNode[]
 }
 

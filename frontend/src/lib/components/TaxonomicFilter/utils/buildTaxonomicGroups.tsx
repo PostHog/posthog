@@ -601,6 +601,22 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getPopoverHeader: () => 'Resource attributes',
         },
         {
+            name: 'Metric attributes',
+            searchPlaceholder: 'attributes',
+            type: TaxonomicFilterGroupType.MetricAttributes,
+            endpoint: combineUrl(`api/environments/${projectId}/metrics/attributes`, {
+                ...endpointFilters,
+            }).url,
+            valuesEndpoint: (key) =>
+                combineUrl(`api/environments/${projectId}/metrics/attribute_values`, {
+                    key: key,
+                    ...endpointFilters,
+                }).url,
+            getName: (option: SimpleOption) => option.name,
+            getValue: (option: SimpleOption) => option.name,
+            getPopoverHeader: () => 'Metric attributes',
+        },
+        {
             name: 'Spans',
             searchPlaceholder: 'spans',
             type: TaxonomicFilterGroupType.Spans,

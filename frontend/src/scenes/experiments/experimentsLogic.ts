@@ -70,7 +70,13 @@ const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
     evaluation_runtime: undefined,
 }
 
-export { getExperimentStatus, hasEnded, isExperimentPaused, isLaunched } from './experimentStatus'
+export {
+    getExperimentStatus,
+    hasEnded,
+    isExperimentExposureFrozen,
+    isExperimentPaused,
+    isLaunched,
+} from './experimentStatus'
 
 export function isSingleVariantShipped(experiment: Experiment): boolean {
     const filters = experiment.feature_flag?.filters
@@ -104,6 +110,8 @@ export function getExperimentStatusLabel(status: ExperimentStatus): string {
             return 'Running'
         case ExperimentStatus.Paused:
             return 'Paused'
+        case ExperimentStatus.ExposureFrozen:
+            return 'Exposure frozen'
         case ExperimentStatus.Stopped:
             return 'Complete'
     }
@@ -117,6 +125,8 @@ export function getExperimentStatusColor(status: ExperimentStatus): LemonTagType
             return 'success'
         case ExperimentStatus.Paused:
             return 'warning'
+        case ExperimentStatus.ExposureFrozen:
+            return 'highlight'
         case ExperimentStatus.Stopped:
             return 'completion'
     }

@@ -40,6 +40,7 @@ export const TEXT_BLOCK_STYLE_BUTTONS: {
 
 export function FormattingToolbar({
     selectedBlockStyle,
+    selectedBlockQuoted,
     placement,
     top,
     left,
@@ -57,6 +58,8 @@ export function FormattingToolbar({
     returnFocusToEditor,
 }: {
     selectedBlockStyle: TextBlockStyle | null
+    /** Whether every selected block sits inside a blockquote — orthogonal to the text style. */
+    selectedBlockQuoted: boolean
     placement: 'above' | 'below'
     top: number
     left: number
@@ -240,21 +243,30 @@ export function FormattingToolbar({
                 role="group"
                 aria-label="Text style"
             >
-                {TEXT_BLOCK_STYLE_BUTTONS.map((button) => (
-                    <LemonButton
-                        key={button.label}
-                        size="xsmall"
-                        icon={button.icon}
-                        tooltip={button.label}
-                        aria-label={button.label}
-                        aria-pressed={selectedBlockStyle === button.style}
-                        active={selectedBlockStyle === button.style}
-                        className="MarkdownNotebook__format-style-button"
-                        onClick={() => setBlockStyle(selectedBlockStyle === button.style ? 'paragraph' : button.style)}
-                    >
-                        {button.content}
-                    </LemonButton>
-                ))}
+                {TEXT_BLOCK_STYLE_BUTTONS.map((button) => {
+                    // Quote membership is orthogonal to the text style, so a quoted heading lights up
+                    // both its heading button and the quote button. The quote button always dispatches
+                    // 'blockquote' — the editor toggles membership based on the selection's current state.
+                    const isActive =
+                        button.style === 'blockquote' ? selectedBlockQuoted : selectedBlockStyle === button.style
+                    return (
+                        <LemonButton
+                            key={button.label}
+                            size="xsmall"
+                            icon={button.icon}
+                            tooltip={button.label}
+                            aria-label={button.label}
+                            aria-pressed={isActive}
+                            active={isActive}
+                            className="MarkdownNotebook__format-style-button"
+                            onClick={() =>
+                                setBlockStyle(button.style === 'blockquote' || !isActive ? button.style : 'paragraph')
+                            }
+                        >
+                            {button.content}
+                        </LemonButton>
+                    )
+                })}
             </div>
             {showInlineActions ? (
                 <>
@@ -391,6 +403,22 @@ export function getSelectedBlockStyle(
     }
 
     return [...styles][0]
+}
+
+/** True when the selection is non-empty and every selected block sits inside a blockquote. */
+export function getSelectedBlocksQuoted(
+    textRanges: FloatingToolbarTextRange[],
+    codeRanges: FloatingToolbarCodeRange[],
+    listItemRanges: FloatingToolbarListItemRange[] = []
+): boolean {
+    if (codeRanges.length || (!textRanges.length && !listItemRanges.length)) {
+        return false
+    }
+
+    return (
+        textRanges.every(({ node }) => node.type === 'blockquote' || !!node.blockquote) &&
+        listItemRanges.every(({ node }) => !!node.blockquote)
+    )
 }
 
 export function getSelectedTextBlockStyle(textRanges: FloatingToolbarTextRange[]): TextBlockStyle | null {
