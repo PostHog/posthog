@@ -4,14 +4,11 @@ import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 const EMPTY = '—'
 
-// Sparkline hover label for a bucket key ('YYYY-MM-DD' or 'YYYY-MM-DD HH:mm:ss') — day buckets
-// drop the midnight time, sub-day buckets keep it.
+// Sparkline hover label for a bucket key ('YYYY-MM-DD' or 'YYYY-MM-DD HH:mm:ss'). Date only,
+// matching the metric insight's hover labels.
 export function formatBucketLabel(bucket: string): string {
     const d = dayjs(bucket)
-    if (!d.isValid()) {
-        return bucket
-    }
-    return d.hour() === 0 && d.minute() === 0 ? d.format('MMM D') : d.format('MMM D, HH:mm')
+    return d.isValid() ? d.format('MMM D') : bucket
 }
 
 export function formatNumber(n: number): string {
