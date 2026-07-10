@@ -5,9 +5,17 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint
+from pydantic import (
+    AwareDatetime,
+    BaseModel as _PydanticBaseModel,
+    ConfigDict,
+    Field,
+    RootModel as _PydanticRootModel,
+    confloat,
+    conint,
+)
 
 from posthog.schema_enums import (
     AccessControlLevel as AccessControlLevel,
@@ -292,6 +300,18 @@ from posthog.schema_enums import (
     YAxisPosition as YAxisPosition,
     YAxisScaleType as YAxisScaleType,
 )
+
+_RootT = TypeVar("_RootT")
+
+
+class BaseModel(_PydanticBaseModel):
+    # Core-schema building is deferred to first use: see bin/patch-schema-defer-build.py
+    model_config = ConfigDict(defer_build=True)
+
+
+class RootModel(_PydanticRootModel[_RootT], Generic[_RootT]):
+    # Core-schema building is deferred to first use: see bin/patch-schema-defer-build.py
+    model_config = ConfigDict(defer_build=True)
 
 
 class SchemaRoot(RootModel[Any]):
@@ -29185,13 +29205,3 @@ class VisualizationArtifactContent(BaseModel):
         | MCPToolNeighborsQuery
         | PropertyValuesQuery
     )
-
-
-ProsemirrorJSONContent.model_rebuild()
-PropertyGroupFilterValue.model_rebuild()
-HumanMessage.model_rebuild()
-MaxDashboardContext.model_rebuild()
-MaxInsightContext.model_rebuild()
-QueryRequest.model_rebuild()
-SourceConfig.model_rebuild()
-SourceFieldSelectConfig.model_rebuild()

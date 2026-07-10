@@ -19,6 +19,9 @@ python3 bin/patch-schema-array-discriminators.py
 # Move enum classes to posthog/schema_enums.py (importable without the pydantic model cost)
 python3 bin/split-schema-enums.py
 
+# Defer pydantic core-schema building to first use (~1.6s off every process's import)
+python3 bin/patch-schema-defer-build.py
+
 # Format and lint
 ruff format posthog/schema.py posthog/schema_enums.py
 ruff check --fix posthog/schema.py posthog/schema_enums.py
