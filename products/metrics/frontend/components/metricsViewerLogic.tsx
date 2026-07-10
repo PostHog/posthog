@@ -1,5 +1,8 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
 import { type SparklineTimeSeries } from 'lib/components/Sparkline'
@@ -8,8 +11,12 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { dayjs } from 'lib/dayjs'
 import { escapeRegex } from 'lib/utils/actions'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
+import { MetricsQuery, MetricsQueryClause, MetricsQueryFilter, NodeKind } from '~/queries/schema/schema-general'
+import { QueryBasedInsightModel } from '~/types'
 import { PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
 import { metricsCharacterizeCreate, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
@@ -55,7 +62,7 @@ export const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> 
     exponential_histogram: 'p95',
 }
 const DEFAULT_DATE_FROM = '-1h'
-export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, cancelling the previous one'
+export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, canceling the previous one'
 
 // A superseded or unmounted request rejects with an abort, not a real failure — never surface it as an error.
 // The cancel path aborts with NEW_QUERY_STARTED_ERROR_MESSAGE, whose text doesn't contain "abort", so match it
@@ -122,7 +129,7 @@ const propertyFilterToMetricFilter = (filter: UniversalFilterValue): _MetricFilt
 const flattenFilterValues = (group: UniversalFiltersGroup): UniversalFilterValue[] =>
     group.values.flatMap((value) => (isUniversalGroupFilterLike(value) ? flattenFilterValues(value) : [value]))
 
-const resolveDate = (value: string | null | undefined): string | null => {
+export const resolveDate = (value: string | null | undefined): string | null => {
     if (!value) {
         return null
     }
@@ -193,6 +200,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 actions.setAggregation(recommended)
             }
         },
+        saveAsInsightFailure: ({ error }) => {
+            lemonToast.error(`Failed to save insight: ${error}`)
+        },
         cancelInProgressQuery: ({ controller }) => {
             if (values.queryAbortController !== null) {
                 // An AbortError-named DOMException (not a bare string) is what api.ts and the global
@@ -258,6 +268,29 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 },
             },
         ],
+        savedInsight: [
+            null as QueryBasedInsightModel | null,
+            {
+                saveAsInsight: async () => {
+                    const query = values.metricsQueryNode
+                    if (!query) {
+                        return null
+                    }
+                    const insight = await insightsApi.create({
+                        name: `${values.metricName} (${values.aggregation})`,
+                        query,
+                        saved: true,
+                    })
+                    lemonToast.success('Insight saved', {
+                        button: {
+                            label: 'View insight',
+                            action: () => router.actions.push(urls.insightView(insight.short_id)),
+                        },
+                    })
+                    return insight
+                },
+            },
+        ],
         anomalyReport: [
             null as _MetricAnomalyReportApi | null,
             {
@@ -294,6 +327,44 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     })),
     selectors({
         hasMetricName: [(s) => [s.metricName], (metricName) => metricName.trim().length > 0],
+        // The viewer state as a `MetricsQuery` schema node — what "Save as insight"
+        // persists, so the saved tile re-runs exactly what the viewer shows.
+        // The REST viewer's 'p95' shorthand maps to the node's quantile aggregation.
+        metricsQueryNode: [
+            (s) => [s.metricName, s.aggregation, s.dateFrom, s.dateTo, s.groupByKeys, s.queryFilters],
+            (metricName, aggregation, dateFrom, dateTo, groupByKeys, queryFilters): MetricsQuery | null => {
+                const trimmedName = metricName.trim()
+                if (!trimmedName) {
+                    return null
+                }
+                const clause: MetricsQueryClause = {
+                    name: 'a',
+                    metricName: trimmedName,
+                    aggregation: aggregation === 'p95' ? 'quantile' : aggregation,
+                    ...(aggregation === 'p95' ? { quantile: 0.95 } : {}),
+                    ...(queryFilters.length
+                        ? {
+                              filters: queryFilters.map(
+                                  (f): MetricsQueryFilter => ({
+                                      key: f.key,
+                                      op: f.op as MetricsQueryFilter['op'],
+                                      value: f.value,
+                                  })
+                              ),
+                          }
+                        : {}),
+                    ...(groupByKeys.length ? { groupBy: groupByKeys.map((key) => ({ key })) } : {}),
+                }
+                return {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [clause],
+                    dateRange: {
+                        date_from: dateFrom ?? DEFAULT_DATE_FROM,
+                        ...(dateTo ? { date_to: dateTo } : {}),
+                    },
+                }
+            },
+        ],
         queryFilters: [
             (s) => [s.filterGroup],
             (filterGroup: UniversalFiltersGroup): _MetricFilterApi[] =>
@@ -310,8 +381,6 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 ...(resolveDate(dateTo) ? { dateTo: resolveDate(dateTo) as string } : {}),
             }),
         ],
-        // The viewer renders the first series only for now; group-by lands
-        // multi-series rendering in a later PR.
         // Metrics has no compare/previous-series concept, so "current" is simply the first series.
         currentSeries: [(s) => [s.queryResults], (results): MetricsViewerSeries | undefined => results[0]],
         // All series rendered as chart lines (a group-by query returns one series per label combination).

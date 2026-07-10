@@ -6,11 +6,11 @@ use etcd_client::{EventType, WatchStream};
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
-use assignment_coordination::util::compute_required_handoffs;
 use k8s_awareness::types::ControllerKind;
 use k8s_awareness::{DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
+use crate::protocol::{drain_satisfied, freeze_quorum_met, plan_rebalance, warm_satisfied};
 use crate::store::{self, PersonhogStore};
 use crate::strategy::AssignmentStrategy;
 use crate::types::{
@@ -408,30 +408,9 @@ impl Coordinator {
                 let routers = store.list_routers().await?;
                 let freeze_acks = store.list_freeze_acks(partition).await?;
 
-                // Identity-based quorum: every currently registered router
-                // must have acked this partition's freeze. A count
-                // comparison would let a stale ack from a departed router
-                // (acks are not lease-bound) stand in for a live router
-                // that hasn't stashed yet — advancing to Draining while
-                // that router still forwards writes to the old owner.
-                // Only acks echoing this handoff's id count: an ack left
-                // over from a previous handoff of the same partition
-                // proves nothing about this one.
-                //
-                // With zero routers there is no traffic to stash, so the
-                // freeze quorum is vacuously met. This keeps bootstrap and
-                // router-less configurations (e.g. tests exercising only
-                // the coordinator+pod) unblocked.
-                let acked: HashSet<&str> = freeze_acks
-                    .iter()
-                    .filter(|a| a.handoff_id == handoff.handoff_id)
-                    .map(|a| a.router_name.as_str())
-                    .collect();
-                let all_routers_frozen = routers
-                    .iter()
-                    .all(|r| acked.contains(r.router_name.as_str()));
-
-                if all_routers_frozen {
+                // Quorum semantics live in `protocol::freeze_quorum_met`
+                // (shared with the stateright model).
+                if freeze_quorum_met(&routers, &freeze_acks, &handoff) {
                     // Initial assignments (no old owner) skip Draining
                     // entirely — there's no inflight to wait for. Advance
                     // straight to Warming.
@@ -455,38 +434,11 @@ impl Coordinator {
                 }
             }
             HandoffPhase::Draining => {
-                let old_owner_condition = match &handoff.old_owner {
-                    // Defensive: a handoff that reached Draining without
-                    // an old owner shouldn't exist (Freezing skips
-                    // Draining when old_owner is None), but if it does,
-                    // there's nothing to drain.
-                    None => true,
-                    Some(name) => {
-                        // "Alive" here means the pod's etcd registration key
-                        // still exists (its lease hasn't expired) — not just
-                        // that it's `Ready`. A `Draining` pod is shutting
-                        // down gracefully but is still capable of running its
-                        // handoff handler and writing a `DrainedAck`, and may
-                        // still have inflight handlers. Bypassing the drain
-                        // requirement for such a pod would let the
-                        // coordinator advance to Warming while the old owner
-                        // is still producing — breaking the protocol's core
-                        // invariant. Only treat the old owner as drained
-                        // when its key is genuinely absent.
-                        let pods = store.list_pods().await?;
-                        let old_owner_present = pods.iter().any(|p| p.pod_name == *name);
-                        if !old_owner_present {
-                            true
-                        } else {
-                            let drained_acks = store.list_drained_acks(partition).await?;
-                            drained_acks
-                                .iter()
-                                .any(|a| a.pod_name == *name && a.handoff_id == handoff.handoff_id)
-                        }
-                    }
-                };
-
-                if old_owner_condition {
+                // Drain semantics live in `protocol::drain_satisfied`
+                // (shared with the stateright model).
+                let pods = store.list_pods().await?;
+                let drained_acks = store.list_drained_acks(partition).await?;
+                if drain_satisfied(&pods, &drained_acks, &handoff) {
                     let advanced = store
                         .cas_handoff_phase(partition, HandoffPhase::Draining, HandoffPhase::Warming)
                         .await?;
@@ -501,11 +453,7 @@ impl Coordinator {
             }
             HandoffPhase::Warming => {
                 let warmed = store.list_warmed_acks(partition).await?;
-                let new_owner_warmed = warmed
-                    .iter()
-                    .any(|a| a.pod_name == handoff.new_owner && a.handoff_id == handoff.handoff_id);
-
-                if new_owner_warmed {
+                if warm_satisfied(&warmed, &handoff) {
                     tracing::info!(
                         partition,
                         new_owner = %handoff.new_owner,
@@ -617,63 +565,38 @@ impl Coordinator {
             .map(|a| (a.partition, a.owner.clone()))
             .collect();
 
-        let new_assignments =
-            strategy.compute_assignments(&current_map, &active_pods, total_partitions);
-        let reassignments = compute_required_handoffs(&current_map, &new_assignments);
+        // Placement and diff semantics (moves carry the prior owner, fresh
+        // partitions carry none, everything goes through Freezing) live in
+        // `protocol::plan_rebalance`, shared with the stateright model.
+        let plan = plan_rebalance(strategy, &current_map, &active_pods, total_partitions);
 
-        // Every partition that has a new owner goes through the handoff
-        // protocol, including partitions that had no prior owner (initial
-        // assignment). This guarantees routers never route to a pod whose
-        // cache hasn't been warmed.
-        //
-        // Partitions that already have the correct owner are skipped.
-        let assigned_partitions: HashSet<u32> = new_assignments.keys().copied().collect();
-        let reassignment_partitions: HashSet<u32> =
-            reassignments.iter().map(|(p, _, _)| *p).collect();
-
-        // Fresh partitions = assigned but neither in current nor being reassigned.
-        let fresh_partitions: Vec<u32> = assigned_partitions
-            .iter()
-            .copied()
-            .filter(|p| !current_map.contains_key(p) && !reassignment_partitions.contains(p))
-            .collect();
-
-        if reassignments.is_empty() && fresh_partitions.is_empty() {
+        if plan.handoffs.is_empty() {
             tracing::debug!("no handoffs needed");
             return Ok(());
         }
 
         let now = util::now_seconds();
-        let mut handoff_objects: Vec<HandoffState> = Vec::new();
-
-        // Reassignments: old_owner = Some(prior owner)
-        for (partition, old_owner, new_owner) in &reassignments {
-            handoff_objects.push(HandoffState {
-                partition: *partition,
-                old_owner: Some(old_owner.clone()),
-                new_owner: new_owner.clone(),
+        let handoff_objects: Vec<HandoffState> = plan
+            .handoffs
+            .iter()
+            .map(|h| HandoffState {
+                partition: h.partition,
+                old_owner: h.old_owner.clone(),
+                new_owner: h.new_owner.clone(),
                 phase: HandoffPhase::Freezing,
                 started_at: now,
                 handoff_id: util::new_handoff_id(),
-            });
-        }
+            })
+            .collect();
 
-        // Fresh assignments: old_owner = None (skip drain, skip release)
-        for partition in &fresh_partitions {
-            let new_owner = &new_assignments[partition];
-            handoff_objects.push(HandoffState {
-                partition: *partition,
-                old_owner: None,
-                new_owner: new_owner.clone(),
-                phase: HandoffPhase::Freezing,
-                started_at: now,
-                handoff_id: util::new_handoff_id(),
-            });
-        }
-
+        let moves = plan
+            .handoffs
+            .iter()
+            .filter(|h| h.old_owner.is_some())
+            .count();
         tracing::info!(
-            reassignments = reassignments.len(),
-            fresh = fresh_partitions.len(),
+            reassignments = moves,
+            fresh = plan.handoffs.len() - moves,
             "creating handoffs"
         );
 
@@ -683,16 +606,14 @@ impl Coordinator {
         // handoff reaches Complete.
         let handoff_partitions: HashSet<u32> =
             handoff_objects.iter().map(|h| h.partition).collect();
-        let assignment_objects: Vec<PartitionAssignment> = new_assignments
+        let stable_assignments: Vec<PartitionAssignment> = plan
+            .desired
             .iter()
             .map(|(&partition, owner)| PartitionAssignment {
                 partition,
                 owner: owner.clone(),
                 status: AssignmentStatus::Active,
             })
-            .collect();
-        let stable_assignments: Vec<PartitionAssignment> = assignment_objects
-            .into_iter()
             .filter(|a| !handoff_partitions.contains(&a.partition))
             .collect();
 
