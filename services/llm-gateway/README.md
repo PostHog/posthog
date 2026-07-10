@@ -153,6 +153,12 @@ All OpenAI, Anthropic, OpenRouter, and Fireworks AI chat models are supported.
 OpenRouter and Fireworks models use the OpenAI-compatible `/v1/chat/completions` endpoint with model prefixes (`openrouter/` and `fireworks_ai/`).
 The `/v1/models` endpoint returns provider-specific model IDs from LiteLLM's model map.
 
+### Premium model plan gate
+
+Products can opt into requiring a usage-based plan for premium models. Set `LLM_GATEWAY_PREMIUM_MODEL_GATE_ENABLED=true` to activate the policy for opted-in products; it is disabled by default. `LLM_GATEWAY_PREMIUM_MODELS` configures the canonical premium model IDs and defaults to `claude-fable-5`.
+
+When active, completion requests from other plans receive a 403 response, and anonymous or non-usage-based `/v1/models` responses omit premium models. Bedrock IDs that route to a configured premium model follow the same policy.
+
 ## OpenAI organization
 
 Set `LLM_GATEWAY_OPENAI_ORGANIZATION` to attribute all outbound OpenAI traffic

@@ -1,12 +1,20 @@
 from typing import Literal
 
-from fastapi import APIRouter
+import structlog
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from llm_gateway.auth.service import get_auth_service
 from llm_gateway.products.config import validate_product
 from llm_gateway.services.model_registry import get_available_models
+from llm_gateway.services.plan_resolver import resolve_plan_info
+from llm_gateway.services.premium_model_policy import (
+    is_model_allowed_by_premium_policy,
+    is_premium_model_gate_active,
+)
 
 models_router = APIRouter(tags=["models"])
+logger = structlog.get_logger(__name__)
 
 CREATED_TIMESTAMP = 1669766400  # Nov 30, 2022 - ChatGPT release date - we don't have data on this so just return a default for the field to match OpenAI's API
 
@@ -48,8 +56,23 @@ class ModelsResponse(BaseModel):
     models: list[ModelObject] = []  # Alias for `data` — codex-acp expects this field
 
 
-def _build_response(product: str) -> ModelsResponse:
+async def _resolve_optional_plan_key(request: Request, product: str) -> str | None:
+    try:
+        user = await get_auth_service().authenticate_request(request, request.app.state.db_pool)
+    except Exception:
+        logger.warning("models_optional_auth_failed", product=product, exc_info=True)
+        return None
+    if user is None:
+        return None
+    plan_info = await resolve_plan_info(request, user.user_id, product)
+    return plan_info.plan_key
+
+
+async def _build_response(request: Request, product: str) -> ModelsResponse:
     models = get_available_models(product)
+    if is_premium_model_gate_active(product):
+        plan_key = await _resolve_optional_plan_key(request, product)
+        models = [m for m in models if is_model_allowed_by_premium_policy(product, m.id, plan_key)]
     model_objects = [
         ModelObject(
             id=m.id,
@@ -66,11 +89,11 @@ def _build_response(product: str) -> ModelsResponse:
 
 
 @models_router.get("/v1/models")
-async def list_models() -> ModelsResponse:
-    return _build_response("llm_gateway")
+async def list_models(request: Request) -> ModelsResponse:
+    return await _build_response(request, "llm_gateway")
 
 
 @models_router.get("/{product}/v1/models")
-async def list_models_for_product(product: str) -> ModelsResponse:
-    validate_product(product)
-    return _build_response(product)
+async def list_models_for_product(product: str, request: Request) -> ModelsResponse:
+    resolved_product = validate_product(product)
+    return await _build_response(request, resolved_product)

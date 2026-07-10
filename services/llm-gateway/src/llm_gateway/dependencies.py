@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import asyncpg
 import structlog
@@ -26,6 +26,7 @@ from llm_gateway.request_context import (
     set_throttle_context,
 )
 from llm_gateway.services.plan_resolver import PlanInfo, resolve_plan_info
+from llm_gateway.services.premium_model_policy import is_model_allowed_by_premium_policy
 from llm_gateway.services.quota_resolver import QuotaResourceStatus, resolve_quota_status
 
 logger = structlog.get_logger(__name__)
@@ -76,14 +77,18 @@ async def get_cached_body(request: Request) -> bytes | None:
 
 
 async def get_request_json(request: Request) -> dict[str, Any] | None:
-    body = await get_cached_body(request)
-    if not body:
-        return None
-    try:
-        data = json.loads(body)
-        return data if isinstance(data, dict) else None
-    except (json.JSONDecodeError, TypeError):
-        return None
+    """Get the parsed JSON object, caching both valid and invalid results."""
+    if not hasattr(request.state, "_cached_json"):
+        body = await get_cached_body(request)
+        if not body:
+            request.state._cached_json = None
+        else:
+            try:
+                data = json.loads(body)
+                request.state._cached_json = data if isinstance(data, dict) else None
+            except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
+                request.state._cached_json = None
+    return cast(dict[str, Any] | None, request.state._cached_json)
 
 
 async def get_model_from_request(request: Request) -> str | None:
@@ -133,14 +138,8 @@ async def _extract_end_user_id_from_body(request: Request) -> str | None:
     For OpenAI-compatible endpoints, this is the top-level `user` field.
     For Anthropic endpoints, this is `metadata.user_id`.
     """
-    body = await get_cached_body(request)
-    if not body:
-        return None
-    try:
-        data = json.loads(body)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    if not isinstance(data, dict):
+    data = await get_request_json(request)
+    if data is None:
         return None
 
     user_id = data.get("user")
@@ -181,6 +180,12 @@ async def resolve_plan_and_quota(
     return plan_info, QuotaResourceStatus(limited=False)
 
 
+_PREMIUM_MODEL_GATE_DETAIL_TEMPLATE = (
+    "{model} requires usage-based billing. Switch to a usage-based plan at "
+    "https://app.posthog.com/organization/billing to use premium models."
+)
+
+
 async def enforce_throttles(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(enforce_product_access)],
@@ -201,6 +206,13 @@ async def enforce_throttles(
         team_id=user.team_id,
         product=product,
     )
+
+    model = await get_model_from_request(request)
+    if not is_model_allowed_by_premium_policy(product, model, plan_info.plan_key):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=_PREMIUM_MODEL_GATE_DETAIL_TEMPLATE.format(model=model),
+        )
 
     context = ThrottleContext(
         user=user,

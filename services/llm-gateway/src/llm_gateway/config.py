@@ -187,6 +187,17 @@ class Settings(BaseSettings):
 
     posthog_api_base_url: str = "https://us.posthog.com"
     plan_cache_ttl: int = 900  # 15 minutes
+
+    # Premium (fable-tier) model IDs
+    # Restricted in some billing plans when premium_model_gate_enabled=True
+    premium_models: list[str] = ["claude-fable-5"]
+
+    # Turns the premium-model plan gate on/off. One ordering constraint: only
+    # flip this on AFTER the usage-based opt-in flow is live, so nobody loses
+    # premium models without a path to get them back. Also the instant
+    # rollback lever - flip off to restore premium models without a deploy.
+    premium_model_gate_enabled: bool = False
+
     # Billing recomputes quota at most hourly, so we tolerate slight overage rather than
     # a Django roundtrip on every billable request.
     quota_cache_ttl: int = 300  # 5 minutes

@@ -34,6 +34,19 @@ class TestGetProductConfig:
         config = get_product_config("unknown_product")
         assert config is None
 
+    def test_posthog_code_opts_into_premium_model_gate(self):
+        config = get_product_config("posthog_code")
+        assert config is not None
+        assert config.premium_models_gated is True
+
+    @pytest.mark.parametrize("product", [p for p in PRODUCTS if p != "posthog_code"])
+    def test_other_products_do_not_opt_into_premium_model_gate(self, product: str):
+        # posthog_ai included: it allows any model but is deliberately unaffected
+        # by the posthog_code-specific premium-model plan gate.
+        config = get_product_config(product)
+        assert config is not None
+        assert config.premium_models_gated is False
+
 
 class TestCheckProductAccess:
     @pytest.mark.parametrize(

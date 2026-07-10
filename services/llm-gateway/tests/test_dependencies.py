@@ -3,9 +3,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException, Request
-from starlette.datastructures import Headers
 
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.config import get_settings
 from llm_gateway.dependencies import (
     _extract_end_user_id_from_body,
     enforce_throttles,
@@ -14,25 +14,33 @@ from llm_gateway.dependencies import (
 )
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
 from llm_gateway.services.plan_resolver import PlanInfo
+from llm_gateway.services.premium_model_policy import is_model_allowed_by_premium_policy
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
 
-def _make_request(body: dict | None = None, headers: dict[str, str] | None = None) -> Request:
-    request = MagicMock(spec=Request)
-    request.state = MagicMock()
-    del request.state._cached_body
-    request.headers = Headers(headers or {})
+def _make_request(
+    body: object | None = None,
+    headers: dict[str, str] | None = None,
+    path: str = "/",
+) -> Request:
+    raw = json.dumps(body).encode() if body is not None else b""
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "headers": [(key.lower().encode(), value.encode()) for key, value in (headers or {}).items()],
+        "client": None,
+        "server": ("testserver", 80),
+        "scheme": "http",
+        "state": {},
+    }
 
-    if body is not None:
-        raw = json.dumps(body).encode()
-    else:
-        raw = None
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": raw, "more_body": False}
 
-    async def fake_body():
-        return raw
-
-    request.body = fake_body
-    return request
+    return Request(scope, receive)
 
 
 def _make_user(auth_method: str = "personal_api_key", user_id: int = 1) -> AuthenticatedUser:
@@ -93,14 +101,7 @@ class TestExtractEndUserIdFromBody:
 
     @pytest.mark.asyncio
     async def test_returns_none_for_non_dict_json_body(self) -> None:
-        request = MagicMock(spec=Request)
-        request.state = MagicMock()
-        del request.state._cached_body
-
-        async def fake_body():
-            return b'["not", "a", "dict"]'
-
-        request.body = fake_body
+        request = _make_request(["not", "a", "dict"])
         assert await _extract_end_user_id_from_body(request) is None
 
 
@@ -132,9 +133,7 @@ class TestEnforceThrottles:
         auth_method: str = "personal_api_key",
         user_id: int = 1,
     ) -> ThrottleContext:
-        request = _make_request(body)
-        request.url = MagicMock()
-        request.url.path = "/openai/v1/chat/completions"
+        request = _make_request(body, path="/openai/v1/chat/completions")
         user = _make_user(auth_method=auth_method, user_id=user_id)
 
         captured_context: ThrottleContext | None = None
@@ -203,6 +202,65 @@ class TestEnforceThrottles:
         )
         assert context.end_user_id is None
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "model",
+        ["claude-fable-5", "us.anthropic.claude-fable-5", "eu.anthropic.claude-fable-5"],
+    )
+    async def test_non_usage_plan_premium_request_is_denied_before_throttles(self, model: str) -> None:
+        request = _make_request(
+            {"model": model, "messages": []},
+            path="/posthog_code/v1/messages",
+        )
+        runner = MagicMock()
+        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+        plan_and_quota = AsyncMock(
+            return_value=(
+                PlanInfo(plan_key="posthog-code-pro-200-20260301", seat_created_at=None),
+                QuotaResourceStatus(limited=False),
+            )
+        )
+
+        with (
+            patch.object(get_settings(), "premium_model_gate_enabled", True),
+            patch("llm_gateway.dependencies.ensure_costs_fresh"),
+            patch("llm_gateway.dependencies.resolve_plan_and_quota", plan_and_quota),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            await enforce_throttles(request=request, user=_make_user("oauth_access_token"), runner=runner)
+
+        assert exc_info.value.status_code == 403
+        runner.check.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_usage_plan_premium_request_reaches_throttles(self) -> None:
+        request = _make_request(
+            {"model": "claude-fable-5", "messages": []},
+            path="/posthog_code/v1/messages",
+        )
+        runner = MagicMock()
+        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+        plan_and_quota = AsyncMock(
+            return_value=(
+                PlanInfo(plan_key="posthog-code-usage-20260709", seat_created_at=None),
+                QuotaResourceStatus(limited=False),
+            )
+        )
+
+        with (
+            patch.object(get_settings(), "premium_model_gate_enabled", True),
+            patch("llm_gateway.dependencies.ensure_costs_fresh"),
+            patch("llm_gateway.dependencies.resolve_plan_and_quota", plan_and_quota),
+        ):
+            result = await enforce_throttles(
+                request=request,
+                user=_make_user("oauth_access_token"),
+                runner=runner,
+            )
+
+        assert result.user_id == 1
+        runner.check.assert_awaited_once()
+
 
 class TestResolvePlanAndQuota:
     """The quota resolver roundtrip runs for bucket-billed products (against the
@@ -238,3 +296,33 @@ class TestResolvePlanAndQuota:
 
         quota_mock.assert_not_awaited()
         assert quota_status.limited is False
+
+
+class TestPremiumModelPolicy:
+    @pytest.mark.parametrize(
+        ("product", "model", "plan_key", "expected"),
+        [
+            ("posthog_code", "claude-fable-5", None, False),
+            ("posthog_code", "claude-fable-5", "posthog-code-free-20260301", False),
+            ("posthog_code", "claude-fable-5", "posthog-code-pro-200-20260301", False),
+            ("posthog_code", "claude-fable-5", "posthog-code-usage-20260709", True),
+            ("posthog_code", "us.anthropic.claude-fable-5", None, False),
+            ("posthog_code", "eu.anthropic.claude-fable-5", None, False),
+            ("posthog_code", "claude-sonnet-4-6", None, True),
+            ("posthog_ai", "claude-fable-5", None, True),
+            ("posthog_code", None, None, True),
+        ],
+    )
+    def test_gate_on_applies_shared_model_policy(
+        self,
+        product: str,
+        model: str | None,
+        plan_key: str | None,
+        expected: bool,
+    ) -> None:
+        with patch.object(get_settings(), "premium_model_gate_enabled", True):
+            assert is_model_allowed_by_premium_policy(product, model, plan_key) is expected
+
+    def test_gate_off_allows_premium_model(self) -> None:
+        with patch.object(get_settings(), "premium_model_gate_enabled", False):
+            assert is_model_allowed_by_premium_policy("posthog_code", "claude-fable-5", None) is True

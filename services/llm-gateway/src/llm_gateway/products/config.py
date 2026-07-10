@@ -48,6 +48,9 @@ class ProductConfig:
     # seat-covered (free/pro/alpha) users are excluded from the org's billed usage
     # counter at the usage-report layer, so they must not be blocked by it either.
     credit_bucket_scope: Literal["all_users", "usage_based_plans"] = "all_users"
+    # Opts this product into the premium-model plan gate. When the environment-controlled
+    # gate is enabled, premium models require a usage-based plan.
+    premium_models_gated: bool = False
 
 
 BEDROCK_MODELS = BEDROCK_MODEL_IDS
@@ -115,6 +118,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         # subscription (seat-covered usage is excluded at the usage-report layer), so
         # only those users should be blocked when the org's usage limit is reached.
         credit_bucket_scope="usage_based_plans",
+        # Premium models require a usage-based plan when the environment-controlled
+        # premium-model gate is enabled.
+        premium_models_gated=True,
     ),
     # PostHog-initiated internal task runs (Task.internal=True without a more specific
     # origin route — e.g. the repo-selection agent). Deliberately unbilled: this is
