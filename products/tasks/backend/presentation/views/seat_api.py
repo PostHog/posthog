@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import requests
 import structlog
+import posthoganalytics
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -25,6 +26,16 @@ from ee.settings import BILLING_SERVICE_URL
 
 # Duplicated in services/llm-gateway/src/llm_gateway/services/plan_resolver.py
 PRO_PLAN_PREFIXES = ("posthog-code-200", "posthog-code-pro-")
+
+# Gates purchasing/upgrading/reactivating a pro seat as part of the transition to
+# usage-based billing. Free-seat provisioning (the auto-provision path for new users)
+# is never gated by this flag. Defaults to off (no lockdown) — including when the flag
+# can't be evaluated — so a flags outage never blocks seat provisioning.
+SEAT_PURCHASES_DISABLED_FLAG = "posthog-code-seat-purchases-disabled"
+
+SEAT_PURCHASES_DISABLED_MESSAGE = (
+    "PostHog Code seat subscriptions are no longer available for purchase. Switch to usage-based billing instead."
+)
 
 
 def _seat_priority(seat: dict[str, Any]) -> tuple[bool, int, float]:
@@ -60,6 +71,36 @@ def _is_org_admin(user: Any) -> bool:
     return OrganizationMembership.objects.filter(
         user=user, organization=org, level__gte=OrganizationMembership.Level.ADMIN
     ).exists()
+
+
+def _is_pro_plan_key(plan_key: Any) -> bool:
+    return isinstance(plan_key, str) and any(plan_key.startswith(p) for p in PRO_PLAN_PREFIXES)
+
+
+def _seat_purchases_disabled(user: User) -> bool:
+    """Evaluate the ``posthog-code-seat-purchases-disabled`` flag for ``user``.
+
+    Mirrors the org-scoped evaluation pattern in ``products/tasks/backend/access.py``
+    (``_is_tasks_flag_enabled``): person-level distinct_id plus, when available, an
+    ``organization`` group so release conditions can target orgs. Fails closed (flag
+    treated as off, i.e. purchases stay allowed) on any evaluation error, matching the
+    fail-safe try/except in ``products/tasks/backend/push_dispatcher.py``'s
+    ``_enqueue_inner`` — a flags outage must never block seat provisioning.
+    """
+    org = getattr(user, "organization", None)
+    kwargs: dict[str, Any] = {
+        "only_evaluate_locally": False,
+        "send_feature_flag_events": False,
+    }
+    if org is not None:
+        org_id = str(org.id)
+        kwargs["groups"] = {"organization": org_id}
+        kwargs["group_properties"] = {"organization": {"id": org_id}}
+    try:
+        return bool(posthoganalytics.feature_enabled(SEAT_PURCHASES_DISABLED_FLAG, str(user.distinct_id), **kwargs))
+    except Exception:
+        logger.warning("seat_api.purchases_disabled_flag_check_failed", user_id=user.id, exc_info=True)
+        return False
 
 
 class SeatViewSet(viewsets.ViewSet):
@@ -218,6 +259,9 @@ class SeatViewSet(viewsets.ViewSet):
             self._require_admin(request)
         self._require_org_member(request, str(body_distinct_id))
 
+        if _is_pro_plan_key(request.data.get("plan_key")) and _seat_purchases_disabled(cast(User, request.user)):
+            return Response({"detail": SEAT_PURCHASES_DISABLED_MESSAGE}, status=status.HTTP_403_FORBIDDEN)
+
         headers = self._get_billing_headers(request)
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
@@ -316,6 +360,9 @@ class SeatViewSet(viewsets.ViewSet):
         if pk != "me":
             self._require_admin(request)
 
+        if _is_pro_plan_key(request.data.get("plan_key")) and _seat_purchases_disabled(cast(User, request.user)):
+            return Response({"detail": SEAT_PURCHASES_DISABLED_MESSAGE}, status=status.HTTP_403_FORBIDDEN)
+
         headers = self._get_billing_headers(request)
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
@@ -352,6 +399,9 @@ class SeatViewSet(viewsets.ViewSet):
         """POST /api/seats/me/reactivate/ -> POST /api/v2/seats/{distinct_id}/reactivate/"""
         if pk != "me":
             self._require_admin(request)
+
+        if _seat_purchases_disabled(cast(User, request.user)):
+            return Response({"detail": SEAT_PURCHASES_DISABLED_MESSAGE}, status=status.HTTP_403_FORBIDDEN)
 
         headers = self._get_billing_headers(request)
         if not headers:

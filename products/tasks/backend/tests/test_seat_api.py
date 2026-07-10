@@ -578,3 +578,197 @@ class TestSeatAPIKeyAccess(BaseSeatAPITest):
             headers={"authorization": f"Bearer {token}"},
         )
         assert response.status_code == status.HTTP_200_OK
+
+
+@patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+@patch("products.tasks.backend.presentation.views.seat_api.get_cached_instance_license", return_value=MagicMock())
+class TestSeatAPIPurchaseLockdown(BaseSeatAPITest):
+    """The ``posthog-code-seat-purchases-disabled`` flag blocks pro purchases/upgrades/reactivation."""
+
+    @patch("products.tasks.backend.presentation.views.seat_api.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_flag_off_create_pro_seat_works(self, mock_request, _mock_flag, _mock_license, _mock_token):
+        mock_request.return_value = _billing_response({"seat": MOCK_PRO_SEAT})
+        self._auth_as_member()
+        response = self.client.post(
+            "/api/seats/",
+            {
+                "product_key": "posthog_code",
+                "plan_key": "posthog-code-200-20260301",
+                "user_distinct_id": str(self.user.distinct_id),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    @patch("products.tasks.backend.presentation.views.seat_api.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_flag_off_upgrade_to_pro_works(self, mock_request, _mock_flag, _mock_license, _mock_token):
+        mock_request.return_value = _billing_response({"seat": MOCK_PRO_SEAT})
+        self._auth_as_member()
+        response = self.client.patch(
+            "/api/seats/me/",
+            {"product_key": "posthog_code", "plan_key": "posthog-code-200-20260301"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    @patch("products.tasks.backend.presentation.views.seat_api.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_flag_off_reactivate_works(self, mock_request, _mock_flag, _mock_license, _mock_token):
+        mock_request.return_value = _billing_response({"seat": MOCK_PRO_SEAT})
+        self._auth_as_member()
+        response = self.client.post("/api/seats/me/reactivate/", format="json")
+        assert response.status_code == status.HTTP_200_OK
+
+    @patch("products.tasks.backend.presentation.views.seat_api.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_flag_on_create_pro_seat_returns_403(self, mock_request, _mock_flag, _mock_license, _mock_token):
+        self._auth_as_member()
+        response = self.client.post(
+            "/api/seats/",
+            {
+                "product_key": "posthog_code",
+                "plan_key": "posthog-code-200-20260301",
+                "user_distinct_id": str(self.user.distinct_id),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == (
+            "PostHog Code seat subscriptions are no longer available for purchase. "
+            "Switch to usage-based billing instead."
+        )
+        mock_request.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.seat_api.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_flag_on_create_pro_v2_plan_returns_403(self, mock_request, _mock_flag, _mock_license, _mock_token):
+        self._auth_as_member()
+        response = self.client.post(
+            "/api/seats/",
+            {
+                "product_key": "posthog_code",
+                "plan_key": "posthog-code-pro-200-20260422",
+                "user_distinct_id": str(self.user.distinct_id),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("products.tasks.backend.presentation.views.seat_api.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_flag_on_upgrade_to_pro_returns_403(self, mock_request, _mock_flag, _mock_license, _mock_token):
+        self._auth_as_member()
+        response = self.client.patch(
+            "/api/seats/me/",
+            {"product_key": "posthog_code", "plan_key": "posthog-code-200-20260301"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == (
+            "PostHog Code seat subscriptions are no longer available for purchase. "
+            "Switch to usage-based billing instead."
+        )
+        mock_request.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.seat_api.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_flag_on_reactivate_returns_403(self, mock_request, _mock_flag, _mock_license, _mock_token):
+        self._auth_as_member()
+        response = self.client.post("/api/seats/me/reactivate/", format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == (
+            "PostHog Code seat subscriptions are no longer available for purchase. "
+            "Switch to usage-based billing instead."
+        )
+        mock_request.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.seat_api.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_flag_on_free_seat_create_still_works(self, mock_request, _mock_flag, _mock_license, _mock_token):
+        mock_request.return_value = _billing_response({"seat": MOCK_FREE_SEAT})
+        self._auth_as_member()
+        response = self.client.post(
+            "/api/seats/",
+            {
+                "product_key": "posthog_code",
+                "plan_key": "posthog-code-free-20260301",
+                "user_distinct_id": str(self.user.distinct_id),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    @patch("products.tasks.backend.presentation.views.seat_api.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_flag_on_downgrade_to_free_still_works(self, mock_request, _mock_flag, _mock_license, _mock_token):
+        mock_request.return_value = _billing_response({"seat": MOCK_FREE_SEAT})
+        self._auth_as_member()
+        response = self.client.patch(
+            "/api/seats/me/",
+            {"product_key": "posthog_code", "plan_key": "posthog-code-free-20260301"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    @patch("products.tasks.backend.presentation.views.seat_api.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_flag_on_cancel_still_works(self, mock_request, _mock_flag, _mock_license, _mock_token):
+        mock_request.return_value = _billing_response(status_code=204)
+        self._auth_as_member()
+        response = self.client.delete("/api/seats/me/?product_key=posthog_code")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    @patch("products.tasks.backend.presentation.views.seat_api.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_flag_on_list_still_works(self, mock_request, _mock_flag, _mock_license, _mock_token):
+        mock_request.return_value = _billing_response({"seats": [MOCK_PRO_SEAT]})
+        self._auth_as_admin()
+        response = self.client.get("/api/seats/?product_key=posthog_code")
+        assert response.status_code == status.HTTP_200_OK
+
+    @patch("products.tasks.backend.presentation.views.seat_api.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_flag_on_retrieve_still_works(self, mock_request, _mock_flag, _mock_license, _mock_token):
+        mock_request.return_value = _billing_response({"seat": MOCK_PRO_SEAT})
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code")
+        assert response.status_code == status.HTTP_200_OK
+
+    @patch(
+        "products.tasks.backend.presentation.views.seat_api.posthoganalytics.feature_enabled",
+        side_effect=Exception("flags service down"),
+    )
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_flag_evaluation_exception_defaults_to_off(self, mock_request, _mock_flag, _mock_license, _mock_token):
+        mock_request.return_value = _billing_response({"seat": MOCK_PRO_SEAT})
+        self._auth_as_member()
+        response = self.client.post(
+            "/api/seats/",
+            {
+                "product_key": "posthog_code",
+                "plan_key": "posthog-code-200-20260301",
+                "user_distinct_id": str(self.user.distinct_id),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    @patch("products.tasks.backend.presentation.views.seat_api.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_flag_evaluated_with_distinct_id_and_org_group(self, mock_request, mock_flag, _mock_license, _mock_token):
+        self._auth_as_member()
+        self.client.post(
+            "/api/seats/",
+            {
+                "product_key": "posthog_code",
+                "plan_key": "posthog-code-200-20260301",
+                "user_distinct_id": str(self.user.distinct_id),
+            },
+            format="json",
+        )
+        args, kwargs = mock_flag.call_args
+        assert args[0] == "posthog-code-seat-purchases-disabled"
+        assert args[1] == str(self.user.distinct_id)
+        assert kwargs["groups"] == {"organization": str(self.organization.id)}
