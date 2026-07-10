@@ -133,7 +133,7 @@
 # name: test_parse_prop_clauses_defaults
   tuple(
     '''
-      AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), '^"|"$', ''))  AND distinct_id IN (
+      AND (   has(%(vglobal_0)s, replaceRegexpAll(ifNull(if(toJSONString(properties.^event_prop) != '{}', toJSONString(properties.^event_prop), if(startsWith(dynamicType(properties.event_prop), 'Array') OR startsWith(dynamicType(properties.event_prop), 'Map') OR startsWith(dynamicType(properties.event_prop), 'Tuple'), toJSONString(properties.event_prop), if(startsWith(dynamicType(properties.event_prop), 'DateTime'), replaceOne(toString(properties.event_prop), ' ', 'T'), toString(properties.event_prop)))), ''), '^"|"$', ''))  AND distinct_id IN (
       SELECT distinct_id
       FROM (
           
@@ -171,7 +171,7 @@
 # ---
 # name: test_parse_prop_clauses_defaults.1
   tuple(
-    'AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), \'^"|"$\', \'\'))  AND replaceRegexpAll(JSONExtractRaw(person_props, %(kglobalperson_1)s), \'^"|"$\', \'\') ILIKE %(vglobalperson_1)s)',
+    'AND (   has(%(vglobal_0)s, replaceRegexpAll(ifNull(if(toJSONString(properties.^event_prop) != \'{}\', toJSONString(properties.^event_prop), if(startsWith(dynamicType(properties.event_prop), \'Array\') OR startsWith(dynamicType(properties.event_prop), \'Map\') OR startsWith(dynamicType(properties.event_prop), \'Tuple\'), toJSONString(properties.event_prop), if(startsWith(dynamicType(properties.event_prop), \'DateTime\'), replaceOne(toString(properties.event_prop), \' \', \'T\'), toString(properties.event_prop)))), \'\'), \'^"|"$\', \'\'))  AND replaceRegexpAll(JSONExtractRaw(person_props, %(kglobalperson_1)s), \'^"|"$\', \'\') ILIKE %(vglobalperson_1)s)',
     dict({
       'kglobal_0': 'event_prop',
       'kglobalperson_1': 'email',
@@ -184,7 +184,7 @@
 # ---
 # name: test_parse_prop_clauses_defaults.2
   tuple(
-    'AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), \'^"|"$\', \'\'))  AND argMax(person."pmat_email", version) ILIKE %(vpersonquery_global_1)s)',
+    'AND (   has(%(vglobal_0)s, replaceRegexpAll(ifNull(if(toJSONString(properties.^event_prop) != \'{}\', toJSONString(properties.^event_prop), if(startsWith(dynamicType(properties.event_prop), \'Array\') OR startsWith(dynamicType(properties.event_prop), \'Map\') OR startsWith(dynamicType(properties.event_prop), \'Tuple\'), toJSONString(properties.event_prop), if(startsWith(dynamicType(properties.event_prop), \'DateTime\'), replaceOne(toString(properties.event_prop), \' \', \'T\'), toString(properties.event_prop)))), \'\'), \'^"|"$\', \'\'))  AND argMax(person."pmat_email", version) ILIKE %(vpersonquery_global_1)s)',
     dict({
       'kglobal_0': 'event_prop',
       'kpersonquery_global_1': 'email',
