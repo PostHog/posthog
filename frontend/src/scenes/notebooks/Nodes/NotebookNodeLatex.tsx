@@ -52,19 +52,38 @@ const LatexComponent = ({
     useEffect(() => {
         const mathJaxDisplayDiv = containerRef.current // The div for displaying rendered MathJax
 
-        if (mathJaxDisplayDiv) {
-            if (!editing && content) {
-                try {
-                    mathJaxDisplayDiv.innerHTML = '' // Clear before rendering
-                    const math = mjxDocument.convert(content, { display: true })
+        if (!mathJaxDisplayDiv) {
+            return
+        }
+
+        if (editing || !content) {
+            mathJaxDisplayDiv.innerHTML = ''
+            return
+        }
+
+        // MathJax v4's modern SVG font loads glyph data lazily from "dynamic files" (e.g. 'shapes',
+        // 'arrows'). convert() defers those loads through the retry mechanism, so we render inside
+        // handleRetriesFor() to await them. A failed dynamic load rejects asynchronously, which a
+        // synchronous try/catch would miss, so we catch it here and fall back to a friendly message.
+        let cancelled = false
+        mathJaxDisplayDiv.innerHTML = '' // Clear before rendering
+        mathjax
+            .handleRetriesFor(() => mjxDocument.convert(content, { display: true }))
+            .then((math: Node) => {
+                if (!cancelled) {
+                    mathJaxDisplayDiv.innerHTML = ''
                     mathJaxDisplayDiv.appendChild(math)
-                } catch (err) {
-                    mathJaxDisplayDiv.innerHTML = '<span style="color:red">LaTeX error</span>'
-                    console.error('MathJax error:', err)
                 }
-            } else {
-                mathJaxDisplayDiv.innerHTML = ''
-            }
+            })
+            .catch((err: unknown) => {
+                if (!cancelled) {
+                    mathJaxDisplayDiv.innerHTML = '<span style="color:red">LaTeX error</span>'
+                }
+                console.error('MathJax error:', err)
+            })
+
+        return () => {
+            cancelled = true
         }
     }, [content, editing])
 
