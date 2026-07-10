@@ -37,6 +37,7 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
         setNewColumnName: (name: string) => ({ name }),
         setNewColumnExpression: (expression: string) => ({ expression }),
         submitNewColumn: true,
+        resetNewColumn: true,
         setEditingColumnId: (id: string | null) => ({ id }),
         removeDraftColumn: (id: string) => ({ id }),
         moveDraftColumn: (fromIndex: number, toIndex: number) => ({ fromIndex, toIndex }),
@@ -71,9 +72,11 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
                 setNewColumnType: (state, { columnType }) => ({ ...state, type: columnType }),
                 setNewColumnName: (state, { name }) => ({ ...state, name }),
                 setNewColumnExpression: (state, { expression }) => ({ ...state, expression }),
-                // Reset on the add itself, not on submitNewColumn — reducers run before the
-                // submit listener, which still needs to read the form values
-                addDraftColumn: () => ({ type: 'custom' as const, name: '', expression: '' }),
+                // Reset only when the form itself is submitted, via a dedicated action the submit
+                // listener fires after it has read the form values. Resetting on addDraftColumn
+                // would also clear an in-progress form when a column is picked from the
+                // available-columns list, which dispatches the same action.
+                resetNewColumn: () => ({ type: 'custom' as const, name: '', expression: '' }),
                 openConfigurator: () => ({ type: 'custom' as const, name: '', expression: '' }),
             },
         ],
@@ -132,6 +135,7 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
                 ...(name.trim() ? { name: name.trim() } : {}),
                 ...(type === 'custom' ? { expression: expression.trim() } : {}),
             })
+            actions.resetNewColumn()
         },
         applyDraft: () => {
             if (!values.draftErrors) {
