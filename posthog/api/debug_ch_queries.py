@@ -944,7 +944,7 @@ class DebugCHQueries(viewsets.ViewSet):
         # nosemgrep: clickhouse-fstring-param-audit - bucket_fn is one of two hardcoded function names
         reads_sql = f"""
             SELECT
-                {bucket_fn}(event_time) AS bucket,
+                formatDateTime({bucket_fn}(event_time, 'UTC'), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS bucket,
                 count() AS reads,
                 countIf(exposures_path = 'precomputed') AS precomputed_reads,
                 countIf(exposures_path != 'precomputed' AND skip_reason = '') AS fallback_reads
@@ -972,7 +972,7 @@ class DebugCHQueries(viewsets.ViewSet):
         # nosemgrep: clickhouse-fstring-param-audit - bucket_fn is one of two hardcoded function names
         builds_sql = f"""
             SELECT
-                {bucket_fn}(event_time) AS bucket,
+                formatDateTime({bucket_fn}(event_time, 'UTC'), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS bucket,
                 exception_code,
                 count() AS builds,
                 sum(read_bytes) AS read_bytes
@@ -1003,7 +1003,10 @@ class DebugCHQueries(viewsets.ViewSet):
         while cursor <= end:
             buckets.append(cursor)
             cursor += bucket_delta
-        index_by_bucket = {b.replace(tzinfo=None): i for i, b in enumerate(buckets)}
+        # Buckets are matched as ISO strings: the SQL formats them in explicit UTC, so no
+        # assumption about the ClickHouse server timezone or driver naive/aware behavior is needed.
+        bucket_keys = [b.strftime("%Y-%m-%dT%H:%M:%SZ") for b in buckets]
+        index_by_bucket = {key: i for i, key in enumerate(bucket_keys)}
         n = len(buckets)
 
         reads = [0] * n
@@ -1030,7 +1033,7 @@ class DebugCHQueries(viewsets.ViewSet):
             {
                 "hours": hours,
                 "interval": interval,
-                "buckets": [b.strftime("%Y-%m-%dT%H:%M:%SZ") for b in buckets],
+                "buckets": bucket_keys,
                 "reads": {
                     "total": reads,
                     "precomputed": precomputed_reads,
