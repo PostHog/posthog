@@ -47,6 +47,7 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
 )
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     ConcurrentS3Consumer,
+    PolicyStatement,
     get_credentials_using_user_aws_role,
     s3_client,
 )
@@ -1330,18 +1331,34 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
         if isinstance(inputs.copy.s3_bucket.credentials, IAMRole):
             team = await Team.objects.aget(id=inputs.batch_export.team_id)
             organization_id = str(team.organization_id)
+
+            bucket_name = inputs.copy.s3_bucket.name
+            key_prefix = get_key_prefix(
+                inputs.copy.s3_key_prefix,
+                inputs.batch_export.data_interval_start,
+                inputs.batch_export.data_interval_end,
+                inputs.batch_export.batch_export_model,
+            )
+            policy_statements = [
+                PolicyStatement(
+                    Effect="Allow",
+                    Action=["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+                    Resource=f"arn:aws:s3:::{bucket_name}/{key_prefix}/*",
+                ),
+                PolicyStatement(
+                    Effect="Allow",
+                    Action=["s3:ListBucket"],
+                    Resource=f"arn:aws:s3:::{bucket_name}",
+                ),
+            ]
+
             aws_access_key_id, aws_secret_access_key, aws_session_token = await get_credentials_using_user_aws_role(
                 inputs.copy.s3_bucket.credentials,
                 organization_id,
                 session_name=f"PostHog-batch-exports-{inputs.batch_export.batch_export_id}",
-                bucket_name=inputs.copy.s3_bucket.name,
-                key_prefix=get_key_prefix(
-                    inputs.copy.s3_key_prefix,
-                    inputs.batch_export.data_interval_start,
-                    inputs.batch_export.data_interval_end,
-                    inputs.batch_export.batch_export_model,
-                ),
+                policy_statements=policy_statements,
             )
+
             credentials = AWSCredentials(
                 aws_access_key_id=aws_access_key_id,
                 aws_secret_access_key=aws_secret_access_key,

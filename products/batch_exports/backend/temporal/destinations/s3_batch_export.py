@@ -361,13 +361,18 @@ class S3BatchExportResult(BatchExportResult):
 AWSCredentials = tuple[str, str, str]
 
 
+class PolicyStatement(typing.TypedDict):
+    Effect: typing.Literal["Allow", "Deny"]
+    Action: list[str]
+    Resource: str
+
+
 async def get_credentials_using_user_aws_role(
     aws_role_arn: str,
     external_id: str,
     /,
     session_name: str,
-    bucket_name: str,
-    key_prefix: str,
+    policy_statements: list[PolicyStatement],
     duration: int = 3600,
     max_attempts: int = 5,
     delay: int | float = 1.0,
@@ -439,16 +444,10 @@ async def get_credentials_using_user_aws_role(
                     DurationSeconds=duration,
                     ExternalId=external_id,
                     Policy=json.dumps(
-                        # Narrow permissions to only allow S3 permissions in this session.
+                        # Narrow permissions in this session.
                         {
                             "Version": "2012-10-17",
-                            "Statement": [
-                                {
-                                    "Effect": "Allow",
-                                    "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
-                                    "Resource": f"arn:aws:s3:::{bucket_name}/{key_prefix}/*",
-                                },
-                            ],
+                            "Statement": policy_statements,
                         }
                     ),
                 )
@@ -553,14 +552,24 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
         if isinstance(integration, AwsS3RoleBasedIntegration):
             team = await Team.objects.aget(id=inputs.team_id)
             organization_id = str(team.organization_id)
+
+            bucket_name = inputs.bucket_name
+            key_prefix = get_key_prefix(
+                inputs.prefix, inputs.data_interval_start, inputs.data_interval_end, inputs.batch_export_model
+            )
+            policy_statements = [
+                PolicyStatement(
+                    Effect="Allow",
+                    Action=["s3:PutObject", "s3:AbortMultipartUpload"],
+                    Resource=f"arn:aws:s3:::{bucket_name}/{key_prefix}/*",
+                )
+            ]
+
             aws_access_key_id, aws_secret_access_key, aws_session_token = await get_credentials_using_user_aws_role(
                 integration.aws_role_arn,
                 organization_id,
                 session_name=f"PostHog-batch-exports-{inputs.batch_export_id}",
-                bucket_name=inputs.bucket_name,
-                key_prefix=get_key_prefix(
-                    inputs.prefix, inputs.data_interval_start, inputs.data_interval_end, inputs.batch_export_model
-                ),
+                policy_statements=policy_statements,
             )
 
         if isinstance(integration, S3CompatibleIntegration):
