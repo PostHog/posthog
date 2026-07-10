@@ -3163,17 +3163,18 @@ jobs:
 
     backend-coverage-report:
         name: Backend coverage report
-        needs: [turbo-tests]
+        needs: [turbo-tests, django_tests]
         runs-on: ubuntu-latest
         continue-on-error: true # report-only, never block a PR
         timeout-minutes: 10
-        # In-repo PRs only — fork PRs get a read-only token that can't comment, and turbo-tests
-        # skips drafts so there's nothing to report there either.
+        # In-repo PRs only — fork PRs get a read-only token that can't comment. Runs when either
+        # the product (turbo-tests) or core (django_tests) suite ran, so a core-only PR still
+        # gets a comment; both skip on drafts, leaving nothing to report.
         if: >-
             always() &&
             github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
-            needs.turbo-tests.result != 'skipped'
+            (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:

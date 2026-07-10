@@ -41,9 +41,6 @@ from xml.etree import ElementTree
 
 MARKER = "<!-- posthog-backend-coverage -->"
 BAR_WIDTH = 20
-# Sentinel "product" name for the posthog/ee core monolith. Its coverage is collected
-# with relative_files=True, so its filenames are already repo-relative — no products/ prefix.
-CORE_PRODUCT = "core"
 
 
 @dataclass
@@ -183,39 +180,44 @@ def repo_path_for(product: str, filename: str) -> str:
     filenames relative to ``products/<product>/backend`` (e.g. ``api.py``,
     ``migrations/0001.py``) — the ``backend/`` source root is stripped from the stored
     name. diff-cover matches against repo-relative ``git diff`` paths, so restore it.
-    Core (posthog/ee) coverage is already repo-relative, so it passes through unchanged.
     """
-    if product == CORE_PRODUCT:
-        return filename
     filename = filename.lstrip("/")
     if filename == "backend" or filename.startswith("backend/"):
         return f"products/{product}/{filename}"
     return f"products/{product}/backend/{filename}"
 
 
-def write_combined_cobertura(covered: LineMap, valid: LineMap, out_path: Path) -> None:
-    """Emit one repo-relative Cobertura XML from the unioned line sets, for diff-cover.
+def write_combined_cobertura(
+    covered: LineMap,
+    valid: LineMap,
+    core_covered: dict[str, set[int]],
+    core_valid: dict[str, set[int]],
+    out_path: Path,
+) -> None:
+    """Emit one repo-relative Cobertura XML (products + core) from the unioned line sets.
 
-    diff-cover matches coverage filenames against repo-relative ``git diff`` paths, so each
-    file is rewritten via repo_path_for() and <source> points at the repo root.
+    Product files are rewritten via repo_path_for(); core (posthog/ee) files are already
+    repo-relative. <source> points at the repo root so diff-cover matches git diff paths.
     """
     coverage_el = ElementTree.Element("coverage", {"version": "diff-cover-combined"})
-    sources_el = ElementTree.SubElement(coverage_el, "sources")
-    ElementTree.SubElement(sources_el, "source").text = "."
+    ElementTree.SubElement(ElementTree.SubElement(coverage_el, "sources"), "source").text = "."
     classes_el = ElementTree.SubElement(
-        ElementTree.SubElement(ElementTree.SubElement(coverage_el, "packages"), "package", {"name": "products"}),
+        ElementTree.SubElement(ElementTree.SubElement(coverage_el, "packages"), "package", {"name": "backend"}),
         "classes",
     )
 
+    def add_class(repo_path: str, covered_lines: set[int], valid_lines: set[int]) -> None:
+        class_el = ElementTree.SubElement(classes_el, "class", {"filename": repo_path, "name": Path(repo_path).name})
+        lines_el = ElementTree.SubElement(class_el, "lines")
+        for number in sorted(valid_lines):
+            hit = "1" if number in covered_lines else "0"
+            ElementTree.SubElement(lines_el, "line", {"number": str(number), "hits": hit})
+
     for product in sorted(valid):
         for filename in sorted(valid[product]):
-            class_el = ElementTree.SubElement(
-                classes_el, "class", {"filename": repo_path_for(product, filename), "name": Path(filename).name}
-            )
-            lines_el = ElementTree.SubElement(class_el, "lines")
-            hit = covered[product].get(filename, set())
-            for number in sorted(valid[product][filename]):
-                ElementTree.SubElement(lines_el, "line", {"number": str(number), "hits": "1" if number in hit else "0"})
+            add_class(repo_path_for(product, filename), covered[product].get(filename, set()), valid[product][filename])
+    for filename in sorted(core_valid):
+        add_class(filename, core_covered.get(filename, set()), core_valid[filename])
 
     ElementTree.ElementTree(coverage_el).write(out_path, encoding="utf-8", xml_declaration=True)
 
@@ -365,8 +367,8 @@ def build_machine_block(patch_data: dict, results: list[ProductCoverage], baseli
 
 def render_markdown(results: list[ProductCoverage], patch_data: dict | None, baseline: dict[str, float]) -> str:
     lines = [MARKER, "### 🧪 Backend test coverage", ""]
-    if not results:
-        lines.append("_No product backends were touched by this PR._")
+    if not results and patch_data is None:
+        lines.append("_No backend coverage measured for this PR._")
         return "\n".join(lines)
 
     patch_section = (
@@ -377,14 +379,17 @@ def render_markdown(results: list[ProductCoverage], patch_data: dict | None, bas
     if patch_data is not None and int(patch_data.get("total_num_violations", 0)) > 0:
         lines += [build_agent_hint(), ""]
 
-    lines += ["<details>", "<summary>Per-product line coverage (touched products)</summary>", ""]
-    lines += render_product_table(results, baseline)
+    # Per-product table is products only — core isn't a product, and on selected-mode runs its
+    # absolute number would be partial. Core still contributes to the patch section above.
+    if results:
+        lines += ["<details>", "<summary>Per-product line coverage (touched products)</summary>", ""]
+        lines += render_product_table(results, baseline)
+        lines += ["", "</details>"]
+
     delta_note = " Δ is vs the latest master baseline." if baseline else ""
     lines += [
         "",
-        "</details>",
-        "",
-        f"_Report-only. Patch coverage = changed lines covered vs `origin/master`.{delta_note} Sorted lowest first._",
+        f"_Report-only. Patch coverage = changed backend lines covered vs `origin/master`.{delta_note} Sorted lowest first._",
     ]
     if patch_data is not None:
         lines += ["", build_machine_block(patch_data, results, baseline)]
@@ -483,23 +488,22 @@ def main() -> int:
 
     covered, valid = aggregate(args.artifacts)
 
-    if args.core_artifacts is not None and args.core_artifacts.exists():
-        core_covered, core_valid = aggregate_core(args.core_artifacts)
-        if core_valid:
-            covered[CORE_PRODUCT] = core_covered
-            valid[CORE_PRODUCT] = core_valid
-
     if args.write_baseline is not None:
         write_baseline(covered, valid, args.write_baseline)
         sys.stderr.write(f"Wrote coverage baseline for {len(valid)} products to {args.write_baseline}\n")
         return 0
 
-    results = collect(covered, valid)
+    core_covered: dict[str, set[int]] = {}
+    core_valid: dict[str, set[int]] = {}
+    if args.core_artifacts is not None and args.core_artifacts.exists():
+        core_covered, core_valid = aggregate_core(args.core_artifacts)
+
+    results = collect(covered, valid)  # per-product table is products only; core feeds patch coverage
     baseline = load_baseline(args.baseline)
 
     patch_data: dict | None = None
-    if args.combined_out is not None and results:
-        write_combined_cobertura(covered, valid, args.combined_out)
+    if args.combined_out is not None and (results or core_valid):
+        write_combined_cobertura(covered, valid, core_covered, core_valid, args.combined_out)
         patch_data = run_diff_cover(args.combined_out, args.compare_branch, args.patch_json_out)
 
     markdown = render_markdown(results, patch_data, baseline)
