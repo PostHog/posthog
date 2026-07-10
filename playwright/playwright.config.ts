@@ -37,10 +37,11 @@ export default defineConfig({
     /* Fail the build on CI if you accidentally left test.only in the source code. */
     forbidOnly: !!process.env.CI,
     /*
-        Retries are 3 on CI by default. The nightly flake-audit workflow sets
-        PLAYWRIGHT_RETRIES=0 to surface the true per-test failure rate, which the
-        default retry budget otherwise hides (50%-flaky tests pass 93.75% of the time
-        with 4 attempts).
+        Retries are 3 on CI by default (when PLAYWRIGHT_RETRIES is unset). The CI
+        Playwright workflow and the nightly flake-audit both set PLAYWRIGHT_RETRIES=0
+        to surface the true per-test failure rate for Trunk quarantining, which a
+        retry budget otherwise hides (50%-flaky tests pass 93.75% of the time with
+        4 attempts).
      */
     retries: process.env.PLAYWRIGHT_RETRIES ? Number(process.env.PLAYWRIGHT_RETRIES) : process.env.CI ? 3 : 2,
     /*
