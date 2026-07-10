@@ -14,8 +14,6 @@ import { experimentLogic } from '../../experimentLogic'
 import { experimentMetricsLogic } from '../../experimentMetricsLogic'
 import { isLaunched } from '../../experimentsLogic'
 import { resolveSequentialEnabled } from '../../ExperimentView/sequential'
-import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
-import { MAX_AXIS_RANGE } from './constants'
 import { MetricRowGroup } from './MetricRowGroup'
 import { TableHeader } from './TableHeader'
 
@@ -30,10 +28,11 @@ const sectionHasRecalculatingMetric =
 
 interface MetricsTableProps {
     metrics: ExperimentMetric[]
-    results: NewExperimentQueryResponse[]
+    results: (NewExperimentQueryResponse | undefined)[]
     errors: any[]
     metricIndexes: number[]
     isSecondary: boolean
+    axisRange: number
     getInsightType: (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
     showDetailsModal?: boolean
 }
@@ -44,6 +43,7 @@ export function MetricsTable({
     errors,
     metricIndexes,
     isSecondary,
+    axisRange,
     getInsightType,
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
@@ -63,38 +63,6 @@ export function MetricsTable({
         removeMetric,
         removeSharedMetricFromExperiment,
     } = useActions(experimentLogic)
-
-    // Calculate shared axisRange across all metrics
-    let hasBreakdowns = false
-    const allIntervalValues = results.flatMap((result: NewExperimentQueryResponse) => {
-        const allVariants: ExperimentVariantResult[] = []
-
-        // Include main variant results
-        if (result?.variant_results) {
-            allVariants.push(...result.variant_results)
-        }
-
-        // Include breakdown variant results
-        if (result?.breakdown_results && result.breakdown_results.length > 0) {
-            hasBreakdowns = true
-            result.breakdown_results.forEach((breakdownResult) => {
-                if (breakdownResult?.variants) {
-                    allVariants.push(...breakdownResult.variants)
-                }
-            })
-        }
-
-        return allVariants.flatMap((variant: ExperimentVariantResult) => {
-            const interval = getVariantInterval(variant)
-            return interval ? [Math.abs(interval[0]), Math.abs(interval[1])] : []
-        })
-    })
-
-    // Use 0 as default if no intervals exist, otherwise get the maximum value
-    const maxAbsValue = allIntervalValues.length > 0 ? Math.max(...allIntervalValues) : 0
-    const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
-    // When breakdowns are present, ignore MAX_AXIS_RANGE to show full range of breakdown data
-    const axisRange = hasBreakdowns ? maxAbsValue + axisMargin : Math.min(maxAbsValue + axisMargin, MAX_AXIS_RANGE)
 
     if (metrics.length === 0) {
         return (
@@ -142,7 +110,7 @@ export function MetricsTable({
                             <MetricRowGroup
                                 key={metric.uuid || index}
                                 metric={metric}
-                                result={result}
+                                result={result ?? null}
                                 experiment={experiment}
                                 metricType={getInsightType(metric)}
                                 metricIndex={metricIndex}

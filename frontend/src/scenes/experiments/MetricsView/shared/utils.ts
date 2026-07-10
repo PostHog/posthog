@@ -21,9 +21,44 @@ import {
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
+import { MAX_AXIS_RANGE } from '~/scenes/experiments/MetricsView/new/constants'
 import { ExperimentMetricGoal } from '~/types'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
+
+/**
+ * Computes the symmetric delta-chart axis range (±range) covering every variant and breakdown
+ * interval in the given results, with a margin (5%, at least 0.1). Capped at MAX_AXIS_RANGE unless
+ * breakdowns are present, whose wider spreads need the full range to stay readable.
+ */
+export function calculateAxisRange(results: (NewExperimentQueryResponse | undefined | null)[]): number {
+    let hasBreakdowns = false
+    const allIntervalValues = results.flatMap((result) => {
+        const allVariants: ExperimentVariantResult[] = []
+
+        if (result?.variant_results) {
+            allVariants.push(...result.variant_results)
+        }
+
+        if (result?.breakdown_results && result.breakdown_results.length > 0) {
+            hasBreakdowns = true
+            result.breakdown_results.forEach((breakdownResult) => {
+                if (breakdownResult?.variants) {
+                    allVariants.push(...breakdownResult.variants)
+                }
+            })
+        }
+
+        return allVariants.flatMap((variant: ExperimentVariantResult) => {
+            const interval = getVariantInterval(variant)
+            return interval ? [Math.abs(interval[0]), Math.abs(interval[1])] : []
+        })
+    })
+
+    const maxAbsValue = allIntervalValues.length > 0 ? Math.max(...allIntervalValues) : 0
+    const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
+    return hasBreakdowns ? maxAbsValue + axisMargin : Math.min(maxAbsValue + axisMargin, MAX_AXIS_RANGE)
+}
 
 export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string => {
     if (metric.kind === NodeKind.ExperimentMetric) {

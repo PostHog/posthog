@@ -601,6 +601,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setFeatureFlagValidationError: (error: string) => ({ error }),
         validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
         setHogfettiTrigger: (trigger: (() => void) | null) => ({ trigger }),
+        setMetricAxesSynced: (synced: boolean) => ({ synced }),
         // METRICS
         setMetric: ({
             uuid,
@@ -731,6 +732,13 @@ export const experimentLogic = kea<experimentLogicType>([
             false,
             {
                 toggleDebugPanel: (state) => !state,
+            },
+        ],
+        // Session-local only: whether primary and secondary metric charts share one axis scale
+        metricAxesSynced: [
+            true,
+            {
+                setMetricAxesSynced: (_, { synced }) => synced,
             },
         ],
         currentRefresh: [

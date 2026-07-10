@@ -1,9 +1,15 @@
-import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import type {
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
+    NewExperimentQueryResponse,
+} from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { ExperimentMetricGoal, ExperimentMetricMathType, FunnelConversionWindowTimeUnit } from '~/types'
 
 import {
     type ExperimentVariantResult,
+    calculateAxisRange,
     formatChanceToWinForGoal,
     formatMetricValue,
     formatPValue,
@@ -90,6 +96,63 @@ describe('getDefaultMetricTitle', () => {
             },
         }
         expect(getDefaultMetricTitle(metric)).toBe('purchase_events')
+    })
+})
+
+describe('calculateAxisRange', () => {
+    const variant = (credible_interval: [number, number]): ExperimentVariantResult => ({
+        key: 'test',
+        sum: 100,
+        number_of_samples: 100,
+        sum_squares: 100,
+        significant: true,
+        method: 'bayesian',
+        credible_interval,
+        chance_to_win: 0.75,
+    })
+
+    const response = (
+        intervals: [number, number][],
+        breakdownIntervals?: [number, number][]
+    ): NewExperimentQueryResponse =>
+        ({
+            variant_results: intervals.map(variant),
+            ...(breakdownIntervals ? { breakdown_results: [{ variants: breakdownIntervals.map(variant) }] } : {}),
+        }) as NewExperimentQueryResponse
+
+    test.each<{ name: string; results: (NewExperimentQueryResponse | undefined | null)[]; expected: number }>([
+        {
+            name: 'no results falls back to the 0.1 margin floor',
+            results: [],
+            expected: 0.1,
+        },
+        {
+            name: 'undefined and null results (cold sections) are ignored',
+            results: [undefined, null],
+            expected: 0.1,
+        },
+        {
+            name: 'covers the widest interval bound plus the margin (5%, at least 0.1)',
+            results: [response([[-0.1, 0.2]])],
+            expected: 0.3,
+        },
+        {
+            name: 'caps at ±150% so outliers do not squish other charts',
+            results: [response([[-2, 2]])],
+            expected: 1.5,
+        },
+        {
+            name: 'breakdown results lift the ±150% cap',
+            results: [response([], [[-2, 2]])],
+            expected: 2.1,
+        },
+        {
+            name: 'combined sections scale to the global maximum',
+            results: [response([[-0.05, 0.05]]), response([[-0.4, 0.4]])],
+            expected: 0.5,
+        },
+    ])('$name', ({ results, expected }) => {
+        expect(calculateAxisRange(results)).toBeCloseTo(expected, 10)
     })
 })
 

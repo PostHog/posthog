@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo, IconList } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
@@ -14,9 +14,15 @@ import { AddMetricButton } from '~/scenes/experiments/Metrics/AddMetricButton'
 import { METRIC_CONTEXTS } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
 import { MetricsReorderModal } from '~/scenes/experiments/MetricsView/MetricsReorderModal'
 import { modalsLogic } from '~/scenes/experiments/modalsLogic'
-import { getExperimentVariants, isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
+import {
+    getExperimentVariants,
+    isSavedExperiment,
+    metricResults,
+    type MetricWithResult,
+} from '~/scenes/experiments/utils'
 import { Experiment } from '~/types'
 
+import { calculateAxisRange } from '../shared/utils'
 import { HowToReadTooltip } from './HowToReadTooltip'
 import { MetricsTable } from './MetricsTable'
 import { ResultDetails } from './ResultDetails'
@@ -39,7 +45,9 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
         orderedPrimaryMetricsWithResults,
         orderedSecondaryMetricsWithResults,
         hasMinimumExposureForResults,
+        metricAxesSynced,
     } = useValues(experimentLogic)
+    const { setMetricAxesSynced } = useActions(experimentLogic)
     const {
         primaryMetricsResults,
         primaryMetricsResultsErrors,
@@ -51,22 +59,31 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
 
     const { openPrimaryMetricsReorderModal, openSecondaryMetricsReorderModal } = useActions(modalsLogic)
 
-    const type = isSecondary ? 'secondary' : 'primary'
+    const resolveMetricsWithResults = (secondary: boolean): MetricWithResult[] =>
+        recalculationFlow
+            ? metricResults(experiment)(
+                  secondary ? secondaryMetricsResults : primaryMetricsResults,
+                  secondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors,
+                  secondary ? 'secondary' : 'primary'
+              )
+            : secondary
+              ? orderedSecondaryMetricsWithResults
+              : orderedPrimaryMetricsWithResults
 
-    const metricsWithResults = recalculationFlow
-        ? metricResults(experiment)(
-              isSecondary ? secondaryMetricsResults : primaryMetricsResults,
-              isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors,
-              type
-          )
-        : isSecondary
-          ? orderedSecondaryMetricsWithResults
-          : orderedPrimaryMetricsWithResults
+    const metricsWithResults = resolveMetricsWithResults(!!isSecondary)
+    const otherSectionMetricsWithResults = resolveMetricsWithResults(!isSecondary)
 
     const metrics = metricsWithResults.map(({ metric }) => metric)
     const results = metricsWithResults.map(({ result }) => result)
     const errors = metricsWithResults.map(({ error }) => error)
     const metricIndexes = metricsWithResults.map(({ metricIndex }) => metricIndex)
+
+    const otherSectionResults = otherSectionMetricsWithResults.map(({ result }) => result)
+    const axisRange = calculateAxisRange(metricAxesSynced ? [...results, ...otherSectionResults] : results)
+    // Syncing only changes anything once both sections have chartable results
+    const sectionHasChartableResult = (sectionResults: MetricWithResult['result'][]): boolean =>
+        sectionResults.some((result) => !!result?.variant_results?.length)
+    const showAxisSyncToggle = sectionHasChartableResult(results) && sectionHasChartableResult(otherSectionResults)
 
     const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
     const hasSomeResults =
@@ -106,6 +123,17 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                     <div className="ml-auto">
                         {metrics.length > 0 && (
                             <div className="mb-2 mt-4 justify-end flex items-center gap-2">
+                                {showAxisSyncToggle && (
+                                    <LemonSwitch
+                                        checked={metricAxesSynced}
+                                        onChange={setMetricAxesSynced}
+                                        size="xsmall"
+                                        bordered
+                                        label="Sync axes"
+                                        tooltip="Use the same scale for primary and secondary metric charts. Turn off to scale each section to its own results."
+                                        data-attr="experiment-sync-metric-axes"
+                                    />
+                                )}
                                 <AddMetricButton
                                     metricContext={isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary}
                                 />
@@ -133,10 +161,11 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                         errors={errors}
                         metricIndexes={metricIndexes}
                         isSecondary={!!isSecondary}
+                        axisRange={axisRange}
                         getInsightType={getInsightType}
                         showDetailsModal={!showResultDetails}
                     />
-                    {showResultDetails && (
+                    {showResultDetails && results[0] && (
                         <div className="mt-4">
                             <ResultDetails
                                 metric={metrics[0] as ExperimentMetric}
