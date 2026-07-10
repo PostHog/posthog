@@ -32,7 +32,7 @@ export function NotebookMermaidBlock({
                     </div>
                 }
             >
-                <LazyMermaidDiagram code={node.text} />
+                <LazyMermaidDiagram code={node.text} naturalWidth />
             </Suspense>
         </div>
     )

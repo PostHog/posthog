@@ -1503,12 +1503,9 @@ h3.MarkdownNotebook__text-block--heading {
 }
 
 .MarkdownNotebook__mermaid-block {
+    // Diagrams render at natural width (see MermaidDiagram's naturalWidth prop), so wide ones
+    // scroll here instead of shrinking to fit. Don't cap the svg width, that would re-shrink them.
     overflow-x: auto;
-
-    svg {
-        max-width: 100%;
-        height: auto;
-    }
 }
 
 .MarkdownNotebook__divider-block {

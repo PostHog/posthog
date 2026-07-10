@@ -44,6 +44,22 @@ describe('MermaidDiagram', () => {
         expect(container.innerHTML).toContain('rendered')
     })
 
+    it('promotes the inline max-width to a fixed width when naturalWidth is set', async () => {
+        renderMock.mockResolvedValue({ svg: '<svg style="max-width: 1200px;"><g/></svg>' })
+        render(<MermaidDiagram code="flowchart LR; A-->B" naturalWidth />)
+        const container = await screen.findByTestId('mermaid-rendered')
+        const svgElement = container.querySelector('svg')
+        expect(svgElement?.style.width).toBe('1200px')
+        expect(svgElement?.style.maxWidth).toBe('')
+    })
+
+    it('keeps mermaid sizing untouched without naturalWidth', async () => {
+        renderMock.mockResolvedValue({ svg: '<svg style="max-width: 1200px;"><g/></svg>' })
+        render(<MermaidDiagram code="flowchart LR; A-->B" />)
+        const container = await screen.findByTestId('mermaid-rendered')
+        expect(container.querySelector('svg')?.style.maxWidth).toBe('1200px')
+    })
+
     it('falls back to the source and an error message when mermaid throws', async () => {
         renderMock.mockRejectedValue(new Error('Parse error: bad syntax'))
         render(<MermaidDiagram code="not-a-real-diagram" />)

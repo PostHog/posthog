@@ -28,9 +28,26 @@ let diagramCounter = 0
 export interface MermaidDiagramProps {
     code: string
     className?: string
+    /** Render at the diagram's intrinsic width instead of shrinking to fit the container.
+     * Use inside a horizontally scrollable wrapper so wide diagrams scroll rather than becoming unreadably small. */
+    naturalWidth?: boolean
 }
 
-export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.Element {
+// Mermaid sizes its SVG with width="100%" plus an inline max-width of the intrinsic size, which
+// scales wide diagrams down to the container. Inline styles beat any stylesheet rule, so the only
+// way to let a scroll container take over is to rewrite the inline sizing to a fixed width.
+function withNaturalWidth(svgMarkup: string): string {
+    const host = document.createElement('div')
+    host.innerHTML = svgMarkup
+    const svgElement = host.querySelector('svg')
+    if (svgElement && svgElement.style.maxWidth) {
+        svgElement.style.width = svgElement.style.maxWidth
+        svgElement.style.maxWidth = ''
+    }
+    return host.innerHTML
+}
+
+export function MermaidDiagram({ code, className, naturalWidth = false }: MermaidDiagramProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const reactId = useId()
     const [diagramId] = useState(() => {
@@ -68,7 +85,7 @@ export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.El
                 if (cancelled || !result) {
                     return
                 }
-                setSvg(result.svg)
+                setSvg(naturalWidth ? withNaturalWidth(result.svg) : result.svg)
             })
             .catch((err: unknown) => {
                 if (cancelled) {
@@ -85,7 +102,7 @@ export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.El
         return () => {
             cancelled = true
         }
-    }, [code, isDarkModeOn, diagramId])
+    }, [code, isDarkModeOn, diagramId, naturalWidth])
 
     if (error) {
         return (

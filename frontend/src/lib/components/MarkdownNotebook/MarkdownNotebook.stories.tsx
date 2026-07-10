@@ -76,6 +76,15 @@ flowchart LR
     D --> A
 \`\`\``
 
+const wideMermaidNotebook = `# Wide diagram
+
+A diagram wider than the notebook column keeps its natural size and scrolls horizontally instead of shrinking.
+
+\`\`\`mermaid
+flowchart LR
+    A[Signup form submitted] --> B[Validate email domain] --> C[Create organization] --> D[Provision default project] --> E[Send verification email] --> F[Track activation event] --> G[Redirect to onboarding] --> H[Show product tour]
+\`\`\``
+
 const invalidMermaidNotebook = `# Broken diagram
 
 Invalid mermaid falls back to the plain source instead of crashing.
@@ -232,6 +241,18 @@ export const Embeds: Story = {
 export const MermaidDiagram: Story = {
     args: {
         value: mermaidNotebook,
+        mode: 'view',
+    },
+    // Mermaid renders asynchronously (lazy chunk + async render); wait for the finished SVG
+    // so the snapshot isn't captured mid-render.
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="mermaid-rendered"]' },
+    },
+}
+
+export const MermaidDiagramWide: Story = {
+    args: {
+        value: wideMermaidNotebook,
         mode: 'view',
     },
     // Mermaid renders asynchronously (lazy chunk + async render); wait for the finished SVG
