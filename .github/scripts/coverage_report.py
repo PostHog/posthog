@@ -16,12 +16,11 @@ Split products write partial coverage.xml across several shards; this unions the
 covered line numbers per source file across all shards for a product, so the
 percentage is exact rather than a per-shard average.
 
-When GITHUB_TOKEN + PR number are present and the PR leaves product-backend lines
-uncovered, the report is posted as a sticky PR comment (find-or-update by marker);
-a PR with no uncovered changed lines clears any stale comment. Otherwise it prints
-to stdout.
+Render-only: this script produces the markdown report and the machine-readable
+diff-cover JSON, nothing else. Posting into the shared CI report comment — and the
+comment-only-when-actionable logic — lives in .github/scripts/post-coverage-section.mjs.
 
-stdlib only — mirrors scripts/test_analyze.py.
+stdlib only — mirrors .github/scripts/report_test_timings.py.
 """
 
 from __future__ import annotations
@@ -33,14 +32,11 @@ import json
 import argparse
 import tempfile
 import subprocess
-import urllib.error
-import urllib.request
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from xml.etree import ElementTree
 
-MARKER = "<!-- posthog-backend-coverage -->"
 BAR_WIDTH = 20
 
 
@@ -372,7 +368,7 @@ def build_machine_block(patch_data: dict, results: list[ProductCoverage], baseli
 
 
 def render_markdown(results: list[ProductCoverage], patch_data: dict | None, baseline: dict[str, float]) -> str:
-    lines = [MARKER, "### 🧪 Backend test coverage", ""]
+    lines = ["### 🧪 Backend test coverage", ""]
     if not results and patch_data is None:
         lines.append("_No backend coverage measured for this PR._")
         return "\n".join(lines)
@@ -430,54 +426,6 @@ def write_baseline(covered: LineMap, valid: LineMap, out_path: Path) -> None:
     out_path.write_text(json.dumps(base, separators=(",", ":")))
 
 
-def gh_request(method: str, url: str, token: str, payload: dict | None = None) -> bytes:
-    data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, method=method)
-    req.add_header("Authorization", f"Bearer {token}")
-    req.add_header("Accept", "application/vnd.github+json")
-    req.add_header("X-GitHub-Api-Version", "2022-11-28")
-    if data is not None:
-        req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.read()
-
-
-def find_sticky_comment(repo: str, pr: int, token: str) -> int | None:
-    page = 1
-    while True:
-        url = f"https://api.github.com/repos/{repo}/issues/{pr}/comments?per_page=100&page={page}"
-        comments = json.loads(gh_request("GET", url, token))
-        if not comments:
-            return None
-        for comment in comments:
-            if comment.get("user", {}).get("login") != "github-actions[bot]":
-                continue
-            if MARKER in (comment.get("body") or ""):
-                return comment["id"]
-        page += 1
-
-
-def post_comment(repo: str, pr: int, token: str, body: str) -> None:
-    existing = find_sticky_comment(repo, pr, token)
-    if existing is not None:
-        url = f"https://api.github.com/repos/{repo}/issues/comments/{existing}"
-        gh_request("PATCH", url, token, {"body": body})
-        sys.stdout.write(f"Updated sticky coverage comment {existing}\n")
-    else:
-        url = f"https://api.github.com/repos/{repo}/issues/{pr}/comments"
-        gh_request("POST", url, token, {"body": body})
-        sys.stdout.write("Created sticky coverage comment\n")
-
-
-def delete_sticky_comment(repo: str, pr: int, token: str) -> bool:
-    """Delete the sticky coverage comment if present; return whether one was removed."""
-    existing = find_sticky_comment(repo, pr, token)
-    if existing is None:
-        return False
-    gh_request("DELETE", f"https://api.github.com/repos/{repo}/issues/comments/{existing}", token)
-    return True
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifacts", required=True, type=Path, help="dir holding downloaded coverage-xml-* artifacts")
@@ -519,32 +467,6 @@ def main() -> int:
     if args.out:
         args.out.write_text(markdown)
     sys.stdout.write(markdown + "\n")
-
-    token = os.environ.get("GITHUB_TOKEN")
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    pr_number = os.environ.get("PR_NUMBER")
-    if not (token and repo and pr_number):
-        sys.stderr.write("No GITHUB_TOKEN/PR context — skipping comment post\n")
-        return 0
-
-    # Comment only when this PR leaves product-backend lines uncovered — the actionable case.
-    # No coverable change or full coverage clears any stale comment; an undetermined patch
-    # (diff-cover unavailable, or no product ran) leaves whatever is there untouched.
-    if patch_data is None:
-        sys.stderr.write("Patch coverage undetermined — leaving any existing comment untouched\n")
-        return 0
-    uncovered = int(patch_data.get("total_num_violations", 0))
-    try:
-        if uncovered > 0:
-            post_comment(repo, int(pr_number), token, markdown)
-        else:
-            removed = delete_sticky_comment(repo, int(pr_number), token)
-            state = "removed stale comment" if removed else "nothing to post"
-            sys.stderr.write(f"No uncovered changed product-backend lines — {state}\n")
-    except urllib.error.HTTPError as exc:
-        sys.stderr.write(f"::warning::coverage comment update failed: {exc} {exc.read().decode(errors='replace')}\n")
-    except urllib.error.URLError as exc:
-        sys.stderr.write(f"::warning::coverage comment update failed: {exc}\n")
     return 0
 
 

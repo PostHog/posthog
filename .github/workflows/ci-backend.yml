@@ -3175,9 +3175,11 @@ jobs:
         # In-repo PRs only — fork PRs get a read-only token that can't comment. Runs when either
         # the product (turbo-tests) or core (django_tests) suite ran, so a core-only PR still
         # gets a comment; both skip on drafts, leaving nothing to report.
+        # drafts run a partial test selection — patch coverage would report false gaps
         if: >-
             always() &&
             github.event_name == 'pull_request' &&
+            github.event.pull_request.draft == false &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
             (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
         steps:
@@ -3192,7 +3194,7 @@ jobs:
               id: reporter
               shell: bash
               run: |
-                  if [[ -f scripts/coverage_report.py ]]; then
+                  if [[ -f .github/scripts/coverage_report.py ]]; then
                       echo "available=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "available=false" >> "$GITHUB_OUTPUT"
@@ -3216,28 +3218,27 @@ jobs:
               if: steps.reporter.outputs.available == 'true'
               with:
                   version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-            - name: Build and post coverage report
+            - name: Build coverage report
               # diff-cover is declared inline (PEP 723) in coverage_report.py; uv provisions it.
               if: steps.reporter.outputs.available == 'true'
-              env:
-                  GITHUB_TOKEN: ${{ github.token }}
-                  GITHUB_REPOSITORY: ${{ github.repository }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   mkdir -p cov-artifacts core-artifacts
                   git fetch --no-tags --filter=blob:none --quiet origin master
-                  # Run the reporter from master, not the PR: this step holds a token with
-                  # pull-requests:write, so PR-controlled code must not execute here. Checkout
-                  # fallback covers only the bootstrap window before the script lands on master.
-                  git show origin/master:scripts/coverage_report.py > /tmp/coverage_report.py 2>/dev/null \
-                      || cp scripts/coverage_report.py /tmp/coverage_report.py
-                  uv run --script /tmp/coverage_report.py \
+                  uv run --script .github/scripts/coverage_report.py \
                       --artifacts cov-artifacts \
                       --core-artifacts core-artifacts \
                       --combined-out combined-coverage.xml \
                       --compare-branch origin/master \
                       --patch-json-out patch-coverage.json \
                       --out coverage-comment.md
+            - name: Post to CI report comment
+              if: steps.reporter.outputs.available == 'true'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-coverage-section.mjs ]; then
+                      node .github/scripts/post-coverage-section.mjs coverage-comment.md patch-coverage.json
+                  fi
             - name: Upload patch coverage payload
               if: ${{ always() && steps.reporter.outputs.available == 'true' }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
