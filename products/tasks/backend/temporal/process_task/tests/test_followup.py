@@ -374,7 +374,7 @@ class TestCIFollowUpLoop:
 
         assert result.success is True
         assert _ci_followup_calls == []
-        completed_updates = [(s, e) for s, e in _status_updates if s == "completed" and e is None]
+        completed_updates = [(s, e) for s, e, _ in _status_updates if s == "completed" and e is None]
         assert len(completed_updates) >= 1
 
     @pytest.mark.timeout(90, func_only=True)

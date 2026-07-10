@@ -10,7 +10,9 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.access import has_tasks_access
-from products.tasks.backend.constants import TIMED_OUT_INACTIVITY_STATE_KEY
+from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
+    TIMED_OUT_INACTIVITY_STATE_KEY,
+)
 
 logger = get_logger(__name__)
 

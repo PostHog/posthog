@@ -7,11 +7,16 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.constants import TIMED_OUT_INACTIVITY_STATE_KEY
 from products.tasks.backend.metrics import observe_wizard_run_unbound
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
+
+# TaskRun.state key set when a run completes because its inactivity timeout fired rather
+# than the agent finishing. Consumers (e.g. Slack updates) render these completions quietly;
+# the signal lives in state, not error_message, so a normal completion never carries an
+# error and never reads as a failure in UIs that surface error_message.
+TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 
 
 @dataclass
