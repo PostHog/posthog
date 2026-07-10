@@ -62,15 +62,6 @@ Assistant: Now I have both schemas. Let me start by searching for existing reven
 [Makes call commands with correct parameters]
 </example>
 
-<example>
-User: Find events related to onboarding
-Assistant: Let me find the data schema tool.
-[Runs posthog:exec({ "command": "search read-data" })]
-[Runs posthog:exec({ "command": "info read-data-schema" })]
-Assistant: Now I can list events and pick the onboarding-related ones.
-[Runs posthog:exec({ "command": "call read-data-schema {\"query\": {\"kind\": \"events\"}}" })]
-</example>
-
 **INCORRECT usage patterns — NEVER do this:**
 
 <bad-example>
@@ -95,13 +86,7 @@ You MUST follow the hint and run `schema` before constructing the series field.
 <bad-example>
 User: query pageviews for the last 7 days
 Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "$pageview"` from the prompt]
-WRONG — skipped `call read-data-schema {"query": {"kind": "events"}}`. Canonical-looking events still need confirmation per team.
-</bad-example>
-
-<bad-example>
-User: show me the file downloads trend for the last 7 days
-Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "downloaded_file"` inferred from the wording]
-WRONG — the real event might be `file_downloaded`, `download_completed`, or not captured. Confirm with `read-data-schema` before querying.
+WRONG — skipped `call read-data-schema {"query": {"kind": "events"}}`. Never query an event name taken or inferred from the prompt — canonical-looking (`$pageview`) or guessed (`downloaded_file`) names still need per-team confirmation.
 </bad-example>
 
 **Handling errors:**
@@ -155,16 +140,9 @@ If you cannot answer the user's PostHog related request or question using other 
 
 - `search create dashboard insight` — plain words, ranked: dashboard/insight creation tools first
 - `search feature-flag` — regex (`-`): tools for feature flags
-- `search dashboard` — dashboard CRUD tools
 - `search query-` — regex (`-`): all insight query tools
-- `search experiment` — experiment tools
-- `search survey` — survey tools
 
-**Avoid queries that are too broad** (match dozens of tools):
-
-- `search data` — matches almost everything
-- `search get list create` — action verbs across all domains
-- `search pageview|email@address.com` — unrelated to tools
+**Avoid queries that are too broad** (match dozens of tools): `search data`, `search get list create` — they match almost everything.
 
 Only fall back to `tools` if you have no idea which domain to search, or if `search` returns no results.
 
@@ -236,11 +214,7 @@ If the required events or properties don't exist, tell the user instead of runni
 
 #### Insight query workflow
 
-1. Discover the data schema with `read-data-schema` (see schema-first workflow above).
-2. Choose the appropriate `query-*` tool based on the user's question.
-3. Construct the query schema. Each tool's description includes detailed schema documentation with examples. Be minimalist: only include filters, breakdowns, and settings essential to answer the question.
-4. Execute the query and analyze the results.
-5. Optionally save as an insight with `insight-create` or add to a dashboard.
+After the schema-first steps, choose the `query-*` tool matching the question, construct a minimal query (only the filters, breakdowns, and settings essential to the answer — each tool's description documents its schema with examples), execute, and analyze. Optionally save as an insight with `insight-create` or add to a dashboard.
 
 For complex investigations, combine multiple query types. For example, use `query-trends` to identify when a metric changed, then `query-funnel` to check if conversion was affected, then `query-trends` with breakdowns to isolate the segment.
 
