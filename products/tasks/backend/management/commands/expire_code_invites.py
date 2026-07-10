@@ -25,29 +25,43 @@ class Command(BaseCommand):
             action="store_true",
             help="Show how many codes would be expired without changing anything.",
         )
+        parser.add_argument(
+            "--yes",
+            action="store_true",
+            help="Skip the interactive confirmation prompt required by --all.",
+        )
 
     def handle(self, *args, **options):
         expire_all = options["all"]
         dry_run = options["dry_run"]
 
-        # is_redeemable checks is_active first, so flipping it to False is enough to block redemption
-        # while preserving the codes and their redemption audit trail.
+        # Deactivate rather than delete: access is gated on a user's CodeInviteRedemption row existing
+        # (see has_tasks_access), and those rows cascade-delete with the CodeInvite. Flipping is_active
+        # blocks future redemptions (is_redeemable checks it first) without touching redemptions, so
+        # users who already redeemed keep access.
         codes = CodeInvite.objects.filter(is_active=True)
         if not expire_all:
             codes = codes.filter(redemption_count=0)
 
         scope = "all active" if expire_all else "unused (never redeemed)"
-        count = codes.count()
 
         if dry_run:
-            self.stdout.write(self.style.WARNING(f"DRY RUN: would expire {count} {scope} invite code(s)"))
+            self.stdout.write(self.style.WARNING(f"DRY RUN: would expire {codes.count()} {scope} invite code(s)"))
             return
 
-        if count == 0:
-            self.stdout.write(self.style.SUCCESS(f"No {scope} invite codes to expire"))
-            return
+        if expire_all and not options["yes"]:
+            confirm = input(
+                "This expires ALL active invite codes and blocks any further redemptions. Type 'yes' to continue: "
+            )
+            if confirm.strip().lower() != "yes":
+                self.stdout.write(self.style.ERROR("Aborted"))
+                return
 
         updated = codes.update(is_active=False)
+
+        if updated == 0:
+            self.stdout.write(self.style.SUCCESS(f"No {scope} invite codes to expire"))
+            return
 
         logger.info("code_invites_expired", expired_count=updated, expire_all=expire_all)
         self.stdout.write(self.style.SUCCESS(f"Expired {updated} {scope} invite code(s)"))
