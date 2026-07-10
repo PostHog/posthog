@@ -4,6 +4,7 @@ from typing import Any
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
+from django.db.models.fields import BLANK_CHOICE_DASH
 from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
@@ -198,7 +199,9 @@ class ProductPushCampaignInlineForm(ProductPushCampaignForm):
         # choice its <select> defaults to the first ProductKey, so merely saving the
         # Organization inserts a phantom campaign - and 500s on
         # uniq_pending_product_push_per_org_product once that product is already queued.
-        self.fields["product_key"].choices = [("", "---------"), *self.fields["product_key"].choices]
+        product_key_field = self.fields["product_key"]
+        assert isinstance(product_key_field, forms.ChoiceField)  # replaced in ProductPushCampaignForm.__init__
+        product_key_field.choices = BLANK_CHOICE_DASH + list(product_key_field.choices)
 
 
 class ProductPushCampaignInline(admin.TabularInline):
