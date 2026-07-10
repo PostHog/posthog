@@ -371,19 +371,31 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         access_token = self._get_access_token(config, team_id)
         # Every mapped event, not just the enabled schemas': mirrors create_webhook's stance
         # (over-subscribing is harmless, unmapped events no-op in the hog function) and auto-heals
-        # webhooks created before GITHUB_WEBHOOK_RESOURCE_MAP gained new events.
+        # webhooks created before GITHUB_WEBHOOK_RESOURCE_MAP gained new events. Thread the
+        # installation identity so the hook list and PATCH draw from the same shared egress
+        # budget as the data plane; PAT sources resolve to an empty identity (record-only).
         desired_events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
-        return update_repo_webhook(access_token, config.repository, webhook_url, desired_events)
+        return update_repo_webhook(
+            access_token,
+            config.repository,
+            webhook_url,
+            desired_events,
+            egress_identity=self._egress_identity(config, team_id),
+        )
 
     def delete_webhook(self, config: GithubSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
         access_token = self._get_access_token(config, team_id)
-        return delete_repo_webhook(access_token, config.repository, webhook_url)
+        return delete_repo_webhook(
+            access_token, config.repository, webhook_url, egress_identity=self._egress_identity(config, team_id)
+        )
 
     def get_external_webhook_info(
         self, config: GithubSourceConfig, webhook_url: str, team_id: int
     ) -> ExternalWebhookInfo:
         access_token = self._get_access_token(config, team_id)
-        return get_repo_webhook_info(access_token, config.repository, webhook_url)
+        return get_repo_webhook_info(
+            access_token, config.repository, webhook_url, egress_identity=self._egress_identity(config, team_id)
+        )
 
     def source_for_pipeline(
         self,

@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
     GITHUB_MAX_RETRY_AFTER_SECONDS,
+    GithubEgressIdentity,
     GithubResumeConfig,
     GithubRetryableError,
     _build_initial_params,
@@ -1593,7 +1594,9 @@ class TestGithubWebhookSource:
 
     def test_sync_webhook_events_targets_every_mapped_event(self) -> None:
         # Reconciliation must push the full event map, not just the enabled schema's event;
-        # otherwise a webhook created before the map grew never gains the new events.
+        # otherwise a webhook created before the map grew never gains the new events. It must also
+        # carry the resolved egress identity so the hook list and PATCH draw from the shared
+        # installation budget instead of running identity-blind.
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.update_repo_webhook",
             return_value=WebhookSyncResult(success=True),
@@ -1607,6 +1610,9 @@ class TestGithubWebhookSource:
         assert repo == "owner/repo"
         assert url == "https://app.posthog.com/webhook"
         assert sorted(events) == ["pull_request_review", "workflow_job", "workflow_run"]
+        # A PAT config resolves to the empty record-only identity; the point pinned here is that
+        # the identity is resolved and passed at all.
+        assert update.call_args.kwargs["egress_identity"] == GithubEgressIdentity()
 
     def test_update_repo_webhook_merges_events_additively(self) -> None:
         # The PATCH must send the union of current and desired events against the matching hook,

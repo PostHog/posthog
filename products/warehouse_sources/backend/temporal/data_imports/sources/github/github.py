@@ -1032,13 +1032,16 @@ def create_repo_webhook(
     )
 
 
-def _list_repo_hooks(token: str, repo: str) -> tuple[list[dict[str, Any]] | None, str | None]:
+def _list_repo_hooks(
+    token: str, repo: str, egress_identity: GithubEgressIdentity | None = None
+) -> tuple[list[dict[str, Any]] | None, str | None]:
     """List repo webhooks via GET /repos/{repo}/hooks. Returns (hooks, error); error is
     ``"permission"`` when the token lacks admin:repo_hook so callers can fall back to manual setup.
 
     Rate limits (and egress budget sheds) are classified before the permission mapping: a
     rate-limited 403 also lands in _is_repo_hook_permission_error's status set, and misreading it
     would tell the user their token lacks webhook permissions while the token is fine."""
+    installation_id = egress_identity.installation_id if egress_identity is not None else None
     try:
         # Gated + recorded transport, like the data plane and the reconcile PATCH. NORMAL, not
         # BATCH: webhook management on an interactive path is not deferrable bulk.
@@ -1047,6 +1050,7 @@ def _list_repo_hooks(token: str, repo: str) -> tuple[list[dict[str, Any]] | None
             f"{GITHUB_BASE_URL}/repos/{repo}/hooks?per_page=100",
             source="warehouse",
             headers=_get_headers(token),
+            installation_id=installation_id,
             priority=Priority.NORMAL,
             timeout=30,
             session=make_tracked_session(),
@@ -1076,18 +1080,22 @@ def _match_hook_by_url(hooks: list[dict[str, Any]], webhook_url: str) -> dict[st
     return None
 
 
-def _find_repo_hook_id(token: str, repo: str, webhook_url: str) -> tuple[int | None, str | None]:
+def _find_repo_hook_id(
+    token: str, repo: str, webhook_url: str, egress_identity: GithubEgressIdentity | None = None
+) -> tuple[int | None, str | None]:
     """Return (hook_id, error). Matches on config.url == webhook_url."""
-    hooks, error = _list_repo_hooks(token, repo)
+    hooks, error = _list_repo_hooks(token, repo, egress_identity)
     if error is not None:
         return None, error
     hook = _match_hook_by_url(hooks or [], webhook_url)
     return (hook.get("id") if hook else None), None
 
 
-def delete_repo_webhook(token: str, repo: str, webhook_url: str) -> WebhookDeletionResult:
+def delete_repo_webhook(
+    token: str, repo: str, webhook_url: str, egress_identity: GithubEgressIdentity | None = None
+) -> WebhookDeletionResult:
     """Find the repo webhook matching webhook_url and DELETE /repos/{repo}/hooks/{id}."""
-    hook_id, error = _find_repo_hook_id(token, repo, webhook_url)
+    hook_id, error = _find_repo_hook_id(token, repo, webhook_url, egress_identity)
     if error == "permission":
         return WebhookDeletionResult(
             success=False,
@@ -1132,7 +1140,9 @@ def _webhook_update_permission_result(events: list[str]) -> WebhookSyncResult:
     )
 
 
-def update_repo_webhook(token: str, repo: str, webhook_url: str, events: list[str]) -> WebhookSyncResult:
+def update_repo_webhook(
+    token: str, repo: str, webhook_url: str, events: list[str], egress_identity: GithubEgressIdentity | None = None
+) -> WebhookSyncResult:
     """Add ``events`` to the repo webhook matching ``webhook_url``, writing only on drift.
 
     Additive on purpose: the PATCH sends the union of current and desired events, so events the
@@ -1141,7 +1151,7 @@ def update_repo_webhook(token: str, repo: str, webhook_url: str, events: list[st
     if not events:
         return WebhookSyncResult(success=True)
 
-    hooks, error = _list_repo_hooks(token, repo)
+    hooks, error = _list_repo_hooks(token, repo, egress_identity)
     if error == "permission":
         return _webhook_update_permission_result(events)
     if error is not None:
@@ -1168,6 +1178,7 @@ def update_repo_webhook(token: str, repo: str, webhook_url: str, events: list[st
             f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook['id']}",
             source="warehouse",
             headers=_get_headers(token),
+            installation_id=egress_identity.installation_id if egress_identity is not None else None,
             priority=Priority.NORMAL,
             timeout=30,
             session=make_tracked_session(),
@@ -1191,9 +1202,11 @@ def update_repo_webhook(token: str, repo: str, webhook_url: str, events: list[st
     )
 
 
-def get_repo_webhook_info(token: str, repo: str, webhook_url: str) -> ExternalWebhookInfo:
+def get_repo_webhook_info(
+    token: str, repo: str, webhook_url: str, egress_identity: GithubEgressIdentity | None = None
+) -> ExternalWebhookInfo:
     """List repo webhooks via GET /repos/{repo}/hooks and match config.url == webhook_url."""
-    hooks, error = _list_repo_hooks(token, repo)
+    hooks, error = _list_repo_hooks(token, repo, egress_identity)
     if error == "permission":
         return ExternalWebhookInfo(
             exists=False,
