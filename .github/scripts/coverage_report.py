@@ -64,13 +64,27 @@ def product_from_path(xml_path: Path) -> str | None:
     files read straight from a checkout.
     """
     if xml_path.stem != "coverage":
-        return xml_path.stem
+        return sanitize_path(xml_path.stem)
     parts = xml_path.parts
     if "products" in parts:
         idx = parts.index("products")
         if idx + 1 < len(parts):
-            return parts[idx + 1]
+            return sanitize_path(parts[idx + 1])
     return None
+
+
+def _accumulate_class_lines(
+    cls: ElementTree.Element, key: str, covered: dict[str, set[int]], valid: dict[str, set[int]]
+) -> None:
+    """Read a <class>'s <line> children into the covered/valid sets under the given key."""
+    for line in cls.iter("line"):
+        number_attr = line.get("number")
+        if number_attr is None:
+            continue
+        number = int(number_attr)
+        valid[key].add(number)
+        if int(line.get("hits", "0")) > 0:
+            covered[key].add(number)
 
 
 def parse_xml(xml_path: Path, covered_lines: dict[str, set[int]], valid_lines: dict[str, set[int]]) -> None:
@@ -85,14 +99,7 @@ def parse_xml(xml_path: Path, covered_lines: dict[str, set[int]], valid_lines: d
         filename = cls.get("filename")
         if not filename:
             continue
-        for line in cls.iter("line"):
-            number_attr = line.get("number")
-            if number_attr is None:
-                continue
-            number = int(number_attr)
-            valid_lines[filename].add(number)
-            if int(line.get("hits", "0")) > 0:
-                covered_lines[filename].add(number)
+        _accumulate_class_lines(cls, filename, covered_lines, valid_lines)
 
 
 # product -> filename -> set of line numbers
@@ -126,19 +133,30 @@ def resolve_core_path(filename: str, sources: list[str], cache: dict[str, str]) 
 
     Coverage stores core filenames relative to a <source> root (e.g. ``auth.py`` under source
     ``posthog``), not repo-relative — even with relative_files. Pick the source whose joined
-    path exists in the checkout; posthog wins ties since it's the bulk of core.
+    path exists in the checkout; posthog wins ties since it's the bulk of core. Coverage doesn't
+    tell us which source a given <class> actually came from, so when the same relative path
+    exists under more than one source (e.g. an ``ee/`` file shadowing a ``posthog/`` one), the
+    two classes' line data collapse into whichever source wins the tie — warn so that's visible
+    instead of a silent misattribution.
     """
     if filename in cache:
         return cache[filename]
     stripped = filename.lstrip("/")
     resolved = stripped
     if not stripped.startswith(("posthog/", "ee/")):
-        for src in sorted(sources, key=lambda s: 0 if s == "posthog" else 1):
-            if src and Path(src, stripped).exists():
-                resolved = f"{src}/{stripped}"
-                break
-        else:
-            resolved = f"{sources[0]}/{stripped}" if sources else stripped
+        candidates = [
+            src
+            for src in sorted(sources, key=lambda s: 0 if s == "posthog" else 1)
+            if src and Path(src, stripped).exists()
+        ]
+        if len(candidates) > 1:
+            sys.stderr.write(
+                f"::warning::coverage path '{stripped}' exists under multiple sources "
+                f"({', '.join(candidates)}); attributing to '{candidates[0]}' — coverage may be misattributed\n"
+            )
+        resolved = (
+            f"{candidates[0]}/{stripped}" if candidates else (f"{sources[0]}/{stripped}" if sources else stripped)
+        )
     cache[filename] = resolved
     return resolved
 
@@ -164,14 +182,7 @@ def aggregate_core(artifacts_dir: Path) -> tuple[dict[str, set[int]], dict[str, 
             if not filename:
                 continue
             repo_path = resolve_core_path(filename, sources, cache)
-            for line in cls.iter("line"):
-                number_attr = line.get("number")
-                if number_attr is None:
-                    continue
-                number = int(number_attr)
-                valid[repo_path].add(number)
-                if int(line.get("hits", "0")) > 0:
-                    covered[repo_path].add(number)
+            _accumulate_class_lines(cls, repo_path, covered, valid)
     return covered, valid
 
 
@@ -316,32 +327,15 @@ def build_agent_hint() -> str:
     )
 
 
-def delta_label(pct: float, base: float | None) -> str:
-    """Human Δ vs the master baseline; 'new' when the product has no baseline yet."""
-    if base is None:
-        return "new"
-    diff = pct - base
-    if abs(diff) < 0.05:
-        return "±0%"
-    return f"{'▲' if diff > 0 else '▼'} {abs(diff):.1f}%"
-
-
-def render_product_table(results: list[ProductCoverage], baseline: dict[str, float]) -> list[str]:
-    """Per-product absolute coverage, with a Δ-vs-master column when a baseline is present."""
-    if baseline:
-        rows = ["| Product | Coverage | Δ vs master | Lines |", "| --- | --- | --- | --- |"]
-        for r in sorted(results, key=lambda x: x.pct):
-            rows.append(
-                f"| `{r.product}` | `{bar(r.pct)}` {r.pct:.1f}% | {delta_label(r.pct, baseline.get(r.product))} | {r.covered:,} / {r.valid:,} |"
-            )
-        return rows
+def render_product_table(results: list[ProductCoverage]) -> list[str]:
+    """Per-product absolute coverage."""
     rows = ["| Product | Coverage | Lines |", "| --- | --- | --- |"]
     for r in sorted(results, key=lambda x: x.pct):
         rows.append(f"| `{r.product}` | `{bar(r.pct)}` {r.pct:.1f}% | {r.covered:,} / {r.valid:,} |")
     return rows
 
 
-def build_machine_block(patch_data: dict, results: list[ProductCoverage], baseline: dict[str, float]) -> str:
+def build_machine_block(patch_data: dict, results: list[ProductCoverage]) -> str:
     """A hidden, compact JSON block agents can parse straight from the comment body."""
     src = patch_data.get("src_stats", {})
     payload = {
@@ -355,19 +349,12 @@ def build_machine_block(patch_data: dict, results: list[ProductCoverage], baseli
             for path, stats in src.items()
             if stats.get("violation_lines")
         },
-        "products": {
-            r.product: {
-                "pct": round(r.pct, 1),
-                "base": round(baseline[r.product], 1) if r.product in baseline else None,
-                "delta": round(r.pct - baseline[r.product], 1) if r.product in baseline else None,
-            }
-            for r in results
-        },
+        "products": {r.product: {"pct": round(r.pct, 1)} for r in results},
     }
     return f"<!-- coverage-data:{json.dumps(payload, separators=(',', ':'))} -->"
 
 
-def render_markdown(results: list[ProductCoverage], patch_data: dict | None, baseline: dict[str, float]) -> str:
+def render_markdown(results: list[ProductCoverage], patch_data: dict | None) -> str:
     lines = ["### 🧪 Backend test coverage", ""]
     if not results and patch_data is None:
         lines.append("_No backend coverage measured for this PR._")
@@ -385,45 +372,16 @@ def render_markdown(results: list[ProductCoverage], patch_data: dict | None, bas
     # absolute number would be partial. Core still contributes to the patch section above.
     if results:
         lines += ["<details>", "<summary>Per-product line coverage (touched products)</summary>", ""]
-        lines += render_product_table(results, baseline)
+        lines += render_product_table(results)
         lines += ["", "</details>"]
 
-    delta_note = " Δ is vs the latest master baseline." if baseline else ""
     lines += [
         "",
-        f"_Report-only. Patch coverage = changed backend lines covered vs `origin/master`.{delta_note} Sorted lowest first._",
+        "_Report-only. Patch coverage = changed backend lines covered vs `origin/master`. Sorted lowest first._",
     ]
     if patch_data is not None:
-        lines += ["", build_machine_block(patch_data, results, baseline)]
+        lines += ["", build_machine_block(patch_data, results)]
     return "\n".join(lines)
-
-
-def load_baseline(path: Path | None) -> dict[str, float]:
-    """Load {product: coverage_pct} from a master baseline JSON; {} if absent or unreadable."""
-    if path is None or not path.exists():
-        return {}
-    try:
-        raw = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        sys.stderr.write(f"::warning::ignoring unreadable baseline {path}: {exc}\n")
-        return {}
-    pcts: dict[str, float] = {}
-    for product, stats in raw.items():
-        valid = stats.get("valid", 0)
-        pcts[product] = 100.0 * stats.get("covered", 0) / valid if valid else 0.0
-    return pcts
-
-
-def write_baseline(covered: LineMap, valid: LineMap, out_path: Path) -> None:
-    """Write a per-product {covered, valid} baseline JSON (master side; PRs read it for Δ)."""
-    base = {
-        product: {
-            "covered": sum(len(s) for s in covered[product].values()),
-            "valid": sum(len(s) for s in valid[product].values()),
-        }
-        for product in valid
-    }
-    out_path.write_text(json.dumps(base, separators=(",", ":")))
 
 
 def main() -> int:
@@ -435,8 +393,6 @@ def main() -> int:
     )
     parser.add_argument("--compare-branch", default="origin/master", help="diff-cover compare branch")
     parser.add_argument("--patch-json-out", type=Path, help="path for diff-cover's JSON report (machine payload)")
-    parser.add_argument("--baseline", type=Path, help="master coverage baseline JSON to compute per-product Δ against")
-    parser.add_argument("--write-baseline", type=Path, help="master side: write the per-product baseline JSON and exit")
     parser.add_argument(
         "--core-artifacts", type=Path, help="dir of core (posthog/ee) coverage-core-* artifacts to include"
     )
@@ -444,25 +400,19 @@ def main() -> int:
 
     covered, valid = aggregate(args.artifacts)
 
-    if args.write_baseline is not None:
-        write_baseline(covered, valid, args.write_baseline)
-        sys.stderr.write(f"Wrote coverage baseline for {len(valid)} products to {args.write_baseline}\n")
-        return 0
-
     core_covered: dict[str, set[int]] = {}
     core_valid: dict[str, set[int]] = {}
     if args.core_artifacts is not None and args.core_artifacts.exists():
         core_covered, core_valid = aggregate_core(args.core_artifacts)
 
     results = collect(covered, valid)  # per-product table is products only; core feeds patch coverage
-    baseline = load_baseline(args.baseline)
 
     patch_data: dict | None = None
     if args.combined_out is not None and (results or core_valid):
         write_combined_cobertura(covered, valid, core_covered, core_valid, args.combined_out)
         patch_data = run_diff_cover(args.combined_out, args.compare_branch, args.patch_json_out)
 
-    markdown = render_markdown(results, patch_data, baseline)
+    markdown = render_markdown(results, patch_data)
 
     if args.out:
         args.out.write_text(markdown)
