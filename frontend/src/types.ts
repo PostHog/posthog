@@ -5487,7 +5487,8 @@ export interface EmailIntegrationDomainGroupedType {
 
 export interface SlackChannelType {
     id: string
-    name: string
+    // Absent for private channels the bot can't access (is_private_without_access).
+    name?: string
     is_private: boolean
     is_ext_shared: boolean
     is_member: boolean

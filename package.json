@@ -64,7 +64,7 @@
         "@parcel/transformer-typescript-types": "catalog:",
         "@playwright/test": "catalog:",
         "@tailwindcss/postcss": "4.3.0",
-        "@typescript/native-preview": "7.0.0-dev.20260421.2",
+        "@typescript/native-preview": "7.0.0-dev.20260707.2",
         "autoprefixer": "^10.4.13",
         "cssnano": "^7.0.6",
         "markdownlint-cli2": "^0.18.1",
