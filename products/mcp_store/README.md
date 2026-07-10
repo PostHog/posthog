@@ -14,9 +14,8 @@ Connect external MCP (Model Context Protocol) servers to a PostHog project, and 
 
 The aggregated gateway (`gateway.py`) exposes every connected server through a single team-scoped surface. Resolution per caller is shared installations ∪ the caller's personal ones (enabled and credential-ready only); a personal installation shadows a shared one for the same URL. Tools are namespaced as `{server_slug}/{tool_name}`, with deterministic `-2`/`-3` suffixes on slug collisions.
 
-Endpoints (`presentation/gateway_views.py`, dual-routed under `/api/projects/` and `/api/environments/`):
+Agents — external and internal — reach the gateway through the PostHog MCP (`services/mcp`), which consumes these REST endpoints (`presentation/gateway_views.py`, dual-routed under `/api/projects/` and `/api/environments/`):
 
-- `POST .../mcp_gateway/mcp/` — stateless JSON-RPC (MCP streamable HTTP): `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`. Batches are rejected.
 - `GET .../mcp_gateway/tools/` — REST catalog with `search`, exact `name`, and `limit`/`offset`.
 - `POST .../mcp_gateway/call/` — REST execution. Errors map to 403 (`tool_needs_approval` with an `approval_url`, or `tool_blocked`), 404 (`tool_not_found`), and 502 (`upstream_error` with an `error_type`).
 
@@ -27,6 +26,5 @@ Dispatch is one shared path: resolve → enforce approval → refresh token → 
 Other apps may only import from `backend/facade/`:
 
 - `get_active_installations` / `get_installations_for_sandbox` — ready-to-use installations (e.g. for sandbox agents).
-- `list_gateway_tools` / `call_gateway_tool` — in-process access to the aggregated gateway; failures raise the `Gateway*Error` types from `facade/contracts.py`.
 
 An hourly Celery beat task (`maintain_shared_installations`) refreshes expiring OAuth tokens for shared installations and re-syncs tool catalogs that haven't been seen in over 24 hours.

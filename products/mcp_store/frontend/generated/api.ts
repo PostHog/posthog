@@ -16,10 +16,6 @@ import type {
     InstallTemplateApi,
     MCPServerInstallationApi,
     MCPServerInstallationToolApi,
-    McpGatewayMcpCreate200,
-    McpGatewayMcpCreateBodyOne,
-    McpGatewayMcpCreateBodyThree,
-    McpGatewayMcpCreateBodyTwo,
     McpGatewayToolsRetrieveParams,
     McpServerInstallationsAuthorizeRetrieveParams,
     McpServerInstallationsListParams,
@@ -67,26 +63,6 @@ export const mcpGatewayCallCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(gatewayCallRequestApi),
-    })
-}
-
-export const getMcpGatewayMcpCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/mcp_gateway/mcp/`
-}
-
-/**
- * Stateless JSON-RPC (MCP streamable HTTP) over the caller's connected MCP servers. Supports initialize, notifications/initialized, ping, tools/list, and tools/call with {server_slug}/{tool_name} tool names. Batch requests are rejected.
- * @summary Aggregated MCP endpoint
- */
-export const mcpGatewayMcpCreate = async (
-    projectId: string,
-    mcpGatewayMcpCreateBody?: McpGatewayMcpCreateBodyOne | McpGatewayMcpCreateBodyTwo | McpGatewayMcpCreateBodyThree,
-    options?: RequestInit
-): Promise<McpGatewayMcpCreate200> => {
-    return apiMutator<McpGatewayMcpCreate200>(getMcpGatewayMcpCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        body: JSON.stringify(mcpGatewayMcpCreateBody),
     })
 }
 

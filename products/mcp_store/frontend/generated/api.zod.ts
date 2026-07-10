@@ -27,12 +27,6 @@ export const McpGatewayCallCreateBody = /* @__PURE__ */ zod.object({
         .describe("Optional consumer identifier for analytics attribution (e.g. 'tasks', 'max')."),
 })
 
-/**
- * Stateless JSON-RPC (MCP streamable HTTP) over the caller's connected MCP servers. Supports initialize, notifications/initialized, ping, tools/list, and tools/call with {server_slug}/{tool_name} tool names. Batch requests are rejected.
- * @summary Aggregated MCP endpoint
- */
-export const McpGatewayMcpCreateBody = /* @__PURE__ */ zod.record(zod.string(), zod.unknown())
-
 export const mcpServerInstallationsCreateBodyDisplayNameMax = 200
 
 export const mcpServerInstallationsCreateBodyUrlMax = 2048

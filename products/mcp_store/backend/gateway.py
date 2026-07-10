@@ -10,13 +10,14 @@ computed on the fly from the installation display name; collisions within the
 resolved set get deterministic ``-2``/``-3`` suffixes ordered by ``created_at``
 then id.
 
-Dispatch (shared by the JSON-RPC endpoint, the REST endpoint, and the facade):
-resolve → enforce approval → refresh token (single-flight) → SSRF check →
-upstream ``tools/call`` → analytics → result. Only metadata is ever logged or
-captured — never tool arguments, results, or credentials.
+Dispatch (the REST ``call/`` endpoint): resolve → enforce approval →
+refresh token (single-flight) → SSRF check → upstream ``tools/call`` →
+analytics → result. Only metadata is ever logged or captured — never tool
+arguments, results, or credentials.
 """
 
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
@@ -28,19 +29,76 @@ from posthog.models import Team, User
 
 from .analytics import base_server_slug, installation_display_name, report_mcp_tool_call
 from .client import UpstreamToolCallError, call_upstream_tool
-from .facade.contracts import (
-    GatewayCallResult,
-    GatewayServerInfo,
-    GatewayToolBlockedError,
-    GatewayToolInfo,
-    GatewayToolNeedsApprovalError,
-    GatewayToolNotFoundError,
-    GatewayUpstreamError,
-)
 from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token_single_flight
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class GatewayServerInfo:
+    """The connected MCP server a gateway tool belongs to."""
+
+    slug: str
+    display_name: str
+    installation_id: str
+    scope: str
+
+
+@dataclass(frozen=True)
+class GatewayToolInfo:
+    """A tool exposed through the aggregated MCP gateway.
+
+    ``name`` is namespaced as ``{server_slug}/{tool_name}`` — the ``/`` keeps
+    connected-server tools distinct from PostHog's own kebab-case tools.
+    """
+
+    name: str
+    server: GatewayServerInfo
+    tool_name: str
+    description: str
+    input_schema: dict[str, Any]
+    approval_state: str
+
+
+@dataclass(frozen=True)
+class GatewayCallResult:
+    """Result of a gateway tool call, mirroring the MCP ``CallToolResult``."""
+
+    content: list[Any]
+    is_error: bool
+    server_slug: str
+    tool_name: str
+    duration_ms: int
+    structured_content: dict[str, Any] | None = None
+
+
+class GatewayError(Exception):
+    """Base class for gateway dispatch failures."""
+
+
+class GatewayToolNotFoundError(GatewayError):
+    """The namespaced tool doesn't resolve to a live tool on a connected server."""
+
+
+class GatewayToolNeedsApprovalError(GatewayError):
+    """The tool exists but requires user approval before it can be called."""
+
+    def __init__(self, message: str, *, approval_url: str) -> None:
+        super().__init__(message)
+        self.approval_url = approval_url
+
+
+class GatewayToolBlockedError(GatewayError):
+    """The tool has been marked "do not use" by the user."""
+
+
+class GatewayUpstreamError(GatewayError):
+    """The upstream MCP server couldn't be called (auth, network, or protocol failure)."""
+
+    def __init__(self, message: str, *, error_type: str = "upstream_error") -> None:
+        super().__init__(message)
+        self.error_type = error_type
 
 
 def is_credential_ready(installation: MCPServerInstallation) -> bool:
@@ -222,11 +280,11 @@ def call_gateway_tool(
     arguments: dict[str, Any],
     consumer: str | None = None,
 ) -> GatewayCallResult:
-    """Shared dispatch path for the JSON-RPC endpoint, the REST endpoint, and the facade.
+    """Dispatch path for the REST ``call/`` endpoint.
 
     Raises ``GatewayToolNotFoundError`` / ``GatewayToolNeedsApprovalError`` /
-    ``GatewayToolBlockedError`` / ``GatewayUpstreamError`` (see facade contracts);
-    callers map these to their transport's error shape.
+    ``GatewayToolBlockedError`` / ``GatewayUpstreamError``; callers map these
+    to their transport's error shape.
     """
     installation, server_slug, tool_row = _resolve_tool_for_call(team.id, user.id, tool)
 

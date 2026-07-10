@@ -92,9 +92,6 @@ class GatewayTestBase(APIBaseTest):
     def _call_url(self) -> str:
         return f"/api/projects/{self.team.id}/mcp_gateway/call/"
 
-    def _mcp_url(self) -> str:
-        return f"/api/projects/{self.team.id}/mcp_gateway/mcp/"
-
 
 class TestGatewayToolsEndpoint(GatewayTestBase):
     def test_lists_namespaced_tools_with_server_metadata(self):
@@ -298,111 +295,6 @@ class TestGatewayCallEndpoint(GatewayTestBase):
         response = self.client.post(self._call_url(), data={"arguments": {}}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-
-class TestGatewayMCPEndpoint(GatewayTestBase):
-    def _rpc(self, payload):
-        return self.client.post(self._mcp_url(), data=payload, format="json")
-
-    def test_initialize_echoes_protocol_version_and_mints_session(self):
-        response = self._rpc(
-            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-03-26"}}
-        )
-
-        assert response.status_code == 200
-        assert response["Mcp-Session-Id"]
-        result = response.json()["result"]
-        assert result["protocolVersion"] == "2025-03-26"
-        assert result["serverInfo"]["name"] == "posthog-mcp-gateway"
-
-    def test_notifications_initialized_returns_202(self):
-        response = self._rpc({"jsonrpc": "2.0", "method": "notifications/initialized"})
-
-        assert response.status_code == 202
-
-    def test_ping_returns_empty_result(self):
-        response = self._rpc({"jsonrpc": "2.0", "id": 7, "method": "ping"})
-
-        body = response.json()
-        assert body["id"] == 7
-        assert body["result"] == {}
-
-    def test_tools_list_returns_namespaced_catalog(self):
-        installation = self._installation()
-        self._tool(installation, "create_issue", input_schema={"type": "object"})
-
-        response = self._rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-
-        tools = response.json()["result"]["tools"]
-        assert [tool["name"] for tool in tools] == ["linear/create_issue"]
-        assert tools[0]["inputSchema"] == {"type": "object"}
-
-    @patch("products.mcp_store.backend.client.httpx.Client")
-    def test_tools_call_dispatches_and_returns_call_tool_result(self, mock_client_cls):
-        installation = self._installation()
-        self._tool(installation, "create_issue")
-        self._mock_upstream_call(mock_client_cls, {"content": [{"type": "text", "text": "ok"}], "isError": False})
-
-        response = self._rpc(
-            {
-                "jsonrpc": "2.0",
-                "id": 5,
-                "method": "tools/call",
-                "params": {"name": "linear/create_issue", "arguments": {}},
-            }
-        )
-
-        body = response.json()
-        assert body["id"] == 5
-        assert body["result"] == {"content": [{"type": "text", "text": "ok"}], "isError": False}
-
-    @parameterized.expand(
-        [
-            ("needs_approval", "needs_approval", "linear/create_issue", -32001),
-            ("do_not_use", "do_not_use", "linear/create_issue", -32002),
-            ("unknown_tool", "approved", "linear/ghost", -32601),
-            ("unknown_server", "approved", "ghost/tool", -32601),
-        ]
-    )
-    @patch("products.mcp_store.backend.client.httpx.Client")
-    def test_tools_call_error_codes(self, _name, approval_state, tool, expected_code, mock_client_cls):
-        installation = self._installation()
-        self._tool(installation, "create_issue", approval_state=approval_state)
-
-        response = self._rpc({"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": tool}})
-
-        body = response.json()
-        assert body["id"] == 9
-        assert body["error"]["code"] == expected_code
-        mock_client_cls.assert_not_called()
-
-    def test_needs_approval_error_carries_approval_url(self):
-        installation = self._installation()
-        self._tool(installation, "create_issue", approval_state="needs_approval")
-
-        response = self._rpc(
-            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "linear/create_issue"}}
-        )
-
-        error = response.json()["error"]
-        assert error["data"]["approval_url"].endswith(f"/project/{self.team.id}/settings/mcp-servers")
-
-    def test_unknown_method_returns_method_not_found(self):
-        response = self._rpc({"jsonrpc": "2.0", "id": 4, "method": "resources/list"})
-
-        assert response.json()["error"]["code"] == -32601
-
-    def test_batch_requests_are_rejected(self):
-        response = self._rpc(
-            [
-                {"jsonrpc": "2.0", "id": 1, "method": "ping"},
-                {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
-            ]
-        )
-
-        body = response.json()
-        assert isinstance(body, list)
-        assert [entry["error"]["code"] for entry in body] == [-32000, -32000]
 
 
 class TestGatewayAnalytics(GatewayTestBase):

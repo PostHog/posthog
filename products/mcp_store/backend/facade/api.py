@@ -4,20 +4,11 @@ Facade API for mcp_store.
 This is the ONLY module other apps are allowed to import.
 """
 
-from typing import Any
-
 import structlog
 
-from posthog.models import Team, User
-
 from products.mcp_store.backend.analytics import installation_display_name
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo, GatewayCallResult, GatewayToolInfo
-from products.mcp_store.backend.gateway import (
-    call_gateway_tool as _call_gateway_tool,
-    is_credential_ready,
-    list_gateway_tools as _list_gateway_tools,
-    resolve_active_installations,
-)
+from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.gateway import is_credential_ready, resolve_active_installations
 from products.mcp_store.backend.models import MCPServerInstallation
 
 logger = structlog.get_logger(__name__)
@@ -93,33 +84,3 @@ def get_installations_for_sandbox(
         include_personal=include_personal,
     )
     return results
-
-
-def list_gateway_tools(
-    team_id: int,
-    user_id: int,
-    query: str | None = None,
-    name: str | None = None,
-) -> list[GatewayToolInfo]:
-    """List the namespaced tools available to a user through the aggregated MCP gateway.
-
-    ``query`` is a substring search over tool name and description;
-    ``name`` filters to an exact namespaced tool name.
-    """
-    return _list_gateway_tools(team_id, user_id, search=query, name=name)
-
-
-def call_gateway_tool(
-    team_id: int,
-    user_id: int,
-    tool: str,
-    arguments: dict[str, Any],
-    consumer: str | None = None,
-) -> GatewayCallResult:
-    """Execute a namespaced gateway tool (``{server_slug}/{tool_name}``) as a user.
-
-    Raises the ``Gateway*Error`` types from ``facade.contracts`` on failure.
-    """
-    team = Team.objects.get(id=team_id)
-    user = User.objects.get(id=user_id)
-    return _call_gateway_tool(team=team, user=user, tool=tool, arguments=arguments, consumer=consumer)

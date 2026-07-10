@@ -63342,14 +63342,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type EnvironmentsMcpGatewayMcpCreateBodyOne = { [key: string]: unknown };
-
-    export type EnvironmentsMcpGatewayMcpCreateBodyTwo = { [key: string]: unknown };
-
-    export type EnvironmentsMcpGatewayMcpCreateBodyThree = { [key: string]: unknown };
-
-    export type EnvironmentsMcpGatewayMcpCreate200 = { [key: string]: unknown };
-
     export type EnvironmentsMcpGatewayToolsRetrieveParams = {
     /**
      * Maximum number of tools to return.
@@ -70778,14 +70770,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type McpGatewayMcpCreateBodyOne = { [key: string]: unknown };
-
-    export type McpGatewayMcpCreateBodyTwo = { [key: string]: unknown };
-
-    export type McpGatewayMcpCreateBodyThree = { [key: string]: unknown };
-
-    export type McpGatewayMcpCreate200 = { [key: string]: unknown };
 
     export type McpGatewayToolsRetrieveParams = {
     /**

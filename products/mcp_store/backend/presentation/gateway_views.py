@@ -1,28 +1,20 @@
 """Aggregated MCP gateway endpoints.
 
-One team-scoped access point over every connected MCP server installation:
+One team-scoped access point over every connected MCP server installation,
+consumed by the PostHog MCP (``services/mcp``):
 
-- ``POST .../mcp_gateway/mcp/`` — stateless JSON-RPC (MCP streamable HTTP) for
-  external agents: initialize, notifications/initialized, ping, tools/list,
-  tools/call.
 - ``GET .../mcp_gateway/tools/`` — REST tool catalog (search / exact name /
-  pagination) for the Hono MCP front door and internal consumers.
+  pagination).
 - ``POST .../mcp_gateway/call/`` — REST tool execution with typed error mapping.
 """
 
-import json
-import uuid
 from typing import Any, cast
 
-from django.http import HttpResponse
-
-import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -31,24 +23,15 @@ from posthog.models import User
 from posthog.rate_limit import MCPProxyBurstThrottle, MCPProxySustainedThrottle
 
 from ..analytics import MCP_CONSUMER_HEADER
-from ..facade.contracts import (
+from ..gateway import (
     GatewayToolBlockedError,
     GatewayToolNeedsApprovalError,
     GatewayToolNotFoundError,
     GatewayUpstreamError,
+    call_gateway_tool,
+    list_gateway_tools,
 )
-from ..gateway import call_gateway_tool, list_gateway_tools
 from ..models import APPROVAL_STATES, SCOPE_CHOICES
-from ..proxy import BATCH_REJECTED_CODE, METHOD_NOT_FOUND_CODE, TOOL_DISABLED_CODE, TOOL_NEEDS_APPROVAL_CODE
-from ..tools import _PROTOCOL_VERSION
-from .views import MCPProxyRenderer
-
-logger = structlog.get_logger(__name__)
-
-# JSON-RPC implementation-defined server error, used for upstream failures.
-SERVER_ERROR_CODE = -32000
-
-_SERVER_INFO = {"name": "posthog-mcp-gateway", "version": "1.0"}
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -139,27 +122,6 @@ class GatewayCallErrorSerializer(serializers.Serializer):
     )
 
 
-def _jsonrpc_error_dict(request_id: Any, code: int, message: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
-    error: dict[str, Any] = {"code": code, "message": message}
-    if data is not None:
-        error["data"] = data
-    return {"jsonrpc": "2.0", "id": request_id, "error": error}
-
-
-def _json_response(payload: dict[str, Any] | list[Any], http_status: int = 200) -> HttpResponse:
-    return HttpResponse(json.dumps(payload), content_type="application/json", status=http_status)
-
-
-def _jsonrpc_result_response(request_id: Any, result: dict[str, Any]) -> HttpResponse:
-    return _json_response({"jsonrpc": "2.0", "id": request_id, "result": result})
-
-
-def _jsonrpc_error_response(
-    request_id: Any, code: int, message: str, data: dict[str, Any] | None = None
-) -> HttpResponse:
-    return _json_response(_jsonrpc_error_dict(request_id, code, message, data))
-
-
 class MCPGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Aggregated MCP gateway over all of a team's connected MCP server installations.
 
@@ -170,123 +132,6 @@ class MCPGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "project"
     permission_classes = [IsAuthenticated]
-
-    @extend_schema(
-        summary="Aggregated MCP endpoint",
-        description=(
-            "Stateless JSON-RPC (MCP streamable HTTP) over the caller's connected MCP servers. "
-            "Supports initialize, notifications/initialized, ping, tools/list, and tools/call "
-            "with {server_slug}/{tool_name} tool names. Batch requests are rejected."
-        ),
-        request=OpenApiTypes.OBJECT,
-        responses={200: OpenApiTypes.OBJECT},
-    )
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path="mcp",
-        throttle_classes=[MCPProxyBurstThrottle, MCPProxySustainedThrottle],
-        required_scopes=["project:read"],
-        renderer_classes=[MCPProxyRenderer],
-    )
-    def mcp(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        data = request.data
-        if isinstance(data, list):
-            return _json_response(
-                [
-                    _jsonrpc_error_dict(
-                        (item.get("id") if isinstance(item, dict) else None),
-                        BATCH_REJECTED_CODE,
-                        "Batch requests are not supported by the MCP gateway; send items individually",
-                    )
-                    for item in data
-                ]
-            )
-        if not isinstance(data, dict):
-            return HttpResponse(
-                '{"error": "Request body must be valid JSON"}',
-                content_type="application/json",
-                status=400,
-            )
-
-        method = data.get("method")
-        rpc_id = data.get("id")
-
-        if method == "initialize":
-            params = data.get("params")
-            requested_version = params.get("protocolVersion") if isinstance(params, dict) else None
-            protocol_version = (
-                requested_version if isinstance(requested_version, str) and requested_version else _PROTOCOL_VERSION
-            )
-            response = _jsonrpc_result_response(
-                rpc_id,
-                {
-                    "protocolVersion": protocol_version,
-                    "capabilities": {"tools": {}},
-                    "serverInfo": _SERVER_INFO,
-                },
-            )
-            # The gateway is stateless; mint an id for clients that require one
-            # and accept any value on subsequent requests.
-            response["Mcp-Session-Id"] = uuid.uuid4().hex
-            return response
-
-        if method == "notifications/initialized":
-            return HttpResponse(status=202)
-
-        if method == "ping":
-            return _jsonrpc_result_response(rpc_id, {})
-
-        if method == "tools/list":
-            infos = list_gateway_tools(self.team_id, cast(User, request.user).id)
-            return _jsonrpc_result_response(
-                rpc_id,
-                {
-                    "tools": [
-                        {"name": info.name, "description": info.description, "inputSchema": info.input_schema}
-                        for info in infos
-                    ]
-                },
-            )
-
-        if method == "tools/call":
-            return self._handle_tools_call(request, data)
-
-        return _jsonrpc_error_response(rpc_id, METHOD_NOT_FOUND_CODE, f"Method '{method}' not found")
-
-    def _handle_tools_call(self, request: Request, data: dict[str, Any]) -> HttpResponse:
-        rpc_id = data.get("id")
-        params = data.get("params")
-        tool_name = params.get("name") if isinstance(params, dict) else None
-        if not tool_name or not isinstance(tool_name, str):
-            return _jsonrpc_error_response(rpc_id, METHOD_NOT_FOUND_CODE, "tools/call missing 'name' parameter")
-
-        raw_arguments = params.get("arguments") if isinstance(params, dict) else None
-        arguments = raw_arguments if isinstance(raw_arguments, dict) else {}
-
-        try:
-            result = call_gateway_tool(
-                team=self.team,
-                user=cast(User, request.user),
-                tool=tool_name,
-                arguments=arguments,
-                consumer=request.headers.get(MCP_CONSUMER_HEADER),
-            )
-        except GatewayToolNotFoundError as exc:
-            return _jsonrpc_error_response(rpc_id, METHOD_NOT_FOUND_CODE, str(exc))
-        except GatewayToolNeedsApprovalError as exc:
-            return _jsonrpc_error_response(
-                rpc_id, TOOL_NEEDS_APPROVAL_CODE, str(exc), data={"approval_url": exc.approval_url}
-            )
-        except GatewayToolBlockedError as exc:
-            return _jsonrpc_error_response(rpc_id, TOOL_DISABLED_CODE, str(exc))
-        except GatewayUpstreamError as exc:
-            return _jsonrpc_error_response(rpc_id, SERVER_ERROR_CODE, str(exc), data={"error_type": exc.error_type})
-
-        payload: dict[str, Any] = {"content": result.content, "isError": result.is_error}
-        if result.structured_content is not None:
-            payload["structuredContent"] = result.structured_content
-        return _jsonrpc_result_response(rpc_id, payload)
 
     @validated_request(
         query_serializer=GatewayToolsQuerySerializer,

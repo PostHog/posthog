@@ -355,14 +355,6 @@ export interface PaginatedMCPServerTemplateListApi {
     results: MCPServerTemplateApi[]
 }
 
-export type McpGatewayMcpCreateBodyOne = { [key: string]: unknown }
-
-export type McpGatewayMcpCreateBodyTwo = { [key: string]: unknown }
-
-export type McpGatewayMcpCreateBodyThree = { [key: string]: unknown }
-
-export type McpGatewayMcpCreate200 = { [key: string]: unknown }
-
 export type McpGatewayToolsRetrieveParams = {
     /**
      * Maximum number of tools to return.
