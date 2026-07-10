@@ -34,12 +34,12 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA": (
-        get_from_env("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool),
+        False,
         "Whether HogQL queries read from the native-JSON events tables (events_json) instead of the legacy events table.",
         bool,
     ),
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS": (
-        get_from_env("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", ""),
+        "",
         "Comma-separated team IDs whose HogQL queries read from the native-JSON events tables even while the global setting is off.",
         str,
     ),

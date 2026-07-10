@@ -6,13 +6,12 @@ from posthog.models.instance_setting import get_instance_setting
 def use_new_events_schema(team_id: int | None = None) -> bool:
     """Whether HogQL reads should target the native-JSON events tables.
 
-    The CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA env var pins the mode for CI and dev processes; in
-    production the instance setting of the same name flips it globally at runtime, and the
-    *_TEAMS instance setting enables it for individual teams first (both cached for up to 60s per
-    worker). Code running inside a query should prefer HogQLContext.uses_new_events_schema(), which
-    resolves this once so a mid-query flip can't mix schemas.
+    The instance setting flips it globally at runtime, and the *_TEAMS instance setting enables it
+    for individual teams first (both cached for up to 60s per worker). Code running inside a query
+    should prefer HogQLContext.uses_new_events_schema(), which resolves this once so a mid-query
+    flip can't mix schemas.
     """
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+    if settings.TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         return True
     if get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"):
         return True

@@ -35,11 +35,6 @@ operations = (
             WRITABLE_EVENTS_JSON_TABLE_SQL(),
             node_roles=[NodeRole.INGESTION_EVENTS],
         ),
-    ]
-)
-
-if not _IS_CLOUD and settings.CLICKHOUSE_EVENTS_JSON_DUAL_WRITE:
-    operations += [
         run_sql_with_exceptions(
             KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL(on_cluster=False),
             node_roles=[NodeRole.INGESTION_EVENTS],
@@ -52,3 +47,4 @@ if not _IS_CLOUD and settings.CLICKHOUSE_EVENTS_JSON_DUAL_WRITE:
             node_roles=[NodeRole.INGESTION_EVENTS],
         ),
     ]
+)

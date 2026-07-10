@@ -318,15 +318,9 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
-CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = get_from_env(
+# CI uses this to run the test suite against both schemas. Production reads use the instance settings.
+CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool
-)
-# Whether to consume the events topic into the native-JSON events table (sharded_events_json).
-# Off by default so upgrading instances don't silently double their events ingestion and storage.
-# Enable via env before running ClickHouse migrations, or afterwards with
-# `manage.py manage_events_json_dual_write --start`.
-CLICKHOUSE_EVENTS_JSON_DUAL_WRITE: bool = get_from_env(
-    "CLICKHOUSE_EVENTS_JSON_DUAL_WRITE", False, type_cast=str_to_bool
 )
 # query_log_archive's single data table lives on the OPS cluster; every cluster's
 # Distributed read/write tables route to it via this cluster name.
