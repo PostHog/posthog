@@ -7,7 +7,7 @@ from typing import Any, cast
 from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, QuerySet
 from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
@@ -610,14 +610,24 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             raise PermissionDenied("Only the installation owner can share it with the project.")
         if not self._is_project_admin():
             raise PermissionDenied("Only project admins can share MCP servers with the project.")
-        if MCPServerInstallation.objects.filter(team_id=self.team_id, url=installation.url, scope="shared").exists():
+
+        try:
+            with transaction.atomic():
+                if MCPServerInstallation.objects.filter(
+                    team_id=self.team_id, url=installation.url, scope="shared"
+                ).exists():
+                    return Response(
+                        {"detail": "A shared connection for this server already exists in this project."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                installation.scope = "shared"
+                installation.save(update_fields=["scope", "updated_at"])
+        except IntegrityError:
             return Response(
                 {"detail": "A shared connection for this server already exists in this project."},
                 status=status.HTTP_409_CONFLICT,
             )
 
-        installation.scope = "shared"
-        installation.save(update_fields=["scope", "updated_at"])
         report_user_action(
             request.user,
             "mcp_store server shared",
@@ -648,16 +658,24 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
         if installation.user_id != request.user.id and not self._is_project_admin():
             raise PermissionDenied("Only the credential owner or a project admin can unshare a shared server.")
-        if MCPServerInstallation.objects.filter(
-            team_id=self.team_id, user_id=installation.user_id, url=installation.url, scope="personal"
-        ).exists():
+
+        try:
+            with transaction.atomic():
+                if MCPServerInstallation.objects.filter(
+                    team_id=self.team_id, user_id=installation.user_id, url=installation.url, scope="personal"
+                ).exists():
+                    return Response(
+                        {"detail": "The owner already has a personal installation for this server."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                installation.scope = "personal"
+                installation.save(update_fields=["scope", "updated_at"])
+        except IntegrityError:
             return Response(
                 {"detail": "The owner already has a personal installation for this server."},
                 status=status.HTTP_409_CONFLICT,
             )
 
-        installation.scope = "personal"
-        installation.save(update_fields=["scope", "updated_at"])
         report_user_action(
             request.user,
             "mcp_store server unshared",
