@@ -92,22 +92,26 @@ def build_graph(
     def add_edge(source: str, target: str, kind: str) -> None:
         edges.append({"source": source, "target": target, "kind": kind})
 
+    # System areas are nodes in their own right: the top level of the mind map.
+    for layer_id, layer in layers.items():
+        add_node(f"area:{layer_id}", "area", layer["label"], layer=layer_id, markdown=layer.get("markdown", ""))
+
     depths = concept_depths(concepts)
     concept_ids = {c["id"] for c in concepts}
     for concept in concepts:
         if concept["layer"] not in layers:
             sys.exit(f"concept {concept['id']!r} has unknown layer {concept['layer']!r}")
+        parent = f"concept:{concept['parent']}" if concept.get("parent") else f"area:{concept['layer']}"
         add_node(
             f"concept:{concept['id']}",
             "concept",
             concept["name"],
             layer=concept["layer"],
-            parent=f"concept:{concept['parent']}" if concept.get("parent") else None,
+            parent=parent,
             depth=depths[concept["id"]],
             markdown=concept.get("markdown", ""),
         )
-        if concept.get("parent"):
-            add_edge(f"concept:{concept['id']}", f"concept:{concept['parent']}", "part-of")
+        add_edge(f"concept:{concept['id']}", parent, "part-of")
 
     tasks_by_number = {t["task_number"]: t for t in tasks or []}
     for learning in learnings:

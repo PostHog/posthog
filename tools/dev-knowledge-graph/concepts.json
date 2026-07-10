@@ -1,10 +1,30 @@
 {
   "layers": {
-    "frontend": { "label": "Frontend app", "color": "#4c8eda" },
-    "django": { "label": "Main Django app", "color": "#36c46f" },
-    "ingestion": { "label": "Ingestion services", "color": "#e8853d" },
-    "ci": { "label": "CI & repo tooling", "color": "#f7c948" },
-    "agents": { "label": "Agent fleet", "color": "#9d5cf5" }
+    "frontend": {
+      "label": "Frontend app",
+      "color": "#4c8eda",
+      "markdown": "The React/kea single-page app (`frontend/src/`) plus product frontends under `products/*/frontend/`. Scenes lazy-load; the eager import graph of the authenticated shell is a guarded budget. Business logic lives in kea logics, not hooks."
+    },
+    "django": {
+      "label": "Main Django app",
+      "color": "#36c46f",
+      "markdown": "The main API and persistence layer (`posthog/`, `products/*/backend/`). DRF viewsets and serializers are the source of truth for generated frontend types and MCP tools; queries against ClickHouse go through HogQL query runners."
+    },
+    "ingestion": {
+      "label": "Ingestion services",
+      "color": "#e8853d",
+      "markdown": "The services that move customer data: capture endpoints, Kafka, the plugin-server pipeline framework (typed steps with ok/dlq/drop results), and the replay blob pipeline. Data flows one way: SDK → capture → Kafka → processing → storage."
+    },
+    "ci": {
+      "label": "CI & repo tooling",
+      "color": "#f7c948",
+      "markdown": "GitHub Actions plus the repo tooling that decides what runs (paths filtering), what blocks (quarantine gate, preflight), and what reports back to PRs (the shared bot comment)."
+    },
+    "agents": {
+      "label": "Agent fleet",
+      "color": "#9d5cf5",
+      "markdown": "The system that builds the system: PostHog Code tasks in sandboxes, fleet automation reacting to PR states, skills as the knowledge-to-behavior mechanism, and this knowledge graph."
+    }
   },
   "concepts": [
     {

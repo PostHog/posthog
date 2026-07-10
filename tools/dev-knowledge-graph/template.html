@@ -91,7 +91,7 @@ for (const e of GRAPH.edges) {
     else addChild(s.id, t);
   }
 }
-const topLevel = nodes.filter((n) => n.kind === "concept" && !n.parent);
+const topLevel = nodes.filter((n) => n.kind === "area");
 
 // --- visibility state ---
 const expanded = new Set();
@@ -105,7 +105,7 @@ function matches(n) { return searchTerm && n.label.toLowerCase().includes(search
 function authorOk(n) { return userFilter === "all" || !n.author || n.author === userFilter; }
 function nodeAllowed(n) {
   if (!authorOk(n)) return false;
-  if (n.kind === "concept") return enabledLayers.has(n.layer);
+  if (n.kind === "area" || n.kind === "concept") return enabledLayers.has(n.layer);
   return enabledKinds.has(n.kind);
 }
 function visibleChildren(n) {
@@ -169,12 +169,12 @@ layout();
 
 function colorOf(n) {
   if (n.kind === "root") return "#888";
-  if (n.kind === "concept") return (LAYERS[n.layer] || {}).color || "#888";
+  if (n.kind === "area" || n.kind === "concept") return (LAYERS[n.layer] || {}).color || "#888";
   return KIND_COLORS[n.kind];
 }
 function categoryOf(n) {
   if (n.kind === "root") return "system";
-  if (n.kind === "concept") return (LAYERS[n.layer] || {}).label || n.layer;
+  if (n.kind === "area") return "system area";
   if (n.kind === "skill") return n.status === "proposed" ? "skill · proposed" : "skill";
   return n.kind;
 }
@@ -251,7 +251,7 @@ function drawNodes() {
     const pad = n.side < 0 ? 10 : 14;
     const textX = x + (n.side < 0 ? 10 : 14);
     const maxW = CARD_W - pad - 14;
-    const bold = n.kind === "root" || (n.kind === "concept" && n.col === 1);
+    const bold = n.kind === "root" || n.kind === "area";
     ctx.textAlign = "left";
     ctx.font = `${bold ? "600" : "500"} 11.5px -apple-system, sans-serif`;
     ctx.fillStyle = n.kind === "concept" || n.kind === "root" ? "#eee" : "#cfc9d6";
@@ -344,12 +344,12 @@ function md(src) {
 const panel = document.getElementById("panel");
 function select(n) {
   selected = n;
-  const layerLabel = n.kind === "concept" ? (LAYERS[n.layer] || {}).label : null;
+  const meta = n.kind === "concept" ? `concept · ${(LAYERS[n.layer] || {}).label || n.layer}` : categoryOf(n);
   const also = alsoAbout.get(n.id) || [];
   panel.style.display = "block";
   panel.innerHTML = `
     <h2>${esc(n.label)}</h2>
-    <div class="meta">${layerLabel ? esc(layerLabel) : n.kind}${n.status ? " · " + n.status : ""}${n.date ? " · " + n.date : ""}${n.author && n.author !== "unknown" ? " · by " + esc(n.author) : ""}${n.evidence_count ? ` · from ${n.evidence_count} conversations` : ""}
+    <div class="meta">${esc(meta)}${n.date ? " · " + n.date : ""}${n.author && n.author !== "unknown" ? " · by " + esc(n.author) : ""}${n.evidence_count ? ` · from ${n.evidence_count} conversations` : ""}
       ${n.url ? ` · <a href="${esc(n.url)}" target="_blank">open</a>` : ""}</div>
     ${n.markdown ? `<div class="detail">${md(n.markdown)}</div>` : ""}
     ${also.length ? `<div class="meta" style="margin-top:8px">also relates to: ${also.map(esc).join(" · ")}</div>` : ""}`;
