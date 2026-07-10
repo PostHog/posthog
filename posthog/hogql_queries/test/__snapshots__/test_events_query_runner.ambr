@@ -376,7 +376,7 @@
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc[new_events_schema.1]
   '''
-  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), toString(events.properties.idx)))) AS idx,
+  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.idx), 'Array'), startsWith(dynamicType(events.properties.idx), 'Map'), startsWith(dynamicType(events.properties.idx), 'Tuple')), toJSONString(events.properties.idx), toString(events.properties.idx))))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
@@ -403,7 +403,7 @@
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc[new_events_schema.2]
   '''
-  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), toString(events.properties.idx)))) AS idx,
+  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.idx), 'Array'), startsWith(dynamicType(events.properties.idx), 'Map'), startsWith(dynamicType(events.properties.idx), 'Tuple')), toJSONString(events.properties.idx), toString(events.properties.idx))))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
@@ -430,7 +430,7 @@
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc[new_events_schema]
   '''
-  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), toString(events.properties.idx)))) AS idx,
+  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.idx), 'Array'), startsWith(dynamicType(events.properties.idx), 'Map'), startsWith(dynamicType(events.properties.idx), 'Tuple')), toJSONString(events.properties.idx), toString(events.properties.idx))))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
@@ -688,7 +688,7 @@
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc[new_events_schema.1]
   '''
-  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), toString(events.properties.idx)))) AS idx,
+  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.idx), 'Array'), startsWith(dynamicType(events.properties.idx), 'Map'), startsWith(dynamicType(events.properties.idx), 'Tuple')), toJSONString(events.properties.idx), toString(events.properties.idx))))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
@@ -715,7 +715,7 @@
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc[new_events_schema.2]
   '''
-  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), toString(events.properties.idx)))) AS idx,
+  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.idx), 'Array'), startsWith(dynamicType(events.properties.idx), 'Map'), startsWith(dynamicType(events.properties.idx), 'Tuple')), toJSONString(events.properties.idx), toString(events.properties.idx))))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
@@ -742,7 +742,7 @@
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc[new_events_schema]
   '''
-  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), toString(events.properties.idx)))) AS idx,
+  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.idx), 'Array'), startsWith(dynamicType(events.properties.idx), 'Map'), startsWith(dynamicType(events.properties.idx), 'Tuple')), toJSONString(events.properties.idx), toString(events.properties.idx))))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
@@ -1108,9 +1108,9 @@
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
                                                 (SELECT events.uuid AS uuid
                                                  FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^some_prop), '{}'), toJSONString(events.properties.^some_prop), if(isNull(events.properties.some_prop), NULL, if(startsWith(dynamicType(events.properties.some_prop), 'DateTime'), replaceOne(toString(events.properties.some_prop), ' ', 'T'), toString(events.properties.some_prop)))), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
+                                                 WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^some_prop), '{}'), toJSONString(events.properties.^some_prop), if(isNull(events.properties.some_prop), NULL, if(startsWith(dynamicType(events.properties.some_prop), 'DateTime'), replaceOne(toString(events.properties.some_prop), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.some_prop), 'Array'), startsWith(dynamicType(events.properties.some_prop), 'Map'), startsWith(dynamicType(events.properties.some_prop), 'Tuple')), toJSONString(events.properties.some_prop), toString(events.properties.some_prop))))), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
                                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 101)), and(ifNull(equals(if(notEquals(toJSONString(events.properties.^some_prop), '{}'), toJSONString(events.properties.^some_prop), if(isNull(events.properties.some_prop), NULL, if(startsWith(dynamicType(events.properties.some_prop), 'DateTime'), replaceOne(toString(events.properties.some_prop), ' ', 'T'), toString(events.properties.some_prop)))), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
+                                                 LIMIT 101)), and(ifNull(equals(if(notEquals(toJSONString(events.properties.^some_prop), '{}'), toJSONString(events.properties.^some_prop), if(isNull(events.properties.some_prop), NULL, if(startsWith(dynamicType(events.properties.some_prop), 'DateTime'), replaceOne(toString(events.properties.some_prop), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.some_prop), 'Array'), startsWith(dynamicType(events.properties.some_prop), 'Map'), startsWith(dynamicType(events.properties.some_prop), 'Tuple')), toJSONString(events.properties.some_prop), toString(events.properties.some_prop))))), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1271,9 +1271,9 @@
                                                 (SELECT events.uuid AS uuid
                                                  FROM events_json AS events
                                                  WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY if(notEquals(toJSONString(events.properties.^priority), '{}'), toJSONString(events.properties.^priority), if(isNull(events.properties.priority), NULL, if(startsWith(dynamicType(events.properties.priority), 'DateTime'), replaceOne(toString(events.properties.priority), ' ', 'T'), toString(events.properties.priority)))) ASC
+                                                 ORDER BY if(notEquals(toJSONString(events.properties.^priority), '{}'), toJSONString(events.properties.^priority), if(isNull(events.properties.priority), NULL, if(startsWith(dynamicType(events.properties.priority), 'DateTime'), replaceOne(toString(events.properties.priority), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.priority), 'Array'), startsWith(dynamicType(events.properties.priority), 'Map'), startsWith(dynamicType(events.properties.priority), 'Tuple')), toJSONString(events.properties.priority), toString(events.properties.priority))))) ASC
                                                  LIMIT 101)), and(equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY if(notEquals(toJSONString(events.properties.^priority), '{}'), toJSONString(events.properties.^priority), if(isNull(events.properties.priority), NULL, if(startsWith(dynamicType(events.properties.priority), 'DateTime'), replaceOne(toString(events.properties.priority), ' ', 'T'), toString(events.properties.priority)))) ASC
+  ORDER BY if(notEquals(toJSONString(events.properties.^priority), '{}'), toJSONString(events.properties.^priority), if(isNull(events.properties.priority), NULL, if(startsWith(dynamicType(events.properties.priority), 'DateTime'), replaceOne(toString(events.properties.priority), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.priority), 'Array'), startsWith(dynamicType(events.properties.priority), 'Map'), startsWith(dynamicType(events.properties.priority), 'Tuple')), toJSONString(events.properties.priority), toString(events.properties.priority))))) ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,

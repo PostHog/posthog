@@ -532,7 +532,7 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(if(notEquals(toJSONString(e.person_properties.^key), '{}'), toJSONString(e.person_properties.^key), if(isNull(e.person_properties.key), NULL, if(startsWith(dynamicType(e.person_properties.key), 'DateTime'), replaceOne(toString(e.person_properties.key), ' ', 'T'), toString(e.person_properties.key)))), 'value'), 0))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(if(notEquals(toJSONString(e.person_properties.^key), '{}'), toJSONString(e.person_properties.^key), if(isNull(e.person_properties.key), NULL, if(startsWith(dynamicType(e.person_properties.key), 'DateTime'), replaceOne(toString(e.person_properties.key), ' ', 'T'), if(or(startsWith(dynamicType(e.person_properties.key), 'Array'), startsWith(dynamicType(e.person_properties.key), 'Map'), startsWith(dynamicType(e.person_properties.key), 'Tuple')), toJSONString(e.person_properties.key), toString(e.person_properties.key))))), 'value'), 0))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -1014,7 +1014,7 @@
               FROM
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                        ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(e.properties.key), NULL, if(startsWith(dynamicType(e.properties.key), 'DateTime'), replaceOne(toString(e.properties.key), ' ', 'T'), toString(e.properties.key))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                        ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(e.properties.key), NULL, if(startsWith(dynamicType(e.properties.key), 'DateTime'), replaceOne(toString(e.properties.key), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.key), 'Array'), startsWith(dynamicType(e.properties.key), 'Map'), startsWith(dynamicType(e.properties.key), 'Tuple')), toJSONString(e.properties.key), toString(e.properties.key)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events_json AS e
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1240,7 +1240,7 @@
               FROM
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                        ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(e.properties.key), NULL, if(startsWith(dynamicType(e.properties.key), 'DateTime'), replaceOne(toString(e.properties.key), ' ', 'T'), toString(e.properties.key))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                        ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(e.properties.key), NULL, if(startsWith(dynamicType(e.properties.key), 'DateTime'), replaceOne(toString(e.properties.key), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.key), 'Array'), startsWith(dynamicType(e.properties.key), 'Map'), startsWith(dynamicType(e.properties.key), 'Tuple')), toJSONString(e.properties.key), toString(e.properties.key)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events_json AS e
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1368,7 +1368,7 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(e.properties.key), NULL, if(startsWith(dynamicType(e.properties.key), 'DateTime'), replaceOne(toString(e.properties.key), ' ', 'T'), toString(e.properties.key))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(e.properties.key), NULL, if(startsWith(dynamicType(e.properties.key), 'DateTime'), replaceOne(toString(e.properties.key), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.key), 'Array'), startsWith(dynamicType(e.properties.key), 'Map'), startsWith(dynamicType(e.properties.key), 'Tuple')), toJSONString(e.properties.key), toString(e.properties.key)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
@@ -1553,7 +1553,7 @@
         FROM
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(e.properties.key), NULL, if(startsWith(dynamicType(e.properties.key), 'DateTime'), replaceOne(toString(e.properties.key), ' ', 'T'), toString(e.properties.key))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(e.properties.key), NULL, if(startsWith(dynamicType(e.properties.key), 'DateTime'), replaceOne(toString(e.properties.key), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.key), 'Array'), startsWith(dynamicType(e.properties.key), 'Map'), startsWith(dynamicType(e.properties.key), 'Tuple')), toJSONString(e.properties.key), toString(e.properties.key)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1838,7 +1838,7 @@
         FROM
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_property`), 'Array'), startsWith(dynamicType(e.properties.`$some_property`), 'Map'), startsWith(dynamicType(e.properties.`$some_property`), 'Tuple')), toJSONString(e.properties.`$some_property`), toString(e.properties.`$some_property`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1891,7 +1891,7 @@
         FROM
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_property`), 'Array'), startsWith(dynamicType(e.properties.`$some_property`), 'Map'), startsWith(dynamicType(e.properties.`$some_property`), 'Tuple')), toJSONString(e.properties.`$some_property`), toString(e.properties.`$some_property`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1944,7 +1944,7 @@
         FROM
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_property`), 'Array'), startsWith(dynamicType(e.properties.`$some_property`), 'Map'), startsWith(dynamicType(e.properties.`$some_property`), 'Tuple')), toJSONString(e.properties.`$some_property`), toString(e.properties.`$some_property`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1997,7 +1997,7 @@
         FROM
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_property`), 'Array'), startsWith(dynamicType(e.properties.`$some_property`), 'Map'), startsWith(dynamicType(e.properties.`$some_property`), 'Tuple')), toJSONString(e.properties.`$some_property`), toString(e.properties.`$some_property`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2550,7 +2550,7 @@
            WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(if(notEquals(toJSONString(e.person_properties.^key), '{}'), toJSONString(e.person_properties.^key), if(isNull(e.person_properties.key), NULL, if(startsWith(dynamicType(e.person_properties.key), 'DateTime'), replaceOne(toString(e.person_properties.key), ' ', 'T'), toString(e.person_properties.key)))), 'value'), 0)))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(if(notEquals(toJSONString(e.person_properties.^key), '{}'), toJSONString(e.person_properties.^key), if(isNull(e.person_properties.key), NULL, if(startsWith(dynamicType(e.person_properties.key), 'DateTime'), replaceOne(toString(e.person_properties.key), ' ', 'T'), if(or(startsWith(dynamicType(e.person_properties.key), 'Array'), startsWith(dynamicType(e.person_properties.key), 'Map'), startsWith(dynamicType(e.person_properties.key), 'Tuple')), toJSONString(e.person_properties.key), toString(e.person_properties.key))))), 'value'), 0)))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -3181,7 +3181,7 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_property`), 'Array'), startsWith(dynamicType(e.properties.`$some_property`), 'Map'), startsWith(dynamicType(e.properties.`$some_property`), 'Tuple')), toJSONString(e.properties.`$some_property`), toString(e.properties.`$some_property`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -3482,7 +3482,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(if(notEquals(toJSONString(e.properties.^name), '{}'), toJSONString(e.properties.^name), if(isNull(e.properties.name), NULL, if(startsWith(dynamicType(e.properties.name), 'DateTime'), replaceOne(toString(e.properties.name), ' ', 'T'), toString(e.properties.name)))), '1'), 0))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(if(notEquals(toJSONString(e.properties.^name), '{}'), toJSONString(e.properties.^name), if(isNull(e.properties.name), NULL, if(startsWith(dynamicType(e.properties.name), 'DateTime'), replaceOne(toString(e.properties.name), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.name), 'Array'), startsWith(dynamicType(e.properties.name), 'Map'), startsWith(dynamicType(e.properties.name), 'Tuple')), toJSONString(e.properties.name), toString(e.properties.name))))), '1'), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -5668,7 +5668,7 @@
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
                                                              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__person.`properties___$os`, 'android'), 0), ifNull(equals(e__person.`properties___$browser`, 'chrome'), 0)), and(ifNull(equals(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(e.properties.key), NULL, if(startsWith(dynamicType(e.properties.key), 'DateTime'), replaceOne(toString(e.properties.key), ' ', 'T'), toString(e.properties.key)))), 'val'), 0), ifNull(ilike(toString(e__person.properties___email), '%@posthog.com%'), 0)))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__person.`properties___$os`, 'android'), 0), ifNull(equals(e__person.`properties___$browser`, 'chrome'), 0)), and(ifNull(equals(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(e.properties.key), NULL, if(startsWith(dynamicType(e.properties.key), 'DateTime'), replaceOne(toString(e.properties.key), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.key), 'Array'), startsWith(dynamicType(e.properties.key), 'Map'), startsWith(dynamicType(e.properties.key), 'Tuple')), toJSONString(e.properties.key), toString(e.properties.key))))), 'val'), 0), ifNull(ilike(toString(e__person.properties___email), '%@posthog.com%'), 0)))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -5733,7 +5733,7 @@
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
                                                              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(or(ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1), ifNull(equals(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(e.properties.key), NULL, if(startsWith(dynamicType(e.properties.key), 'DateTime'), replaceOne(toString(e.properties.key), ' ', 'T'), toString(e.properties.key)))), 'val'), 0)), or(ifNull(equals(e__person.`properties___$os`, 'android'), 0), ifNull(equals(e__person.`properties___$browser`, 'safari'), 0))))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(or(ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1), ifNull(equals(if(notEquals(toJSONString(e.properties.^key), '{}'), toJSONString(e.properties.^key), if(isNull(e.properties.key), NULL, if(startsWith(dynamicType(e.properties.key), 'DateTime'), replaceOne(toString(e.properties.key), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.key), 'Array'), startsWith(dynamicType(e.properties.key), 'Map'), startsWith(dynamicType(e.properties.key), 'Tuple')), toJSONString(e.properties.key), toString(e.properties.key))))), 'val'), 0)), or(ifNull(equals(e__person.`properties___$os`, 'android'), 0), ifNull(equals(e__person.`properties___$browser`, 'safari'), 0))))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -6378,7 +6378,7 @@
         FROM
           (SELECT count(DISTINCT e.distinct_id) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_prop`), '{}'), toJSONString(e.properties.^`$some_prop`), if(isNull(e.properties.`$some_prop`), NULL, if(startsWith(dynamicType(e.properties.`$some_prop`), 'DateTime'), replaceOne(toString(e.properties.`$some_prop`), ' ', 'T'), toString(e.properties.`$some_prop`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_prop`), '{}'), toJSONString(e.properties.^`$some_prop`), if(isNull(e.properties.`$some_prop`), NULL, if(startsWith(dynamicType(e.properties.`$some_prop`), 'DateTime'), replaceOne(toString(e.properties.`$some_prop`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_prop`), 'Array'), startsWith(dynamicType(e.properties.`$some_prop`), 'Map'), startsWith(dynamicType(e.properties.`$some_prop`), 'Tuple')), toJSONString(e.properties.`$some_prop`), toString(e.properties.`$some_prop`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
@@ -7022,7 +7022,7 @@
            FROM
              (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                      min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_property`), 'Array'), startsWith(dynamicType(e.properties.`$some_property`), 'Map'), startsWith(dynamicType(e.properties.`$some_property`), 'Tuple')), toJSONString(e.properties.`$some_property`), toString(e.properties.`$some_property`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events_json AS e
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -7470,7 +7470,7 @@
                   breakdown_value AS breakdown_value
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_property`), 'Array'), startsWith(dynamicType(e.properties.`$some_property`), 'Map'), startsWith(dynamicType(e.properties.`$some_property`), 'Tuple')), toJSONString(e.properties.`$some_property`), toString(e.properties.`$some_property`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events_json AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
@@ -7521,7 +7521,7 @@
                   breakdown_value_1 AS breakdown_value_1
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_property`), 'Array'), startsWith(dynamicType(e.properties.`$some_property`), 'Map'), startsWith(dynamicType(e.properties.`$some_property`), 'Tuple')), toJSONString(e.properties.`$some_property`), toString(e.properties.`$some_property`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
               FROM events_json AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
@@ -7572,7 +7572,7 @@
                   breakdown_value_1 AS breakdown_value_1
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_property`), 'Array'), startsWith(dynamicType(e.properties.`$some_property`), 'Map'), startsWith(dynamicType(e.properties.`$some_property`), 'Tuple')), toJSONString(e.properties.`$some_property`), toString(e.properties.`$some_property`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
               FROM events_json AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
@@ -7623,7 +7623,7 @@
                   breakdown_value AS breakdown_value
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_property`), 'Array'), startsWith(dynamicType(e.properties.`$some_property`), 'Map'), startsWith(dynamicType(e.properties.`$some_property`), 'Tuple')), toJSONString(e.properties.`$some_property`), toString(e.properties.`$some_property`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events_json AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
@@ -8216,7 +8216,7 @@
                      breakdown_value AS breakdown_value
               FROM
                 (SELECT count() AS total,
-                        ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^color), '{}'), toJSONString(e.properties.^color), if(isNull(e.properties.color), NULL, if(startsWith(dynamicType(e.properties.color), 'DateTime'), replaceOne(toString(e.properties.color), ' ', 'T'), toString(e.properties.color))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                        ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^color), '{}'), toJSONString(e.properties.^color), if(isNull(e.properties.color), NULL, if(startsWith(dynamicType(e.properties.color), 'DateTime'), replaceOne(toString(e.properties.color), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.color), 'Array'), startsWith(dynamicType(e.properties.color), 'Map'), startsWith(dynamicType(e.properties.color), 'Tuple')), toJSONString(e.properties.color), toString(e.properties.color)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events_json AS e
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -9354,7 +9354,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT ifNull(accurateCastOrNull(plus(avg(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^x), '{}'), toJSONString(e.properties.^x), if(isNull(e.properties.x), NULL, if(startsWith(dynamicType(e.properties.x), 'DateTime'), replaceOne(toString(e.properties.x), ' ', 'T'), toString(e.properties.x)))), 'Float64')), 1000), 'Float64'), 0) AS total,
+       (SELECT ifNull(accurateCastOrNull(plus(avg(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^x), '{}'), toJSONString(e.properties.^x), if(isNull(e.properties.x), NULL, if(startsWith(dynamicType(e.properties.x), 'DateTime'), replaceOne(toString(e.properties.x), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.x), 'Array'), startsWith(dynamicType(e.properties.x), 'Map'), startsWith(dynamicType(e.properties.x), 'Tuple')), toJSONString(e.properties.x), toString(e.properties.x))))), 'Float64')), 1000), 'Float64'), 0) AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
         FROM events_json AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
@@ -9925,7 +9925,7 @@
                   day_start AS day_start
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_property`), 'Array'), startsWith(dynamicType(e.properties.`$some_property`), 'Map'), startsWith(dynamicType(e.properties.`$some_property`), 'Tuple')), toJSONString(e.properties.`$some_property`), toString(e.properties.`$some_property`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
               FROM events_json AS e
               LEFT JOIN
@@ -9985,7 +9985,7 @@
                   day_start AS day_start
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_property`), 'Array'), startsWith(dynamicType(e.properties.`$some_property`), 'Map'), startsWith(dynamicType(e.properties.`$some_property`), 'Tuple')), toJSONString(e.properties.`$some_property`), toString(e.properties.`$some_property`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
                      toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
               FROM events_json AS e
               LEFT JOIN
@@ -10045,7 +10045,7 @@
                   day_start AS day_start
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_property`), 'Array'), startsWith(dynamicType(e.properties.`$some_property`), 'Map'), startsWith(dynamicType(e.properties.`$some_property`), 'Tuple')), toJSONString(e.properties.`$some_property`), toString(e.properties.`$some_property`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
               FROM events_json AS e
               LEFT JOIN
@@ -10105,7 +10105,7 @@
                   day_start AS day_start
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), toString(e.properties.`$some_property`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
+                     ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$some_property`), '{}'), toJSONString(e.properties.^`$some_property`), if(isNull(e.properties.`$some_property`), NULL, if(startsWith(dynamicType(e.properties.`$some_property`), 'DateTime'), replaceOne(toString(e.properties.`$some_property`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$some_property`), 'Array'), startsWith(dynamicType(e.properties.`$some_property`), 'Map'), startsWith(dynamicType(e.properties.`$some_property`), 'Tuple')), toJSONString(e.properties.`$some_property`), toString(e.properties.`$some_property`)))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
                      toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
               FROM events_json AS e
               LEFT JOIN
