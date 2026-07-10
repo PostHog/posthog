@@ -3342,7 +3342,12 @@ class ExperimentService:
         # `parameters` carries only the source's experiment-own keys — flag config lives on the
         # flag and is passed via feature_flag_config below. Strip any flag-config keys a pre-0026
         # source column still holds so the clean copy does not trip create_experiment's guard.
-        parameters = self._strip_feature_flag_config(deepcopy(source_experiment.parameters)) or {}
+        source_parameters = deepcopy(source_experiment.parameters)
+        parameters = (
+            self._strip_feature_flag_config(source_parameters)
+            if isinstance(source_parameters, dict)
+            else source_parameters
+        ) or {}
 
         # Variants, payloads, group aggregation, and experience continuity come from the source
         # experiment's feature flag (the source of truth), in the flag's own write shape.
