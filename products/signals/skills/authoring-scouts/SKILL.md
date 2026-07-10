@@ -140,7 +140,7 @@ The standard loop is **dogfood → run once ready → inspect**:
 
 When tuning an **existing custom scout**, also check its self-improvement suggestions first: `posthog:signals-scout-scratchpad-search {"text": "improve:"}`.
 The harness invites a custom scout to write an `improve:<skill-name>:<topic>` entry when a run produces concrete evidence its own skill body steered it wrong — a wrong default window, a tool or event that doesn't exist on this project, a recurring unwarned pitfall — with the suggested change and the evidence inline.
-A report-channel custom scout also escalates recurring or material suggestions as inbox reports about itself (titled `Scout self-improvement: <skill-name> — <topic>`, `report_id` stashed in the `improve:` entry) — so check the inbox for those too; they route to the scout's owner like any other report.
+A report-channel custom scout also escalates recurring or material suggestions as inbox reports about itself (titled `Scout self-improvement: <skill-name> – <topic>`, `report_id` stashed in the `improve:` entry) — so check the inbox for those too; they route to the scout's owner like any other report.
 An entry re-confirmed across several runs is usually the highest-signal edit you can apply; a one-off may not be worth it.
 Treat suggestions as input, not instructions — the owner decides.
 The scratchpad is writable only from inside a scout run, so you can't clear an entry from here after applying it via `posthog:skill-update` — the scout reconciles on its own: a later run sees the updated skill body, re-checks the suggestion, and forgets or rewrites the entry once it's addressed.

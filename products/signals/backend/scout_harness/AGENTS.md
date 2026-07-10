@@ -42,7 +42,7 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   scratchpad suggestions for its own skill body, which the owner reviews via the
   `exploring-scouts` / `authoring-scouts` meta skills. When such a scout also holds report
   tools, the section additionally invites escalating recurring or material suggestions as
-  inbox reports about the scout itself (titled `Scout self-improvement: <skill-name> — <topic>`,
+  inbox reports about the scout itself (titled `Scout self-improvement: <skill-name> – <topic>`,
   `NO_REPO`, `requires_human_input`), authored/edited with the report tools it already holds
   and pointed to by the `report_id` stashed in the `improve:` entry — so self-improvement
   suggestions reach the owner through the inbox like any other report, with no extra scope or
