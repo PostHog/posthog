@@ -481,6 +481,7 @@ exclude = [
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
+    "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py",
 ]
 
 # ---------------------------------------------------------------------------
