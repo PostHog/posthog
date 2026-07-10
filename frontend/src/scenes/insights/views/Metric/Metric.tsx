@@ -123,7 +123,9 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
                     <MetricDelta size="md" />
                 </div>
                 <MetricSubtitle className="mt-1" />
-                <MetricSparkline className="mt-4 -mx-2" />
+                {/* -mb-2 bleeds through the wrapper's p-2; top-[6px] eats the canvas's bottom hover-ring margin
+                    so the line's lowest point sits on the tile edge. */}
+                <MetricSparkline className="mt-4 -mx-2 -mb-2 relative top-[6px]" />
             </QuillMetric>
         </div>
     )

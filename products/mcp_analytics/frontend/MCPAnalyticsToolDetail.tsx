@@ -116,7 +116,7 @@ function StatTile({
                     </MetricHeader>
                     <MetricValue className="mt-2" />
                     <MetricSubtitle className="mt-1" />
-                    <MetricSparkline className="mt-2 -mx-3" />
+                    <MetricSparkline className="mt-2 -mx-3 relative top-[6px]" />
                 </Metric>
             )}
         </Card>
