@@ -211,7 +211,7 @@ export class BatchingPipeline<
         // never complete and would leak its concurrentBatches slot forever.
         // That's a broken framework invariant, not an outcome a driver may
         // handle, so throw instead of returning a FeedResult — mirroring
-        // BaseBatchPipeline's count-mismatch throw for batch steps. Nothing has
+        // BaseChunkPipeline's count-mismatch throw for batch steps. Nothing has
         // been registered yet, so the throw leaves no phantom batch behind.
         if (mappedElements.length !== elements.length) {
             throw new Error(

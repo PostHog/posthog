@@ -2,7 +2,7 @@ import { Counter } from 'prom-client'
 
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { KeyedRateLimitRequest, KeyedRateLimiter } from '~/common/services/keyed-rate-limiter.service'
-import { ChunkProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { drop, ok } from '~/ingestion/framework/results'
 
 const outcomeCounter = new Counter({

@@ -41,7 +41,7 @@
  * - Transient failures (network, timeout) - should retry
  * - Permanent failures (validation, permission) - should not retry
  */
-import { ChunkProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { newBatchPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { isDlqResult, isOkResult, ok } from '~/ingestion/framework/results'

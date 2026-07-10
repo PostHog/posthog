@@ -1,5 +1,5 @@
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { ChunkProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'

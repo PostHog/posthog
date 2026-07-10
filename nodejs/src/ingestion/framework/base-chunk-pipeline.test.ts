@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
-import { BaseBatchPipeline } from './base-batch-pipeline'
+import { BaseChunkPipeline } from './base-chunk-pipeline'
 import { createBatch, createContext, createNewBatchPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok } from './results'
 
@@ -20,7 +20,7 @@ function createTestMessage(overrides: Partial<Message> = {}): Message {
     }
 }
 
-describe('BaseBatchPipeline', () => {
+describe('BaseChunkPipeline', () => {
     describe('basic functionality', () => {
         it('should process batch through pipeline', async () => {
             const messages: Message[] = [
@@ -30,7 +30,7 @@ describe('BaseBatchPipeline', () => {
 
             const batch = createBatch(messages.map((message) => ({ message })))
             const rootPipeline = createNewBatchPipeline().build()
-            const pipeline = new BaseBatchPipeline((items: any[]) => {
+            const pipeline = new BaseChunkPipeline((items: any[]) => {
                 return Promise.resolve(items.map((item: any) => ok({ processed: item.message.value?.toString() })))
             }, rootPipeline)
 
@@ -40,18 +40,18 @@ describe('BaseBatchPipeline', () => {
             expect(results).toEqual([
                 createContext(ok({ processed: 'test1' }), {
                     message: messages[0],
-                    lastStep: 'anonymousBatchStep',
+                    lastStep: 'anonymousChunkStep',
                 }),
                 createContext(ok({ processed: 'test2' }), {
                     message: messages[1],
-                    lastStep: 'anonymousBatchStep',
+                    lastStep: 'anonymousChunkStep',
                 }),
             ])
         })
 
         it('should handle empty batch', async () => {
             const rootPipeline = createNewBatchPipeline().build()
-            const pipeline = new BaseBatchPipeline((items: any[]) => {
+            const pipeline = new BaseChunkPipeline((items: any[]) => {
                 return Promise.resolve(items.map((item: any) => ok(item)))
             }, rootPipeline)
 
@@ -72,7 +72,7 @@ describe('BaseBatchPipeline', () => {
 
             const batch = createBatch(messages.map((message) => ({ message })))
             const rootPipeline = createNewBatchPipeline().build()
-            const pipeline = new BaseBatchPipeline((items: any[]) => {
+            const pipeline = new BaseChunkPipeline((items: any[]) => {
                 return Promise.resolve(
                     items.map((item: any) => ok({ count: parseInt(item.message.value?.toString() || '0') * 2 }))
                 )
@@ -82,9 +82,9 @@ describe('BaseBatchPipeline', () => {
             const results = await pipeline.next()
 
             expect(results).toEqual([
-                createContext(ok({ count: 2 }), { message: messages[0], lastStep: 'anonymousBatchStep' }),
-                createContext(ok({ count: 4 }), { message: messages[1], lastStep: 'anonymousBatchStep' }),
-                createContext(ok({ count: 6 }), { message: messages[2], lastStep: 'anonymousBatchStep' }),
+                createContext(ok({ count: 2 }), { message: messages[0], lastStep: 'anonymousChunkStep' }),
+                createContext(ok({ count: 4 }), { message: messages[1], lastStep: 'anonymousChunkStep' }),
+                createContext(ok({ count: 6 }), { message: messages[2], lastStep: 'anonymousChunkStep' }),
             ])
         })
 
@@ -98,7 +98,7 @@ describe('BaseBatchPipeline', () => {
 
             const batch = createBatch(messages.map((message) => ({ message })))
             const rootPipeline = createNewBatchPipeline().build()
-            const firstPipeline = new BaseBatchPipeline((items: any[]) => {
+            const firstPipeline = new BaseChunkPipeline((items: any[]) => {
                 return Promise.resolve(
                     items.map((item: any) => {
                         const value = item.message.value?.toString() || ''
@@ -113,7 +113,7 @@ describe('BaseBatchPipeline', () => {
                 )
             }, rootPipeline)
 
-            const secondPipeline = new BaseBatchPipeline((items: any[]) => {
+            const secondPipeline = new BaseChunkPipeline((items: any[]) => {
                 expect(items).toEqual([{ count: 1 }, { count: 3 }])
                 return Promise.resolve(items.map((item: any) => ok({ count: item.count * 2 })))
             }, firstPipeline)
@@ -122,12 +122,12 @@ describe('BaseBatchPipeline', () => {
             const results = await secondPipeline.next()
 
             expect(results).toEqual([
-                createContext(ok({ count: 2 }), { message: messages[0], lastStep: 'anonymousBatchStep' }),
-                createContext(drop('dropped item'), { message: messages[1], lastStep: 'anonymousBatchStep' }),
-                createContext(ok({ count: 6 }), { message: messages[2], lastStep: 'anonymousBatchStep' }),
+                createContext(ok({ count: 2 }), { message: messages[0], lastStep: 'anonymousChunkStep' }),
+                createContext(drop('dropped item'), { message: messages[1], lastStep: 'anonymousChunkStep' }),
+                createContext(ok({ count: 6 }), { message: messages[2], lastStep: 'anonymousChunkStep' }),
                 createContext(dlq('dlq item', new Error('test error')), {
                     message: messages[3],
-                    lastStep: 'anonymousBatchStep',
+                    lastStep: 'anonymousChunkStep',
                 }),
             ])
         })
@@ -139,7 +139,7 @@ describe('BaseBatchPipeline', () => {
 
             const batch = createBatch(messages.map((message) => ({ message })))
             const rootPipeline = createNewBatchPipeline().build()
-            const pipeline = new BaseBatchPipeline(() => {
+            const pipeline = new BaseChunkPipeline(() => {
                 return Promise.reject(new Error('Batch step failed'))
             }, rootPipeline)
 
@@ -162,7 +162,7 @@ describe('BaseBatchPipeline', () => {
                 return Promise.resolve(items.map((item: any) => ok({ processed: item.message.value?.toString() })))
             }
 
-            const pipeline = new BaseBatchPipeline(testBatchStep, rootPipeline)
+            const pipeline = new BaseChunkPipeline(testBatchStep, rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
@@ -179,7 +179,7 @@ describe('BaseBatchPipeline', () => {
             ])
         })
 
-        it('should use anonymousBatchStep when step has no name', async () => {
+        it('should use anonymousChunkStep when step has no name', async () => {
             const messages: Message[] = [createTestMessage({ value: Buffer.from('test1'), offset: 1 })]
 
             const batch = createBatch(messages.map((message) => ({ message })))
@@ -189,7 +189,7 @@ describe('BaseBatchPipeline', () => {
                 return Promise.resolve(items.map((item: any) => ok({ processed: item.message.value?.toString() })))
             }
 
-            const pipeline = new BaseBatchPipeline(anonymousStep, rootPipeline)
+            const pipeline = new BaseChunkPipeline(anonymousStep, rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
@@ -223,7 +223,7 @@ describe('BaseBatchPipeline', () => {
                 )
             }
 
-            const pipeline = new BaseBatchPipeline(testBatchStep, rootPipeline)
+            const pipeline = new BaseChunkPipeline(testBatchStep, rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
@@ -261,7 +261,7 @@ describe('BaseBatchPipeline', () => {
 
             const stepSideEffect1 = Promise.resolve('step-side-effect-1')
             const stepSideEffect2 = Promise.resolve('step-side-effect-2')
-            const pipeline = new BaseBatchPipeline((items: any[]) => {
+            const pipeline = new BaseChunkPipeline((items: any[]) => {
                 return Promise.resolve(items.map(() => ok({ processed: 'result' }, [stepSideEffect1, stepSideEffect2])))
             }, rootPipeline)
 
@@ -292,7 +292,7 @@ describe('BaseBatchPipeline', () => {
             ]
 
             const rootPipeline = createNewBatchPipeline().build()
-            const pipeline = new BaseBatchPipeline((items: any[]) => {
+            const pipeline = new BaseChunkPipeline((items: any[]) => {
                 return Promise.resolve(items.map(() => ok({ processed: 'result' })))
             }, rootPipeline)
 
@@ -319,7 +319,7 @@ describe('BaseBatchPipeline', () => {
             const rootPipeline = createNewBatchPipeline().build()
 
             const stepSideEffect = Promise.resolve('step-side-effect')
-            const pipeline = new BaseBatchPipeline((items: any[]) => {
+            const pipeline = new BaseChunkPipeline((items: any[]) => {
                 return Promise.resolve(items.map(() => ok({ processed: 'result' }, [stepSideEffect])))
             }, rootPipeline)
 
@@ -370,7 +370,7 @@ describe('BaseBatchPipeline', () => {
             const step1SideEffect = Promise.resolve('step-1')
             const step3aSideEffect = Promise.resolve('step-3a')
             const step3bSideEffect = Promise.resolve('step-3b')
-            const pipeline = new BaseBatchPipeline((_: any[]) => {
+            const pipeline = new BaseChunkPipeline((_: any[]) => {
                 return Promise.resolve([
                     ok({ processed: 'result1' }, [step1SideEffect]),
                     ok({ processed: 'result2' }), // No step side effects
@@ -402,7 +402,7 @@ describe('BaseBatchPipeline', () => {
             const rootPipeline = createNewBatchPipeline().build()
 
             const stepWarning = { type: 'merge_race_condition' as const, details: { message: 'step warning' } }
-            const pipeline = new BaseBatchPipeline((items: any[]) => {
+            const pipeline = new BaseChunkPipeline((items: any[]) => {
                 return Promise.resolve(items.map(() => ok({ processed: 'result' }, [], [stepWarning])))
             }, rootPipeline)
 
@@ -431,7 +431,7 @@ describe('BaseBatchPipeline', () => {
             const rootPipeline = createNewBatchPipeline().build()
 
             const stepWarning = { type: 'schema_validation_failed' as const, details: { message: 'from step' } }
-            const pipeline = new BaseBatchPipeline((items: any[]) => {
+            const pipeline = new BaseChunkPipeline((items: any[]) => {
                 return Promise.resolve(items.map(() => ok({ processed: 'result' }, [], [stepWarning])))
             }, rootPipeline)
 
@@ -484,7 +484,7 @@ describe('BaseBatchPipeline', () => {
             const stepWarning1 = { type: 'message_size_too_large' as const, details: { result: 1 } }
             const stepWarning3a = { type: 'group_key_too_long' as const, details: { result: 3 } }
             const stepWarning3b = { type: 'event_dropped_too_old' as const, details: { result: 3 } }
-            const pipeline = new BaseBatchPipeline((_: any[]) => {
+            const pipeline = new BaseChunkPipeline((_: any[]) => {
                 return Promise.resolve([
                     ok({ processed: 'result1' }, [], [stepWarning1]),
                     ok({ processed: 'result2' }), // No step warnings
@@ -531,7 +531,7 @@ describe('BaseBatchPipeline', () => {
             ]
 
             const mockPrevious = createMockPipeline(batch)
-            const pipeline = new BaseBatchPipeline((items: any[]) => {
+            const pipeline = new BaseChunkPipeline((items: any[]) => {
                 // Only process OK results
                 return Promise.resolve(items.map(() => ok({ processed: 'result' })))
             }, mockPrevious)

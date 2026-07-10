@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { BaseBatchPipeline } from './base-batch-pipeline'
+import { BaseChunkPipeline } from './base-chunk-pipeline'
 import { createBatch, createNewBatchPipeline, createNewPipeline } from './helpers'
 import { dlq, drop, ok } from './results'
 import { SequentialBatchPipeline } from './sequential-batch-pipeline'
@@ -178,7 +178,7 @@ describe('SequentialBatchPipeline', () => {
             const batch = createBatch(messages.map((message) => ({ message })))
             const rootPipeline = createNewBatchPipeline().build()
 
-            const firstPipeline = new BaseBatchPipeline((items: any[]) => {
+            const firstPipeline = new BaseChunkPipeline((items: any[]) => {
                 return Promise.resolve(
                     items.map((item: any) => {
                         const value = item.message.value?.toString() || ''

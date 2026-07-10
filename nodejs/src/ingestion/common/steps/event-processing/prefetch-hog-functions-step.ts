@@ -1,5 +1,5 @@
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-import { ChunkProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { Team } from '~/types'
 

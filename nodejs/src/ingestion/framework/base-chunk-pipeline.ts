@@ -22,7 +22,7 @@ function isSuccessResultWithContext<T, C, R extends string>(
  */
 export type ChunkProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
 
-export class BaseBatchPipeline<
+export class BaseChunkPipeline<
     TInput,
     TIntermediate,
     TOutput,
@@ -38,7 +38,7 @@ export class BaseBatchPipeline<
         private currentStep: ChunkProcessingStep<TIntermediate, TOutput, RStep>,
         private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, COutput, RPrev>
     ) {
-        this.stepName = this.currentStep.name || 'anonymousBatchStep'
+        this.stepName = this.currentStep.name || 'anonymousChunkStep'
     }
 
     feed(elements: OkResultWithContext<TInput, CInput>[]): void {
@@ -59,6 +59,7 @@ export class BaseBatchPipeline<
         // Apply current step to successful values
         let stepResults: PipelineResult<TOutput, RStep>[] = []
         if (successfulValues.length > 0) {
+            // Metric label value kept as 'batch' for Grafana dashboard continuity.
             const end = pipelineStepDurationHistogram.startTimer({ step_name: this.stepName, step_type: 'batch' })
             try {
                 stepResults = await instrumentFn({ key: this.stepName, sendException: false, measureTime: false }, () =>

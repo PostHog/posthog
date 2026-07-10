@@ -1,6 +1,6 @@
 import { captureException } from '~/common/utils/posthog'
 
-import { ChunkProcessingStep } from './base-batch-pipeline'
+import { ChunkProcessingStep } from './base-chunk-pipeline'
 import { newBatchPipelineBuilder, newPipelineBuilder } from './builders'
 import { createOkContext } from './helpers'
 import { pipelineRetryAttemptsHistogram } from './metrics'

@@ -2,7 +2,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { retryIfRetriable } from '~/common/utils/retries'
 
-import { ChunkProcessingStep } from './base-batch-pipeline'
+import { ChunkProcessingStep } from './base-chunk-pipeline'
 import { pipelineRetryAttemptsHistogram } from './metrics'
 import { dlq } from './results'
 import { ProcessingStep } from './steps'
