@@ -2217,3 +2217,13 @@ def get_current_user_from_thread() -> Optional["User"]:
     if request and hasattr(request, "user"):
         return request.user
     return None
+
+
+# devex: TEMP core coverage-review trigger — remove before merge.
+# Body lines are never exercised by a test, so diff-cover should flag them as
+# uncovered changed lines under posthog/ (the core monolith).
+def _devex_core_coverage_demo(value: int) -> int:
+    tripled = value * 3
+    if tripled > 1000:
+        return 1000
+    return tripled
