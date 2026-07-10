@@ -2,6 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
+    LemonButton,
     LemonBanner,
     LemonInputSelect,
     LemonSegmentedButton,
@@ -121,6 +122,7 @@ export const MetricsViewer = (): JSX.Element => {
         liveRefresh,
         queryResultsLoading,
         queryError,
+        savedInsightLoading,
         hasMetricName,
     } = useValues(logic)
     const {
@@ -136,6 +138,7 @@ export const MetricsViewer = (): JSX.Element => {
         fetchQueryResults,
         fetchAnomaly,
         clearAnomaly,
+        saveAsInsight,
     } = useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
 
@@ -278,6 +281,15 @@ export const MetricsViewer = (): JSX.Element => {
                     bordered
                     data-attr="metrics-viewer-live-toggle"
                 />
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={() => saveAsInsight()}
+                    loading={savedInsightLoading}
+                    disabledReason={!hasMetricName ? 'Pick a metric first' : undefined}
+                >
+                    Save as insight
+                </LemonButton>
             </div>
             <div className="flex flex-col xl:flex-row gap-3 items-stretch">
                 <div className="flex-1 min-w-0">
