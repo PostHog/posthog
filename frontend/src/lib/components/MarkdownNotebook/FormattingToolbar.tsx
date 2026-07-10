@@ -77,9 +77,11 @@ export function FormattingToolbar({
     /** Moves focus back into the editor (Escape while the toolbar holds focus). */
     returnFocusToEditor?: () => void
 }): JSX.Element {
-    const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(initialLinkEditorOpen)
+    const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(initialLinkEditorOpen || !!currentLinkHref)
+    const [shouldFocusLinkInput, setShouldFocusLinkInput] = useState(initialLinkEditorOpen)
     const [linkHref, setLinkHref] = useState(currentLinkHref ?? '')
     const toolbarRef = useRef<HTMLDivElement | null>(null)
+    const linkInputRef = useRef<HTMLInputElement | null>(null)
     const [boundsShift, setBoundsShift] = useState({ x: 0, y: 0 })
 
     // The anchor point only clamps the toolbar's center to the viewport, so the rendered toolbar
@@ -130,21 +132,28 @@ export function FormattingToolbar({
     const normalizedLinkHref = sanitizeNotebookLinkHref(linkHref)
     const hasExistingLink = !!currentLinkHref
 
+    // Selecting linked text opens the URL editor right away (no extra click), but without
+    // stealing focus from the selection: the input only autofocuses on an explicit open.
     useEffect(() => {
-        if (initialLinkEditorOpen) {
+        if (initialLinkEditorOpen || currentLinkHref) {
             setLinkHref(currentLinkHref ?? '')
             setIsLinkEditorOpen(true)
+            if (initialLinkEditorOpen) {
+                setShouldFocusLinkInput(true)
+            }
             return
         }
 
-        if (!isLinkEditorOpen) {
-            setLinkHref(currentLinkHref ?? '')
-        }
-    }, [currentLinkHref, initialLinkEditorOpen, isLinkEditorOpen])
+        setIsLinkEditorOpen(false)
+        setShouldFocusLinkInput(false)
+        setLinkHref('')
+    }, [currentLinkHref, initialLinkEditorOpen])
 
     const openLinkEditor = (): void => {
         setLinkHref(currentLinkHref ?? '')
         setIsLinkEditorOpen(true)
+        setShouldFocusLinkInput(true)
+        linkInputRef.current?.focus()
     }
 
     const setLink = (): void => {
@@ -354,8 +363,16 @@ export function FormattingToolbar({
                         aria-label="Link URL"
                         value={linkHref}
                         onChange={setLinkHref}
-                        onPressEnter={setLink}
-                        autoFocus
+                        onPressEnter={(event) => {
+                            // Cancel the keystroke fully: applying the link unmounts the toolbar
+                            // and returns focus/selection to the editor, where an uncancelled
+                            // Enter would still insert a paragraph and wipe the selected text
+                            event.preventDefault()
+                            event.stopPropagation()
+                            setLink()
+                        }}
+                        inputRef={linkInputRef}
+                        autoFocus={shouldFocusLinkInput}
                         className="MarkdownNotebook__format-link-input"
                     />
                     {hasExistingLink && sanitizeNotebookLinkHref(currentLinkHref ?? '') ? (
