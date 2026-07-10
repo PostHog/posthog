@@ -475,6 +475,23 @@ def _is_transient_tablet_unavailable(e: BaseException) -> bool:
     return _GRPC_UNAVAILABLE_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
+# Vitess/PlanetScale also fails a query against a shard mid-failover with pymysql
+# OperationalError(1105) whose message carries "primary is not serving, there may be a
+# reparent operation in progress": a planned/emergency reparent is promoting a new primary,
+# so the old one briefly stops serving. Like the `code = Unavailable` case this is transient —
+# a fresh attempt after a short backoff lands on the newly promoted primary. Key on the stable
+# `reparent operation in progress` phrase: the target keyspace/shard/tablet-type prefix is
+# volatile, and this stays robust to the primary/master wording difference across Vitess versions.
+_VITESS_REPARENT_TOKEN = "reparent operation in progress"
+
+
+def _is_transient_vitess_reparent(e: BaseException) -> bool:
+    """Return True if a Vitess shard is mid-reparent and its primary is briefly not serving."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    return _VITESS_REPARENT_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 def _retry_on_transient_tablet_unavailable(
     operation: Callable[[], _T],
     logger: FilteringBoundLogger,
@@ -488,8 +505,8 @@ def _retry_on_transient_tablet_unavailable(
     handshake succeeds and only the first query hits an unavailable tablet, so retry the
     whole operation (which reopens the connection) with a bounded backoff instead of
     failing sync setup on the first blip and surfacing it as captured error-tracking
-    noise. Non-transient errors re-raise immediately because
-    `_is_transient_tablet_unavailable` only matches the gRPC `Unavailable` status.
+    noise. Non-transient errors re-raise immediately because the predicates only match
+    the gRPC `Unavailable` status or a mid-reparent primary — both self-healing.
     """
     attempt = 0
     while True:
@@ -497,7 +514,7 @@ def _retry_on_transient_tablet_unavailable(
             return operation()
         except pymysql.err.OperationalError as e:
             attempt += 1
-            if attempt >= max_attempts or not _is_transient_tablet_unavailable(e):
+            if attempt >= max_attempts or not (_is_transient_tablet_unavailable(e) or _is_transient_vitess_reparent(e)):
                 raise
             logger.warning(
                 "Transient MySQL tablet-unavailable error during metadata discovery; retrying",
