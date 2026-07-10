@@ -15,7 +15,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
-from products.mcp_store.backend.facade.api import get_active_installations
+from products.mcp_store.backend.facade.api import get_installations_for_sandbox
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
@@ -399,14 +399,16 @@ def get_sandbox_api_url() -> str:
 def get_user_mcp_server_configs(
     token: str,
     team_id: int,
-    user_id: int,
+    user_id: int | None = None,
     *,
+    include_personal: bool = True,
     interaction_origin: str | None = None,
 ) -> list[McpServerConfig]:
-    """Fetch the user's MCP Store installations and return sandbox configs.
+    """Fetch MCP Store installations for sandbox use and return configs.
 
-    Uses the mcp_store facade to get active installations, then builds
-    McpServerConfig entries with full proxy URLs and auth headers.
+    Always includes shared (team-wide) installations. When
+    ``include_personal`` is True and a ``user_id`` is provided, the user's
+    personal installations are included too.
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
@@ -416,7 +418,11 @@ def get_user_mcp_server_configs(
 
     Returns an empty list on errors (non-fatal).
     """
-    installations = get_active_installations(team_id, user_id)
+    installations = get_installations_for_sandbox(
+        team_id,
+        user_id=user_id,
+        include_personal=include_personal,
+    )
     api_base = get_sandbox_api_url().rstrip("/")
     consumer = _resolve_mcp_consumer(interaction_origin)
 
