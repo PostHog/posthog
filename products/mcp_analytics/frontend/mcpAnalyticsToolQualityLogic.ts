@@ -357,8 +357,7 @@ ORDER BY day
         dateRangeLabel: [
             (s) => [s.dateFilter],
             (dateFilter: DateFilter): string =>
-                dateFilterToText(dateFilter.dateFrom, dateFilter.dateTo, 'the selected range') ??
-                'the selected range',
+                dateFilterToText(dateFilter.dateFrom, dateFilter.dateTo, 'the selected range') ?? 'the selected range',
         ],
         scopeShare: [
             (s) => [s.categoryCounts, s.selectedCategories],
