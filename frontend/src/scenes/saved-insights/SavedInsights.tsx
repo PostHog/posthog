@@ -552,6 +552,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLive,
         inMenu: false,
     },
+    [NodeKind.MetricsQuery]: {
+        name: 'Metrics',
+        description: 'Chart a service metric over time',
+        icon: IconLive,
+        inMenu: false,
+    },
     [NodeKind.TraceSpansQuery]: {
         name: 'Trace Spans',
         icon: IconLive,

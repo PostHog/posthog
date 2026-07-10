@@ -16,7 +16,7 @@ env:
 
 jobs:
     # Job to decide if we should run language-specific semgrep scans.
-    # See https://github.com/dorny/paths-filter#conditional-execution for more details.
+    # See .github/actions/paths-filter/README.md for filter semantics
     # NOTE: With token auth, paths-filter uses pulls.listFiles which caps at
     # 3000 changed files. PRs exceeding that will silently truncate, but the
     # outputs default to 'true' so scans run unconditionally (safe fallback).
@@ -38,7 +38,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all scans on master push
               with:

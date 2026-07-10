@@ -452,6 +452,10 @@ class LazyComputationResult:
     # True if any insert failed with ClickHouse MEMORY_LIMIT_EXCEEDED. Lets callers react
     # to an OOM (e.g. cap a high-cardinality team's future inserts) without parsing errors.
     memory_exceeded: bool = False
+    # True when the returned job_ids include recently-expired jobs served under the
+    # executor's serve-stale grace instead of recomputing inline. The data is complete
+    # but up to (TTL + grace) old; the caller decides whether to surface that.
+    stale: bool = False
 
 
 def compute_query_hash(query_info: QueryInfo) -> str:
@@ -505,6 +509,7 @@ def find_existing_jobs(
     query_hash: str,
     start: datetime,
     end: datetime,
+    expired_grace_seconds: float = 0,
 ) -> list[PreaggregationJob]:
     """
     Find all existing lazy computation jobs for the given team and query hash
@@ -512,9 +517,11 @@ def find_existing_jobs(
 
     Excludes expired jobs. ClickHouse data outlives the PG job by
     EXPIRY_BUFFER_SECONDS, so queries in flight when a job expires still
-    find data.
+    find data. `expired_grace_seconds` relaxes the expiry cutoff to also return
+    recently-expired jobs (for serve-stale reads); it must stay well under
+    EXPIRY_BUFFER_SECONDS or the PG row may outlive its ClickHouse data.
     """
-    min_expires_at = django_timezone.now()
+    min_expires_at = django_timezone.now() - timedelta(seconds=expired_grace_seconds)
 
     return list(
         PreaggregationJob.objects.filter(
@@ -780,6 +787,11 @@ class LazyComputationExecutor:
     - ttl_schedule: TtlSchedule controlling how long lazy-computed data persists per time range
     - stale_pending_threshold_seconds: How long before a PENDING job is considered stale
     - ch_start_grace_period_seconds: Grace period before declaring "not started" as stale
+    - serve_stale_grace_seconds: When set, a request that would otherwise compute inline
+      (or block on another executor's pending jobs) is served from READY jobs that expired
+      within the last N seconds — complete-but-stale data, returned immediately with
+      `stale=True`. Must stay well under EXPIRY_BUFFER_SECONDS (48h) so the underlying
+      ClickHouse rows are guaranteed to still exist.
     """
 
     def __init__(
@@ -791,7 +803,10 @@ class LazyComputationExecutor:
         ttl_schedule: TtlSchedule = DEFAULT_TTL_SCHEDULE,
         stale_pending_threshold_seconds: float = DEFAULT_STALE_PENDING_THRESHOLD_SECONDS,
         ch_start_grace_period_seconds: float = DEFAULT_CH_START_GRACE_PERIOD_SECONDS,
+        serve_stale_grace_seconds: float | None = None,
     ) -> None:
+        if serve_stale_grace_seconds is not None and serve_stale_grace_seconds >= EXPIRY_BUFFER_SECONDS:
+            raise ValueError("serve_stale_grace_seconds must be below EXPIRY_BUFFER_SECONDS")
         self.wait_timeout_seconds = wait_timeout_seconds
         self.poll_interval_seconds = poll_interval_seconds
         self.max_poll_interval_seconds = max_poll_interval_seconds
@@ -799,6 +814,7 @@ class LazyComputationExecutor:
         self.ttl_schedule = ttl_schedule
         self.stale_pending_threshold_seconds = stale_pending_threshold_seconds
         self.ch_start_grace_period_seconds = ch_start_grace_period_seconds
+        self.serve_stale_grace_seconds = serve_stale_grace_seconds
 
     def execute(
         self,
@@ -884,6 +900,32 @@ class LazyComputationExecutor:
 
                 if had_ready_at_start is None:
                     had_ready_at_start = any(j.status == PreaggregationJob.Status.READY for j in fresh_jobs)
+
+                # Step 2.5: Serve stale. If this request would otherwise compute inline or
+                # block on another executor's pending jobs, and READY jobs within the grace
+                # fully cover the range, return them immediately — complete-but-stale beats
+                # blocking. Whoever refreshes (the warmer, or a request after the grace)
+                # replaces the data; `filter_overlapping_jobs` always prefers newer jobs.
+                if self.serve_stale_grace_seconds is not None and (ttl_ranges or pending_jobs):
+                    graced = find_existing_jobs(
+                        team, query_hash, start, end, expired_grace_seconds=self.serve_stale_grace_seconds
+                    )
+                    graced_ready = self._filter_by_freshness(
+                        [j for j in graced if j.status == PreaggregationJob.Status.READY],
+                        grace_seconds=self.serve_stale_grace_seconds,
+                    )
+                    # Coverage must be checked on the overlap-filtered set that will actually
+                    # be returned: the filter prefers newer jobs, so a newer narrow job can
+                    # evict an older broad one and reopen a gap the unfiltered set covered.
+                    covering = filter_overlapping_jobs(graced_ready)
+                    if not find_missing_contiguous_windows(covering, start, end):
+                        result = LazyComputationResult(
+                            ready=True,
+                            job_ids=[j.id for j in covering],
+                            stale=True,
+                        )
+                        _log_execution("stale_hit", result)
+                        return result
 
                 # Step 3: Insert missing ranges
                 did_work = False
@@ -1084,15 +1126,19 @@ class LazyComputationExecutor:
         job_age = (django_timezone.now() - job.created_at).total_seconds()
         return job_age > self.stale_pending_threshold_seconds
 
-    def _filter_by_freshness(self, jobs: list[PreaggregationJob]) -> list[PreaggregationJob]:
+    def _filter_by_freshness(
+        self, jobs: list[PreaggregationJob], grace_seconds: float = 0.0
+    ) -> list[PreaggregationJob]:
         """Filter jobs by freshness according to the TTL schedule.
 
         PENDING jobs always pass (they were recently created and we should wait).
-        READY jobs must satisfy: created_at + desired_ttl >= now(), and — when the
-        schedule carries a `settling_period_seconds` — a job computed *before* its
+        READY jobs must satisfy: created_at + desired_ttl + grace_seconds >= now(), and,
+        when the schedule carries a `settling_period_seconds`, a job computed *before* its
         window settled (`created_at < time_range_end + settling_period`) captured
-        in-motion data and is only fresh until the settling moment: it recomputes
-        once the data can no longer change instead of sitting on a long band TTL.
+        in-motion data and is only fresh until the settling moment (plus grace): it
+        recomputes once the data can no longer change instead of sitting on a long band
+        TTL. `grace_seconds` is only non-zero for the serve-stale path and relaxes both
+        caps uniformly.
 
         This is per-query: a job created by executor A with a long TTL may be
         rejected by executor B using a stricter schedule for the same hash.
@@ -1105,11 +1151,11 @@ class LazyComputationExecutor:
                 result.append(job)
                 continue
             desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start)
-            fresh_until = job.created_at + timedelta(seconds=desired_ttl)
+            fresh_until = job.created_at + timedelta(seconds=desired_ttl + grace_seconds)
             if settling_period is not None:
                 settled_at = job.time_range_end + timedelta(seconds=settling_period)
                 if job.created_at < settled_at:
-                    fresh_until = min(fresh_until, settled_at)
+                    fresh_until = min(fresh_until, settled_at + timedelta(seconds=grace_seconds))
             if fresh_until >= now:
                 result.append(job)
         return result
@@ -1130,6 +1176,8 @@ def ensure_precomputed(
     sentinel_placeholders: set[str] | None = None,
     query_type: str | None = None,
     spill_to_disk: bool = False,
+    wait_timeout_seconds: float | None = None,
+    serve_stale_grace_seconds: float | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1168,6 +1216,19 @@ def ensure_precomputed(
                       for hashing. Use this for placeholders whose values change between
                       requests (e.g. datetime.now()) but shouldn't invalidate the cache.
                       The real values are still used at INSERT time.
+        wait_timeout_seconds: Wall-clock budget for the executor's compute-and-wait
+                      loop (default DEFAULT_WAIT_TIMEOUT_SECONDS). The loop checks the
+                      budget before starting each inline INSERT and while polling for
+                      other requests' pending jobs, so a completed window always
+                      persists as a READY job even when the overall call times out,
+                      so repeated calls converge. Use a small value for user-facing
+                      requests that have a cheap fallback path.
+        serve_stale_grace_seconds: When set, requests that would otherwise compute
+                      inline or wait are served from READY jobs expired within the
+                      last N seconds (result comes back with `stale=True`). Only for
+                      user-facing callers with a refresh mechanism (e.g. an hourly
+                      warmer); background refreshers must leave this unset or they
+                      would serve stale to themselves and never recompute.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1257,7 +1318,11 @@ def ensure_precomputed(
     ttl_schedule = (
         ttl_seconds if isinstance(ttl_seconds, TtlSchedule) else parse_ttl_schedule(ttl_seconds, team.timezone)
     )
-    executor = LazyComputationExecutor(ttl_schedule=ttl_schedule)
+    executor = LazyComputationExecutor(
+        ttl_schedule=ttl_schedule,
+        wait_timeout_seconds=wait_timeout_seconds if wait_timeout_seconds is not None else DEFAULT_WAIT_TIMEOUT_SECONDS,
+        serve_stale_grace_seconds=serve_stale_grace_seconds,
+    )
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
 
 

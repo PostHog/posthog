@@ -29,6 +29,7 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -44,6 +45,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     call_scanner_provider_activity,
 )
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_by_team_activity
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
@@ -84,6 +86,7 @@ from products.replay_vision.backend.temporal.state import (
     get_data_class_from_redis,
     store_data_in_redis,
 )
+from products.replay_vision.backend.temporal.sweep_types import CountInFlightAppliesInputs, InFlightApplyCounts
 from products.replay_vision.backend.temporal.types import (
     ApplyScannerInputs,
     CleanupGeminiFileInputs,
@@ -158,6 +161,33 @@ def _make_observation(scanner: ReplayScanner, **overrides) -> ReplayObservation:
     }
     defaults.update(overrides)
     return ReplayObservation.objects.create(**defaults)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestCountInFlightAppliesActivity:
+    def test_counts_pending_and_running_rows_per_scanner_and_team(self) -> None:
+        scanner = _make_scanner()
+        sibling = ReplayScanner.objects.create(
+            team=scanner.team,
+            name="sibling",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_FLASH,
+        )
+        other_team_scanner = _make_scanner()  # fresh org+team
+        _make_observation(scanner, session_id="s1", status=ObservationStatus.PENDING)
+        _make_observation(scanner, session_id="s2", status=ObservationStatus.RUNNING)
+        _make_observation(
+            scanner, session_id="s3", status=ObservationStatus.SUCCEEDED, completed_at=timezone.now()
+        )  # terminal: not counted
+        _make_observation(sibling, session_id="s4", status=ObservationStatus.PENDING)  # team only
+        _make_observation(other_team_scanner, session_id="s5", status=ObservationStatus.PENDING)  # other team
+
+        result = count_in_flight_by_team_activity(
+            CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+        )
+
+        assert result == InFlightApplyCounts(scanner=2, team=3)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -349,11 +379,11 @@ class TestCreateObservationActivity:
             "products.replay_vision.backend.temporal.activities.create_observation.compute_quota_snapshot"
         ) as mock_snapshot:
             mock_snapshot.return_value = QuotaSnapshot(
-                monthly_quota=1,
-                usage_this_month=1,
+                credit_limit=5,
+                credits_used=5,
                 period_start=dt.datetime.now(dt.UTC),
                 period_end=dt.datetime.now(dt.UTC),
-                projected_monthly_observations=0,
+                projected_monthly_credits=0,
             )
             result = create_observation_activity(
                 CreateObservationInputs(
@@ -507,7 +537,10 @@ class TestObservationStateActivities:
         assert receipts.count() == 1
         receipt = receipts.get()
         assert receipt.organization_id == observation.team.organization_id
+        assert receipt.team_id == observation.team_id  # billing usage report groups on this
         assert receipt.observation_created_at == observation.created_at
+        assert receipt.model == observation.scanner_snapshot["model"]
+        assert receipt.credits == observation_credits_for_model(observation.scanner_snapshot["model"])
 
     def test_mark_succeeded_usage_receipt_is_idempotent(self) -> None:
         scanner = _make_scanner()

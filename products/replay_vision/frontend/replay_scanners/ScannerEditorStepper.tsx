@@ -4,10 +4,11 @@ import { cn } from 'lib/utils/css-classes'
 
 import { SCANNER_EDITOR_STEP_ORDER, ScannerEditorStep } from './scannerEditorSceneLogic'
 
-const STEP_LABELS: Record<ScannerEditorStep, string> = {
+export const STEP_LABELS: Record<ScannerEditorStep, string> = {
     template: 'Template',
     configure: 'Configure',
     triggers: 'Scan conditions',
+    self_driving: 'Self-driving',
 }
 
 interface ScannerEditorStepperProps {

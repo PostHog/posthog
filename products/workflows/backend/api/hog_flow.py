@@ -86,6 +86,13 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
+from products.workflows.backend.services.batch_audience import (
+    PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
+    SUPPORTED_DEDUPE_KEYS,
+    get_batch_audience_count,
+    get_batch_audience_person_ids,
+    use_workflows_batch_audience_query,
+)
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
@@ -181,12 +188,23 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
     group_type_index = serializers.IntegerField(
         required=False, allow_null=True, help_text="Group type index for group-based targeting"
     )
+    dedupe_key = serializers.ChoiceField(
+        choices=list(SUPPORTED_DEDUPE_KEYS),
+        required=False,
+        allow_null=True,
+        help_text="When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.",
+    )
 
 
 class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
     limit = serializers.IntegerField(help_text="Maximum allowed audience size for batch triggers for this team.")
+    dedupe_key = serializers.ChoiceField(
+        choices=list(SUPPORTED_DEDUPE_KEYS),
+        allow_null=True,
+        help_text="The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.",
+    )
 
 
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
@@ -1550,22 +1568,38 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: Request, **kwargs):
-        if "filters" not in request.data:
-            raise exceptions.ValidationError("Missing filters for which to get blast radius")
+        param_serializer = BlastRadiusRequestSerializer(data=request.data)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
 
-        filters = request.data.get("filters", {})
-        group_type_index = request.data.get("group_type_index", None)
+        filters = params["filters"]
+        group_type_index = params.get("group_type_index")
+        dedupe_key = params.get("dedupe_key")
 
         reject_flag_conditions_in_audience(self.team, filters)
 
-        result = get_user_blast_radius(self.team, filters, group_type_index)
+        # Preview matches the actual send: with dedup active, "affected" is the number of
+        # sends (unique emails + email-less persons), not the number of matching persons —
+        # the legacy person-count query is skipped entirely, "total" comes straight from
+        # the cached team-wide count it would have returned anyway. The applied key is
+        # echoed back so the frontend labels the count from the response instead of
+        # guessing whether the flag-gated dedup actually ran.
+        applied_dedupe_key = None
+        if dedupe_key is not None and group_type_index is None and use_workflows_batch_audience_query(self.team):
+            total = self.team.persons_seen_so_far
+            affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
+            applied_dedupe_key = dedupe_key
+        else:
+            result = get_user_blast_radius(self.team, filters, group_type_index)
+            affected, total = result.affected, result.total
 
         return Response(
             BlastRadiusSerializer(
                 {
-                    "affected": result.affected,
-                    "total": result.total,
+                    "affected": affected,
+                    "total": total,
                     "limit": get_hogflow_batch_trigger_limit(self.team_id),
+                    "dedupe_key": applied_dedupe_key,
                 }
             ).data
         )
@@ -1884,6 +1918,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         "affected": result.affected,
                         "total": result.total,
                         "limit": get_hogflow_batch_trigger_limit(team.id),
+                        "dedupe_key": None,
                     }
                 ).data
             )
@@ -1912,15 +1947,26 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         filters = request.data.get("filters", {}) or {}
         group_type_index = request.data.get("group_type_index", None)
         cursor = request.data.get("cursor", None)
+        dedupe_key = request.data.get("dedupe_key", None)
+
+        if dedupe_key is not None and dedupe_key not in SUPPORTED_DEDUPE_KEYS:
+            return Response({"error": f"Unsupported dedupe_key: {dedupe_key}"}, status=400)
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+            if use_workflows_batch_audience_query(team):
+                users_affected = get_batch_audience_person_ids(
+                    team, filters, group_type_index, cursor, dedupe_key=dedupe_key
+                )
+                batch_size = WORKFLOWS_PERSON_BATCH_SIZE
+            else:
+                users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+                batch_size = PERSON_BATCH_SIZE
             return Response(
                 {
                     "users_affected": users_affected,
                     "cursor": users_affected[-1] if users_affected else None,
-                    "has_more": len(users_affected) == PERSON_BATCH_SIZE,
+                    "has_more": len(users_affected) == batch_size,
                 }
             )
         except exceptions.ValidationError as e:
