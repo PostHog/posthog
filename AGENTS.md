@@ -163,7 +163,20 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code
 - Markdown: prefer semantic line breaks; no hard wrapping
 - Use American English spelling
-- When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.
+
+## User-facing copy
+
+Applies to every string a person reads: UI labels, buttons, tooltips, empty states, error and success messages, notifications, docs, and support or customer replies.
+When copy matters and you're unsure whether it reads well, ask a human rather than guessing.
+
+- PostHog writes in sentence case, not Title Case: capitalize only the first word and proper nouns.
+  This covers product names ('Product analytics', not 'Product Analytics'), buttons, tab text, tooltips, titles, and headings ('Save as view', not 'Save As View').
+- Do not use the common signatures of AI-generated text.
+  No em dashes (—); no "it's not just X, it's Y" constructions; no rule-of-three padding; no hedging setups ("Here's the thing:", "A few things to note:"); no tidy parallel-list scaffolding.
+  Write like a person typed it, and when a phrasing feels machine-generated but you can't tell, ask a human.
+- Plain language, no jargon. Never leak internal terminology or code identifiers into user-facing text. Name the actual feature or plan (not "premium PostHog offering"), and use the labels a user sees in the UI, never internal field names (`surveyPopupDelaySeconds` becomes "Delay the survey popup").
+- Be direct and friendly. Get to the point, keep sentences short and each paragraph about one thing, and keep the tone consistent across tooltips, modals, empty states, and error pages. Explain things the way you would to a smart colleague, not in a corporate memo.
+- Error and empty states must guide, not dead-end. An error says what happened and what to do next; a permission error names which permission and how to get it; an empty state points to the next action.
 
 ## Agent automation
 
