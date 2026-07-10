@@ -92,7 +92,7 @@ export async function fetchTaxonomicListPage({
     // legacy infiniteListLogic loader). This fetches a single page, so no offset mapping to keep.
     const results = filterExactSearchOnlyItems(
         rawResults,
-        (item: { name?: string }) => group.getName?.(item) ?? item?.name,
+        (item: any) => group.getName?.(item) ?? item?.name,
         group.type,
         searchQuery
     )
