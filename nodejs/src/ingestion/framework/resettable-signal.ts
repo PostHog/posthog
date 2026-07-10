@@ -6,7 +6,7 @@
  *
  * Used by pipeline stages that park awaiting in-flight work but must also react
  * to a concurrent feed() delivering new input (see ConcurrentlyGroupingChunkPipeline
- * and FilterMapBatchPipeline).
+ * and FilterMapChunkPipeline).
  */
 export class ResettableSignal {
     private promise!: Promise<void>

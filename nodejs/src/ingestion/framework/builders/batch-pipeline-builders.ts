@@ -11,7 +11,7 @@ import {
     ConcurrentlyGroupingChunkPipeline,
     GroupingFunction,
 } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
-import { FilterMapBatchPipeline, FilterMapMappingFunction } from '~/ingestion/framework/filter-map-batch-pipeline'
+import { FilterMapChunkPipeline, FilterMapMappingFunction } from '~/ingestion/framework/filter-map-chunk-pipeline'
 import { GatheringChunkPipeline } from '~/ingestion/framework/gathering-chunk-pipeline'
 import { IngestionWarningHandlingBatchPipeline } from '~/ingestion/framework/ingestion-warning-handling-batch-pipeline'
 import { Pipeline } from '~/ingestion/framework/pipeline.interface'
@@ -123,7 +123,7 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
         const subPipeline = subpipelineBuilder.build()
 
         return new BatchPipelineBuilder(
-            new FilterMapBatchPipeline<
+            new FilterMapChunkPipeline<
                 TInput,
                 TOutput,
                 TMapped,

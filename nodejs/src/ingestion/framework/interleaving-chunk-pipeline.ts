@@ -40,7 +40,7 @@ export interface InterleavingCallbacks<TInput, TOutput, CInput, COutput, R exten
  * stranded upstream while the sub is parked (head-of-line avoidance).
  *
  * The stage-specific behavior is injected via {@link InterleavingCallbacks}.
- * See `FilterMapBatchPipeline` for the canonical wiring; the same shape fits any
+ * See `FilterMapChunkPipeline` for the canonical wiring; the same shape fits any
  * pull-from-prev / feed-sub / drain-sub stage.
  *
  * Failures poison the whole stage. The first error from either callback (the

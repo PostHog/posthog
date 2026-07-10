@@ -4,11 +4,11 @@ import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
 import { ChunkPipelineResultWithContext } from './chunk-pipeline.interface'
-import { FilterMapBatchPipeline, FilterMapMappingFunction } from './filter-map-batch-pipeline'
+import { FilterMapChunkPipeline, FilterMapMappingFunction } from './filter-map-chunk-pipeline'
 import { createContext, createNewBatchPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok } from './results'
 
-describe('FilterMapBatchPipeline', () => {
+describe('FilterMapChunkPipeline', () => {
     let message1: Message
     let message2: Message
     let message3: Message
@@ -36,7 +36,7 @@ describe('FilterMapBatchPipeline', () => {
             const spy = jest.spyOn(previousPipeline, 'feed')
             const subPipeline = createNewBatchPipeline<string>().build()
 
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(previousPipeline, identityMapping, subPipeline)
             const testBatch = [createOkContext('test', context1)]
 
             pipeline.feed(testBatch)
@@ -50,7 +50,7 @@ describe('FilterMapBatchPipeline', () => {
             const previousPipeline = createNewBatchPipeline<string>().build()
             const subPipeline = createNewBatchPipeline<string>().build()
 
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(previousPipeline, identityMapping, subPipeline)
 
             expect(await pipeline.next()).toBeNull()
         })
@@ -59,7 +59,7 @@ describe('FilterMapBatchPipeline', () => {
             const previousPipeline = createNewBatchPipeline<string>().build()
             const subPipeline = createNewBatchPipeline<string>().build()
 
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(previousPipeline, identityMapping, subPipeline)
             pipeline.feed([createOkContext('hello', context1), createOkContext('world', context2)])
 
             const result = await pipeline.next()
@@ -77,7 +77,7 @@ describe('FilterMapBatchPipeline', () => {
             const mockPrevious = createMockPipeline<string>([createContext(nonOkResult, context1)])
             const subPipeline = createNewBatchPipeline<string>().build()
 
-            const pipeline = new FilterMapBatchPipeline(mockPrevious, identityMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(mockPrevious, identityMapping, subPipeline)
 
             const result = await pipeline.next()
 
@@ -94,7 +94,7 @@ describe('FilterMapBatchPipeline', () => {
                 createOkContext('world', context3),
             ])
 
-            const pipeline = new FilterMapBatchPipeline(mockPrevious, identityMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(mockPrevious, identityMapping, subPipeline)
 
             const result1 = await pipeline.next()
             expect(result1).toEqual([{ result: dlqResult, context: expect.objectContaining({ message: message2 }) }])
@@ -121,7 +121,7 @@ describe('FilterMapBatchPipeline', () => {
                 context: element.context,
             })
 
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, uppercaseMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(previousPipeline, uppercaseMapping, subPipeline)
             pipeline.feed([createOkContext('hello', context1)])
 
             const result = await pipeline.next()
@@ -147,7 +147,7 @@ describe('FilterMapBatchPipeline', () => {
                 },
             })
 
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, contextEnrichingMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(previousPipeline, contextEnrichingMapping, subPipeline)
             pipeline.feed([createOkContext({ value: 'test', extra: 42 }, context1)])
 
             const result = await pipeline.next()
@@ -177,7 +177,7 @@ describe('FilterMapBatchPipeline', () => {
 
             const mockPrevious = createMockPipeline<InputValue>([createContext(dlqResult, context1)])
 
-            const pipeline = new FilterMapBatchPipeline(mockPrevious, contextEnrichingMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(mockPrevious, contextEnrichingMapping, subPipeline)
 
             const result = await pipeline.next()
 
@@ -191,7 +191,7 @@ describe('FilterMapBatchPipeline', () => {
             const previousPipeline = createNewBatchPipeline<string>().build()
             const subPipeline = createNewBatchPipeline<string>().build()
 
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(previousPipeline, identityMapping, subPipeline)
 
             pipeline.feed([createOkContext('batch1-item', context1)])
             const result1 = await pipeline.next()
@@ -221,7 +221,7 @@ describe('FilterMapBatchPipeline', () => {
                 throw error
             }
 
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, throwingMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(previousPipeline, throwingMapping, subPipeline)
             pipeline.feed([createOkContext('hello', context1)])
 
             await expect(pipeline.next()).rejects.toThrow('mapping failed')
@@ -235,7 +235,7 @@ describe('FilterMapBatchPipeline', () => {
                 next: jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce(null),
             }
 
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(previousPipeline, identityMapping, subPipeline)
             pipeline.feed([])
 
             // Empty batch should return [] (a valid empty batch), not null (end of stream)
@@ -261,7 +261,7 @@ describe('FilterMapBatchPipeline', () => {
                     .mockResolvedValueOnce(null),
             }
 
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(previousPipeline, identityMapping, subPipeline)
             pipeline.feed([])
 
             expect(await pipeline.next()).toEqual([])
@@ -294,7 +294,7 @@ describe('FilterMapBatchPipeline', () => {
                 },
             }
 
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(previousPipeline, identityMapping, subPipeline)
             pipeline.feed([createOkContext('item1', context1), createOkContext('item2', context2)])
 
             const result1 = await pipeline.next()
@@ -322,7 +322,7 @@ describe('FilterMapBatchPipeline', () => {
             > = () => {
                 throw new Error('mapping boom')
             }
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, throwingMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(previousPipeline, throwingMapping, subPipeline)
             pipeline.feed([createOkContext('hello', context1)])
 
             await expect(pipeline.next()).rejects.toThrow('mapping boom')
@@ -335,7 +335,7 @@ describe('FilterMapBatchPipeline', () => {
                 feed: jest.fn(),
                 next: jest.fn().mockRejectedValueOnce(new Error('sub boom')).mockResolvedValue(null),
             }
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
+            const pipeline = new FilterMapChunkPipeline(previousPipeline, identityMapping, subPipeline)
             pipeline.feed([createOkContext('hello', context1)])
 
             await expect(pipeline.next()).rejects.toThrow('sub boom')

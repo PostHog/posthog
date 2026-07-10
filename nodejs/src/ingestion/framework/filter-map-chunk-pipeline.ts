@@ -8,7 +8,7 @@ export type FilterMapMappingFunction<TInput, TOutput, CInput, COutput> = (
 ) => OkResultWithContext<TOutput, COutput>
 
 /**
- * A batch pipeline that:
+ * A chunk pipeline that:
  * 1. Filters OK results from the previous pipeline
  * 2. Applies a mapping function to transform both values and context
  * 3. Processes the mapped results through a subpipeline
@@ -26,7 +26,7 @@ export type FilterMapMappingFunction<TInput, TOutput, CInput, COutput> = (
  * newly fed input) is handled by {@link InterleavingChunkPipeline}. This class
  * only supplies the filter/map/route policy via the onSourcePull callback.
  */
-export class FilterMapBatchPipeline<
+export class FilterMapChunkPipeline<
     TInput,
     TIntermediate,
     TMapped,
@@ -62,8 +62,8 @@ export class FilterMapBatchPipeline<
     }
 
     /**
-     * Pull one batch from the previous pipeline, feed mapped OK results into the
-     * subpipeline, and report what to do next: emit non-OK (or empty) batches
+     * Pull one chunk from the previous pipeline, feed mapped OK results into the
+     * subpipeline, and report what to do next: emit non-OK (or empty) chunks
      * immediately, drain the subpipeline for the OK results, or signal that the
      * previous pipeline is empty.
      */
@@ -92,7 +92,7 @@ export class FilterMapBatchPipeline<
             return { kind: 'emit', chunk: nonOkResults }
         }
 
-        // A non-null empty batch surfaces as [] (a valid empty batch, distinct
+        // A non-null empty chunk surfaces as [] (a valid empty chunk, distinct
         // from null = end of stream), matching the previous pipeline 1:1.
         if (okResults.length === 0) {
             return { kind: 'emit', chunk: [] }
