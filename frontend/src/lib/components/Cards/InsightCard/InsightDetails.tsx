@@ -98,6 +98,87 @@ function assertNever(value: never): never {
     throw new Error(`Unexpected entity node: ${(value as { kind?: string } | undefined)?.kind ?? 'unknown'}`)
 }
 
+type OverrideSource = 'dashboard' | 'tile'
+
+// A tile-level override replaces the dashboard-level override wholesale when present — it does not merge
+// with it (matches the backend `apply_dashboard_filters`). So there is only ever one active override source.
+function getEffectiveFilterOverride(
+    filtersOverride: DashboardFilter | null | undefined,
+    tileFiltersOverride: TileFilters | null | undefined
+): { override: DashboardFilter | TileFilters; source: OverrideSource } | null {
+    if (tileFiltersOverride && Object.keys(tileFiltersOverride).length > 0) {
+        return { override: tileFiltersOverride, source: 'tile' }
+    }
+    if (filtersOverride && Object.keys(filtersOverride).length > 0) {
+        return { override: filtersOverride, source: 'dashboard' }
+    }
+    return null
+}
+
+function overrideSourceLabel(source: OverrideSource): string {
+    return source === 'tile' ? 'Tile' : 'Dashboard'
+}
+
+// The insight's own filters stay the primary list; overrides are called out separately so it's clear
+// they're additional (properties AND onto the insight's) or replacing (breakdown/date), not duplicates.
+function OverrideNote({ source, children }: { source: OverrideSource; children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="mt-1.5 flex items-center gap-1">
+            <LemonTag type="highlight" size="small">
+                {overrideSourceLabel(source)}
+            </LemonTag>
+            <span className="text-muted-alt">{children}</span>
+        </div>
+    )
+}
+
+// Serialization round-trips normalize/add fields, so compare property filters on their identifying
+// parts rather than deep equality.
+function propertyFilterSignature(filter: AnyPropertyFilter | undefined): string {
+    return JSON.stringify([
+        filter?.type ?? 'event',
+        filter?.key ?? null,
+        (filter as { operator?: string } | undefined)?.operator ?? 'exact',
+        filter?.value ?? null,
+    ])
+}
+
+function propertyListsMatch(a: unknown[], b: AnyPropertyFilter[]): boolean {
+    return (
+        a.length === b.length &&
+        a.every((f, i) => propertyFilterSignature(f as AnyPropertyFilter) === propertyFilterSignature(b[i]))
+    )
+}
+
+// The query returned for a dashboard tile already has the override's properties ANDed in
+// (as the trailing subgroup/tail), so pull that part out to attribute it rather than list it twice.
+function splitOutOverrideProperties(
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null,
+    overrideProperties: AnyPropertyFilter[]
+): { base: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null; overrideFound: boolean } {
+    if (!properties) {
+        return { base: properties, overrideFound: false }
+    }
+    if (Array.isArray(properties)) {
+        const tailStart = properties.length - overrideProperties.length
+        if (tailStart >= 0 && propertyListsMatch(properties.slice(tailStart), overrideProperties)) {
+            return { base: properties.slice(0, tailStart), overrideFound: true }
+        }
+        return { base: properties, overrideFound: false }
+    }
+    const values = properties.values ?? []
+    const last = values[values.length - 1]
+    if (last && 'values' in last && Array.isArray(last.values) && propertyListsMatch(last.values, overrideProperties)) {
+        const remaining = values.slice(0, -1)
+        // Unwrap the single remaining subgroup so the insight's own filters render flat again
+        return {
+            base: remaining.length === 1 ? (remaining[0] as PropertyGroupFilter) : { ...properties, values: remaining },
+            overrideFound: true,
+        }
+    }
+    return { base: properties, overrideFound: false }
+}
+
 function EntityDisplay({ entity }: { entity: AnyEntityNode<AnyDataWarehouseNode> }): JSX.Element {
     let content: JSX.Element
 
@@ -367,12 +448,24 @@ export function FormulaSummary({ query }: { query: TrendsQuery }): JSX.Element |
 
 export function PropertiesSummary({
     properties,
+    override,
 }: {
     properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null
+    override?: { properties: AnyPropertyFilter[]; source: OverrideSource } | null
 }): JSX.Element {
+    const hasOverride = !!override && override.properties.length > 0
+    const { base } = hasOverride ? splitOutOverrideProperties(properties, override!.properties) : { base: properties }
     return (
         <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
-            <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(properties)} />
+            <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(base)} />
+            {hasOverride && (
+                <>
+                    <OverrideNote source={override!.source}>filters added on top:</OverrideNote>
+                    <CompactUniversalFiltersDisplay
+                        groupFilter={convertPropertiesToPropertyGroup(override!.properties)}
+                    />
+                </>
+            )}
         </InsightDetailSectionDisplay>
     )
 }
@@ -445,8 +538,10 @@ export function InsightBreakdownSummary({ query }: { query: InsightQueryNode | H
 
 export function BreakdownSummary({
     breakdownFilter,
+    override,
 }: {
     breakdownFilter: BreakdownFilter | null | undefined
+    override?: { source: OverrideSource } | null
 }): JSX.Element | null {
     if (!hasBreakdownFilter(breakdownFilter)) {
         return null
@@ -479,7 +574,8 @@ export function BreakdownSummary({
 
     return (
         <InsightDetailSectionDisplay icon={<IconSort />} label="Breakdown by">
-            {content}
+            {override && <OverrideNote source={override.source}>breakdown replaced with:</OverrideNote>}
+            <div className="flex items-center gap-1 flex-wrap">{content}</div>
         </InsightDetailSectionDisplay>
     )
 }
@@ -522,12 +618,14 @@ export const InsightDetails = React.memo(
         { query, footerInfo, variablesOverride, filtersOverride, tileFiltersOverride, hasDataWarehouseSeries },
         ref
     ): JSX.Element {
-        const hasPropertyOverrides = !!filtersOverride?.properties?.length || !!tileFiltersOverride?.properties?.length
+        const effectiveOverride = getEffectiveFilterOverride(filtersOverride, tileFiltersOverride)
+        const overrideProperties = effectiveOverride?.override.properties ?? []
+        const overrideBreakdownFilter = effectiveOverride?.override.breakdown_filter
+        const hasPropertyOverrides = overrideProperties.length > 0
         const hasIgnoredBreakdownOverrides =
             isInsightVizNode(query) &&
             isTrendsQuery(query.source) &&
-            (hasUnsupportedBreakdownForDataWarehouseTrends(filtersOverride) ||
-                hasUnsupportedBreakdownForDataWarehouseTrends(tileFiltersOverride))
+            hasUnsupportedBreakdownForDataWarehouseTrends(effectiveOverride?.override)
 
         return (
             <div className="InsightDetails space-y-2" ref={ref}>
@@ -549,10 +647,20 @@ export const InsightDetails = React.memo(
                                         ? query.source.filters?.properties
                                         : query.source.properties
                                 }
+                                override={
+                                    effectiveOverride && hasPropertyOverrides
+                                        ? { properties: overrideProperties, source: effectiveOverride.source }
+                                        : null
+                                }
                             />
                         )}
                         {hasDataWarehouseSeries && hasIgnoredBreakdownOverrides ? (
                             <BreakdownIgnoredWarning />
+                        ) : effectiveOverride && hasBreakdownFilter(overrideBreakdownFilter) ? (
+                            <BreakdownSummary
+                                breakdownFilter={overrideBreakdownFilter}
+                                override={{ source: effectiveOverride.source }}
+                            />
                         ) : (
                             <InsightBreakdownSummary query={query.source} />
                         )}
