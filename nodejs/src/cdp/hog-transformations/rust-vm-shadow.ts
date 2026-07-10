@@ -5,7 +5,7 @@ import { HogBytecode } from '~/cdp/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
-import { HogvmNodeModule, RUST_MAX_STEPS, RustExecResult, loadHogvmNodeModule } from './rust-vm'
+import { HogvmNodeModule, RUST_MAX_STEPS, RustExecResult, isUnsupportedByRustVm, loadHogvmNodeModule } from './rust-vm'
 
 /**
  * Shadow-executes sampled transformation invocations on the Rust HogVM (via the
@@ -84,9 +84,7 @@ export function classifyShadowOutcome(node: ShadowNodeResult, rust: RustExecResu
     }
     if (rust.error) {
         // Host functions the rust binding doesn't implement — not comparable, not a divergence.
-        // 'Unknown Global <name>' is the rust VM's exact error for calling a function it doesn't
-        // know; anchored to the prefix so other errors mentioning the words can't be swallowed.
-        if (rust.error.includes('unsupported_ext_fn:') || rust.error.startsWith('Unknown Global ')) {
+        if (isUnsupportedByRustVm(rust.error)) {
             return 'skipped_unsupported'
         }
         // Both VMs failed the program: they agree.

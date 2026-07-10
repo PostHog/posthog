@@ -93,7 +93,8 @@ describe('RustVmExecutor', () => {
 
     it.each([
         ['unsupported host function', 'Native call failed: unsupported_ext_fn:geoipLookup'],
-        ['host function missing from the rust vm', 'Unknown Global sendEmail'],
+        ['function missing from the rust vm', 'Unknown function sendEmail'],
+        ['global chain the rust vm cannot resolve', 'Unknown Global ["inputs", "foo"]'],
     ])('falls back to the node vm on %s', (_name, error) => {
         mockHogvmNode.executeSync.mockReturnValue(rustResult({ result: undefined, error }))
 

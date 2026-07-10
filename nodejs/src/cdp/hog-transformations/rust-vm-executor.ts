@@ -4,7 +4,7 @@ import { Counter, Histogram } from 'prom-client'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { createAddLogFunction, sanitizeLogMessage } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { HogvmNodeModule, RUST_MAX_STEPS, loadHogvmNodeModule } from './rust-vm'
+import { HogvmNodeModule, RUST_MAX_STEPS, isUnsupportedByRustVm, loadHogvmNodeModule } from './rust-vm'
 
 /**
  * Executes transformation invocations on the Rust HogVM (via the `@posthog/hogvm-node` napi
@@ -25,11 +25,6 @@ export const rustVmExecutionDuration = new Histogram({
     help: 'Per-invocation hog execution duration on the Rust HogVM as the primary executor',
     buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100],
 })
-
-// Host functions the binding doesn't implement; the Node VM does, so it must run these programs.
-function isUnsupportedByRustVm(error: string): boolean {
-    return error.includes('unsupported_ext_fn:') || error.startsWith('Unknown Global ')
-}
 
 export class RustVmExecutor {
     constructor(private options: { mmdbPath: string }) {}

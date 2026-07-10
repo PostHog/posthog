@@ -35,6 +35,10 @@ pub fn set_bot_lists_for_tests() {
     );
 }
 
+// The `unsupported_ext_fn:` prefix is a contract with the Node callers
+// (nodejs/src/cdp/hog-transformations/rust-vm.ts `isUnsupportedByRustVm`): it makes the executor
+// hand the invocation to the Node VM and the shadow classify the comparison as skipped. Rephrasing
+// it would turn those fallbacks into hard failures — change both sides together.
 pub fn unsupported(name: &str) -> VmError {
     VmError::NativeCallFailed(format!("unsupported_ext_fn:{name}"))
 }

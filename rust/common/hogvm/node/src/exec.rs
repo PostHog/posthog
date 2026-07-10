@@ -291,6 +291,31 @@ mod tests {
             .contains("unsupported_ext_fn:geoipLookup"));
     }
 
+    // Pins the hogvm crate's error formats the Node callers (rust-vm.ts isUnsupportedByRustVm)
+    // match on to fall back to the Node VM: `Unknown function <name>` for calling a function the
+    // VM doesn't know, `Unknown Global <chain>` for an unresolvable global chain.
+    #[test]
+    fn unknown_name_error_prefixes_are_the_node_fallback_contract() {
+        let results = run_batch(
+            &call_fn_program("someFunctionNobodyImplements", "x"),
+            &[json!({})],
+            false,
+            None,
+        );
+        assert!(results[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .starts_with("Unknown function "));
+
+        let results = run_batch(&get_global_program("missing"), &[json!({})], false, None);
+        assert!(results[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .starts_with("Unknown Global "));
+    }
+
     #[test]
     fn print_is_captured_as_a_log_and_execution_continues() {
         // print("x") (POP the call result), then return 1+2
