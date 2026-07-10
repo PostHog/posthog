@@ -49,9 +49,10 @@ from products.tasks.backend.logic.services.image_builder import (
     read_spec_from_builder_sandbox,
 )
 from products.tasks.backend.logic.wizard_repo_probe import (
+    WizardFrameworkUndetectableError,
     WizardRepoAccess,
     WizardRepositoryInaccessibleError,
-    probe_wizard_repository_access,
+    probe_wizard_repository,
 )
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
@@ -118,6 +119,7 @@ __all__ = [
     "TaskOriginProduct",
     "TaskRunEnvironment",
     "TaskRunStatus",
+    "WizardFrameworkUndetectableError",
     "WizardRepositoryInaccessibleError",
     "append_task_run_log",
     "beacon_task_presence",
@@ -814,14 +816,23 @@ def create_wizard_cloud_run(
     agent-side PR attribution cannot match.
 
     Raises :class:`WizardRepositoryInaccessibleError` when the pre-flight probe confirms the
-    team's GitHub installation cannot access ``repository`` — the sandbox clone would fail
-    identically after a full sandbox boot. A probe that cannot get a definitive answer
-    (timeouts, rate limits) fails open and the run is created.
+    team's GitHub installation cannot access ``repository``, and
+    :class:`WizardFrameworkUndetectableError` when the repository root confirmedly has no
+    manifest the wizard's framework auto-detection can use — in both cases the sandbox run
+    would fail identically after a full sandbox boot. A probe that cannot get a definitive
+    answer (timeouts, rate limits, listing failures) fails open and the run is created.
     """
-    if probe_wizard_repository_access(team, repository) is WizardRepoAccess.INACCESSIBLE:
+    probe = probe_wizard_repository(team, repository)
+    if probe.access is WizardRepoAccess.INACCESSIBLE:
         raise WizardRepositoryInaccessibleError(
             f"PostHog's GitHub integration can't access {repository}. "
             "Check the repository name, or grant the PostHog GitHub app access to it and try again."
+        )
+    if probe.framework_detectable is False:
+        raise WizardFrameworkUndetectableError(
+            f"The wizard couldn't detect a supported framework in {repository}: its root has no "
+            "manifest like package.json, pyproject.toml, requirements.txt, setup.py, Pipfile, or go.mod. "
+            "Run the wizard locally instead with `npx @posthog/wizard`."
         )
     head_branch = generate_wizard_head_branch()
     prompt = build_wizard_pr_agent_prompt(head_branch)

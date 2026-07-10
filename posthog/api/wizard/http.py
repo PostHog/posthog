@@ -57,12 +57,12 @@ OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_cloud_run_requests_total",
     "Cloud-run wizard kickoff requests, by outcome "
-    "(created/unavailable/invalid/permission_denied/repository_inaccessible)",
+    "(created/unavailable/invalid/permission_denied/repository_inaccessible/framework_undetectable)",
     labelnames=["outcome"],
 )
 
 # Pre-flight rejections carry their own outcome label so the probe's impact is measurable.
-CLOUD_RUN_PREFLIGHT_OUTCOME_CODES = frozenset({"repository_inaccessible"})
+CLOUD_RUN_PREFLIGHT_OUTCOME_CODES = frozenset({"repository_inaccessible", "framework_undetectable"})
 
 
 def _cloud_run_validation_outcome(error: exceptions.ValidationError) -> str:
@@ -502,6 +502,10 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # Pre-flight probe confirmed the sandbox clone would fail; stable code so
             # clients can distinguish this from generic input validation.
             raise exceptions.ValidationError(str(e), code="repository_inaccessible")
+        except tasks_facade.WizardFrameworkUndetectableError as e:
+            # Pre-flight probe confirmed the wizard's framework auto-detection would fail;
+            # the local wizard (npx @posthog/wizard) is the fallback path.
+            raise exceptions.ValidationError(str(e), code="framework_undetectable")
         except ValueError as e:
             # e.g. the team/user has no GitHub integration with access to the repository.
             raise exceptions.ValidationError(str(e))

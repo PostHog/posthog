@@ -7,6 +7,7 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.urls import reverse
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
@@ -485,11 +486,15 @@ class SetupWizardCloudRunTests(APIBaseTest):
         assert kwargs["branch"] is None
         assert kwargs["team"].id == self.team.id
 
+    @parameterized.expand(
+        [
+            ("repository_inaccessible", tasks_facade.WizardRepositoryInaccessibleError),
+            ("framework_undetectable", tasks_facade.WizardFrameworkUndetectableError),
+        ]
+    )
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
-    def test_rejects_inaccessible_repository_with_stable_code(self, mock_create):
-        mock_create.side_effect = tasks_facade.WizardRepositoryInaccessibleError(
-            "PostHog's GitHub integration can't access acme/app."
-        )
+    def test_preflight_rejections_return_stable_codes(self, expected_code, facade_error, mock_create):
+        mock_create.side_effect = facade_error("The pre-flight probe rejected acme/app.")
 
         response = self.client.post(
             self.CLOUD_RUN_URL,
@@ -499,8 +504,8 @@ class SetupWizardCloudRunTests(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
-        assert body["code"] == "repository_inaccessible"
-        assert body["detail"] == "PostHog's GitHub integration can't access acme/app."
+        assert body["code"] == expected_code
+        assert body["detail"] == "The pre-flight probe rejected acme/app."
 
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
     def test_rejects_invalid_repository_format(self, mock_create):

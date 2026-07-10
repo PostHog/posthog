@@ -493,3 +493,37 @@ class TestFacadeReadsAndMappers(TestCase):
                     facade.create_wizard_cloud_run(team=self.team, user_id=self.user.id, repository="acme-co/web")
                 self.assertEqual(Task.objects.count(), tasks_before)
                 self.assertFalse(TaskRun.objects.exists())
+
+    @parameterized.expand(
+        [
+            ("manifest_present", [{"name": "package.json"}, {"name": "README.md"}], True),
+            ("no_root_manifest", [{"name": "README.md"}, {"name": "docs"}], False),
+            ("listing_error", GitHubIntegrationError("boom"), True),
+            ("listing_non_200", None, True),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_wizard_cloud_run_framework_detectability_preflight(
+        self, _name, listing, run_created, _mock_workflow
+    ):
+        # Blocking must require a *successful* root listing with no supported manifest —
+        # the deterministic "Could not auto-detect your framework" sandbox failure. Any
+        # listing uncertainty has to fail open.
+        Integration.objects.create(team=self.team, kind="github", config={})
+        tasks_before = Task.objects.count()
+        metadata_response = MagicMock(status_code=200)
+        if isinstance(listing, Exception):
+            contents_effect = listing
+        elif listing is None:
+            contents_effect = MagicMock(status_code=500)
+        else:
+            contents_effect = MagicMock(status_code=200, json=MagicMock(return_value=listing))
+        with patch.object(GitHubIntegration, "api_request", side_effect=[metadata_response, contents_effect]):
+            if run_created:
+                created = facade.create_wizard_cloud_run(team=self.team, user_id=self.user.id, repository="acme-co/web")
+                self.assertTrue(TaskRun.objects.filter(task_id=created.task_id).exists())
+            else:
+                with self.assertRaises(facade.WizardFrameworkUndetectableError):
+                    facade.create_wizard_cloud_run(team=self.team, user_id=self.user.id, repository="acme-co/web")
+                self.assertEqual(Task.objects.count(), tasks_before)
+                self.assertFalse(TaskRun.objects.exists())
