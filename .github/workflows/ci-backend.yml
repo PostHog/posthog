@@ -2459,6 +2459,9 @@ jobs:
                   MODE: ${{ needs.select-tests.outputs.mode }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
                   POE_FILES: ${{ needs.select-tests.outputs.poe_files }}
+                  # devex: measure core (posthog/ee) coverage on PRs to size the gap vs products. sysmon = low overhead.
+                  COVERAGE_CORE: sysmon
+                  COV_ARGS: ${{ github.event_name == 'pull_request' && '--cov=posthog --cov=ee --cov-report=xml:coverage-core.xml' || '' }}
               # Wrap bash with signal-fanout so the runner's cancel signal is
               # propagated to the entire process tree (incl. pytest). Without
               # this, GHA only signals the top-level bash and pytest survives
@@ -2503,6 +2506,7 @@ jobs:
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
                           -r fEsxX \
                           --junitxml=junit-core.xml \
+                          $COV_ARGS \
                           $PYTEST_ARGS
                   else
                     pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
@@ -2527,6 +2531,7 @@ jobs:
                         --reruns 1 --reruns-delay 1 \
                         -r fEsxX \
                         --junitxml=junit-core.xml \
+                        $COV_ARGS \
                         $PYTEST_ARGS
                   fi
                   exit_code=$?
@@ -2537,6 +2542,15 @@ jobs:
                   else
                       exit $exit_code
                   fi
+
+            - name: Upload core coverage
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ always() && github.event_name == 'pull_request' && matrix.segment == 'Core' }}
+              with:
+                  name: coverage-core-${{ strategy.job-index }}
+                  path: coverage-core.xml
+                  if-no-files-found: ignore
+                  retention-days: 2
 
             # Uncomment this code to create an ssh-able console so you can debug issues with github actions
             # (Consider changing the timeout in ci-backend.yml to have more time)
