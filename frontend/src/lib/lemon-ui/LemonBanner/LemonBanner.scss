@@ -37,6 +37,10 @@
 
     &.LemonBanner--ai {
         position: relative;
+
+        // Contain the masked ::before gradient-border overlay in its own stacking context so it
+        // composites as an atomic unit and can't bleed over sibling overlays (e.g. the nav menu).
+        isolation: isolate;
         background: linear-gradient(135deg, rgb(167 139 250 / 4%) 0%, rgb(129 140 248 / 4%) 100%);
         border: none;
 
