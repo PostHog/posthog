@@ -13,13 +13,13 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AlertState } from '~/queries/schema/schema-general'
 
 import { alertIntervalDisplayLabel } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
-import { AlertState } from '../../../../queries/schema/schema-general'
-import { alertLogic } from '../alertLogic'
-import { AlertsFiltersBar } from '../AlertsFiltersBar'
-import { alertsLogic } from '../alertsLogic'
+import { AlertsFiltersBar } from '../components/AlertsFiltersBar'
+import { alertLogic } from '../logic/alertLogic'
+import { alertsLogic } from '../logic/alertsLogic'
 import { AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
 import { AlertStateIndicator } from './ManageAlertsModal'

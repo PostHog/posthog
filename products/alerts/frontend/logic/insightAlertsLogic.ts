@@ -17,8 +17,8 @@ import {
 } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps } from '~/types'
 
+import { AlertType, AnomalyPoint, isTrendsAlertConfig } from '../types'
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
-import { AlertType, AnomalyPoint, isTrendsAlertConfig } from './types'
 
 export interface InsightAlertsLogicProps {
     insightId: number

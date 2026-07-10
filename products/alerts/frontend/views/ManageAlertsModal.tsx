@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 import { AlertState, InsightThresholdType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
-import { InsightAlertsLogicProps, alertsUnsupportedReason, insightAlertsLogic } from '../insightAlertsLogic'
+import { InsightAlertsLogicProps, alertsUnsupportedReason, insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { AlertType } from '../types'
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {

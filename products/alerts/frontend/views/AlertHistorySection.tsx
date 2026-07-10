@@ -14,8 +14,6 @@ import {
 } from '@posthog/lemon-ui'
 import type { LemonTableColumn } from '@posthog/lemon-ui'
 
-import { AlertHistoryChart } from 'lib/components/Alerts/views/AlertHistoryChart'
-import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -23,7 +21,10 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../alertLogic'
+import { AlertHistoryChart } from 'products/alerts/frontend/views/AlertHistoryChart'
+import { AlertStateIndicator } from 'products/alerts/frontend/views/ManageAlertsModal'
+
+import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../logic/alertLogic'
 import { isAnyRowHogQLConfig } from '../types'
 import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'
 

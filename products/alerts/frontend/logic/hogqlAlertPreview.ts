@@ -1,7 +1,7 @@
 import { InsightsThresholdBounds } from '~/queries/schema/schema-general'
 
+import { AlertConfig, isHogQLAlertConfig } from '../types'
 import { hasThresholdBounds, valueBreachesBounds } from './alertPreviewShared'
-import { AlertConfig, isHogQLAlertConfig } from './types'
 
 /** Mirror of the backend's ANY_ROW_MAX_ROWS (products/alerts/backend/evaluation/hogql.py) — keep
  * the two in sync. Advisory only; the backend extractor is the evaluation-time authority. */

@@ -1,4 +1,4 @@
-import type { BlockedWindow, ScheduleRestriction } from './types'
+import type { BlockedWindow, ScheduleRestriction } from '../types'
 
 export const MAX_BLOCKED_WINDOWS = 5
 export const MIN_BLOCKED_WINDOW_MINUTES = 30

@@ -27,13 +27,6 @@ import {
     isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
-import type { alertFormLogicType } from './alertFormLogicType'
-import { getAlertFormValidationErrors } from './alertFormSchema'
-import { alertLogic } from './alertLogic'
-import { alertNotificationLogic } from './alertNotificationLogic'
-import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
-import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
-import { insightAlertsLogic } from './insightAlertsLogic'
 import {
     AlertConfig,
     AlertSimulationResult,
@@ -44,7 +37,14 @@ import {
     isHogQLAlertConfig,
     isTrendsAlertConfig,
     supportsOngoingInterval,
-} from './types'
+} from '../types'
+import type { alertFormLogicType } from './alertFormLogicType'
+import { getAlertFormValidationErrors } from './alertFormSchema'
+import { alertLogic } from './alertLogic'
+import { alertNotificationLogic } from './alertNotificationLogic'
+import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
+import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
+import { insightAlertsLogic } from './insightAlertsLogic'
 
 export { THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
 

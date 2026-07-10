@@ -2,7 +2,7 @@ import equal from 'fast-deep-equal'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 
-import type { ScheduleRestriction } from './types'
+import type { ScheduleRestriction } from '../types'
 
 export function normalizeScheduleRestrictionForCompare(
     sr: ScheduleRestriction | null | undefined
