@@ -47780,6 +47780,8 @@ export namespace Schemas {
     export interface ReviewCommentsResponse {
       /** Review activity for the pull request (submitted reviews, inline diff-thread comments, and conversation comments), oldest first. */
       readonly comments: readonly ReviewCommentEntry[];
+      /** True when the pull request has more review activity than was fetched, so the newest entries may be missing and the full conversation lives on GitHub. */
+      readonly truncated: boolean;
     }
 
     export interface ReviewQueueCreate {

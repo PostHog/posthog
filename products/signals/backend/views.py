@@ -135,15 +135,34 @@ tracer = trace.get_tracer(__name__)
 REVIEWER_PAGINATION_THRESHOLD = 1200
 
 # Canonical GitHub PR URL: https://github.com/<owner>/<repo>/pull/<number>. Used to recover the PR
-# number from a report's stored `implementation_pr_url` so we can fetch its review conversation.
-_GITHUB_PR_URL_RE = re.compile(r"^https://github\.com/[^/]+/[^/]+/pull/(\d+)")
+# number (and its owner/repo) from a report's stored `implementation_pr_url` so we can fetch its
+# review conversation.
+_GITHUB_PR_URL_RE = re.compile(r"^https://github\.com/([^/]+)/([^/]+)/pull/(\d+)")
 
 
 def _parse_github_pr_number(pr_url: str | None) -> int | None:
     if not pr_url:
         return None
     match = _GITHUB_PR_URL_RE.match(pr_url)
-    return int(match.group(1)) if match else None
+    return int(match.group(3)) if match else None
+
+
+def _github_pr_url_matches_repository(pr_url: str | None, repository: str) -> bool:
+    """Whether `pr_url`'s owner/repo is the same repo as `repository` (which may be `owner/name` or a
+    bare name). A report's PR url and its latest commit artefact can point at different repos when the
+    work spans repos, in which case the url-derived PR number belongs to a *different* PR — don't trust
+    it for this artefact's repo."""
+    if not pr_url:
+        return False
+    match = _GITHUB_PR_URL_RE.match(pr_url)
+    if not match:
+        return False
+    url_owner_repo = f"{match.group(1)}/{match.group(2)}".lower()
+    repository = repository.lower()
+    if "/" in repository:
+        return url_owner_repo == repository
+    # Bare artefact repo name: match on the repo-name half of the url.
+    return url_owner_repo.split("/", 1)[1] == repository
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -2119,12 +2138,14 @@ class SignalReportArtefactViewSet(
         """The PR number backing this commit artefact's branch, or None if we can't resolve one.
 
         Prefer the report's shipped `implementation_pr_url` (the canonical link the inbox already
-        renders): a merged/closed PR is still reachable that way. Fall back to matching an open PR
-        whose head branch is the commit's branch, for a report whose PR url hasn't propagated yet.
+        renders): a merged/closed PR is still reachable that way — but only when it points at the same
+        repo as this commit artefact, since a report's work can span repos and the url's PR number is
+        meaningless against a different repo. Fall back to matching an open PR whose head branch is the
+        commit's branch, for a report whose PR url hasn't propagated yet (or points elsewhere).
         """
-        pr_url_map = fetch_implementation_pr_urls_for_reports([str(artefact.report_id)])
-        pull_number = _parse_github_pr_number(pr_url_map.get(str(artefact.report_id)))
-        if pull_number is not None:
+        pr_url = fetch_implementation_pr_urls_for_reports([str(artefact.report_id)]).get(str(artefact.report_id))
+        pull_number = _parse_github_pr_number(pr_url)
+        if pull_number is not None and _github_pr_url_matches_repository(pr_url, repository):
             return pull_number
         listing = github.list_pull_requests(repository)
         if not listing.get("success"):
@@ -2220,7 +2241,7 @@ class SignalReportArtefactViewSet(
                 {"error": "GitHub could not return the review comments for this pull request."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
-        return Response({"comments": result["comments"]})
+        return Response({"comments": result["comments"], "truncated": result.get("truncated", False)})
 
 
 class SignalUserAutonomyConfigView(APIView):

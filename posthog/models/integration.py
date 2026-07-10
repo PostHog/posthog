@@ -94,6 +94,10 @@ _GITHUB_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 # Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
 # files) from bloating the JSON response and worker memory. ~1 MB of text.
 _MAX_DIFF_CHARS = 1_000_000
+# Per-list page cap for PR review-comment fetches (100 items/page). Bounds worst-case request
+# latency on a pathological PR while comfortably covering real review conversations; hitting it
+# sets ``truncated`` on the response.
+_MAX_PR_COMMENT_PAGES = 5
 
 
 def _is_safe_github_repo_path(repo_path: str) -> bool:
@@ -2929,11 +2933,17 @@ class GitHubIntegration(GitHubIntegrationBase):
         - ``GET /pulls/{n}/comments`` — inline diff-thread comments (with file ``path`` + ``line``),
         - ``GET /issues/{n}/comments`` — top-level conversation comments.
 
+        Each list is paginated up to a bounded page cap; if a list is still full at the cap the
+        response carries ``truncated: True`` so the caller can tell the conversation is incomplete
+        (mirrors the ``truncated`` flag on :meth:`get_diff`). GitHub returns each list oldest-first,
+        so pagination is what keeps the newest activity from being dropped.
+
         ``repository`` and ``pull_number`` reach us from team-writable artefact content / URLs, so
         they're validated before interpolation into the authenticated request path — a crafted value
-        could otherwise redirect the request to a different GitHub endpoint. On any upstream failure
-        this returns ``{success: False, status_code}`` rather than raising, so the caller never 500s
-        on a GitHub error (mirrors :meth:`get_diff`).
+        could otherwise redirect the request to a different GitHub endpoint. On any upstream *response*
+        failure this returns ``{success: False, status_code}`` rather than raising, so the caller never
+        500s on a GitHub error (mirrors :meth:`get_diff`). Rate limits still raise
+        ``GitHubRateLimitError`` for the caller to translate.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
         if not _is_safe_github_repo_path(repo_path):
@@ -2941,39 +2951,57 @@ class GitHubIntegration(GitHubIntegrationBase):
         if not isinstance(pull_number, int) or pull_number <= 0:
             return {"success": False, "error": f"Invalid pull request number '{pull_number}'.", "status_code": 400}
 
-        def _fetch(path: str, endpoint: str) -> list[dict[str, Any]] | int:
-            """Return the parsed JSON array, or an HTTP-style status code on a non-200 / network error."""
-            try:
-                response = self.api_request("GET", path, endpoint=endpoint, params={"per_page": 100})
-            except GitHubIntegrationError:
-                return 502
-            if response.status_code != 200:
-                return response.status_code
-            body = response.json()
-            return body if isinstance(body, list) else []
+        def _fetch(path: str, endpoint: str) -> tuple[list[dict[str, Any]], bool] | int:
+            """Return ``(items, truncated)`` — every dict across the paginated pages, and whether the
+            page cap was hit with a still-full page (more remain). Return an HTTP-style status code on
+            a non-200 / network error instead."""
+            items: list[dict[str, Any]] = []
+            page = 1
+            while True:
+                try:
+                    response = self.api_request("GET", path, endpoint=endpoint, params={"per_page": 100, "page": page})
+                except GitHubIntegrationError:
+                    return 502
+                if response.status_code != 200:
+                    return response.status_code
+                body = response.json()
+                if not isinstance(body, list):
+                    return items, False
+                # Skip anything that isn't an object — GitHub shouldn't return a bare null in the
+                # array, but a garbage element must not crash the normalization below.
+                items.extend(item for item in body if isinstance(item, dict))
+                if len(body) < 100:
+                    return items, False
+                if page >= _MAX_PR_COMMENT_PAGES:
+                    return items, True
+                page += 1
 
-        reviews_raw = _fetch(
+        reviews_result = _fetch(
             f"/repos/{repo_path}/pulls/{pull_number}/reviews",
             "/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
         )
-        if isinstance(reviews_raw, int):
-            return {"success": False, "error": "Failed to fetch reviews.", "status_code": reviews_raw}
-        inline_raw = _fetch(
+        if isinstance(reviews_result, int):
+            return {"success": False, "error": "Failed to fetch reviews.", "status_code": reviews_result}
+        inline_result = _fetch(
             f"/repos/{repo_path}/pulls/{pull_number}/comments",
             "/repos/{owner}/{repo}/pulls/{pull_number}/comments",
         )
-        if isinstance(inline_raw, int):
-            return {"success": False, "error": "Failed to fetch review comments.", "status_code": inline_raw}
-        conversation_raw = _fetch(
+        if isinstance(inline_result, int):
+            return {"success": False, "error": "Failed to fetch review comments.", "status_code": inline_result}
+        conversation_result = _fetch(
             f"/repos/{repo_path}/issues/{pull_number}/comments",
             "/repos/{owner}/{repo}/issues/{pull_number}/comments",
         )
-        if isinstance(conversation_raw, int):
+        if isinstance(conversation_result, int):
             return {
                 "success": False,
                 "error": "Failed to fetch conversation comments.",
-                "status_code": conversation_raw,
+                "status_code": conversation_result,
             }
+        reviews_raw, reviews_truncated = reviews_result
+        inline_raw, inline_truncated = inline_result
+        conversation_raw, conversation_truncated = conversation_result
+        truncated = reviews_truncated or inline_truncated or conversation_truncated
 
         def _login(item: dict[str, Any]) -> str | None:
             user = item.get("user")
@@ -3029,10 +3057,11 @@ class GitHubIntegration(GitHubIntegrationBase):
                 }
             )
 
-        # Oldest-first so the section reads like the PR conversation top to bottom. Missing
-        # timestamps sort last rather than blowing up the comparison.
-        comments.sort(key=lambda c: c["created_at"] or "")
-        return {"success": True, "comments": comments}
+        # Oldest-first so the section reads like the PR conversation top to bottom. Entries GitHub
+        # returned without a timestamp sort last (the tuple's first element orders them after any
+        # real timestamp) rather than blowing up the comparison on ``None < str``.
+        comments.sort(key=lambda c: (c["created_at"] is None, c["created_at"] or ""))
+        return {"success": True, "comments": comments, "truncated": truncated}
 
 
 class GitLabIntegrationError(Exception):

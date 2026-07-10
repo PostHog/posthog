@@ -302,7 +302,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 loadReportReviewComments: () => null,
                 loadReportReviewCommentsSuccess: () => null,
                 loadReportReviewCommentsFailure: () =>
-                    "Couldn't load review comments — the pull request may have been closed, or GitHub was unreachable.",
+                    "Couldn't load review comments. The pull request may have been closed, or GitHub was unreachable.",
             },
         ],
         // The commit artefact the current `reportReviewComments` was loaded for, so the artefact poll

@@ -1108,13 +1108,15 @@ class TestGitHubIntegrationModel(BaseTest):
                 "created_at": "2024-01-01T12:00:00Z",
             }
         ]
-        conversation = [{"body": "thanks", "user": None, "created_at": "2024-01-04T00:00:00Z"}]
+        # A non-dict array element (GitHub should never send this) must be skipped, not crash.
+        conversation = [None, {"body": "thanks", "user": None, "created_at": "2024-01-04T00:00:00Z"}]
         with patch.object(
             github, "api_request", side_effect=self._pr_comments_api_request(reviews, inline, conversation)
         ):
             result = github.get_pull_request_comments("PostHog/posthog", 7)
 
         assert result["success"] is True
+        assert result["truncated"] is False
         summary = [(c["created_at"], c["kind"], c["author"], c["review_state"], c["line"]) for c in result["comments"]]
         assert summary == [
             ("2024-01-01T00:00:00Z", "review", "bob", "CHANGES_REQUESTED", None),
@@ -1122,6 +1124,33 @@ class TestGitHubIntegrationModel(BaseTest):
             ("2024-01-03T00:00:00Z", "review", "alice", "APPROVED", None),  # empty-body approval kept
             ("2024-01-04T00:00:00Z", "issue_comment", None, None, None),  # null user -> None author
         ]
+
+    def test_get_pull_request_comments_paginates_and_flags_truncation(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        full_page = [
+            {"state": "COMMENTED", "body": "c", "user": {"login": "u"}, "submitted_at": "2024-01-01T00:00:00Z"}
+        ] * 100
+        review_calls = 0
+
+        def _dispatch(method, path, **kwargs):
+            nonlocal review_calls
+            response = MagicMock(status_code=200)
+            if path.endswith("/reviews"):
+                review_calls += 1
+                response.json.return_value = full_page
+            else:
+                response.json.return_value = []
+            return response
+
+        with patch.object(github, "api_request", side_effect=_dispatch):
+            result = github.get_pull_request_comments("PostHog/posthog", 7)
+
+        assert result["success"] is True
+        assert result["truncated"] is True
+        # A perpetually-full list is fetched up to the page cap, then flagged rather than looped forever.
+        assert review_calls == 5
+        assert len(result["comments"]) == 500
 
     def test_get_pull_request_comments_surfaces_upstream_failure(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})

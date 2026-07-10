@@ -33,8 +33,8 @@ function ReviewCommentRow({ entry }: { entry: ReviewCommentEntryApi }): JSX.Elem
                 </LemonTag>
             )}
             {entry.path && (
-                <LemonTag type="muted" size="small" className="font-mono">
-                    <span className="truncate">
+                <LemonTag type="muted" size="small" className="font-mono max-w-full min-w-0">
+                    <span className="truncate block">
                         {entry.path}
                         {entry.line != null ? `:${entry.line}` : ''}
                     </span>
@@ -81,6 +81,7 @@ export function PullRequestReviewCommentsSection({
         inboxReportDetailLogic({ reportId: report.id, report })
     )
     const comments = reportReviewComments?.comments ?? null
+    const truncated = reportReviewComments?.truncated ?? false
 
     return (
         <DetailSection
@@ -104,7 +105,17 @@ export function PullRequestReviewCommentsSection({
                 ) : comments.length === 0 ? (
                     <p className="m-0 py-4 text-sm text-tertiary">No review comments yet</p>
                 ) : (
-                    comments.map((entry, index) => <ReviewCommentRow key={index} entry={entry} />)
+                    <>
+                        {comments.map((entry, index) => (
+                            <ReviewCommentRow key={entry.html_url ?? index} entry={entry} />
+                        ))}
+                        {truncated && (
+                            <p className="m-0 text-xs text-tertiary italic">
+                                This pull request has more activity than shown here. Open it on GitHub for the full
+                                conversation.
+                            </p>
+                        )}
+                    </>
                 )}
             </div>
         </DetailSection>

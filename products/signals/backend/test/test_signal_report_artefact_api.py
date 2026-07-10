@@ -1366,6 +1366,28 @@ class TestSignalReportReviewComments(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         github.get_pull_request_comments.assert_called_once_with("PostHog/posthog", 55)
 
+    def test_review_comments_falls_back_to_branch_when_pr_url_points_at_other_repo(self):
+        # The report's implementation PR url points at a *different* repo than the commit artefact,
+        # so its PR number is meaningless here — resolution must fall back to the branch listing
+        # against the artefact's own repo rather than fetching the unrelated PR.
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        github = self._mock_github()
+        github.list_pull_requests.return_value = {
+            "success": True,
+            "pull_requests": [{"number": 55, "head_branch": _COMMIT_CONTENT["branch"]}],
+        }
+        github.get_pull_request_comments.return_value = {"success": True, "comments": [], "truncated": False}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/other-repo/pull/321"},
+        ):
+            response = self.client.get(self._url(str(report.id), str(artefact.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        github.list_pull_requests.assert_called_once()
+        github.get_pull_request_comments.assert_called_once_with("PostHog/posthog", 55)
+
     def test_review_comments_returns_404_when_no_pr_resolved(self):
         report = self._create_report()
         artefact = self._create_commit_artefact(report)

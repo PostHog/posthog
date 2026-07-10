@@ -677,3 +677,8 @@ class ReviewCommentsResponseSerializer(serializers.Serializer):
         help_text="Review activity for the pull request (submitted reviews, inline diff-thread "
         "comments, and conversation comments), oldest first.",
     )
+    truncated = serializers.BooleanField(
+        read_only=True,
+        help_text="True when the pull request has more review activity than was fetched, so the "
+        "newest entries may be missing and the full conversation lives on GitHub.",
+    )
