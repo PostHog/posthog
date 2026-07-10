@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
@@ -31,7 +31,8 @@ export const scene: SceneExport = {
 }
 
 export function LLMPromptsScene(): JSX.Element {
-    const { setFilters, deletePrompt, duplicatePrompt } = useActions(llmPromptsLogic)
+    const { setFilters, deletePrompt } = useActions(llmPromptsLogic)
+    const { duplicatePrompt } = useAsyncActions(llmPromptsLogic)
     const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel, shouldShowEmptyState } =
         useValues(llmPromptsLogic)
     const { searchParams } = useValues(router)

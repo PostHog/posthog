@@ -156,7 +156,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     actions({
         setPrompt: (prompt: ResolvedLLMPrompt | PromptFormValues) => ({ prompt }),
         deletePrompt: true,
-        duplicatePrompt: (newName: string) => ({ newName }),
+        duplicatePrompt: (sourceName: string, newName: string) => ({ sourceName, newName }),
         loadMoreVersions: true,
         setVersionsLoading: (versionsLoading: boolean) => ({ versionsLoading }),
         setMode: (mode: PromptMode) => ({ mode }),
@@ -739,10 +739,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             }
         },
 
-        duplicatePrompt: async ({ newName }) => {
-            if (isPrompt(values.prompt)) {
-                await requestPromptDuplicate(values.prompt.name, newName)
-            }
+        duplicatePrompt: async ({ sourceName, newName }) => {
+            await requestPromptDuplicate(sourceName, newName)
         },
 
         deletePrompt: async () => {

@@ -78,7 +78,7 @@ export async function requestPromptDuplicate(sourceName: string, newName: string
     }
 }
 
-export function openDuplicatePromptDialog(sourceName: string, onDuplicate: (newName: string) => void): void {
+export function openDuplicatePromptDialog(sourceName: string, onDuplicate: (newName: string) => Promise<void>): void {
     LemonDialog.openForm({
         title: 'Duplicate prompt',
         initialValues: {
@@ -97,8 +97,9 @@ export function openDuplicatePromptDialog(sourceName: string, onDuplicate: (newN
         errors: {
             newName: (name: string) => validatePromptName(name),
         },
+        shouldAwaitSubmit: true,
         onSubmit: async ({ newName }) => {
-            onDuplicate(newName)
+            await onDuplicate(newName)
         },
     })
 }

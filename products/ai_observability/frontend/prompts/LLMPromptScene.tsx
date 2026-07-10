@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 
@@ -68,12 +68,12 @@ export function LLMPromptScene(): JSX.Element {
         submitPromptForm,
         requestPublish,
         deletePrompt,
-        duplicatePrompt,
         setMode,
         setPromptFormValues,
         loadMoreVersions,
         cancelEditing,
     } = useActions(llmPromptLogic)
+    const { duplicatePrompt } = useAsyncActions(llmPromptLogic)
     const sourcePromptName = !isNewPrompt && prompt && isPrompt(prompt) ? prompt.name : null
     const sourcePromptVersion = isHistoricalVersion && isPrompt(prompt) ? prompt.version : null
     const openInPlaygroundUrl = sourcePromptName
@@ -150,7 +150,10 @@ export function LLMPromptScene(): JSX.Element {
                                         <LemonButton
                                             onClick={() => {
                                                 if (isPrompt(prompt)) {
-                                                    openDuplicatePromptDialog(prompt.name, duplicatePrompt)
+                                                    const sourceName = prompt.name
+                                                    openDuplicatePromptDialog(sourceName, (newName) =>
+                                                        duplicatePrompt(sourceName, newName)
+                                                    )
                                                 }
                                             }}
                                             data-attr="llma-prompt-detail-duplicate"
