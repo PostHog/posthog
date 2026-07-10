@@ -184,19 +184,34 @@ function nonEmptyStringProp(value: unknown): string | null {
     return typeof value === 'string' && value.length > 0 ? value : null
 }
 
-// A coding-agent session stamps the same git ref on every event; take the first event that carries any.
+// Default-branch names to look past when a trace spans a branch switch. The frontend doesn't know
+// the repo's real base ref; these cover GitHub's defaults, and a trace stamped only with them still
+// surfaces that stamp via the fallback below.
+const DEFAULT_BRANCHES = new Set(['master', 'main'])
+
+// A coding agent often starts a session on the default branch and creates the feature branch
+// mid-trace, so the first stamped event can carry master/main while the work (and the PR the spend
+// belongs to) lives on a later stamp. Prefer the latest non-default branch stamp — the branch the
+// trace's most recent work happened on — and fall back to the first stamped event when the trace
+// never left the default branch.
 export function deriveTraceGitMetadata(trace: LLMTrace | undefined): TraceGitMetadata | null {
     if (!trace) {
         return null
     }
+    let first: TraceGitMetadata | null = null
+    let lastFeature: TraceGitMetadata | null = null
     for (const event of trace.events) {
         const branch = nonEmptyStringProp(event.properties.$ai_git_branch)
         const repo = nonEmptyStringProp(event.properties.$ai_git_repo)
-        if (branch || repo) {
-            return { branch, repo }
+        if (!branch && !repo) {
+            continue
+        }
+        first = first ?? { branch, repo }
+        if (branch && !DEFAULT_BRANCHES.has(branch)) {
+            lastFeature = { branch, repo }
         }
     }
-    return null
+    return lastFeature ?? first
 }
 
 export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicType>([
