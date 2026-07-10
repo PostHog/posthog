@@ -432,3 +432,6 @@ def early_access_features(request: Request):
     ).data
 
     return cors_response(request, JsonResponse({"earlyAccessFeatures": early_access_features}))
+
+
+# devex: coverage reporter demo touch — remove before merge

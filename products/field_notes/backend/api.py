@@ -169,3 +169,6 @@ class FieldNoteViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if host:
             queryset = queryset.filter(host=host)
         return queryset.order_by("-created_at")
+
+
+# devex: coverage reporter demo touch — remove before merge
