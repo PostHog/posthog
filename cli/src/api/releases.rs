@@ -172,11 +172,23 @@ impl ReleaseBuilder {
 
         let client = &context().client;
 
-        let response = client
+        let response = match client
             .send_post(client.project_url("error_tracking/releases")?, |req| {
                 req.json(&request)
-            })
-            .context("Failed to create release")?;
+            }) {
+            Ok(response) => response,
+            // Losing a create race - a concurrent upload (e.g. parallel builds of
+            // white-label apps sharing one release name) registering the same
+            // (name, version) hash between our lookup and this create - surfaces
+            // as a 400 ("already in use") or a 500 (database unique violation).
+            // If the release exists now, use theirs instead of failing.
+            Err(e) => {
+                if let Ok(Some(release)) = Release::lookup(&request.project, &request.version) {
+                    return Ok(release);
+                }
+                return Err(e).context("Failed to create release");
+            }
+        };
 
         let response = response.json::<Release>()?;
         info!(
