@@ -1,10 +1,10 @@
+import sys
 from ssl import SSLError
 
 from django.db import OperationalError
 
 from billiard.exceptions import SoftTimeLimitExceeded
 from clickhouse_driver.errors import SocketTimeoutError
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from rest_framework.exceptions import ValidationError
 from urllib3.exceptions import MaxRetryError, ProtocolError, ReadTimeoutError
 
@@ -126,7 +126,6 @@ USER_QUERY_ERRORS = (
 TIMEOUT_ERRORS = (
     SoftTimeLimitExceeded,
     TimeoutError,
-    PlaywrightTimeoutError,
     ExportCancelled,
 )
 
@@ -135,7 +134,20 @@ USER_QUERY_ERROR_NAMES = frozenset(cls.__name__ for cls in USER_QUERY_ERRORS)
 SYSTEM_ERROR_NAMES = frozenset(cls.__name__ for cls in EXCEPTIONS_TO_RETRY)
 # "TimeoutException" kept literally: historical ExportedAsset rows from the retired selenium
 # render path stored that exception name and must still classify as timeouts.
+# playwright's TimeoutError.__name__ is also "TimeoutError" (aliased on import), so it's already
+# covered here without needing the class itself.
 TIMEOUT_ERROR_NAMES = frozenset(cls.__name__ for cls in TIMEOUT_ERRORS) | {"TimeoutException"}
+
+
+def _is_playwright_timeout(exception: BaseException) -> bool:
+    # playwright is a heavy import (browser automation), only needed by the actual image-export
+    # path. isinstance() against it can't be a real match unless something has already imported
+    # playwright.sync_api (raising one requires it), so checking sys.modules first avoids paying
+    # the import cost on every failure-classification call.
+    playwright_sync_api = sys.modules.get("playwright.sync_api")
+    if playwright_sync_api is None:
+        return False
+    return isinstance(exception, playwright_sync_api.TimeoutError)
 
 
 def classify_failure_type(exception: Exception | str) -> str:
@@ -143,7 +155,7 @@ def classify_failure_type(exception: Exception | str) -> str:
     # these same tuples, so isinstance has identical coverage while avoiding false positives from
     # unrelated classes that merely share a name (django/pydantic ValidationError, builtin SyntaxError).
     if isinstance(exception, Exception):
-        if isinstance(exception, TIMEOUT_ERRORS):
+        if isinstance(exception, TIMEOUT_ERRORS) or _is_playwright_timeout(exception):
             return FAILURE_TYPE_TIMEOUT_GENERATION
         if isinstance(exception, USER_QUERY_ERRORS):
             return FAILURE_TYPE_USER
