@@ -36,7 +36,10 @@ from pathlib import Path
 
 from gates import is_trivial_at_dismiss_time
 
-BOT_LOGIN = "github-actions[bot]"
+# Both identities Stamphog approves under: github-actions[bot] posts a
+# bodyless approval, stamphog[bot] (the app) posts the approval carrying the
+# review body. Either counts as a prior bot approval for the delta check.
+BOT_LOGINS = {"github-actions[bot]", "stamphog[bot]"}
 
 
 class Reason(StrEnum):
@@ -136,14 +139,14 @@ def select_last_bot_approval(reviews: list[dict]) -> str | None:
     excluded; ties are broken by `submitted_at`.
     """
     bot_approvals = sorted(
-        (r for r in reviews if r.get("user", {}).get("login") == BOT_LOGIN and r.get("state") == "APPROVED"),
+        (r for r in reviews if r.get("user", {}).get("login") in BOT_LOGINS and r.get("state") == "APPROVED"),
         key=lambda r: r.get("submitted_at", ""),
     )
     return bot_approvals[-1].get("commit_id") if bot_approvals else None
 
 
 def find_last_approved_sha(repo: str, pr_number: int) -> str | None:
-    """Commit SHA of the most recent github-actions[bot] APPROVED review."""
+    """Commit SHA of the most recent Stamphog-bot APPROVED review."""
     reviews = json.loads(_run("gh", "api", f"repos/{repo}/pulls/{pr_number}/reviews", "--paginate"))
     return select_last_bot_approval(reviews)
 
