@@ -92,6 +92,7 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flags_cache_entries,
 )
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
+from products.mcp_store.backend.facade.tasks import maintain_shared_installations
 from products.reminders.backend.tasks import process_due_reminders
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
@@ -712,6 +713,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="30"),
         cleanup_expired_test_saved_queries.s(),
         name="cleanup expired test saved queries",
+    )
+
+    # Refresh expiring OAuth tokens and re-sync stale tool catalogs for shared MCP installations
+    sender.add_periodic_task(
+        crontab(minute="45"),
+        maintain_shared_installations.s(),
+        name="maintain shared MCP installations",
     )
 
     # Reopen snoozed conversation tickets whose snooze period has expired
