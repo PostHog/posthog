@@ -16,8 +16,10 @@ Split products write partial coverage.xml across several shards; this unions the
 covered line numbers per source file across all shards for a product, so the
 percentage is exact rather than a per-shard average.
 
-When GITHUB_TOKEN + PR number are present the report is posted as a sticky PR
-comment (find-or-update by marker). Otherwise it's printed to stdout.
+When GITHUB_TOKEN + PR number are present and the PR leaves product-backend lines
+uncovered, the report is posted as a sticky PR comment (find-or-update by marker);
+a PR with no uncovered changed lines clears any stale comment. Otherwise it prints
+to stdout.
 
 stdlib only — mirrors scripts/test_analyze.py.
 """
@@ -283,6 +285,15 @@ def post_comment(repo: str, pr: int, token: str, body: str) -> None:
         sys.stdout.write("Created sticky coverage comment\n")
 
 
+def delete_sticky_comment(repo: str, pr: int, token: str) -> bool:
+    """Delete the sticky coverage comment if present; return whether one was removed."""
+    existing = find_sticky_comment(repo, pr, token)
+    if existing is None:
+        return False
+    gh_request("DELETE", f"https://api.github.com/repos/{repo}/issues/comments/{existing}", token)
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifacts", required=True, type=Path, help="dir holding downloaded coverage-xml-* artifacts")
@@ -297,12 +308,13 @@ def main() -> int:
     covered, valid = aggregate(args.artifacts)
     results = collect(covered, valid)
 
+    patch_data: dict | None = None
     patch_section: str | None = None
     if args.combined_out is not None and results:
         write_combined_cobertura(covered, valid, args.combined_out)
-        data = run_diff_cover(args.combined_out, args.compare_branch, args.patch_json_out)
-        if data is not None:
-            patch_section = render_patch_section(data)
+        patch_data = run_diff_cover(args.combined_out, args.compare_branch, args.patch_json_out)
+        if patch_data is not None:
+            patch_section = render_patch_section(patch_data)
 
     markdown = render_markdown(results, patch_section)
 
@@ -310,23 +322,29 @@ def main() -> int:
         args.out.write_text(markdown)
     sys.stdout.write(markdown + "\n")
 
-    if not results:
-        # Nothing touched a product backend — don't create comment noise.
-        sys.stderr.write("No product coverage found — skipping comment post\n")
-        return 0
-
     token = os.environ.get("GITHUB_TOKEN")
     repo = os.environ.get("GITHUB_REPOSITORY")
     pr_number = os.environ.get("PR_NUMBER")
-    if token and repo and pr_number:
-        try:
-            post_comment(repo, int(pr_number), token, markdown)
-        except urllib.error.HTTPError as exc:
-            sys.stderr.write(
-                f"::warning::failed to post coverage comment: {exc} {exc.read().decode(errors='replace')}\n"
-            )
-    else:
+    if not (token and repo and pr_number):
         sys.stderr.write("No GITHUB_TOKEN/PR context — skipping comment post\n")
+        return 0
+
+    # Comment only when this PR leaves product-backend lines uncovered — the actionable case.
+    # No coverable change or full coverage clears any stale comment; an undetermined patch
+    # (diff-cover unavailable, or no product ran) leaves whatever is there untouched.
+    if patch_data is None:
+        sys.stderr.write("Patch coverage undetermined — leaving any existing comment untouched\n")
+        return 0
+    uncovered = int(patch_data.get("total_num_violations", 0))
+    try:
+        if uncovered > 0:
+            post_comment(repo, int(pr_number), token, markdown)
+        else:
+            removed = delete_sticky_comment(repo, int(pr_number), token)
+            state = "removed stale comment" if removed else "nothing to post"
+            sys.stderr.write(f"No uncovered changed product-backend lines — {state}\n")
+    except urllib.error.HTTPError as exc:
+        sys.stderr.write(f"::warning::coverage comment update failed: {exc} {exc.read().decode(errors='replace')}\n")
     return 0
 
 
