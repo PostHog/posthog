@@ -28694,9 +28694,10 @@ export namespace Schemas {
     }
 
     export interface MCPToolFailureItem {
-      /** Resolved harness labels seen for this exception, deduped and sorted. */
+      /** Resolved harness labels seen for this failure, deduped and sorted. */
       harnesses: string[];
       last_seen: string;
+      /** Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. "api_5xx (HTTP 500)"). */
       message: string;
       occurrences: number;
     }
@@ -28728,7 +28729,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       response?: MCPToolFailuresQueryResponse | null;
       tags?: QueryLogTags | null;
-      /** The raw $mcp_tool_name to scope $exception events to. */
+      /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
       toolName: string;
       /** version of the node, used for schema migrations */
       version?: number | null;

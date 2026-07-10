@@ -236,8 +236,9 @@ wrappers:
             Return the most common failure buckets for a single MCP tool, each with the resolved client harness it came
             from. Failures are the errored $mcp_tool_call events ($mcp_is_error = true) — the same source as the error
             rate — grouped by $mcp_error_type and HTTP $mcp_error_status (there is no free-text error message on tool
-            calls). Pass toolName (effective tool name, resolved server-side, matching the other tool-detail tools) and a
-            dateRange. Use to answer "why is tool X failing?" or "what errors does tool X throw, and on which clients?".
+            calls). Pass toolName (effective tool name, resolved server-side, matching the other tool-detail tools) and
+            a dateRange. Use to answer "why is tool X failing?" or "what errors does tool X throw, and on which
+            clients?".
         system_prompt_hint: One MCP tool's top failure buckets, by harness (error type + HTTP status)
         exclude_properties:
             - response

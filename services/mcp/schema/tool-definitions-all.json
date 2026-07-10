@@ -6963,7 +6963,7 @@
         "system_prompt_hint": "Distinct effective descriptions seen for one MCP tool"
     },
     "query-mcp-tool-failures": {
-        "description": "Return the most common error messages for a single MCP tool, each with the resolved client harness it came from. Pass toolName as the raw $mcp_tool_name (the registered tool name) — failures are matched on $exception events, which don't carry the new-SDK effective-tool markers, so unlike the other tool-detail tools this one does NOT resolve the inner tool of a single-exec wrapper call. Also pass a dateRange. Use to answer \"why is tool X failing?\" or \"what errors does tool X throw, and on which clients?\".",
+        "description": "Return the most common failure buckets for a single MCP tool, each with the resolved client harness it came from. Failures are the errored $mcp_tool_call events ($mcp_is_error = true) — the same source as the error rate — grouped by $mcp_error_type and HTTP $mcp_error_status (there is no free-text error message on tool calls). Pass toolName (effective tool name, resolved server-side, matching the other tool-detail tools) and a dateRange. Use to answer \"why is tool X failing?\" or \"what errors does tool X throw, and on which clients?\".",
         "category": "MCP analytics",
         "feature": "mcp_analytics",
         "summary": "Top errors for one MCP tool",
@@ -6976,7 +6976,7 @@
             "readOnlyHint": true
         },
         "feature_flag": "mcp-analytics",
-        "system_prompt_hint": "One MCP tool's top error messages, by harness (scoped by raw tool name)"
+        "system_prompt_hint": "One MCP tool's top failure buckets, by harness (error type + HTTP status)"
     },
     "query-mcp-tool-neighbors": {
         "description": "Return the tools most often called immediately before or after a single MCP tool within the same conversation. Pass toolName (effective tool name, resolved server-side), a dateRange, and neighborDirection ('before' or 'after'). Use to answer \"what does an agent call around tool X?\" — revealing common tool sequences and which tools pair up.",
