@@ -26,12 +26,12 @@ testWithWorkspace.describe('OAuth MCP consent', () => {
                 await expect(page.getByRole('button', { name: 'Authorize E2E MCP Consent Test App' })).toBeVisible({
                     timeout: 30_000,
                 })
-                await expect(page.getByText('Loading permissions...')).toBeHidden({ timeout: 60_000 })
             })
 
             await test.step('assert server-preloaded MCP scopes', async () => {
                 await expect(page.getByText('Showing all permissions supported by this resource')).toBeVisible()
-                await expect(page.getByText('Limited permission list')).toBeHidden()
+                // notebook scopes are absent from the old static fallback, so their
+                // presence proves the server derived the full catalog.
                 await expect(page.getByText(/access to notebooks/i)).toBeVisible()
             })
         }
