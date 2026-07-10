@@ -18,6 +18,7 @@ import {
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
+import { EXPOSURE_DEFAULT_EVENT } from '../exposureContract'
 import { useChartColors } from '../MetricsView/shared/colors'
 import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
@@ -223,7 +224,7 @@ function ExposuresChart({ exposures, axisLineColor }: ExposuresChartProps): JSX.
 function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
     const exposureConfig = exposureCriteria?.exposure_config
     if (!exposureConfig) {
-        return 'Default ($feature_flag_called)'
+        return `Default (${EXPOSURE_DEFAULT_EVENT})`
     }
 
     const displayName = getExposureConfigDisplayName(exposureConfig)

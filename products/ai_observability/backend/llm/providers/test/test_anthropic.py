@@ -1,7 +1,11 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
+import httpx
+import anthropic
 from parameterized import parameterized
 
+from products.ai_observability.backend.llm.errors import ContextWindowExceededError
 from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter, AnthropicConfig
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
 
@@ -131,3 +135,35 @@ class TestAnthropicTemperature:
     def test_explicit_temperature_forwarded(self, model: str):
         assert self._complete_with_model(model, temperature=0.5)["temperature"] == 0.5
         assert self._stream_with_model(model, temperature=0.5)["temperature"] == 0.5
+
+
+def _make_bad_request_error(message: str) -> anthropic.BadRequestError:
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(status_code=400, request=request, json={"error": {"message": message}})
+    return anthropic.BadRequestError(message, response=response, body={"error": {"message": message}})
+
+
+class TestAnthropicErrorMapping:
+    @parameterized.expand(
+        [
+            ("prompt_too_long", "prompt is too long: 300000 tokens > 200000 maximum"),
+            ("input_tokens_exceed", "input tokens exceed the maximum allowed for this model"),
+        ]
+    )
+    def test_context_window_400_maps_to_context_window_exceeded(self, _name: str, message: str):
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.side_effect = _make_bad_request_error(message)
+
+            with pytest.raises(ContextWindowExceededError):
+                AnthropicAdapter().complete(
+                    CompletionRequest(
+                        model="claude-haiku-4-5",
+                        messages=[{"role": "user", "content": "hi"}],
+                        provider="anthropic",
+                        system="s",
+                    ),
+                    api_key="sk-ant-test",
+                    analytics=AnalyticsContext(capture=False),
+                )

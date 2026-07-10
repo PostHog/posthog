@@ -36,9 +36,11 @@ import type {
     VisionActionsListParams,
     VisionActionsRunsListParams,
     VisionObservationsListParams,
+    VisionObservationsRetrieveParams,
     VisionQuotaApi,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
+    VisionScannersObservationsRetrieveParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersPromptSuggestionsListParams,
 } from './api.schemas'
@@ -250,19 +252,36 @@ export const visionObservationsList = async (
     })
 }
 
-export const getVisionObservationsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/observations/${id}/`
+export const getVisionObservationsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: VisionObservationsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/observations/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/observations/${id}/`
 }
 
 /**
- * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
+ * Retrieve one observation. Any list filters passed along (status, tags, order_by, …) scope the `previous_observation_id`/`next_observation_id` navigation to the matching, identically-ordered set — so prev/next from a filtered table stays within that filtered list.
  */
 export const visionObservationsRetrieve = async (
     projectId: string,
     id: string,
+    params?: VisionObservationsRetrieveParams,
     options?: RequestInit
 ): Promise<ReplayObservationApi> => {
-    return apiMutator<ReplayObservationApi>(getVisionObservationsRetrieveUrl(projectId, id), {
+    return apiMutator<ReplayObservationApi>(getVisionObservationsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -501,23 +520,44 @@ export const visionScannersObservationsList = async (
     )
 }
 
-export const getVisionScannersObservationsRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/`
+export const getVisionScannersObservationsRetrieveUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    params?: VisionScannersObservationsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/`
 }
 
 /**
- * Read-only access to observations produced by a scanner.
+ * Retrieve one observation. Any list filters passed along (status, tags, order_by, …) scope the `previous_observation_id`/`next_observation_id` navigation to the matching, identically-ordered set — so prev/next from a filtered table stays within that filtered list.
  */
 export const visionScannersObservationsRetrieve = async (
     projectId: string,
     scannerId: string,
     id: string,
+    params?: VisionScannersObservationsRetrieveParams,
     options?: RequestInit
 ): Promise<ReplayObservationApi> => {
-    return apiMutator<ReplayObservationApi>(getVisionScannersObservationsRetrieveUrl(projectId, scannerId, id), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<ReplayObservationApi>(
+        getVisionScannersObservationsRetrieveUrl(projectId, scannerId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getVisionScannersObservationsLabelCreateUrl = (projectId: string, scannerId: string, id: string) => {

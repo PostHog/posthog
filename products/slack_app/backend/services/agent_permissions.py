@@ -94,11 +94,11 @@ def _build_card_body(tool_label: str, tool_detail: str | None) -> str:
 def _permission_option_label(option: dict[str, Any]) -> str:
     kind = option.get("kind")
     if kind == "allow_once":
-        return "Allow once"
+        return "Allow"
     if kind == "allow_always":
         return "Always allow this command"
     if kind == "reject_once":
-        return "Deny once"
+        return "Deny"
     name = option.get("name")
     return _truncate_slack_text(name, 75) if isinstance(name, str) and name.strip() else "Use this permission"
 

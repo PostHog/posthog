@@ -70,7 +70,7 @@ catalog:
     # React types
     '@types/react': ^18.3.27
     '@types/react-dom': ^18.3.7
-    '@base-ui/react': 1.5.0
+    '@base-ui/react': 1.6.0
     # Other shared
     husky: ^7.0.4
     lint-staged: ~15.4.3
@@ -96,8 +96,15 @@ minimumReleaseAgeExclude:
     - bloommx@1.0.3
     - '@shadcn/react'
     - mermaid@11.15.0
-    - '@mermaid-js/*'
     - kea-typegen
+    - '@typescript/native-preview'
+    - '@typescript/native-preview-darwin-arm64'
+    - '@typescript/native-preview-darwin-x64'
+    - '@typescript/native-preview-linux-arm'
+    - '@typescript/native-preview-linux-arm64'
+    - '@typescript/native-preview-linux-x64'
+    - '@typescript/native-preview-win32-arm64'
+    - '@typescript/native-preview-win32-x64'
     - shiki
     - shadcn
     - '@shikijs/*'

@@ -88,9 +88,9 @@ export class InstructionsFormatter {
      *
      *  `keepEnvContext` is the escape hatch for clients that report
      *  `supportsInstructions` but don't actually surface the `instructions`
-     *  payload to the model (Claude web/desktop): it retains the full env-context
-     *  (tool-domain index, project metadata, group types) here even though
-     *  `stripEnvContext` is set, so it still reaches the agent.
+     *  payload to the model (Claude web/desktop): it retains the env-context
+     *  (project metadata, group types) here even though `stripEnvContext` is
+     *  set, so it still reaches the agent.
      *
      *  SIZE BUDGET: the serialized exec tool entry must stay under 32,600 chars —
      *  clients (e.g. Claude web/desktop) silently drop tools past ~32,768, which
@@ -122,14 +122,14 @@ export class InstructionsFormatter {
                   guidelines: ctx.guidelines,
                   queryTools: ctx.queryTools,
                   featureFlags: ctx.featureFlags,
-                  ...(opts.keepEnvContext
-                      ? { tools: ctx.tools, metadata: ctx.metadata, groupTypes: ctx.groupTypes }
-                      : {}),
+                  ...(opts.keepEnvContext ? { metadata: ctx.metadata, groupTypes: ctx.groupTypes } : {}),
               }
-            : ctx
-        // Compact tool domains: the command reference rides inside a tool schema,
-        // where the pipe-separated form buys back budget over the bullet list.
-        return this.compose(sections, renderCtx, { compact: false, compactToolDomains: true })
+            : { ...ctx, tools: undefined }
+        // Tool domains are temporarily omitted from the command reference while we
+        // probe claude.ai's per-tool size cap (it silently drops oversized entries);
+        // agents still discover domains at runtime via the `search` command, and
+        // `instructions`-honoring clients keep the compact domain index there.
+        return this.compose(sections, renderCtx, { compact: false })
     }
 
     /** The agent-feedback section is only useful when the `agent-feedback` tool
@@ -139,13 +139,8 @@ export class InstructionsFormatter {
         return featureFlags?.['mcp-feedback-tool'] === true
     }
 
-    private compose(
-        sections: string[],
-        ctx: InstructionsContext,
-        opts: { compact: boolean; compactToolDomains?: boolean }
-    ): string {
-        const renderToolDomains =
-            opts.compact || opts.compactToolDomains ? buildToolDomainsCompact : buildToolDomainsBlock
+    private compose(sections: string[], ctx: InstructionsContext, opts: { compact: boolean }): string {
+        const renderToolDomains = opts.compact ? buildToolDomainsCompact : buildToolDomainsBlock
         // `{query_tools}` only appears in non-compact sections (the exec command
         // reference and tools-mode instructions); compact mode surfaces queries
         // via the single `query` tool domain instead.
