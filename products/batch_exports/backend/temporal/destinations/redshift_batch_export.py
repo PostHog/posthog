@@ -1058,7 +1058,7 @@ async def upload_manifest_file(
         credentials.aws_session_token,
         region=region_name,
         # Required for unit tests which run against a local bucket, otherwise always None.
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT_URL if settings.TEST else None,
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT if settings.TEST else None,
     ) as client:
         entries = []
 
