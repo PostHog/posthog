@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
+from django.test import override_settings
 
 from celery.exceptions import MaxRetriesExceededError
 from parameterized import parameterized
@@ -457,6 +458,9 @@ class TestSlackNudge(BaseTest):
             "slack_channel_id": "C_CONFIG",
         }
         self.team.save()
+        capture_patcher = patch(f"{MODULE}.capture_nudge_event")
+        self.mock_capture_event = capture_patcher.start()
+        self.addCleanup(capture_patcher.stop)
 
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
@@ -492,6 +496,24 @@ class TestSlackNudge(BaseTest):
             element["text"] for block in kwargs["blocks"] if block["type"] == "context" for element in block["elements"]
         ]
         assert any("react to your original message" in text for text in context_texts)
+        # Funnel instrumentation: the sent event and the button values carry the thread key
+        # and the classifier verdict ("skipped" here — settings.TEST bypasses the LLM).
+        self.mock_capture_event.assert_called_once()
+        _team, event_name, event_props = self.mock_capture_event.call_args.args
+        assert event_name == "support nudge sent"
+        assert event_props["slack_thread_ts"] == "1700000000.000100"
+        assert event_props["classifier_verdict"] == "skipped"
+        assert event_props["llm_classifier_used"] is False
+        button_values = [
+            json.loads(element["value"])
+            for block in kwargs["blocks"]
+            if block["type"] == "actions"
+            for element in block["elements"]
+        ]
+        assert all(
+            value == {"channel": "C_OTHER", "message_ts": "1700000000.000100", "classifier": "skipped"}
+            for value in button_values
+        )
 
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
@@ -645,6 +667,147 @@ class TestSlackNudge(BaseTest):
 
         # First message nudges and sets a cooldown; the second is suppressed.
         mock_get_client.return_value.chat_postMessage.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("classifier_says_yes", "yes", True, "yes"),
+            ("classifier_says_yes_with_punctuation", "Yes.", True, "yes"),
+            ("classifier_says_no", "no", False, "no"),
+            ("classifier_call_fails_degrades_to_heuristics", None, True, "error"),
+        ]
+    )
+    @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
+    @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_llm_gates_nudge_when_ai_processing_approved(
+        self,
+        _name,
+        llm_answer,
+        expect_prompt,
+        expected_verdict,
+        mock_create_or_update,
+        mock_get_client,
+        mock_get_llm_client,
+        _mock_flag_enabled,
+    ):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        if llm_answer is None:
+            # A gateway failure must be swallowed (no Celery retry storm) and fall back to
+            # the heuristics-only nudge instead of silently disabling the feature.
+            mock_get_llm_client.return_value.chat.completions.create.side_effect = RuntimeError("gateway down")
+        else:
+            completion = Mock()
+            completion.choices = [Mock(message=Mock(content=llm_answer))]
+            mock_get_llm_client.return_value.chat.completions.create.return_value = completion
+
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_OTHER",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "my data export keeps failing",
+            },
+            self.team,
+            "T123",
+        )
+
+        if expect_prompt:
+            mock_get_client.return_value.chat_postMessage.assert_called_once()
+            expected_event = "support nudge sent"
+        else:
+            mock_get_client.return_value.chat_postMessage.assert_not_called()
+            expected_event = "support nudge suppressed"
+        mock_create_or_update.assert_not_called()
+
+        # Every classifier outcome is captured for the nudge funnel, keyed by thread.
+        self.mock_capture_event.assert_called_once()
+        _team, event_name, event_props = self.mock_capture_event.call_args.args
+        assert event_name == expected_event
+        assert event_props["slack_thread_ts"] == "1700000000.000100"
+        assert event_props["classifier_verdict"] == expected_verdict
+        assert event_props["llm_classifier_used"] is (expected_verdict in ("yes", "no"))
+
+    @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
+    @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_classifier_no_starts_cooldown_so_chatter_is_not_reclassified(
+        self, mock_create_or_update, mock_get_client, mock_get_llm_client, _mock_flag_enabled
+    ):
+        # A "no" verdict must start the nudge cooldown — otherwise an external user posting
+        # chatter triggers a paid classifier call on every single message.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        completion = Mock()
+        completion.choices = [Mock(message=Mock(content="no"))]
+        mock_get_llm_client.return_value.chat.completions.create.return_value = completion
+
+        event = {
+            "type": "message",
+            "channel": "C_OTHER",
+            "user": "U123",
+            "text": "lovely weather over here today, hope you all have a great weekend",
+        }
+        handle_support_message({**event, "ts": "1700000000.000100"}, self.team, "T123")
+        handle_support_message({**event, "ts": "1700000000.000200"}, self.team, "T123")
+
+        assert mock_get_llm_client.return_value.chat.completions.create.call_count == 1
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
+        mock_create_or_update.assert_not_called()
+        # Only the first message reaches the classifier; the cooldown swallows the second,
+        # so exactly one suppression event lands in the funnel.
+        assert self.mock_capture_event.call_count == 1
+        assert self.mock_capture_event.call_args.args[1] == "support nudge suppressed"
+
+    @parameterized.expand(
+        [
+            ("ai_processing_off", False, True),
+            ("rollout_flag_off", True, False),
+        ]
+    )
+    @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
+    @patch(f"{MODULE}.posthoganalytics.feature_enabled")
+    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_nudge_never_calls_llm_when_gated_off(
+        self,
+        _name,
+        ai_approved,
+        flag_enabled,
+        mock_create_or_update,
+        mock_get_client,
+        mock_get_llm_client,
+        mock_flag_enabled,
+    ):
+        # Opted-out orgs must not have customer messages sent to the LLM gateway, and the
+        # rollout flag must be able to hold the classifier off; both keep the heuristics-only
+        # nudge working.
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save()
+        mock_flag_enabled.return_value = flag_enabled
+
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_OTHER",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "my data export keeps failing",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_get_llm_client.assert_not_called()
+        mock_get_client.return_value.chat_postMessage.assert_called_once()
+        mock_create_or_update.assert_not_called()
 
     @patch(f"{MODULE}._backfill_thread_replies")
     @patch(f"{MODULE}.get_slack_client")
@@ -861,6 +1024,9 @@ class TestSupporthogInteractivity(BaseTest):
         config.slack_team_id = "T123"
         config.slack_bot_token = "xoxb-test"
         config.save(update_fields=["slack_team_id", "slack_bot_token"])
+        capture_patcher = patch(f"{TASKS_MODULE}.capture_nudge_event")
+        self.mock_capture_event = capture_patcher.start()
+        self.addCleanup(capture_patcher.stop)
 
     def _payload(self, action_id: str, value: dict) -> dict:
         return {
@@ -889,7 +1055,10 @@ class TestSupporthogInteractivity(BaseTest):
         mock_get_client.return_value.auth_test.return_value = {"user_id": "U_BOT"}
 
         process_supporthog_interactivity(
-            self._payload(TICKET_CONFIRM_ACTION_DISMISS, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+            self._payload(
+                TICKET_CONFIRM_ACTION_DISMISS,
+                {"channel": "C_CONFIG", "message_ts": "1700000000.000100", "classifier": "yes"},
+            ),
             "T123",
         )
 
@@ -897,6 +1066,14 @@ class TestSupporthogInteractivity(BaseTest):
         client.chat_delete.assert_called_once()
         client.chat_postEphemeral.assert_called_once()
         assert is_nudge_suppressed(self.team.pk, "C_CONFIG", "U_CLICKER")
+        # The dismiss lands in the nudge funnel keyed by thread, with the verdict echoed
+        # back from the button value.
+        self.mock_capture_event.assert_called_once()
+        _team, event_name, event_props = self.mock_capture_event.call_args.args
+        assert event_name == "support nudge dismissed"
+        assert event_props["slack_thread_ts"] == "1700000000.000100"
+        assert event_props["slack_user_id"] == "U_CLICKER"
+        assert event_props["classifier_verdict"] == "yes"
 
     @parameterized.expand(
         [
@@ -906,6 +1083,7 @@ class TestSupporthogInteractivity(BaseTest):
                 Mock(ticket_number=42),
                 True,
                 "ticket #42",
+                True,
             ),
             (
                 "genuine_failure",
@@ -913,14 +1091,23 @@ class TestSupporthogInteractivity(BaseTest):
                 None,
                 True,
                 "couldn't",
+                False,
             ),
-            ("malformed_value", {}, None, False, "couldn't"),
+            ("malformed_value", {}, None, False, "couldn't", False),
         ]
     )
     @patch(f"{TASKS_MODULE}.get_slack_client")
     @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
     def test_open_replaces_prompt_with_confirmation_or_error(
-        self, _name, value, create_return, expect_create_called, expected_text, mock_create, mock_get_client
+        self,
+        _name,
+        value,
+        create_return,
+        expect_create_called,
+        expected_text,
+        expected_ticket_created,
+        mock_create,
+        mock_get_client,
     ):
         mock_create.return_value = create_return
 
@@ -930,6 +1117,13 @@ class TestSupporthogInteractivity(BaseTest):
         client = mock_get_client.return_value
         client.chat_update.assert_called_once()
         assert expected_text in client.chat_update.call_args.kwargs["text"].lower()
+        # The click lands in the nudge funnel with the outcome; prompts posted before the
+        # verdict was stamped into the button value report "unknown".
+        self.mock_capture_event.assert_called_once()
+        _team, event_name, event_props = self.mock_capture_event.call_args.args
+        assert event_name == "support nudge open ticket clicked"
+        assert event_props["ticket_created"] is expected_ticket_created
+        assert event_props["classifier_verdict"] == "unknown"
 
     @patch(f"{TASKS_MODULE}.get_slack_client")
     @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")

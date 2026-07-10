@@ -35,8 +35,9 @@ import subprocess
 import urllib.request
 from urllib.parse import urlsplit
 
-from hogland import AccessType, AuthenticationError, BoxSpec, ConflictError, Hogland, NotFoundError
+from hogland import AccessType, AuthenticationError, BoxSpec, ConflictError, Hogland, NotFoundError, ServerError
 
+from . import timing
 from .backend import ExecResult, PreviewBackend
 
 # hogplane caps a single write_file body at 64 MiB (octet-stream PUT). Blobs over
@@ -44,6 +45,13 @@ from .backend import ExecResult, PreviewBackend
 # together in-box; _WRITE_CHUNK keeps headroom under the hard cap.
 _WRITE_FILE_CAP = 64 * 1024 * 1024
 _WRITE_CHUNK = 48 * 1024 * 1024
+
+# Placement is best-effort server-side: a hogd node can die mid-restore (an OOM,
+# a drain) and hogland surfaces it as a 5xx (e.g. `placement failed: ... EOF`).
+# The next attempt lands on a healthy node, so retry create/restore on transient
+# 5xx only — never on a 4xx, which is a real client error that a retry won't fix.
+_CREATE_5XX_ATTEMPTS = 3
+_CREATE_5XX_BACKOFF_SECONDS = (5, 15)  # slept BEFORE attempts 2 and 3
 
 
 def _ephemeral_ssh_pubkey() -> str:
@@ -116,19 +124,24 @@ class HoglandBackend(PreviewBackend):
         if self._box is not None:
             return
         if self._box_id:  # explicit reuse (debug / staged CI)
+            timing.stage(f"attach to box {self._box_id}")
             self._box = self._client.get(self._box_id)
             self._wait_exec_ready()
+            timing.stage("box exec ready")
             return
         # Stable identity first, then a fresh box from the golden. _restore_fresh
         # reaps a stale same-named box (a leaked prior run) via its ConflictError
         # path, so at most one box holds the name at a time; we then point the pen
         # at the new box. The pen outlives the box across pushes.
+        timing.stage("pen resolve/create")
         self._ensure_pen()
+        timing.stage("box restore start")
         self._box = self._restore_fresh()
         self._box_id = self._box.id
         # `running` means the VM resumed, not that hogpanion's HTTP API answers
         # yet — a restored box needs a beat before the first exec.
         self._wait_exec_ready()
+        timing.stage("box restored (exec ready)")
         # Point the pen at the new box, re-send the spec so it carries the current
         # shape, and RE-ASSERT the hibernate/wake policies. The spec re-send heals
         # a pen left by an older SDK whose nested expose:{http_port} the server
@@ -165,18 +178,54 @@ class HoglandBackend(PreviewBackend):
             "web_port": self.web_port,
         }
 
+    def _create(self):
+        """Create/restore the box, retrying transient 5xx ServerErrors only.
+
+        Placement can fail on a node death mid-restore (OOM / drain) and comes
+        back as a 5xx; a retry seconds later lands on a healthy node. A 4xx is a
+        real client error (bad spec, name conflict) that a retry won't fix, so it
+        propagates immediately — ConflictError in particular flows up to
+        _restore_fresh's own reap-and-retry loop untouched. That keeps the two
+        retry mechanisms from multiplying: a persistent 5xx exhausts these few
+        attempts and raises (breaking the ConflictError loop, which never catches
+        ServerError), and a ConflictError never triggers this backoff."""
+        for attempt in range(_CREATE_5XX_ATTEMPTS):
+            try:
+                return self._client.create(**self._create_kwargs())
+            except ServerError:
+                if attempt == _CREATE_5XX_ATTEMPTS - 1:
+                    raise  # out of retries — surface the 5xx
+                time.sleep(_CREATE_5XX_BACKOFF_SECONDS[attempt])
+        # Unreachable: the loop either returns or raises on the last attempt.
+        raise RuntimeError("unreachable")
+
     def _restore_fresh(self):
         """Restore the golden into a new box. If our name is already taken, a
         prior run left a box behind — teardown only fires on PR *close*, so a
         failed/cancelled run leaks its box. Replace it so each run is idempotent
         (retry the create while the freed name propagates)."""
         try:
-            return self._client.create(**self._create_kwargs())
+            return self._create()
         except ConflictError:
             try:
                 stale = self._resolve_box()
                 if stale is not None:
                     stale.delete()
+                    # Close the delete-then-repoint window: stale.delete() just
+                    # destroyed the box the pen still points at, but the pen is
+                    # only repointed at the NEW box much later in provision()
+                    # (after exec-ready). If the run dies in between, the pen
+                    # dangles at a deleted box. Clear the pointer now, best-effort
+                    # — the pen may not exist on a first-ever run (NotFoundError),
+                    # and hogland's reconciler sweep heals a dangling pointer
+                    # within ~30s regardless, so a failure here must not fail the
+                    # run (PostHog/hogland#373).
+                    try:
+                        self._client.update_pen(self.name, current_box_id="")
+                    except NotFoundError:
+                        pass  # no pen yet (first-ever run) — nothing to dangle
+                    except Exception as e:  # noqa: BLE001 — the server sweep is the backstop
+                        timing.stage(f"warn: couldn't clear pen pointer after stale delete: {e}")
             except NotFoundError:
                 # TTL cleanup or a racing teardown already removed it — the
                 # name is free either way, so fall through to the retry loop.
@@ -185,10 +234,37 @@ class HoglandBackend(PreviewBackend):
         # guard so a lingering ConflictError surfaces instead of being swallowed.
         for _ in range(10):
             try:
-                return self._client.create(**self._create_kwargs())
+                return self._create()
             except ConflictError:
                 time.sleep(3)
-        return self._client.create(**self._create_kwargs())
+        return self._create()
+
+    def attach(self) -> None:
+        """Bind to the EXISTING preview box for this pen/name without restoring —
+        the non-creating counterpart to provision(), used by the deferred
+        swap-frontend path. Resolves the box bring_up already stood up (explicit
+        --box-id, else the pen's current pointer, else a name lookup) and waits
+        for its exec API, so exec/write_file/web_url act on the live box.
+        """
+        if self._box is not None:
+            return
+        # The bring-up may have burned most of the CI OIDC token's short life
+        # before we get here, and the pen/box lookups below aren't wrapped in the
+        # 401-retry that exec/write_file are — so mint a fresh token first
+        # (best-effort no-op outside CI).
+        self._refresh_auth()
+        timing.stage("attach: resolve existing box")
+        try:
+            self._pen = self._client.get_pen(self.name)
+        except NotFoundError:
+            self._pen = None  # no pen (e.g. --box-id debug run) — web_url falls back to the box URL
+        box = self._resolve_box()
+        if box is None:
+            raise RuntimeError(f"no live preview box found for {self.name!r} to swap the frontend into")
+        self._box = box
+        self._box_id = box.id
+        self._wait_exec_ready()
+        timing.stage("attach: box exec ready")
 
     def exec(self, command: str, *, timeout: int = 120) -> ExecResult:
         # The box exec API runs as root but doesn't set HOME; tools like git
@@ -259,6 +335,13 @@ class HoglandBackend(PreviewBackend):
     @property
     def box_id(self) -> str | None:
         return self._box_id
+
+    @property
+    def pen_id(self) -> str | None:
+        # The pen's stable id (e.g. pen-aa47b706211f) once the pen is ensured.
+        # Used to build the hogland admin/console link for the preview. Mirrors
+        # web_url's guard so an ensured-but-idless pen returns None, never "".
+        return self._pen.id if (self._pen is not None and self._pen.id) else None
 
     def destroy(self) -> None:
         # PR-close teardown: drop the live box, then release the stable identity.
@@ -407,7 +490,9 @@ class HoglandBackend(PreviewBackend):
             return self._client.get(self._box_id)
         if self.name:
             try:
-                pen = self._client.get_pen(self.name)
+                # Reuse an already-loaded pen (attach() fetches it just before
+                # calling here) instead of a second GET for the same name.
+                pen = self._pen if self._pen is not None else self._client.get_pen(self.name)
                 if pen.current_box_id:
                     return self._client.get(pen.current_box_id)
             except NotFoundError:

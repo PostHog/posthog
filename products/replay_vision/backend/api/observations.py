@@ -30,8 +30,10 @@ from products.replay_vision.backend.api.observation_stats import compute_observa
 from products.replay_vision.backend.api.trigger import (
     WorkflowStartOutcome,
     check_observation_quota,
+    check_team_in_flight_capacity,
     start_apply_scanner_workflow,
 )
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_quality_enabled
 from products.replay_vision.backend.models.replay_observation import (
@@ -152,7 +154,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     triggered_by = serializers.ChoiceField(
         choices=ObservationTrigger.choices,
         read_only=True,
-        help_text="Whether this observation came from the schedule or an on-demand request.",
+        help_text="Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.",
     )
     triggered_by_user = UserBasicSerializer(
         read_only=True,
@@ -173,10 +175,16 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         ),
     )
     previous_observation_id = serializers.SerializerMethodField(
-        help_text="Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.",
+        help_text=(
+            "Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list "
+            "filters and ordering passed to retrieve; only set on retrieve, null at the start of the set."
+        ),
     )
     next_observation_id = serializers.SerializerMethodField(
-        help_text="Id of the older sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the end.",
+        help_text=(
+            "Id of the following sibling observation for the same scanner (prev/next nav), honoring any list "
+            "filters and ordering passed to retrieve; only set on retrieve, null at the end of the set."
+        ),
     )
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
@@ -311,6 +319,7 @@ class ObservationVersionMarkerSerializer(serializers.Serializer):
     )
     up = serializers.IntegerField(help_text="Thumbs-up ratings on this version's observations.")
     down = serializers.IntegerField(help_text="Thumbs-down ratings on this version's observations.")
+    total = serializers.IntegerField(help_text="Succeeded (ratable) observations this version produced, rated or not.")
 
 
 class ObservationLabelStatsSerializer(serializers.Serializer):
@@ -375,8 +384,8 @@ class RetryResponseSerializer(serializers.Serializer):
 # Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
 OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status")
 
-# JSONB-backed sort keys; numeric values (`result_score`, `scanner_version`) need a numeric cast in the filter.
-_JSONB_ORDER_KEYS = ("result_score", "result_verdict", "scanner_version")
+# JSONB-backed sort keys; numeric values (`result_score`, `result_confidence`, `scanner_version`) need a numeric cast in the filter.
+_JSONB_ORDER_KEYS = ("result_score", "result_verdict", "result_confidence", "scanner_version")
 _ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_subject_email", "label")
 
 
@@ -415,6 +424,18 @@ class _ObservationOrderByFilter(OrderByFilter):
                 ),
             )
             return self._order_nulls_last(qs, "_order_score", descending)
+        if key == "result_confidence":
+            confidence_jsonb = KeyTransform("confidence", KeyTransform("model_output", "scanner_result"))
+            confidence_text = KeyTextTransform("confidence", KeyTextTransform("model_output", "scanner_result"))
+            qs = qs.annotate(
+                _confidence_type=_jsonb_typeof(confidence_jsonb),
+                _order_confidence=Case(
+                    When(_confidence_type="number", then=Cast(confidence_text, FloatField())),
+                    default=Value(None),
+                    output_field=FloatField(),
+                ),
+            )
+            return self._order_nulls_last(qs, "_order_confidence", descending)
         if key == "scanner_version":
             version_jsonb = KeyTransform("scanner_version", "scanner_snapshot")
             version_text = KeyTextTransform("scanner_version", "scanner_snapshot")
@@ -442,7 +463,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
     triggered_by = MultiChoiceFilter(
         field_name="triggered_by",
         valid_choices=frozenset(v for v, _ in ObservationTrigger.choices),
-        help_text="Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.",
+        help_text="Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.",
     )
     verdict = MultiChoiceFilter(
         field_name="scanner_result__model_output__verdict",
@@ -476,9 +497,9 @@ class ReplayObservationFilter(django_filters.FilterSet):
     order_by = _ObservationOrderByFilter(
         help_text=(
             "Sort observations by created_at, started_at, completed_at, status, recording_subject_email, "
-            "result_score, result_verdict, or scanner_version. Prefix with `-` for descending. Keys that can be "
-            "null (started_at, completed_at, recording_subject_email, result_*, scanner_version) sort nulls "
-            "last regardless of direction."
+            "result_score, result_verdict, result_confidence, or scanner_version. Prefix with `-` for descending. "
+            "Keys that can be null (started_at, completed_at, recording_subject_email, result_*, scanner_version) "
+            "sort nulls last regardless of direction."
         ),
     )
 
@@ -520,25 +541,32 @@ class ReplayObservationFilter(django_filters.FilterSet):
         return queryset.filter(q)
 
 
+# OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
+# string the filter rejects. Declare it as a single-value string enum so it serializes as ?order_by=field.
+_ORDER_BY_PARAMETER = OpenApiParameter(
+    "order_by",
+    str,
+    OpenApiParameter.QUERY,
+    required=False,
+    enum=ordering_enum(_ALL_ORDER_KEYS),
+    description=(
+        "Sort observations. Plain keys: created_at, started_at, completed_at, status, "
+        "recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), "
+        "result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way."
+    ),
+)
+
+
 @extend_schema_view(
-    list=extend_schema(
-        parameters=[
-            # OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
-            # string the filter rejects. Declare it as a single-value string enum so it serializes as ?order_by=field.
-            OpenApiParameter(
-                "order_by",
-                str,
-                OpenApiParameter.QUERY,
-                required=False,
-                enum=ordering_enum(_ALL_ORDER_KEYS),
-                description=(
-                    "Sort observations. Plain keys: created_at, started_at, completed_at, status, "
-                    "recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), "
-                    "scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way."
-                ),
-            )
-        ]
-    )
+    list=extend_schema(parameters=[_ORDER_BY_PARAMETER]),
+    retrieve=extend_schema(
+        parameters=[*ReplayObservationFilter.schema_parameters(), _ORDER_BY_PARAMETER],
+        description=(
+            "Retrieve one observation. Any list filters passed along (status, tags, order_by, …) scope the "
+            "`previous_observation_id`/`next_observation_id` navigation to the matching, identically-ordered "
+            "set — so prev/next from a filtered table stays within that filtered list."
+        ),
+    ),
 )
 class ReplayObservationViewSet(
     TeamAndOrgViewSetMixin,
@@ -547,6 +575,9 @@ class ReplayObservationViewSet(
     viewsets.GenericViewSet,
 ):
     """Read-only access to observations produced by a scanner."""
+
+    # Upper bound on ids materialized for filtered prev/next computation (see `_observation_neighbors`).
+    NEIGHBOR_SCAN_LIMIT = 5000
 
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
@@ -582,6 +613,61 @@ class ReplayObservationViewSet(
             .select_related("triggered_by_user", "label")
             .order_by("-created_at", "id")
         )
+
+    def filter_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
+        # List filters scope prev/next neighbors only; the observation itself must always resolve on retrieve.
+        if self.action == "retrieve":
+            return queryset
+        return super().filter_queryset(queryset)
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        observation = self.get_object()
+        context = {**self.get_serializer_context(), "neighbors": self._observation_neighbors(observation)}
+        return Response(self.get_serializer(observation, context=context).data)
+
+    def _observation_neighbors(self, observation: ReplayObservation) -> dict[str, uuid.UUID | None]:
+        # Neighbors honor the same filters and ordering as the scanner's list endpoint, so prev/next
+        # navigation started from a filtered table stays within the filtered set.
+        siblings = ReplayObservation.objects.filter(
+            team_id=observation.team_id, scanner_id=observation.scanner_id
+        ).order_by("-created_at", "id")
+        # Empty values (`?status=`) are no-ops in the filterset, so they must not opt out of the fast path.
+        if not any(self.request.query_params.get(key) for key in ReplayObservationFilter.base_filters):
+            return self._unfiltered_neighbors(observation, siblings)
+        filterset = ReplayObservationFilter(self.request.query_params, queryset=siblings, request=self.request)
+        if not filterset.is_valid():
+            # Same 400 the list endpoint gives for the identical bad query string.
+            raise ValidationError(filterset.errors)
+        # Hard bound on the id scan; past it, degrade to no neighbors rather than unbounded memory.
+        ids: list[uuid.UUID] = list(filterset.qs.values_list("id", flat=True)[: self.NEIGHBOR_SCAN_LIMIT])
+        try:
+            index = ids.index(observation.id)
+        except ValueError:
+            # Outside the filtered set (stale deep link) or beyond the scan bound — no neighbors.
+            return {"previous": None, "next": None}
+        return {
+            "previous": ids[index - 1] if index > 0 else None,
+            "next": ids[index + 1] if index < len(ids) - 1 else None,
+        }
+
+    @staticmethod
+    def _unfiltered_neighbors(
+        observation: ReplayObservation, siblings: QuerySet[ReplayObservation]
+    ) -> dict[str, uuid.UUID | None]:
+        # Two indexed lookups instead of materializing every sibling id; mirrors the (-created_at, id) order.
+        ids = siblings.values_list("id", flat=True)
+        return {
+            "previous": ids.filter(
+                Q(created_at__gt=observation.created_at) | Q(created_at=observation.created_at, id__lt=observation.id)
+            )
+            .order_by("created_at", "-id")
+            .first(),
+            "next": ids.filter(
+                Q(created_at__lt=observation.created_at) | Q(created_at=observation.created_at, id__gt=observation.id)
+            )
+            .order_by("-created_at", "id")
+            .first(),
+        }
 
     @extend_schema(
         parameters=[
@@ -626,25 +712,37 @@ class ReplayObservationViewSet(
         self.check_object_permissions(self.request, scanner)
         if observation.status != ObservationStatus.FAILED:
             raise ValidationError("Only failed observations can be retried.")
-        check_observation_quota(self.team.organization_id)
+        check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
+        check_team_in_flight_capacity(self.team.id)
         session_id = observation.session_id
         # Free the UNIQUE(scanner, session_id) slot; the usage ledger is immutable, so the failed attempt stays counted.
+        original_pk = observation.pk
+        original_created_at = observation.created_at
         observation.delete()
         workflow_id, outcome = start_apply_scanner_workflow(
-            scanner, session_id, triggered_by_user_id=cast(User, request.user).id
+            scanner,
+            session_id,
+            triggered_by_user_id=cast(User, request.user).id,
+            trigger=ObservationTrigger.RETRY,
         )
+        if outcome is not WorkflowStartOutcome.STARTED:
+            # The replacement run never started, so restore the failed row (its shared label, if any, is lost
+            # to the cascade) instead of leaving the recording looking unscanned.
+            observation.pk = original_pk
+            observation.save(force_insert=True)
+            ReplayObservation.objects.filter(pk=original_pk, team_id=observation.team_id).update(
+                created_at=original_created_at
+            )
         if outcome is WorkflowStartOutcome.ALREADY_RUNNING:
             # The prior run is still closing, so its deterministic id blocks the restart and no new row will appear.
             return Response(
-                {"detail": "The previous run is still finishing. Scan the recording again in a moment."},
+                {"detail": "The previous run is still finishing. Retry again in a moment."},
                 status=status.HTTP_409_CONFLICT,
             )
         if outcome is WorkflowStartOutcome.FAILED:
             # `detail` (not `error`) so ApiError carries the message into the frontend toast.
             return Response(
-                {
-                    "detail": "Failed to start the retry. The recording now shows as not scanned and can be scanned again."
-                },
+                {"detail": "Failed to start the retry. The failed observation was kept; retry again in a moment."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response(RetryResponseSerializer({"workflow_id": workflow_id}).data, status=status.HTTP_202_ACCEPTED)
@@ -710,7 +808,7 @@ class ReplayObservationViewSet(
                 description="Session recording id to return observations for.",
             )
         ]
-    )
+    ),
 )
 class SessionReplayObservationViewSet(ReplayObservationViewSet):
     """Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock."""
@@ -742,31 +840,6 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
                 raise ValidationError("The `session_id` query parameter is required.")
             queryset = queryset.filter(session_id=session_id)
         return queryset
-
-    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        observation = self.get_object()
-        context = {**self.get_serializer_context(), "neighbors": self._observation_neighbors(observation)}
-        return Response(self.get_serializer(observation, context=context).data)
-
-    @staticmethod
-    def _observation_neighbors(observation: ReplayObservation) -> dict[str, uuid.UUID | None]:
-        # Newest-first list order, so the newer sibling is "previous" and the older one is "next".
-        siblings = ReplayObservation.objects.filter(
-            team_id=observation.team_id, scanner_id=observation.scanner_id
-        ).values_list("id", flat=True)
-        # Tie-break on id to mirror the list's (-created_at, id) order, so same-timestamp siblings aren't skipped.
-        return {
-            "previous": siblings.filter(
-                Q(created_at__gt=observation.created_at) | Q(created_at=observation.created_at, id__lt=observation.id)
-            )
-            .order_by("created_at", "-id")
-            .first(),
-            "next": siblings.filter(
-                Q(created_at__lt=observation.created_at) | Q(created_at=observation.created_at, id__gt=observation.id)
-            )
-            .order_by("-created_at", "id")
-            .first(),
-        }
 
     # Hide `stats/` on the session-scoped viewset — it has no `parent_lookup_scanner_id` to dispatch on.
     def stats(self, request: Request, **kwargs: Any) -> Response:  # type: ignore[override]

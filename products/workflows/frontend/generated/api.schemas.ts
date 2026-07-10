@@ -287,6 +287,9 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface HogFlowMinimalApi {
     readonly id: string
     /** @nullable */
@@ -307,6 +310,11 @@ export interface HogFlowMinimalApi {
     readonly abort_action: string | null
     readonly variables: unknown
     readonly billable_action_types: unknown
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedHogFlowMinimalListApi {
@@ -467,6 +475,9 @@ export interface HogFlowScheduleApi {
     readonly updated_at: string
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface HogFlowApi {
     readonly id: string
     /**
@@ -510,6 +521,11 @@ export interface HogFlowApi {
     readonly billable_action_types: unknown
     /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
     readonly schedules: readonly HogFlowScheduleApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 /**
@@ -517,6 +533,9 @@ export interface HogFlowApi {
  */
 export type PatchedHogFlowApiVariablesItem = { [key: string]: string }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface PatchedHogFlowApi {
     readonly id?: string
     /**
@@ -560,6 +579,11 @@ export interface PatchedHogFlowApi {
     readonly billable_action_types?: unknown
     /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
     readonly schedules?: readonly HogFlowScheduleApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 export interface MessageAssetApi {
@@ -863,6 +887,15 @@ export interface WorkflowStatsRowApi {
  */
 export type BlastRadiusRequestApiFilters = { [key: string]: unknown }
 
+/**
+ * * `email` - email
+ */
+export type DedupeKeyEnumApi = (typeof DedupeKeyEnumApi)[keyof typeof DedupeKeyEnumApi]
+
+export const DedupeKeyEnumApi = {
+    Email: 'email',
+} as const
+
 export interface BlastRadiusRequestApi {
     /** Property filters to apply */
     filters: BlastRadiusRequestApiFilters
@@ -871,6 +904,10 @@ export interface BlastRadiusRequestApi {
      * @nullable
      */
     group_type_index?: number | null
+    /** When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.
+     *
+     * * `email` - email */
+    dedupe_key?: DedupeKeyEnumApi | null
 }
 
 export interface BlastRadiusApi {
@@ -880,6 +917,10 @@ export interface BlastRadiusApi {
     total: number
     /** Maximum allowed audience size for batch triggers for this team. */
     limit: number
+    /** The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.
+     *
+     * * `email` - email */
+    dedupe_key: DedupeKeyEnumApi | null
 }
 
 export type HogFlowTemplatesListParams = {

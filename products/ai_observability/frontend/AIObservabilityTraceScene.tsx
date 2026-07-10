@@ -612,7 +612,7 @@ function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element 
 
 function CreateSentimentEvaluationButton({ traceId }: { traceId: string }): JSX.Element | null {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
-        generationEvaluationRunsLogic({ lookupBy: 'trace', traceId })
+        generationEvaluationRunsLogic({ traceId })
     )
     const { hasLoadedSentimentEvaluations, hasSentimentEvaluations, sentimentEvaluationsLoading } = useValues(
         sentimentEvaluationAvailabilityLogic
@@ -671,7 +671,7 @@ function CostChip({
                         <hr className="my-0.5 border-border" />
                         <div>Billed: {formatLLMCost(billedTotalUsd!)}</div>
                         {typeof markupUsd === 'number' && markupUsd > 0 && (
-                            <div>Markup (20%): {formatLLMCost(markupUsd)}</div>
+                            <div>Markup: {formatLLMCost(markupUsd)}</div>
                         )}
                         {typeof billedCredits === 'number' && <div>Credits: {billedCredits}</div>}
                     </>
@@ -1433,10 +1433,9 @@ const EventContent = React.memo(
 
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
 
-        // Check if the originally selected event (effectiveEventId) is a generation event
-        // This ensures the Evaluations tab stays visible even when viewing Summary at trace level.
-        // When effectiveEventId is null (e.g. tab=summary suppresses auto-selection), fall back to
-        // the first generation in the tree so the Evals tab remains visible.
+        // The Evaluations tab is trace-scoped, but manually running an evaluation targets a single
+        // generation. When the selected event isn't a generation (or nothing is selected), fall back
+        // to the first generation in the tree so the run action stays available.
         const firstGenerationNode = tree.find((node) => node.event.event === '$ai_generation') ?? null
         const effectiveEventNode = effectiveEventId ? findNodeForEvent(tree, effectiveEventId) : firstGenerationNode
         const isEffectiveEventGeneration = effectiveEventNode?.event.event === '$ai_generation'
@@ -1451,12 +1450,14 @@ const EventContent = React.memo(
         const showPromptButton = !!promptName
 
         const showPlaygroundButton = isGenerationEvent
-        const showCreateSentimentEvalButton =
-            isGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT]
+        const showCreateSentimentEvalButton = isGenerationEvent
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
-        const showEvalsTab = !!effectiveGenerationEvent
+        // Badges are context-sensitive: a generation shows its own results, the trace root shows
+        // trace-target results. Other events (spans, embeddings) have no evaluation context.
+        const isTraceRoot = !!event && !isLLMEvent(event)
+        const showEvalBadges = isGenerationEvent || isTraceRoot
         const showTagsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]
 
         // If the user is viewing the Tags tab but it's no longer available (flag off or
@@ -1543,7 +1544,7 @@ const EventContent = React.memo(
                                 />
                             )}
                             {isLLMEvent(event) && <ParametersHeader eventProperties={event.properties} />}
-                            {(aggregation || showEvalsTab) && (
+                            {(aggregation || showEvalBadges) && (
                                 <div className="flex flex-col gap-1">
                                     {aggregation && (
                                         <div className="flex flex-row flex-wrap items-center gap-2">
@@ -1565,8 +1566,11 @@ const EventContent = React.memo(
                                             )}
                                         </div>
                                     )}
-                                    {showEvalsTab && (
-                                        <EvalResultBadges generationEventId={effectiveGenerationEvent.id} />
+                                    {showEvalBadges && (
+                                        <EvalResultBadges
+                                            traceId={trace.id}
+                                            generationEventId={isGenerationEvent ? event.id : undefined}
+                                        />
                                     )}
                                 </div>
                             )}
@@ -1768,23 +1772,18 @@ const EventContent = React.memo(
                                           },
                                       ]
                                     : []),
-                                ...(showEvalsTab
-                                    ? [
-                                          {
-                                              key: TraceViewMode.Evals,
-                                              label: 'Evaluations',
-                                              'data-attr': 'llma-trace-evals-tab',
-                                              content: (
-                                                  <EvalsTabContent
-                                                      generationEventId={effectiveGenerationEvent.id}
-                                                      timestamp={effectiveGenerationEvent.createdAt}
-                                                      event={effectiveGenerationEvent.event}
-                                                      distinctId={trace.distinctId}
-                                                  />
-                                              ),
-                                          },
-                                      ]
-                                    : []),
+                                {
+                                    key: TraceViewMode.Evals,
+                                    label: 'Evaluations',
+                                    'data-attr': 'llma-trace-evals-tab',
+                                    content: (
+                                        <EvalsTabContent
+                                            traceId={trace.id}
+                                            generationEvent={effectiveGenerationEvent}
+                                            distinctId={trace.distinctId}
+                                        />
+                                    ),
+                                },
                                 ...(showTagsTab
                                     ? [
                                           {

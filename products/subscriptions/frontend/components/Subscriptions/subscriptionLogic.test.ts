@@ -88,6 +88,8 @@ describe('subscriptionLogic', () => {
             start_date: '2022-01-01T00:09:00',
             byweekday: ['wednesday'],
             bysetpos: 1,
+            // write-only on the API, so the edit form defaults it on to match the create flow
+            send_test_now: true,
         })
     })
 

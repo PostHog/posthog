@@ -263,10 +263,8 @@ export function createErrorTrackingPipeline(
                                     // 3 retries keeps the worst-case batch time (3 × 45s timeout =
                                     // 135s) well within the 180s liveness interval, and reduces
                                     // amplification pressure on Cymbal during degradation.
-                                    .pipeBatchWithRetry(createCymbalProcessingStep(cymbalClient), {
-                                        tries: 3,
-                                        sleepMs: 100,
-                                        name: 'cymbal_processing',
+                                    .pipeBatch(createCymbalProcessingStep(cymbalClient), {
+                                        retry: { tries: 3, sleepMs: 100, name: 'cymbal_processing' },
                                     })
                                 // Post-Cymbal team-global rate-limit chain. Drops events the team
                                 // has explicitly capped. Empty / undefined → no-op.

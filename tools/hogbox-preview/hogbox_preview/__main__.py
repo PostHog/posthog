@@ -63,10 +63,26 @@ def cmd_up(args: argparse.Namespace) -> int:
     stack = build_stack(backend, args)
     url = stack.bring_up()
     print(f"box_id={backend.box_id}")
+    # Empty (not the literal "None") when there's no pen, so the CI parser treats
+    # it as absent rather than rendering an admin link to /pens/None.
+    print(f"pen_id={backend.pen_id or ''}")
     print(f"url={url}")
     if args.destroy:
         backend.destroy()
         print(f"destroyed {backend.box_id}")
+    return 0
+
+
+def cmd_swap_frontend(args: argparse.Namespace) -> int:
+    # Deferred frontend swap onto an already-up box (parallel CI flow): `up`
+    # brings the box healthy on the :master SPA with no dist, then this lays the
+    # PR's freshly-built dist in once the runner finishes building it. Resolves
+    # the live box by pen/name — never restores a new one.
+    backend = build_backend(args)
+    stack = build_stack(backend, args)
+    url = stack.swap_frontend_only()
+    print(f"box_id={backend.box_id}")
+    print(f"url={url}")
     return 0
 
 
@@ -96,6 +112,11 @@ def cmd_health(args: argparse.Namespace) -> int:
     backend = build_backend(args)
     backend.provision()
     backend.wait_http_ok("/_health", expect=200, timeout=args.timeout)
+    # /_health only proves the process is up. Run the authed deep-health probe
+    # too so this subcommand catches an unusable app (the personhog-drift 500s
+    # slipped past /_health). --no-seed only tolerates a failed demo login
+    # (genuinely unseeded box); it no longer skips the probe outright.
+    build_stack(backend, args).deep_health()
     print(f"healthy: {backend.web_url}")
     return 0
 
@@ -196,6 +217,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     up.set_defaults(func=cmd_up)
 
+    sf = sub.add_parser("swap-frontend", help="swap the PR frontend onto an already-up box (deferred, parallel CI)")
+    sf.add_argument("--box-id", default=None, help="attach to this box instead of resolving the pen by --name")
+    sf.add_argument(
+        "--frontend-dist",
+        required=True,
+        help="path to a gzipped tar of the prebuilt frontend/dist to serve (built on the CI runner)",
+    )
+    sf.set_defaults(func=cmd_swap_frontend)
+
     cr = sub.add_parser("create", help="provision the box only")
     cr.set_defaults(func=cmd_create)
 
@@ -207,9 +237,10 @@ def main(argv: list[str] | None = None) -> int:
     sd.add_argument("--box-id", required=True)
     sd.set_defaults(func=cmd_seed, no_seed=False)
 
-    he = sub.add_parser("health", help="wait for /_health on an existing box")
+    he = sub.add_parser("health", help="wait for /_health, then run the authed deep-health probe")
     he.add_argument("--box-id", required=True)
     he.add_argument("--timeout", type=int, default=600)
+    he.add_argument("--no-seed", action="store_true", help="skip the authed deep-health probe (no demo user seeded)")
     he.set_defaults(func=cmd_health)
 
     de = sub.add_parser("destroy", help="tear a box down")

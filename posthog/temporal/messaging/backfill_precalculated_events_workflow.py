@@ -21,6 +21,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.messaging.constants import BACKFILL_EVENT_SOURCE_PREFIX
 from posthog.temporal.messaging.filter_storage import get_event_filters
 from posthog.temporal.messaging.types import BehavioralEventFilter
 
@@ -327,7 +328,7 @@ async def backfill_precalculated_events_activity(
                                         "distinct_id": distinct_id,
                                         "condition": condition_hash,
                                         "date": event_date,
-                                        "source": f"cohort_event_backfill_{condition_hash}",
+                                        "source": f"{BACKFILL_EVENT_SOURCE_PREFIX}_{condition_hash}",
                                     },
                                 )
                                 kafka_results.append(produce_result)

@@ -36,16 +36,31 @@ from __future__ import annotations
 import sys
 import secrets
 
+from . import timing
 from .backend import PreviewBackend
 
-# The tool's web override must reproduce the golden's baked preview env (hogland
-# scripts/posthog-preview-setup.sh) — constant across previews so web's config
-# never drifts per-box. JS_URL="" makes the SPA load assets relative to the
-# request origin; the wildcard CSRF origin trusts every box's edge host for the
-# login POST. One recipe then serves any box at its own edge URL.
+# The tool's web override MUST stay in sync with the golden bake script (hogland
+# scripts/posthog-preview-setup.sh): both write docker-compose.preview.yml, and
+# regenerating it here CLOBBERS the golden's baked copy — so anything the bake
+# adds (env, services) must be mirrored here or a per-PR override drops it. That
+# drift is exactly what broke previews fleet-wide from 2026-07-06 to 2026-07-10
+# (missing PERSONHOG_ADDR -> "personhog client not configured" 500s); see
+# write_override for the full post-mortem. JS_URL="" makes the SPA load assets
+# relative to the request origin; the wildcard CSRF origin trusts every box's
+# edge host for the login POST. One recipe then serves any box at its own edge
+# URL.
 # Built as a single comma-separated string (Django's get_list() splits on commas)
 # — a join, not a tuple, so there's no ambiguity about what reaches the env.
 _CSRF_TRUSTED_ORIGINS = ",".join(f"https://*.boxes.hogland.{env}.posthog.dev" for env in ("dev", "prod-us", "prod-eu"))
+# The seeded demo login. These are the defaults of posthog's
+# `manage.py generate_demo_data` (--email / --password, see
+# posthog/management/commands/generate_demo_data.py), which generate_demo_data()
+# runs unchanged. Not importable here — the tool runs in an SDK-only env with no
+# posthog Django on the path — so they're duplicated with that source named. If
+# the seed defaults ever change, change these too.
+_DEMO_EMAIL = "test@posthog.com"
+_DEMO_PASSWORD = "12345678"
+
 # PostHog's prod settings refuse to boot on the default SECRET_KEY, so the
 # override must supply one (the migrate `run --rm web` one-off needs it too).
 #
@@ -67,7 +82,22 @@ class PostHogPreviewStack:
     COMPOSE = "docker-compose.dev-full.yml"
     OVERRIDE = "docker-compose.preview.yml"
     # Dependency services (published images, pulled by `up`).
-    DEPS = ["db", "redis7", "clickhouse", "zookeeper", "kafka", "objectstorage"]
+    # personhog-replica/router are defined in the OVERRIDE (not dev-full.yml) —
+    # compose merges both files, so starting them here works. They must be in
+    # this list: nothing else starts them (up_web brings up only `web`, no
+    # depends_on edges), so a cold/reset box would otherwise boot web with
+    # PERSONHOG_ADDR pointing at a service that was never started. On the warm
+    # golden they're already running and `up` is a no-op.
+    DEPS = [
+        "db",
+        "redis7",
+        "clickhouse",
+        "zookeeper",
+        "kafka",
+        "objectstorage",
+        "personhog-replica",
+        "personhog-router",
+    ]
     # App services built from the checkout (build escape hatch only). web shares
     # its image with the other build: . services, so building web warms them all.
     BUILD_SERVICES = ["web"]
@@ -144,7 +174,50 @@ class PostHogPreviewStack:
             self.swap_frontend()
         self.up_web()
         self.wait_for_health()
+        self.deep_health()
         return url
+
+    def swap_frontend_only(self) -> str:
+        """Lay the PR's frontend onto an ALREADY-up preview box; return its URL.
+
+        The second half of the parallel CI flow: bring_up() first brings the box
+        healthy on the golden's :master SPA with NO dist (so it can run the
+        moment the box is restored, in parallel with the runner building the PR
+        frontend), then — once that build finishes — this swaps the freshly-built
+        dist in. It reuses the exact override + collectstatic + web-recreate the
+        single-pass bring_up runs after seeding, so there's no second recipe to
+        keep in sync. Attaches to the live box by pen/name rather than restoring
+        a new one.
+        """
+        if not self.frontend_dist_tar:
+            raise RuntimeError("swap_frontend_only requires a frontend dist (pass --frontend-dist)")
+        self.backend.attach()
+        # Keep the box's existing SECRET_KEY: recreating web in up_web must NOT
+        # rotate the key bring_up already migrated + seeded under, or anything it
+        # wrote encrypted becomes undecryptable (and any live session drops).
+        self._reuse_existing_secret_key()
+        # Rewrite the override so it now carries the frontend/dist + staticfiles
+        # mounts (write_override only adds them when a dist is set), lay the dist
+        # in + re-run collectstatic into the mounted staticfiles/, then recreate
+        # web so the fresh container reads the PR's index + statics.
+        self.write_override()
+        self.swap_frontend()
+        self.up_web()
+        self.wait_for_health()
+        return self.backend.web_url
+
+    def _reuse_existing_secret_key(self) -> None:
+        """Adopt the SECRET_KEY the box already runs with (read from its override)
+        so a deferred swap doesn't rotate it. Falls back to the freshly-minted
+        key when the override can't be read — shouldn't happen post-bring_up, but
+        a random key is a safe default either way."""
+        r = self.backend.exec(
+            f"sed -n 's/.*SECRET_KEY=//p' {self.repo_dir}/{self.OVERRIDE} 2>/dev/null | head -n1",
+            timeout=60,
+        )
+        key = r.stdout.strip()
+        if key:
+            self.secret_key = key
 
     # --- steps (each usable standalone, mirroring bin/hobby-ci.py) -----------
     def start_runtime(self) -> None:
@@ -166,6 +239,7 @@ class PostHogPreviewStack:
         # flags "dubious ownership" — scope a safe.directory exception per
         # command. (The rest of the stack runs as root too, matching how the
         # golden's setup script built it.)
+        timing.stage(f"in-box PR checkout ({branch})")
         safe = f"git -c safe.directory={self.repo_dir}"
         self.backend.run_long(
             f"cd {self.repo_dir} && {safe} fetch --depth 1 origin {branch} && {safe} checkout --force FETCH_HEAD",
@@ -174,16 +248,26 @@ class PostHogPreviewStack:
         )
 
     def write_override(self) -> None:
-        # Reproduce the golden's baked web env (hogland
-        # scripts/posthog-preview-setup.sh) so this block carries no per-box
-        # value and never drifts between previews. A web recreate still happens
-        # in up_web — but only to bind-mount the PR's backend source over the
-        # image's /code (you can't add a mount to a running container). On the
-        # warm golden that's a ~18s warm import (1 Unit worker + preloaded
-        # config), not the old ~120s cold rebuild; #315's win is making that
-        # recreate warm and serving the frontend relative (JS_URL=""), not
-        # removing it. Keeping the env constant means web only ever recreates
-        # for the mount, never for config drift.
+        # This override MUST stay in sync with hogland's
+        # scripts/posthog-preview-setup.sh (the golden bake script). Both write
+        # the same docker-compose.preview.yml; the bake bakes it into the golden,
+        # this regenerates it per PR — and regenerating it CLOBBERS the baked one.
+        # When the two drifted, previews broke fleet-wide: the bake added
+        # PERSONHOG_ADDR + the personhog services on 2026-07-06 (master's Django
+        # hard-requires the personhog service for group-type lookups since #65968
+        # — require_personhog_client() raises "personhog client not configured"
+        # without it), this file didn't, and every preview 500'd on
+        # /api/projects/@current/ (and environment/@current, team create, some
+        # HogQL paths) from 2026-07-06 to 2026-07-10 until this was fixed.
+        #
+        # A web recreate still happens in up_web — but only to bind-mount the PR's
+        # backend source over the image's /code (you can't add a mount to a
+        # running container). On the warm golden that's a ~18s warm import (1 Unit
+        # worker + preloaded config), not the old ~120s cold rebuild; #315's win
+        # is making that recreate warm and serving the frontend relative
+        # (JS_URL=""), not removing it. Keeping the env constant means web only
+        # ever recreates for the mount, never for config drift.
+        timing.stage("write compose override (backend mount)")
         lines = ["# Generated by tools/hogbox-preview.", "services:", "  web:"]
         if self.image:
             lines.append(f"    image: {self.image}")
@@ -223,6 +307,34 @@ class PostHogPreviewStack:
             # /_health; one worker + a preloaded config is ~15-20s.
             "      - NGINX_UNIT_APP_PROCESSES=1",
             "      - NGINX_UNIT_PRELOAD_CONFIG=true",
+            # master's Django hard-requires the personhog service for group-type
+            # lookups (require_personhog_client() raises "personhog client not
+            # configured" without it — #65968). Same addr the dev/hobby composes
+            # use; the router service is defined below. See write_override's note.
+            "      - PERSONHOG_ADDR=personhog-router:50052",
+        ]
+        # Mirror the bake script's personhog service definitions (hogland
+        # scripts/posthog-preview-setup.sh): dev-full.yml carries NO personhog
+        # services (dev runs them via hogli), so define them here the way HOBBY
+        # does — extend the base definitions and point the replica at the MAIN
+        # posthog DB (persons live there for single-node deployments). The
+        # golden's warm containers keep running regardless, but a cold/reset
+        # path that `up`s the full project would lose them if they weren't here.
+        # Tag matches the bake: the part of self.image after the last ':'.
+        personhog_tag = self.image.rsplit(":", 1)[-1] if self.image else "master"
+        lines += [
+            "  personhog-replica:",
+            "    extends:",
+            "      file: docker-compose.base.yml",
+            "      service: personhog-replica",
+            f"    image: ghcr.io/posthog/posthog/personhog-replica:{personhog_tag}",
+            "    environment:",
+            "      PRIMARY_DATABASE_URL: postgres://posthog:posthog@db:5432/posthog",
+            "  personhog-router:",
+            "    extends:",
+            "      file: docker-compose.base.yml",
+            "      service: personhog-router",
+            f"    image: ghcr.io/posthog/posthog/personhog-router:{personhog_tag}",
         ]
         self.backend.write_file(f"{self.repo_dir}/{self.OVERRIDE}", "\n".join(lines) + "\n")
 
@@ -264,6 +376,7 @@ class PostHogPreviewStack:
         # Start the dependency services and wait for postgres to report healthy
         # before migrating. Idempotent: on a restored golden whose stack is
         # already running, `up` is a no-op for already-current containers.
+        timing.stage("start dependency services")
         services = " ".join(self.DEPS)
         script = (
             f"cd {self.repo_dir} && docker compose -f {self.COMPOSE} -f {self.OVERRIDE} up -d --no-build {services} && "
@@ -277,12 +390,14 @@ class PostHogPreviewStack:
     def up_web(self) -> None:
         # Clean `up` (never `restart` — Unit-listener gotcha). --no-build reuses
         # the pulled image; the override mounts PR source over its /code.
+        timing.stage("start web container")
         self.backend.run_long(self._compose("up -d --no-build web"), name="up-web", timeout=900)
 
     def migrate(self) -> None:
         # PostHog needs both: Postgres (schema) and ClickHouse (events DB +
         # tables). ClickHouse must be migrated before demo-data generation,
         # which writes events to it.
+        timing.stage("migrate start (postgres + clickhouse)")
         self.backend.run_long(
             self._compose("run --rm -T web python manage.py migrate --noinput"),
             name="migrate",
@@ -293,11 +408,13 @@ class PostHogPreviewStack:
             name="migrate-clickhouse",
             timeout=1800,
         )
+        timing.stage("migrate done")
 
     def generate_demo_data(self) -> None:
         # Same command hobby-ci uses (bin/hobby-ci.py). Seeds a demo org + the
         # test@posthog.com / 12345678 login so the preview opens populated.
         # (`manage.py n` is a dev-only alias, not registered in this image.)
+        timing.stage("seed demo data")
         self.backend.run_long(
             self._compose("run --rm -T web python manage.py generate_demo_data"),
             name="seed",
@@ -316,6 +433,7 @@ class PostHogPreviewStack:
         # so settings import is fine; collectstatic itself needs no live DB.
         import pathlib
 
+        timing.stage("frontend swap start (upload dist)")
         tar = pathlib.Path(self.frontend_dist_tar).read_bytes()
         self.backend.write_file(f"{self.repo_dir}/frontend/dist.tgz", tar)
         compose = f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE}"
@@ -330,6 +448,7 @@ class PostHogPreviewStack:
             "web python manage.py collectstatic --noinput"
         )
         self.backend.run_long(script, name="frontend", timeout=900)
+        timing.stage("frontend swap done (collectstatic done)")
 
     def wait_for_health(self) -> None:
         # Do NOT `restart web` with the pinned image: Nginx Unit binds its :8000
@@ -337,7 +456,85 @@ class PostHogPreviewStack:
         # a restart skips it and leaves `listeners: {}`, so nothing serves.
         # up_services already brought web up cleanly — just wait for it to serve.
         # Django is a heavy import; first health can take ~7 min.
+        timing.stage("health poll start")
         self.backend.wait_http_ok("/_health", expect=200, timeout=900)
+        timing.stage("health poll pass")
+
+    def deep_health(self) -> None:
+        # /_health is UNAUTHENTICATED — it passed the whole time previews were
+        # 500ing on /api/projects/@current/ (the personhog drift), so "healthy"
+        # meant "process is up", not "app is usable". This gate logs into the
+        # seeded demo user and hits the endpoints that actually broke, so a
+        # regression like that fails the bring-up instead of shipping a dead box.
+        #
+        # ALWAYS attempt the probe — including on --no-seed. The CI preview
+        # workflow calls `up --no-seed` because the golden is pre-seeded, so the
+        # demo user exists even when this run skipped the seed step; keying the
+        # whole gate off seed_demo_data would disable it in exactly the
+        # production path it was built for. The only concession to --no-seed is
+        # a failed LOGIN (a genuinely unseeded box has no demo user): that
+        # soft-skips with a note instead of failing. Any failure past login —
+        # and a failed login on a seeded run — is fatal.
+        timing.stage("deep health (authed api)")
+        self._run_authed_probe()
+
+    def _run_authed_probe(self) -> None:
+        # Everything runs INSIDE the box (curl against localhost:8000), so it's
+        # independent of external networking — same posture as wait_http_ok. One
+        # bash script does the whole login+probe flow with a shared cookie jar:
+        #   1. GET  /login          -> seed the CSRF cookie
+        #   2. POST /api/login/     -> authenticate the demo user
+        #   3. GET  /api/projects/@current/               expect 200
+        #   4. POST /api/environments/@current/query/     expect 200 (HogQL)
+        # It prints "STEP <name> <http_code>" per step and the body of the first
+        # non-2xx, so the Python side can raise with the exact failure.
+        base = f"http://localhost:{self.backend.web_port}"
+        script = f"""
+set -u
+jar=$(mktemp)
+probe() {{ # name method path [json]
+  name=$1; method=$2; path=$3; data=${{4:-}}
+  if [ -n "$data" ]; then
+    csrf=$(awk '/csrftoken/ {{print $7}}' "$jar" | tail -n1)
+    code=$(curl -s -o /tmp/dh_body -w '%{{http_code}}' -m 30 -b "$jar" -c "$jar" \
+      -X "$method" -H 'Content-Type: application/json' -H "X-CSRFToken: $csrf" \
+      -H 'Referer: {base}/' -d "$data" "{base}$path")
+  else
+    code=$(curl -s -o /tmp/dh_body -w '%{{http_code}}' -m 30 -b "$jar" -c "$jar" "{base}$path")
+  fi
+  echo "STEP $name $code"
+  case "$code" in 2*) ;; *) echo "BODY_START"; head -c 300 /tmp/dh_body; echo; echo "BODY_END"; return 1;; esac
+}}
+probe login GET /login || exit 1
+probe api_login POST /api/login/ '{{"email":"{_DEMO_EMAIL}","password":"{_DEMO_PASSWORD}"}}' || exit 1
+probe projects GET /api/projects/@current/ || exit 1
+probe hogql POST /api/environments/@current/query/ '{{"query":{{"kind":"HogQLQuery","query":"select 1"}}}}' || exit 1
+echo "DEEP_HEALTH_OK"
+"""
+        r = self.backend.exec(script, timeout=180)
+        if "DEEP_HEALTH_OK" in r.stdout:
+            timing.stage("deep health pass")
+            return
+        # Login failed on a run that skipped seeding: the box may genuinely have
+        # no demo user (e.g. `up --no-seed` on a non-golden image), which isn't
+        # an app-health failure. Everything past a successful login stays fatal.
+        failed_step = ([ln.split()[1] for ln in r.stdout.splitlines() if ln.startswith("STEP ")] or ["?"])[-1]
+        if not self.seed_demo_data and failed_step == "api_login":
+            sys.stderr.write(
+                "[hogbox-preview] deep health: demo login failed on a --no-seed run — "
+                "assuming an unseeded box and skipping the authed probes\n"
+            )
+            timing.stage("deep health skipped (unseeded box)")
+            return
+        # Failed: surface the step + status + body, and the web log tail. The
+        # missing traceback is what cost hours on 2026-07-06 — dump it here so
+        # CI shows the Django error directly instead of just "not 200".
+        logs = self.backend.exec("docker logs --tail 40 posthog-web-1 2>&1", timeout=60)
+        raise RuntimeError(
+            "deep health (authed api) failed — the app is up but not usable:\n"
+            f"{r.stdout.strip()}\n{r.stderr.strip()}\n"
+            f"--- docker logs --tail 40 posthog-web-1 ---\n{logs.stdout.strip()}"
+        )
 
     # --- internal ------------------------------------------------------------
     def _compose(self, args: str) -> str:

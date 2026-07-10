@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlay, IconRefresh, IconRewindPlay } from '@posthog/icons'
+import { IconEye, IconPlay, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -13,6 +13,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
+import { observationDetailUrl } from '../../observations/replayObservationLogic'
 import {
     OBSERVATIONS_PAGE_SIZE,
     ObservationStatusValue,
@@ -20,6 +21,7 @@ import {
     ObservationVerdictValue,
     replayScannerLogic,
 } from '../replayScannerLogic'
+import { OBSERVATION_TRIGGER_TAG } from '../types'
 
 const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
@@ -29,10 +31,10 @@ const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'pending', label: 'Pending' },
 ]
 
-const TRIGGERED_BY_OPTIONS: { value: ObservationTriggeredByValue; label: string }[] = [
-    { value: 'on_demand', label: 'On demand' },
-    { value: 'schedule', label: 'Schedule' },
-]
+const TRIGGERED_BY_OPTIONS = Object.entries(OBSERVATION_TRIGGER_TAG).map(([value, { label }]) => ({
+    value: value as ObservationTriggeredByValue,
+    label,
+}))
 
 const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'yes', label: 'Yes' },
@@ -93,6 +95,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationTagFilter,
         observationSubjectFilter,
         hasActiveObservationFilters,
+        observationDetailLinkParams,
         availableTags,
         observationStats,
         scanner,
@@ -121,7 +124,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             width: 300,
             render: (_, obs) => (
                 <Link
-                    to={urls.replayVisionObservation(obs.id)}
+                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
                     className="font-mono text-xs text-primary truncate block"
                 >
                     {obs.session_id}
@@ -146,13 +149,33 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         {
             title: 'Status',
             key: 'status',
-            render: (_, obs) => <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />,
+            render: (_, obs) => (
+                <div className="flex items-center gap-1">
+                    <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />
+                    {obs.status === 'failed' && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                icon={<IconRefresh />}
+                                onClick={() => retryObservation(obs.id)}
+                                loading={retryingObservationIds.includes(obs.id)}
+                                tooltip="Retry scan"
+                                data-attr="vision-observation-retry"
+                            />
+                        </AccessControlAction>
+                    )}
+                </div>
+            ),
         },
         {
             title: 'Result',
             key: 'result',
             render: (_, obs) => (
-                <Link to={urls.replayVisionObservation(obs.id)} className="block">
+                <Link to={observationDetailUrl(obs.id, observationDetailLinkParams)} className="block">
                     <div className="min-w-[18rem] max-w-xl">
                         <ObservationResultSummary observation={obs} />
                     </div>
@@ -182,8 +205,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             title: 'Triggered by',
             key: 'triggered_by',
             render: (_, obs) => (
-                <LemonTag type={obs.triggered_by === 'on_demand' ? 'highlight' : 'default'}>
-                    {obs.triggered_by === 'on_demand' ? 'On demand' : 'Schedule'}
+                <LemonTag type={OBSERVATION_TRIGGER_TAG[obs.triggered_by].type}>
+                    {OBSERVATION_TRIGGER_TAG[obs.triggered_by].label}
                 </LemonTag>
             ),
         },
@@ -198,36 +221,16 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             key: 'actions',
             width: 1,
             render: (_, obs) => (
-                <div className="flex gap-1">
-                    {obs.status === 'failed' && (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                icon={<IconRefresh />}
-                                onClick={() => retryObservation(obs.id)}
-                                loading={retryingObservationIds.includes(obs.id)}
-                                className="whitespace-nowrap"
-                                data-attr="vision-observation-retry"
-                            >
-                                Retry
-                            </LemonButton>
-                        </AccessControlAction>
-                    )}
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconRewindPlay />}
-                        to={urls.replaySingle(obs.session_id)}
-                        className="whitespace-nowrap"
-                        data-attr="vision-observation-view-recording"
-                    >
-                        View recording
-                    </LemonButton>
-                </div>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconEye />}
+                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
+                    className="whitespace-nowrap"
+                    data-attr="vision-observation-view-details"
+                >
+                    View details
+                </LemonButton>
             ),
         },
     ]
