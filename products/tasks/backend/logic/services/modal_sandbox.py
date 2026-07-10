@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, cast
 from django.conf import settings
 
 from cachetools import TTLCache, cached
+from semantic_version import NpmSpec
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -64,7 +65,10 @@ from products.tasks.backend.logic.services.agentsh import (
     generate_env_wrapper,
     generate_policy_yaml,
 )
-from products.tasks.backend.logic.services.local_packages import get_local_posthog_code_packages
+from products.tasks.backend.logic.services.local_packages import (
+    get_local_package_runtime_dependencies,
+    get_local_posthog_code_packages,
+)
 from products.tasks.backend.logic.services.local_skills import (
     BUILT_SKILLS_RELATIVE_PATH as LOCAL_BUILT_SKILLS_PATH,
     LocalSkillsCache,
@@ -271,19 +275,65 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
 AGENT_SERVER_TEMPLATES = frozenset({SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE})
 
 
+def _merge_runtime_dependency_specs(name: str, existing: str, candidate: str) -> str:
+    if existing == candidate:
+        return existing
+
+    try:
+        NpmSpec(existing)
+        NpmSpec(candidate)
+    except ValueError as error:
+        raise ValueError(
+            f"Conflicting non-semver runtime dependency specs for {name}: {existing!r} and {candidate!r}"
+        ) from error
+
+    return f"{existing} {candidate}"
+
+
 def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
     """Overlay each local package's built `dist/` dir onto the installed package
     via add_local_dir(copy=False). No-op unless `template` bundles the agent-server
     and local packages are available.
 
-    Transitive deps are resolved from the baked /scripts/node_modules/ tree;
-    only compiled output is swapped live.
+    Install external runtime dependencies that are missing from the published image
+    before mounting the compiled output. The published package can lag behind a local
+    branch, but running npm inside it would also process unpublished workspace packages.
     """
     if template not in AGENT_SERVER_TEMPLATES:
         return image
     packages = get_local_posthog_code_packages()
     if not packages:
         return image
+
+    dependencies = get_local_package_runtime_dependencies(packages)
+    if dependencies:
+        if any("@openai/codex" in package_dependencies for package_dependencies in dependencies.values()):
+            image = image.apt_install("musl")
+
+        runtime_dependencies: dict[str, str] = {}
+        for package_dependencies in dependencies.values():
+            for name, version in package_dependencies.items():
+                if existing_version := runtime_dependencies.get(name):
+                    runtime_dependencies[name] = _merge_runtime_dependency_specs(name, existing_version, version)
+                    continue
+                runtime_dependencies[name] = version
+
+        dependency_json = json.dumps(runtime_dependencies, separators=(",", ":"), sort_keys=True)
+        merge_manifest_script = (
+            'const fs=require("fs");'
+            'const path="/scripts/package.json";'
+            'const manifest=JSON.parse(fs.readFileSync(path,"utf8"));'
+            "const dependencies=JSON.parse(process.argv[1]);"
+            "manifest.dependencies={...(manifest.dependencies||{}),...dependencies};"
+            "fs.writeFileSync(path,JSON.stringify(manifest));"
+        )
+        install_command = (
+            f"node -e {shlex.quote(merge_manifest_script)} {shlex.quote(dependency_json)} && "
+            "npm install --prefix /scripts --package-lock=false "
+            "--omit=dev --no-audit --no-fund"
+        )
+        image = image.run_commands(install_command)
+
     for package in packages:
         image = image.add_local_dir(
             str(package.build_output_path),
@@ -879,6 +929,12 @@ class ModalSandbox(SandboxBase):
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
         )
+
+        if repo_ready_file:
+            # Keep the adapter process from inheriting a repository cwd that does not
+            # exist yet, even if an overlaid agent-server mishandles its readiness flag.
+            wait_for_repo = f"while [ ! -f {shlex.quote(repo_ready_file)} ]; do sleep 0.1; done; exec {server_cmd}"
+            server_cmd = f"bash -c {shlex.quote(wait_for_repo)}"
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
 

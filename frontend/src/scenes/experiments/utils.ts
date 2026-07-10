@@ -34,6 +34,7 @@ import {
     Experiment,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
+    FeatureFlagBasicType,
     FeatureFlagType,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -51,6 +52,12 @@ import type {
 } from 'products/experiments/frontend/generated/api.schemas'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
+import {
+    EXPOSURE_DEFAULT_EVENT,
+    EXPOSURE_FEATURE_FLAG_PROPERTY,
+    EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
+    featureFlagVariantProperty,
+} from './exposureContract'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
 const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5 // on the 0-100 scale (0.5 = 0.5%)
@@ -96,6 +103,15 @@ export function getExperimentVariants(experiment: Partial<Experiment> | null | u
     )
 }
 
+/**
+ * Variants for a standalone feature flag (no experiment in hand). Reads the flag's saved config only.
+ */
+export function getFlagVariants(
+    flag: FeatureFlagBasicType | FeatureFlagType | null | undefined
+): MultivariateFlagVariant[] {
+    return flag?.filters?.multivariate?.variants ?? []
+}
+
 export function formatUnitByQuantity(value: number, unit: string): string {
     return value === 1 ? unit : unit + 's'
 }
@@ -134,7 +150,7 @@ function seriesToFilterLegacy(
             type: 'events',
             properties: [
                 {
-                    key: `$feature/${featureFlagKey}`,
+                    key: featureFlagVariantProperty(featureFlagKey),
                     type: PropertyFilterType.Event,
                     value: [variantKey],
                     operator: PropertyOperator.Exact,
@@ -193,7 +209,7 @@ function createExposureFilter(
         properties: [
             ...(exposureConfig.properties || []),
             {
-                key: `$feature/${featureFlagKey}`,
+                key: featureFlagVariantProperty(featureFlagKey),
                 type: PropertyFilterType.Event,
                 value: [variantKey],
                 operator: PropertyOperator.Exact,
@@ -220,23 +236,23 @@ export function getViewRecordingFilters(
     const exposureCriteria = experiment.exposure_criteria?.exposure_config
     if (
         exposureCriteria &&
-        !(isEventExposureConfig(exposureCriteria) && exposureCriteria.event === '$feature_flag_called')
+        !(isEventExposureConfig(exposureCriteria) && exposureCriteria.event === EXPOSURE_DEFAULT_EVENT)
     ) {
         filters.push(createExposureFilter(exposureCriteria, experiment.feature_flag_key, variantKey))
     } else {
         filters.push({
-            id: '$feature_flag_called',
-            name: '$feature_flag_called',
+            id: EXPOSURE_DEFAULT_EVENT,
+            name: EXPOSURE_DEFAULT_EVENT,
             type: 'events',
             properties: [
                 {
-                    key: '$feature_flag_response',
+                    key: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
                     type: PropertyFilterType.Event,
                     value: [variantKey],
                     operator: PropertyOperator.Exact,
                 },
                 {
-                    key: '$feature_flag',
+                    key: EXPOSURE_FEATURE_FLAG_PROPERTY,
                     type: PropertyFilterType.Event,
                     value: experiment.feature_flag_key,
                     operator: PropertyOperator.Exact,
@@ -304,7 +320,7 @@ export function getViewRecordingFiltersLegacy(
                         type: 'events',
                         properties: [
                             {
-                                key: `$feature/${featureFlagKey}`,
+                                key: featureFlagVariantProperty(featureFlagKey),
                                 type: PropertyFilterType.Event,
                                 value: [variantKey],
                                 operator: PropertyOperator.Exact,
@@ -327,18 +343,18 @@ export function getViewRecordingFiltersLegacy(
             }
         } else {
             filters.push({
-                id: '$feature_flag_called',
-                name: '$feature_flag_called',
+                id: EXPOSURE_DEFAULT_EVENT,
+                name: EXPOSURE_DEFAULT_EVENT,
                 type: 'events',
                 properties: [
                     {
-                        key: `$feature_flag_response`,
+                        key: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
                         type: PropertyFilterType.Event,
                         value: [variantKey],
                         operator: PropertyOperator.Exact,
                     },
                     {
-                        key: '$feature_flag',
+                        key: EXPOSURE_FEATURE_FLAG_PROPERTY,
                         type: PropertyFilterType.Event,
                         value: featureFlagKey,
                         operator: PropertyOperator.Exact,
@@ -366,8 +382,9 @@ export function getViewRecordingFiltersLegacy(
 }
 
 export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): true {
-    if (featureFlag.filters.multivariate?.variants?.length && featureFlag.filters.multivariate.variants.length > 1) {
-        if (featureFlag.filters.multivariate.variants[0].key !== 'control') {
+    const variants = getFlagVariants(featureFlag)
+    if (variants.length > 1) {
+        if (variants[0].key !== 'control') {
             throw new Error('Feature flag must have control as the first variant.')
         }
         return true

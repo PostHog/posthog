@@ -40,10 +40,17 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         updated_age: datetime.timedelta | None = None,
         *,
         prewarmed: bool = False,
+        environment: str | None = None,
     ) -> "TaskRun":
         TaskRun = apps.get_model("tasks", "TaskRun")
         state = {"prewarmed": True, "await_user_message": True} if prewarmed else {}
-        run = TaskRun.objects.create(task=self.task, team=self.team, status=status, state=state)
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=status,
+            state=state,
+            **({"environment": environment} if environment else {}),
+        )
         now = timezone.now()
         TaskRun.objects.filter(pk=run.pk).update(
             created_at=now - age, updated_at=now - (updated_age if updated_age is not None else age)
@@ -72,6 +79,37 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
         self.assertIsNone(run.completed_at)
         self.assertIsNone(run.error_message)
+
+    def test_completes_stale_local_run_quietly_instead_of_failing(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        stale_local = self._make_run(
+            TaskRun.Status.QUEUED, datetime.timedelta(hours=25), environment=TaskRun.Environment.LOCAL
+        )
+        fresh_local = self._make_run(
+            TaskRun.Status.QUEUED, datetime.timedelta(hours=23, minutes=59), environment=TaskRun.Environment.LOCAL
+        )
+        # A local run whose updated_at keeps advancing is a live desktop session (the desktop
+        # PATCHes output/branch as it works) — the created_at hard cap must never reap it.
+        live_local = self._make_run(
+            TaskRun.Status.QUEUED,
+            datetime.timedelta(hours=50),
+            updated_age=datetime.timedelta(hours=2),
+            environment=TaskRun.Environment.LOCAL,
+        )
+
+        with patch("products.tasks.backend.push_dispatcher.notify_task_run_completed") as mock_notify:
+            kill_stale_queued_task_runs()
+
+        stale_local.refresh_from_db()
+        self.assertEqual(stale_local.status, TaskRun.Status.COMPLETED)
+        self.assertIsNone(stale_local.error_message)
+        self.assertIsNotNone(stale_local.completed_at)
+        mock_notify.assert_not_called()
+
+        fresh_local.refresh_from_db()
+        live_local.refresh_from_db()
+        self.assertEqual(fresh_local.status, TaskRun.Status.QUEUED)
+        self.assertEqual(live_local.status, TaskRun.Status.QUEUED)
 
     def test_leaves_re_queued_run_with_old_created_at_alone(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
