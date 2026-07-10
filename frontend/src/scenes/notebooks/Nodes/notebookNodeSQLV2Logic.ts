@@ -91,6 +91,9 @@ export type SqlV2RunLane = 'direct' | 'kernel'
 export interface RunQueryOptions {
     nodeType?: 'hogql' | 'python'
     outputName?: string
+    // When the run lands, automatically re-run the cells it made stale (input widgets,
+    // Journey 11) instead of waiting for a banner click.
+    autoRunDependents?: boolean
 }
 
 export interface NotebookNodeSQLV2LogicProps {
@@ -505,6 +508,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     }
                 }
                 actions.startOperation(runOperation)
+                cache.autoRunDependents = !!opts.autoRunDependents
                 try {
                     const { run_id } = await api.notebooks.sqlV2Run(props.notebookShortId, {
                         node_id: props.nodeId,
@@ -618,6 +622,12 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         // Downstream cells now derive from outdated data — mark them stale
                         // against the document as it stands now (Journey 10).
                         actions.nodeRunFinished(props.nodeId, 'done', props.getContent?.() ?? null)
+                        // Input widgets (Journey 11): the change should propagate without a
+                        // second click, so run the newly stale cells right away.
+                        if (cache.autoRunDependents) {
+                            cache.autoRunDependents = false
+                            actions.runStaleChain(props.getContent?.() ?? null)
+                        }
                     } else if (status === 'interrupted') {
                         // A user-requested stop: the envelope still carries whatever stdout,
                         // stderr, and figures the cell produced before the interrupt landed.
