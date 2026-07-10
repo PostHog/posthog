@@ -112,8 +112,12 @@ BACKGROUND_WARMING_TRIGGERS = frozenset(
 # arrives within minutes via the revalidation task (plus the hourly eager warmer for
 # warmed shapes) — the grace is the ceiling for revalidation failures and warmer
 # outages. Must stay well under the framework's 48h ClickHouse expiry buffer (rows must
-# still exist).
-STALE_WHILE_REVALIDATE_SECONDS = 6 * 60 * 60
+# still exist). 24h captures the dominant daily-checkin return cadence: measured over
+# 14 days of paths-tile traffic (same-shape return visits), the stale window catches
+# 10.8% of returns at 6h vs 31.5% at 24h, lifting instant paints from ~27% to ~48%;
+# beyond 24h the curve flattens (38.5% at 48h). Revalidation is what makes this size
+# safe — staleness is bounded by first-touch after a gap, not by the grace.
+STALE_WHILE_REVALIDATE_SECONDS = 24 * 60 * 60
 
 WEB_ANALYTICS_LAZY_PRECOMPUTE_STALE_SERVED = Counter(
     "web_analytics_lazy_precompute_stale_served_total",
