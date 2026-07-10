@@ -252,6 +252,17 @@ export async function performQuery<N extends DataNode>(
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
+            if (response && typeof response === 'object') {
+                // Web analytics responses report which read path served them and whether
+                // a lazy-precompute read was served stale — undefined elsewhere, so these
+                // props only land on events that carry them.
+                const { preComputeStrategy, preComputeStale } = response as {
+                    preComputeStrategy?: string
+                    preComputeStale?: boolean
+                }
+                logParams.precompute_strategy = preComputeStrategy
+                logParams.precompute_stale = preComputeStale
+            }
         }
         posthog.capture('query completed', {
             query: queryNode,

@@ -29,6 +29,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
@@ -142,6 +143,18 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     def _run(self, query: WebStatsTableQuery):
         return WebStatsTableQueryRunner(team=self.team, query=query).calculate()
+
+    @parameterized.expand([("stale_tagged", True, True), ("fresh", False, None)])
+    def test_lazy_response_stamps_precompute_stale(self, _name, tag_set, expected):
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+        reset_query_tags()
+        try:
+            if tag_set:
+                tag_queries(precompute_stale=True)
+            response = runner._build_response_from_lazy_rows([], limit=10, offset=0)
+        finally:
+            reset_query_tags()
+        assert response.preComputeStale is expected
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_unfiltered_round_trip_creates_precompute_job(self):
