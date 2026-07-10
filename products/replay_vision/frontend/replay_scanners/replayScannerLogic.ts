@@ -598,6 +598,36 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 tagFilter.length > 0 ||
                 subjectFilter.trim().length > 0,
         ],
+        // Carried into observation detail links so server-computed prev/next neighbors honor the table's filters + sort.
+        observationDetailLinkParams: [
+            (s) => [
+                s.observationStatusFilter,
+                s.observationTriggeredByFilter,
+                s.observationVerdictFilter,
+                s.observationTagFilter,
+                s.observationSubjectFilter,
+                s.observationsSort,
+                s.scanner,
+            ],
+            (
+                observationStatusFilter: ObservationStatusValue[],
+                observationTriggeredByFilter: ObservationTriggeredByValue[],
+                observationVerdictFilter: ObservationVerdictValue[],
+                observationTagFilter: string[],
+                observationSubjectFilter: string,
+                observationsSort: ObservationsSorting | null,
+                scanner: ReplayScanner | null
+            ): Record<string, string> =>
+                buildObservationListParams({
+                    observationStatusFilter,
+                    observationTriggeredByFilter,
+                    observationVerdictFilter,
+                    observationTagFilter,
+                    observationSubjectFilter,
+                    observationsSort,
+                    scanner,
+                }) as Record<string, string>,
+        ],
         availableTags: [
             (s) => [s.observationStatsApi],
             (stats: ObservationStatsApi | null): string[] => stats?.available_tags ?? [],
