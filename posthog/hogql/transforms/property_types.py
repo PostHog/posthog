@@ -32,14 +32,14 @@ from posthog.clickhouse.materialized_columns import (
 from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
 
-# ISO 8601 datetimes carrying a `T` date/time separator and/or a `Z`/±HH:MM offset
-# suffix. ClickHouse's toDateTime64 uses a strict parser that rejects these, so they
-# must go through parseDateTime64BestEffortOrNull instead.
-_ISO8601_WITH_OFFSET_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T.*(Z|[+-]\d{2}:?\d{2})$")
+# ISO 8601 datetimes carrying a `T` date/time separator followed by a `Z`/±HH:MM
+# offset suffix. ClickHouse's toDateTime64 uses a strict parser that rejects these,
+# so they must go through parseDateTime64BestEffortOrNull instead.
+_ISO8601_WITH_OFFSET_RE = re.compile(r"\d{4}-\d{2}-\d{2}T.*(Z|[+-]\d{2}:?\d{2})")
 
 
 def _is_iso8601_with_offset(value: str) -> bool:
-    return bool(_ISO8601_WITH_OFFSET_RE.match(value))
+    return bool(_ISO8601_WITH_OFFSET_RE.fullmatch(value))
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
@@ -527,7 +527,7 @@ class PropertySwapper(CloningVisitor):
         if isinstance(inner, ast.Constant):
             if isinstance(inner.value, datetime) and inner.value.tzinfo is not None:
                 return expr
-            # ISO 8601 strings carrying a `T` separator and/or a `Z`/offset suffix
+            # ISO 8601 strings carrying a `T` separator followed by a `Z`/offset suffix
             # (e.g. '2026-05-18T00:00:00.000Z') are preserved upstream so the offset
             # can be honored (see property.py:_resolve_date_value). toDateTime64 uses
             # a strict parser that rejects the trailing `Z`, so route these through
