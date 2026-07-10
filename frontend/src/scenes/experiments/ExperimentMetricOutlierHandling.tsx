@@ -127,7 +127,18 @@ export function ExperimentMetricOutlierHandling({
                             upper_bound_percentile: metric.upper_bound_percentile,
                             ignore_zeros: metric.ignore_zeros,
                         }}
-                        onChange={(next) => handleSetMetric({ ...metric, ...next })}
+                        onChange={(next) =>
+                            handleSetMetric({
+                                ...metric,
+                                ...next,
+                                // Winsorization and value-breakdown are mutually exclusive (the decomposition
+                                // needs un-capped values), so enabling a bound clears any split property.
+                                ...((next.lower_bound_percentile !== undefined ||
+                                    next.upper_bound_percentile !== undefined) && {
+                                    value_breakdown_property: undefined,
+                                }),
+                            })
+                        }
                     />
                 </div>
             </Tooltip>

@@ -14,6 +14,7 @@ from posthog.schema import (
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
@@ -43,8 +44,12 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     parse_ttl_schedule,
 )
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
-from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
-from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
+from products.experiments.backend.hogql_queries.base_query_utils import (
+    experiment_window,
+    experiment_window_end,
+    is_session_property_metric,
+)
+from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig, get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
@@ -243,6 +248,13 @@ class ExperimentQueryRunner(QueryRunner):
             team_default_lookback_days=self._team_experiments_config.default_cuped_lookback_days,
         )
 
+        # Effect-decomposition by a metric-event property (separate from breakdownFilter).
+        self._value_breakdown_property = self._resolve_value_breakdown_property()
+        if self._value_breakdown_property is not None:
+            # A CUPED-adjusted headline would not decompose cleanly into the un-adjusted per-value
+            # splits, so the whole result is computed without CUPED while value breakdown is active.
+            self.cuped_config = CupedQueryConfig()
+
         self.clickhouse_sql: str | None = None
         self.hogql: str | None = None
         self._is_precomputed: bool = False  # exposures precompute
@@ -262,6 +274,41 @@ class ExperimentQueryRunner(QueryRunner):
             raise ValidationError("Maximum of 3 breakdowns are supported for experiment metrics")
 
         return breakdowns
+
+    def _resolve_value_breakdown_property(self) -> str | None:
+        """Return the validated metric-event property to decompose the result by, or None.
+
+        The decomposition guarantee (per-value sums add back to the un-split total) only holds for
+        additive, event-sourced metrics, so combinations that would break it are rejected up front
+        rather than silently producing splits that don't add up.
+        """
+        breakdown_property = getattr(self.metric, "value_breakdown_property", None)
+        if not breakdown_property:
+            return None
+
+        if not isinstance(self.metric, ExperimentMeanMetric):
+            raise ValidationError("value_breakdown_property is only supported for mean metrics")
+
+        if isinstance(self.metric.source, ExperimentDataWarehouseNode):
+            raise ValidationError("value_breakdown_property is not supported for data warehouse metrics")
+
+        if is_session_property_metric(self.metric.source):
+            raise ValidationError("value_breakdown_property is not supported for session property metrics")
+
+        math = getattr(self.metric.source, "math", None) or ExperimentMetricMathType.TOTAL
+        if math not in (ExperimentMetricMathType.TOTAL, ExperimentMetricMathType.SUM):
+            raise ValidationError("value_breakdown_property is only supported for count (total) and sum math")
+
+        if self.metric.breakdownFilter is not None and self.metric.breakdownFilter.breakdowns:
+            raise ValidationError("value_breakdown_property cannot be combined with a breakdown")
+
+        if self.metric.lower_bound_percentile is not None or self.metric.upper_bound_percentile is not None:
+            raise ValidationError("value_breakdown_property cannot be combined with winsorization")
+
+        if self.metric.threshold is not None:
+            raise ValidationError("value_breakdown_property cannot be combined with a threshold")
+
+        return breakdown_property
 
     def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
         """
@@ -369,9 +416,12 @@ class ExperimentQueryRunner(QueryRunner):
             and not self.is_data_warehouse_query
         )
 
-    def _get_experiment_query(self) -> ast.SelectQuery:
-        """
-        Returns the main experiment query.
+    def _build_query_builder(self) -> ExperimentQueryBuilder:
+        """Construct an ExperimentQueryBuilder from the current runner state.
+
+        Built fresh per call so each query (the headline result and, when value breakdown is
+        active, the separate decomposition query) gets a clean builder without leaking precompute
+        job IDs across queries.
         """
         assert isinstance(
             self.metric,
@@ -385,7 +435,7 @@ class ExperimentQueryRunner(QueryRunner):
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
-        builder = ExperimentQueryBuilder(
+        return ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
             exposure_config=exposure_config,
@@ -399,6 +449,12 @@ class ExperimentQueryRunner(QueryRunner):
             only_count_matured_users=self.experiment.only_count_matured_users,
             cuped_config=self.cuped_config,
         )
+
+    def _get_experiment_query(self) -> ast.SelectQuery:
+        """
+        Returns the main experiment query.
+        """
+        builder = self._build_query_builder()
 
         should_precompute = self._should_precompute()
 
@@ -510,6 +566,14 @@ class ExperimentQueryRunner(QueryRunner):
         self.hogql = experiment_query_debug[0]
         self.clickhouse_sql = experiment_query_debug[1]
 
+        return self._execute_query_ast(experiment_query_ast)
+
+    def _execute_query_ast(self, query_ast: ast.SelectQuery) -> tuple[list[tuple], list[str]]:
+        """Execute an experiment query AST and return ($multiple-filtered, variant-sorted) rows.
+
+        Shared by the headline result and the value-breakdown decomposition query so both use the
+        same modifiers, memory settings, multiple-variant filtering, and ordering.
+        """
         modifiers = create_default_modifiers_for_team(self.team)
         if posthoganalytics.feature_enabled(
             "hogql-session-id-pushdown",
@@ -533,7 +597,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         response = execute_hogql_query(
             query_type="ExperimentQuery",
-            query=experiment_query_ast,
+            query=query_ast,
             team=self.team,
             user=self.user,
             bypass_warehouse_access_control=self.bypass_warehouse_access_control,
@@ -553,6 +617,9 @@ class ExperimentQueryRunner(QueryRunner):
 
     @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
+        if self._value_breakdown_property is not None:
+            return self._calculate_with_value_breakdown()
+
         # Prepare variant data
         variant_results = self._prepare_variant_results()
 
@@ -575,6 +642,42 @@ class ExperimentQueryRunner(QueryRunner):
         result.is_precomputed = self._is_precomputed
 
         return result
+
+    def _calculate_with_value_breakdown(self) -> ExperimentQueryResponse:
+        """Result path for value (effect-decomposition) breakdown.
+
+        The headline is the ordinary un-split mean result, computed by the standard path so the
+        overall numbers match a metric without value breakdown (and still benefit from exposure
+        precomputation). The per-value splits come from a second query that keeps the full exposure
+        denominator; they are attached as ``breakdown_results`` but are deliberately NOT aggregated
+        into the headline — summing them would multiply the denominator by the number of values.
+        """
+        variant_results = self._prepare_variant_results()
+        overall_variants = [variant for _, variant in variant_results]
+        result = self._calculate_statistics_for_variants(overall_variants)
+
+        split_results = self._prepare_value_breakdown_results()
+        breakdown_tuples = sorted({bv for bv, _ in split_results if bv is not None})
+        result.breakdown_results = [
+            self._compute_breakdown_statistics(breakdown_tuple, split_results) for breakdown_tuple in breakdown_tuples
+        ]
+
+        result.clickhouse_sql = self.clickhouse_sql
+        result.hogql = self.hogql
+        result.is_precomputed = self._is_precomputed
+
+        return result
+
+    def _prepare_value_breakdown_results(self) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
+        """Run the decomposition query and map its rows to (value_tuple, stats)."""
+        sorted_results, columns = self._evaluate_value_breakdown_query()
+        return get_variant_results(sorted_results, columns)
+
+    def _evaluate_value_breakdown_query(self) -> tuple[list[tuple], list[str]]:
+        """Build and execute the per-value decomposition query (always a direct scan)."""
+        assert self._value_breakdown_property is not None
+        query_ast = self._build_query_builder().build_mean_value_breakdown_query(self._value_breakdown_property)
+        return self._execute_query_ast(query_ast)
 
     def _prepare_variant_results(self) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
         """Fetch and prepare variant results with missing variants added."""

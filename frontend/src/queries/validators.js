@@ -6571,6 +6571,11 @@ const schema67 = {
             type: 'number',
         },
         uuid: { type: 'string' },
+        value_breakdown_property: {
+            description:
+                "When set, the metric result is additionally split by the values of this property on the metric event (effect decomposition). Unlike `breakdownFilter`, every split keeps the full exposure denominator, so the per-value means sum back to the overall mean. Only valid for 'total' (count) and 'sum' math, and cannot be combined with breakdownFilter, winsorization, or threshold.",
+            type: 'string',
+        },
         version: { description: 'version of the node, used for schema migrations', type: 'number' },
     },
     required: ['kind', 'metric_type', 'source'],
@@ -10932,30 +10937,27 @@ function validate85(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                     }
                                                                                     if (valid0) {
                                                                                         if (
-                                                                                            data.version !== undefined
+                                                                                            data.value_breakdown_property !==
+                                                                                            undefined
                                                                                         ) {
-                                                                                            let data17 = data.version
                                                                                             const _errs37 = errors
                                                                                             if (
-                                                                                                !(
-                                                                                                    typeof data17 ==
-                                                                                                        'number' &&
-                                                                                                    isFinite(data17)
-                                                                                                )
+                                                                                                typeof data.value_breakdown_property !==
+                                                                                                'string'
                                                                                             ) {
                                                                                                 validate85.errors = [
                                                                                                     {
                                                                                                         instancePath:
                                                                                                             instancePath +
-                                                                                                            '/version',
+                                                                                                            '/value_breakdown_property',
                                                                                                         schemaPath:
-                                                                                                            '#/properties/version/type',
+                                                                                                            '#/properties/value_breakdown_property/type',
                                                                                                         keyword: 'type',
                                                                                                         params: {
-                                                                                                            type: 'number',
+                                                                                                            type: 'string',
                                                                                                         },
                                                                                                         message:
-                                                                                                            'must be number',
+                                                                                                            'must be string',
                                                                                                     },
                                                                                                 ]
                                                                                                 return false
@@ -10964,6 +10966,46 @@ function validate85(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                                 _errs37 === errors
                                                                                         } else {
                                                                                             var valid0 = true
+                                                                                        }
+                                                                                        if (valid0) {
+                                                                                            if (
+                                                                                                data.version !==
+                                                                                                undefined
+                                                                                            ) {
+                                                                                                let data18 =
+                                                                                                    data.version
+                                                                                                const _errs39 = errors
+                                                                                                if (
+                                                                                                    !(
+                                                                                                        typeof data18 ==
+                                                                                                            'number' &&
+                                                                                                        isFinite(data18)
+                                                                                                    )
+                                                                                                ) {
+                                                                                                    validate82.errors =
+                                                                                                        [
+                                                                                                            {
+                                                                                                                instancePath:
+                                                                                                                    instancePath +
+                                                                                                                    '/version',
+                                                                                                                schemaPath:
+                                                                                                                    '#/properties/version/type',
+                                                                                                                keyword:
+                                                                                                                    'type',
+                                                                                                                params: {
+                                                                                                                    type: 'number',
+                                                                                                                },
+                                                                                                                message:
+                                                                                                                    'must be number',
+                                                                                                            },
+                                                                                                        ]
+                                                                                                    return false
+                                                                                                }
+                                                                                                var valid0 =
+                                                                                                    _errs39 === errors
+                                                                                            } else {
+                                                                                                var valid0 = true
+                                                                                            }
                                                                                         }
                                                                                     }
                                                                                 }

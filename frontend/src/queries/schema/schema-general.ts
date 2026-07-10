@@ -4453,6 +4453,12 @@ export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
         /** When set, reports the percentage of users whose per-user summed/counted value
          *  reaches or exceeds this threshold. Only meaningful for sum/count math types. */
         threshold?: number
+        /** When set, the metric result is additionally split by the values of this property on the
+         *  metric event (effect decomposition). Unlike `breakdownFilter`, every split keeps the full
+         *  exposure denominator, so the per-value means sum back to the overall mean. Only valid for
+         *  'total' (count) and 'sum' math, and cannot be combined with breakdownFilter, winsorization,
+         *  or threshold. */
+        value_breakdown_property?: string
     }
 
 export const isExperimentMeanMetric = (metric: ExperimentMetric): metric is ExperimentMeanMetric =>
