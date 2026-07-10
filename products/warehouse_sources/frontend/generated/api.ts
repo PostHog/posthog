@@ -727,8 +727,9 @@ export const getExternalDataSourcesSyncWebhookEventsCreateUrl = (projectId: stri
 }
 
 /**
- * Reconcile a source's webhook with the currently selected schemas and refresh the
- * deployed hog function's code from its template.
+ * Reconcile a source's webhook with the currently selected schemas and re-sync the
+ * hog function's inputs_schema, schema_mapping, and template linkage from the current
+ * template. Hog code itself stays current at runtime via the CDP template mechanisms.
  *
  * Sources that override sync_webhook_events (e.g. Stripe) get their provider events
  * reconciled; sources without an override no-op successfully, and the still-nonempty
