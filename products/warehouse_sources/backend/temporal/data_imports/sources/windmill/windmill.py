@@ -46,12 +46,24 @@ def normalize_base_url(url: str) -> str:
     Forces https (matching the Okta/ServiceNow/Braze connectors that also take a user-supplied
     host), strips any trailing slash, and tolerates the user pasting a URL that already ends in
     ``/api`` so we never build ``/api/api``.
+
+    The authority is rebuilt from the parsed host (and port) alone, dropping any userinfo, query,
+    or fragment. This keeps the host we SSRF-check identical to the host requests actually connects
+    to — an embedded ``user@`` or trailing ``?``/``#`` can't make the checked authority diverge
+    from the effective one.
     """
-    url = re.sub(r"^https?://", "", url.strip(), flags=re.IGNORECASE)
-    root = f"https://{url.rstrip('/')}"
-    if root.lower().endswith("/api"):
-        root = root[: -len("/api")]
-    return f"{root}/api"
+    stripped = re.sub(r"^https?://", "", url.strip(), flags=re.IGNORECASE)
+    parsed = urlparse(f"https://{stripped}")
+    host = (parsed.hostname or "").lower()
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    netloc = f"{host}:{port}" if port else host
+    path = parsed.path.rstrip("/")
+    if path.lower().endswith("/api"):
+        path = path[: -len("/api")]
+    return f"https://{netloc}{path}/api"
 
 
 def _host_from_url(base_url: str) -> str:
@@ -120,8 +132,11 @@ def validate_credentials(
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
     url = _workspace_url(base_url, workspace, "/users/whoami")
+    # Redact the bearer token wherever the tracked adapter records request samples — the
+    # Authorization header uses a scheme the name-based scrubbers don't cover.
+    session = make_tracked_session(allow_redirects=False, redact_values=(api_token,))
     try:
-        response = make_tracked_session(allow_redirects=False).get(url, headers=_get_headers(api_token), timeout=10)
+        response = session.get(url, headers=_get_headers(api_token), timeout=10)
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -168,6 +183,11 @@ def get_rows(
     ):
         after_value = _format_after(db_incremental_field_last_value)
 
+    # Redact the bearer token wherever the tracked adapter records request samples — the
+    # Authorization header uses a scheme the name-based scrubbers don't cover. One session is
+    # reused across every page so the redaction applies to all requests.
+    session = make_tracked_session(allow_redirects=False, redact_values=(api_token,))
+
     @retry(
         retry=retry_if_exception_type((WindmillRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
@@ -179,9 +199,7 @@ def get_rows(
         page_url = _workspace_url(base_url, workspace, config.path)
         if params:
             page_url = f"{page_url}?{urlencode(params)}"
-        response = make_tracked_session(allow_redirects=False).get(
-            page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS
-        )
+        response = session.get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise WindmillRetryableError(
@@ -203,6 +221,12 @@ def get_rows(
         return
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    # A saved page number only indexes into a fixed result set. When an incremental watermark is
+    # active it may have advanced since the page was saved (a partial run commits rows and moves
+    # the cursor), which reshuffles the filtered pages so page N would skip earlier unsynced rows.
+    # Restart from page 1 in that case; the watermark still bounds the scan and merge dedupes.
+    if after_value is not None:
+        resume_config = None
     page = resume_config.page if resume_config is not None else 1
     if resume_config is not None:
         logger.debug(f"Windmill: resuming {endpoint} from page={page}")

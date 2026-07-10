@@ -42,6 +42,12 @@ class WindmillSource(ResumableSource[WindmillSourceConfig, WindmillResumeConfig]
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.WINDMILL
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # The API token is sent to whatever host `host` points at, so retargeting it must
+        # re-require the token (prevents exfiltrating the stored bearer token to another host).
+        return ["host"]
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,

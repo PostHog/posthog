@@ -38,6 +38,11 @@ class TestWindmillSource:
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["host", "workspace", "api_token"]
 
+    def test_connection_host_fields_force_token_reentry_on_host_change(self):
+        # host receives the api_token, so editing it must re-require the token (no exfiltration
+        # of the stored bearer token to an attacker-controlled host).
+        assert self.source.connection_host_fields == ["host"]
+
     def test_api_token_field_is_secret_password(self):
         config = self.source.get_source_config
         token_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")

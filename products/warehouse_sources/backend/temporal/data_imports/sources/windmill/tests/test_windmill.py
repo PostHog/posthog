@@ -59,6 +59,13 @@ class TestNormalizeBaseUrl:
             ("http://windmill.internal.example.com", "https://windmill.internal.example.com/api"),
             ("windmill.example.com", "https://windmill.example.com/api"),
             ("  https://app.windmill.dev  ", "https://app.windmill.dev/api"),
+            # Embedded userinfo / query / fragment must not change the authority we connect to,
+            # so the SSRF host check can't diverge from the effective request host.
+            ("https://user:pw@app.windmill.dev", "https://app.windmill.dev/api"),
+            ("https://app.windmill.dev?x=1", "https://app.windmill.dev/api"),
+            ("https://app.windmill.dev#frag", "https://app.windmill.dev/api"),
+            # A custom port is preserved for self-hosted instances.
+            ("https://windmill.internal:8080", "https://windmill.internal:8080/api"),
         ],
     )
     def test_normalizes(self, value, expected):
@@ -158,6 +165,16 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = _response({}, status_code=200)
         validate_credentials("token", BASE_URL, WORKSPACE)
         assert mock_session.call_args.kwargs["allow_redirects"] is False
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
+    )
+    def test_redacts_api_token_in_tracked_session(self, mock_session):
+        # The bearer token rides in a header the name-based scrubbers can't see, so it must be
+        # value-redacted or it leaks into captured request samples.
+        mock_session.return_value.get.return_value = _response({}, status_code=200)
+        validate_credentials("token", BASE_URL, WORKSPACE)
+        assert mock_session.call_args.kwargs["redact_values"] == ("token",)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
@@ -278,6 +295,33 @@ class TestGetRows:
 
         first_url = mock_session.return_value.get.call_args_list[0].args[0]
         assert "page=7" in first_url
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
+    )
+    def test_incremental_resume_ignores_saved_page(self, mock_session):
+        # The watermark may have advanced since page 7 was saved, so honouring the saved page
+        # would skip earlier unsynced rows in the re-filtered result set. Restart from page 1.
+        mock_session.return_value.get.side_effect = [_response(_page(1))]
+
+        manager = _make_manager(WindmillResumeConfig(page=7))
+        list(
+            get_rows(
+                "token",
+                BASE_URL,
+                WORKSPACE,
+                "completed_jobs",
+                mock.MagicMock(),
+                manager,
+                team_id=1,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+                incremental_field="started_at",
+            )
+        )
+
+        first_url = mock_session.return_value.get.call_args_list[0].args[0]
+        assert "page=1" in first_url
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
