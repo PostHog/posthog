@@ -22,14 +22,12 @@ when they didn't need them, and agents drilling into the wrong issue.
 
 To run::
 
-    pytest ee/hogai/eval/sandboxed/error_tracking/eval_issue_drilldown.py
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_issue_drilldown"
 """
 
 from __future__ import annotations
 
 from typing import Any
-
-import pytest
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
@@ -40,6 +38,7 @@ from ee.hogai.eval.sandboxed.error_tracking.scorers import (
     IssueInputAlignment,
 )
 from ee.hogai.eval.sandboxed.error_tracking.seeders import seed_error_tracking_issues
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
 
 
@@ -75,8 +74,7 @@ def _drilldown_case(
     )
 
 
-@pytest.mark.django_db
-async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_issue_drilldown(ctx: EvalContext) -> None:
     cases = [
         # Detail-only — impact numbers + a glance at the issue. Should not
         # trigger the heavier events tool or fan out to session recordings.
@@ -122,7 +120,7 @@ async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-error-tracking-issue-drilldown-{mcp_mode}",
+        experiment_name="sandboxed-error-tracking-issue-drilldown-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -131,7 +129,5 @@ async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client
             IssueIdMatchesTarget(),
             IssueInputAlignment(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

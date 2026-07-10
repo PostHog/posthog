@@ -11,10 +11,11 @@ from ee.hogai.eval.sandboxed.base import SandboxedPrivateEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.experiments.scorers import SharedMetricValidationVerdict
 from ee.hogai.eval.sandboxed.experiments.seeders import SHARED_METRIC_NAME, seed_shared_metric_purchase_count
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, RequiredToolCall
 
 
-async def eval_shared_metric_validation(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_shared_metric_validation(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
         # Case 1: criteria match the seeded metric exactly. Agent should
         # affirm the match and cite the event and math.
@@ -48,7 +49,7 @@ async def eval_shared_metric_validation(sandboxed_demo_data, pytestconfig, posth
     ]
 
     await SandboxedPrivateEval(
-        experiment_name=f"sandboxed-experiments-shared-metric-validation-{mcp_mode}",
+        experiment_name="sandboxed-experiments-shared-metric-validation-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -61,7 +62,5 @@ async def eval_shared_metric_validation(sandboxed_demo_data, pytestconfig, posth
             ),
             SharedMetricValidationVerdict(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

@@ -7,7 +7,7 @@ and judges the retention query the agent ran via the ``query-retention`` MCP
 tool.
 
 To run:
-    pytest ee/hogai/eval/sandboxed/product_analytics/eval_retention.py
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_retention"
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from posthog.schema import AssistantRetentionEventsNode, AssistantRetentionFilte
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.product_analytics.scorers import (
     INSIGHT_WRITE_TOOLS,
     RetentionSchemaAlignment,
@@ -39,7 +40,7 @@ def _retention_case(
     )
 
 
-async def eval_retention(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_retention(ctx: EvalContext) -> None:
     cases = [
         _retention_case(
             name="retention_pageview_default",
@@ -124,7 +125,7 @@ async def eval_retention(sandboxed_demo_data, pytestconfig, posthog_client, mcp_
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-retention-{mcp_mode}",
+        experiment_name="sandboxed-retention-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -133,7 +134,5 @@ async def eval_retention(sandboxed_demo_data, pytestconfig, posthog_client, mcp_
             RetentionSchemaAlignment(),
             RetentionTimeRangeRelevancy(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

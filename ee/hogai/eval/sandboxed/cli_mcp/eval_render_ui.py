@@ -33,21 +33,20 @@ Not exercised here (sandbox/scope limits, not prompt gaps):
   side effects against the shared demo project.
 * **Surveys** — the hedgebox demo seeds none.
 
-``render-ui`` is registered only in ``cli`` mode and for MCP Apps hosts (the
-sandboxed eval client presents as one), so the only remaining gate here is the
-mode: all cases skip under ``--mcp-mode=tools`` (see ``conftest.py:_apply_mcp_mode``).
+``render-ui`` is registered only for MCP Apps hosts, which the sandboxed eval
+client presents as, and the MCP server now serves the ``cli`` surface it lives
+on by default.
 
 To run a single eval:
-    pytest ee/hogai/eval/sandboxed/cli_mcp/eval_render_ui.py::eval_renders_entity_ui --mcp-mode=cli
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_renders_entity_ui"
 """
 
 from __future__ import annotations
 
-import pytest
-
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.cli_mcp.scorers import CalledTargetTool, DidNotRenderUi, ExecBeforeRender, RenderedEntityUi
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 # Renderable experiment tools (detail + results). The agent may render the detail
@@ -57,10 +56,8 @@ from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 EXPERIMENT_RENDER_TOOLS = ["experiment-results-get", "experiment-get", "experiment-timeseries-results"]
 
 
-async def eval_renders_entity_ui(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_renders_entity_ui(ctx: EvalContext) -> None:
     """Entity-centric answers must render the entity (in addition to summarizing it)."""
-    if mcp_mode == "tools":
-        pytest.skip("render-ui only exists in cli mode")
 
     cases: list[SandboxedEvalCase] = [
         # Status / health → render the experiment ("File engagement boost" runs in the demo).
@@ -93,16 +90,14 @@ async def eval_renders_entity_ui(sandboxed_demo_data, pytestconfig, posthog_clie
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-cli-mcp-renders-entity-ui-{mcp_mode}",
+        experiment_name="sandboxed-cli-mcp-renders-entity-ui-cli",
         cases=cases,
         scorers=[ExitCodeZero(), RenderedEntityUi(), ExecBeforeRender()],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )
 
 
-async def eval_no_render_for_query_results(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_no_render_for_query_results(ctx: EvalContext) -> None:
     """Insight/trends answers must NOT be routed through ``render-ui``.
 
     ``query-trends`` (and the other insight ``query-*`` tools) carry the custom
@@ -110,8 +105,6 @@ async def eval_no_render_for_query_results(sandboxed_demo_data, pytestconfig, po
     ``render-ui``'s enum. The agent should answer with the query tool and never
     call ``render-ui``.
     """
-    if mcp_mode == "tools":
-        pytest.skip("render-ui only exists in cli mode")
 
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
@@ -125,10 +118,8 @@ async def eval_no_render_for_query_results(sandboxed_demo_data, pytestconfig, po
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-cli-mcp-no-render-for-query-{mcp_mode}",
+        experiment_name="sandboxed-cli-mcp-no-render-for-query-cli",
         cases=cases,
         scorers=[ExitCodeZero(), CalledTargetTool(), DidNotRenderUi()],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

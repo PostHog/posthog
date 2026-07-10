@@ -25,25 +25,20 @@ Two cases:
 
 To run:
 
-    flox activate -- bash -c "set -a; source .env; set +a; \\
-        pytest -c ee/hogai/eval/pytest.ini \\
-        ee/hogai/eval/sandboxed/experiments/eval_interpretation_traps.py \\
-        -v --mcp-mode tools"
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_interpretation_traps"
 """
 
 from __future__ import annotations
-
-import pytest
 
 from ee.hogai.eval.sandboxed.base import SandboxedPrivateEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.experiments.scorers import AdvisesAgainstShipping, CitesDiagnosticGroup
 from ee.hogai.eval.sandboxed.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
-@pytest.mark.django_db
-async def eval_interpretation_traps(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_interpretation_traps(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
             name="low_volume_30_16_split",
@@ -106,14 +101,12 @@ async def eval_interpretation_traps(sandboxed_demo_data, pytestconfig, posthog_c
     ]
 
     await SandboxedPrivateEval(
-        experiment_name=f"sandboxed-experiments-diagnose-interpretation-{mcp_mode}",
+        experiment_name="sandboxed-experiments-diagnose-interpretation-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
             CitesDiagnosticGroup(),
             AdvisesAgainstShipping(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

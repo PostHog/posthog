@@ -17,16 +17,14 @@ in ``services/mcp/src/templates/cli-proxy-tool.md`` and
 * ``eval_verify_event_before_query`` — for ``query-*`` calls, the agent
   verifies the event/property exists via ``read-data-schema`` first.
 
-All five skip when ``--mcp-mode=tools`` because the ``exec`` tool is only
-registered in ``cli`` mode (see ``conftest.py:_apply_mcp_mode``).
+Every case exercises the ``posthog:exec`` tool, which the MCP server now
+registers by default.
 
 To run a single eval:
-    pytest ee/hogai/eval/sandboxed/cli_mcp/eval_workflow.py::eval_typo_recovery --mcp-mode=cli
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_typo_recovery"
 """
 
 from __future__ import annotations
-
-import pytest
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.cli_mcp.scorers import (
@@ -40,13 +38,12 @@ from ee.hogai.eval.sandboxed.cli_mcp.scorers import (
     VerifiedEventBeforeQuery,
 )
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
-async def eval_typo_recovery(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_typo_recovery(ctx: EvalContext) -> None:
     """Prompted with a deprecated or typo'd tool name, the agent must recover."""
-    if mcp_mode == "tools":
-        pytest.skip("posthog:exec only exists in cli mode")
 
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
@@ -72,19 +69,15 @@ async def eval_typo_recovery(sandboxed_demo_data, pytestconfig, posthog_client, 
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-cli-mcp-typo-recovery-{mcp_mode}",
+        experiment_name="sandboxed-cli-mcp-typo-recovery-cli",
         cases=cases,
         scorers=[ExitCodeZero(), RecoveredToCorrectTool()],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )
 
 
-async def eval_schema_drilldown(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_schema_drilldown(ctx: EvalContext) -> None:
     """Trends question with breakdown — the agent must drill into nested schema fields."""
-    if mcp_mode == "tools":
-        pytest.skip("posthog:exec only exists in cli mode")
 
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
@@ -109,19 +102,15 @@ async def eval_schema_drilldown(sandboxed_demo_data, pytestconfig, posthog_clien
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-cli-mcp-schema-drilldown-{mcp_mode}",
+        experiment_name="sandboxed-cli-mcp-schema-drilldown-cli",
         cases=cases,
         scorers=[ExitCodeZero(), CalledTargetTool(), DrilledIntoSchema()],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )
 
 
-async def eval_search_first(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_search_first(ctx: EvalContext) -> None:
     """Open-ended discovery — the agent must prefer ``search`` over bare ``tools``."""
-    if mcp_mode == "tools":
-        pytest.skip("posthog:exec only exists in cli mode")
 
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
@@ -135,19 +124,15 @@ async def eval_search_first(sandboxed_demo_data, pytestconfig, posthog_client, m
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-cli-mcp-search-first-{mcp_mode}",
+        experiment_name="sandboxed-cli-mcp-search-first-cli",
         cases=cases,
         scorers=[ExitCodeZero(), CalledTargetTool(), PreferredSearchOverTools()],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )
 
 
-async def eval_info_before_call(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_info_before_call(ctx: EvalContext) -> None:
     """Every successful ``call <tool>`` must be preceded by ``info <tool>``."""
-    if mcp_mode == "tools":
-        pytest.skip("posthog:exec only exists in cli mode")
 
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
@@ -169,16 +154,14 @@ async def eval_info_before_call(sandboxed_demo_data, pytestconfig, posthog_clien
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-cli-mcp-info-before-call-{mcp_mode}",
+        experiment_name="sandboxed-cli-mcp-info-before-call-cli",
         cases=cases,
         scorers=[ExitCodeZero(), CalledTargetTool(), InfoBeforeCall()],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )
 
 
-async def eval_json_for_post_processing(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_json_for_post_processing(ctx: EvalContext) -> None:
     """Post-processing scenario — agent must request raw JSON and run Python on it.
 
     The default ``output_format: "optimized"`` is token-efficient but lossy
@@ -187,8 +170,6 @@ async def eval_json_for_post_processing(sandboxed_demo_data, pytestconfig, posth
     it should opt into ``output_format: "json"`` so the result is a parseable
     JSON document, then drive Python via ``Bash`` to compute the answer.
     """
-    if mcp_mode == "tools":
-        pytest.skip("posthog:exec only exists in cli mode")
 
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
@@ -209,7 +190,7 @@ async def eval_json_for_post_processing(sandboxed_demo_data, pytestconfig, posth
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-cli-mcp-json-postprocess-{mcp_mode}",
+        experiment_name="sandboxed-cli-mcp-json-postprocess-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -217,16 +198,12 @@ async def eval_json_for_post_processing(sandboxed_demo_data, pytestconfig, posth
             UsedJsonOutputFormat(),
             RanPythonPostProcessing(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )
 
 
-async def eval_verify_event_before_query(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_verify_event_before_query(ctx: EvalContext) -> None:
     """``query-*`` calls must be preceded by a successful ``read-data-schema`` call."""
-    if mcp_mode == "tools":
-        pytest.skip("posthog:exec only exists in cli mode")
 
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
@@ -240,10 +217,8 @@ async def eval_verify_event_before_query(sandboxed_demo_data, pytestconfig, post
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-cli-mcp-verify-event-{mcp_mode}",
+        experiment_name="sandboxed-cli-mcp-verify-event-cli",
         cases=cases,
         scorers=[ExitCodeZero(), CalledTargetTool(), VerifiedEventBeforeQuery()],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

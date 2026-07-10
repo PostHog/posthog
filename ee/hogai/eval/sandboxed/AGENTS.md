@@ -9,6 +9,9 @@ Source of truth (read these if anything below looks stale):
 - Taxonomy constants (event/flag/group names): `products/demo/backend/logic/products/hedgebox/taxonomy.py`
 - How evals seed it: `ee/hogai/eval/data_setup.py`
 
+Running these evals, writing a new suite, and the provider prerequisites are covered in [`README.md`](README.md).
+The harness internals live in [`harness/README.md`](harness/README.md).
+
 ## How the data is seeded for evals
 
 `ee/hogai/eval/data_setup.py` builds the matrix with fixed parameters — **do not assume the library defaults** (180 days / `DEMO_MATRIX_N_CLUSTERS`):
@@ -24,7 +27,7 @@ HedgeboxMatrix(
 ```
 
 - The seed is fixed, so the dataset is **byte-for-byte reproducible** — assertions on relative shapes (e.g. "signups trend over -8w") are stable, but **do not hard-code absolute counts**; they can drift if the simulation code changes.
-- **Sandboxed evals** (`SandboxedDemoData` in `conftest.py`): a master Hedgebox team is generated once via `ensure_master_demo_team`, then each eval case gets its own org/team via `copy_demo_data_to_new_team` (ClickHouse `INSERT ... SELECT` copy + `set_project_up` re-run + taxonomy re-inference). Each case is isolated; the seeded user is **"Karen Smith"**.
+- **Sandboxed evals** (`SandboxedDemoData` in `harness/demo_data.py`): a master Hedgebox team is generated once via `ensure_master_demo_team`, then each eval case gets its own org/team via `copy_demo_data_to_new_team` (ClickHouse `INSERT ... SELECT` copy + `set_project_up` re-run + taxonomy re-inference). Each case is isolated; the seeded user is **"Karen Smith"**.
 - **CI evals** reuse one org/team via `create_demo_org_team_user`.
 - Events span both past (`days_past`) and future (`days_future` — `paid_bill` events are scheduled forward). When choosing date ranges in expected queries, prefer relative ranges like `-30d`, `-8w`, `-6m`.
 - Most insights/dashboards are built with `filterTestAccounts=True`. The team has `test_account_filters` configured, and a "Signed-up users" cohort exists.

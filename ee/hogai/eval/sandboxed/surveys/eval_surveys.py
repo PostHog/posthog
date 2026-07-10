@@ -6,7 +6,7 @@ asks the sandboxed agent to create surveys through the PostHog MCP
 ``survey-create`` tool and scores the payload/result it produced.
 
 To run:
-    pytest ee/hogai/eval/sandboxed/surveys/eval_surveys.py
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_surveys"
 """
 
 from __future__ import annotations
@@ -14,12 +14,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-import pytest
-
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.product_analytics.scorers import INSIGHT_WRITE_TOOLS
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
 from ee.hogai.eval.sandboxed.seeders.survey import seed_survey_feature_flags
@@ -51,12 +50,7 @@ def _survey_case(
     )
 
 
-async def eval_surveys(
-    sandboxed_demo_data: Any,
-    pytestconfig: pytest.Config,
-    posthog_client: Any,
-    mcp_mode: str,
-) -> None:
+async def eval_surveys(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
         _survey_case(
             name="survey_nps_draft",
@@ -285,7 +279,7 @@ async def eval_surveys(
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-surveys-{mcp_mode}",
+        experiment_name="sandboxed-surveys-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -298,7 +292,5 @@ async def eval_surveys(
             SurveyCreateSchemaAlignment(),
             SurveyIdInFinalMessage(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

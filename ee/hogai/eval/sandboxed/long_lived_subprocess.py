@@ -15,11 +15,13 @@ from pathlib import Path
 from types import FrameType
 from typing import TypedDict, cast
 
-import pytest
-
 logger = logging.getLogger(__name__)
 
 StopCallback = Callable[[], None]
+
+
+class SubprocessStartupError(RuntimeError):
+    """A managed support subprocess failed to come up (crashed, timed out, or port already bound)."""
 
 
 class ProcessMetadata(TypedDict):
@@ -93,7 +95,7 @@ class LongLivedSubprocessManager:
         while time.monotonic() < deadline:
             if proc.poll() is not None:
                 stop()
-                pytest.fail(
+                raise SubprocessStartupError(
                     f"{name} subprocess exited with code {proc.returncode} during startup. "
                     f"Check the [{log_prefix}] WARNING lines above."
                 )
@@ -105,7 +107,7 @@ class LongLivedSubprocessManager:
                 time.sleep(0.5)
 
         stop()
-        pytest.fail(f"{name} failed to start on port {port} within {readiness_timeout:.0f}s.")
+        raise SubprocessStartupError(f"{name} failed to start on port {port} within {readiness_timeout:.0f}s.")
 
     def stop_all(self) -> None:
         with self._stops_lock:
@@ -121,7 +123,7 @@ class LongLivedSubprocessManager:
         try:
             pre_sock = socket.create_connection(("localhost", port), timeout=0.5)
             pre_sock.close()
-            pytest.fail(
+            raise SubprocessStartupError(
                 f"Port {port} is already in use — likely a stale {name} from a prior eval session. "
                 f"Find and kill it:\n  lsof -iTCP:{port} -sTCP:LISTEN"
             )

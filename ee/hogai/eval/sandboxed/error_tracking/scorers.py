@@ -10,9 +10,8 @@ Three families of scorer:
   go list → issue (→ optional events → optional recordings), and did it
   pass the correct per-case ``issueId`` for the named seeded issue?
 
-All scorers build a single ``LogParser`` from ``output["raw_log"]`` so they
-work identically in ``mcp_mode=tools`` (per-tool MCP) and ``mcp_mode=cli``
-(single-``exec`` wrapper) — the parser handles exec-unwrapping.
+All scorers build a single ``LogParser`` from ``output["raw_log"]``; the parser
+handles unwrapping the ``posthog:exec`` cli wrapper the MCP server serves.
 """
 
 from __future__ import annotations

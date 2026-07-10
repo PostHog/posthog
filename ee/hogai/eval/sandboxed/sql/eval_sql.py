@@ -15,13 +15,14 @@ typed query tool — perfectly valid for the user, but not what this eval
 is testing. The framing is the forcing function in lieu of an agent mode.
 
 To run:
-    pytest ee/hogai/eval/sandboxed/sql/eval_sql.py
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_sql"
 """
 
 from __future__ import annotations
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.product_analytics.scorers import INSIGHT_WRITE_TOOLS
 from ee.hogai.eval.sandboxed.retrieval.scorers import SkillLoaded
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, LastToolCallNot, NoToolCall
@@ -36,7 +37,7 @@ def _sql_case(*, name: str, prompt: str, expected_sql: str) -> SandboxedEvalCase
     )
 
 
-async def eval_sql(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_sql(ctx: EvalContext) -> None:
     cases = [
         # Straightforward breakdowns
         _sql_case(
@@ -380,7 +381,7 @@ WHERE properties.interests IS NOT NULL
     ]
 
     await SandboxedPublicEval(
-        experiment_name=f"sandboxed-sql-{mcp_mode}",
+        experiment_name="sandboxed-sql-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
@@ -394,7 +395,5 @@ WHERE properties.interests IS NOT NULL
             SQLSchemaAlignment(),
             SQLResultMessageAlignment(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

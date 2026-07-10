@@ -24,15 +24,10 @@ Two cases:
 
 To run:
 
-    flox activate -- bash -c "set -a; source .env; set +a; \\
-        pytest -c ee/hogai/eval/pytest.ini \\
-        ee/hogai/eval/sandboxed/experiments/eval_bias_uneven_split.py \\
-        -v --mcp-mode tools"
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_bias_uneven_split"
 """
 
 from __future__ import annotations
-
-import pytest
 
 from ee.hogai.eval.sandboxed.base import SandboxedPrivateEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
@@ -43,11 +38,11 @@ from ee.hogai.eval.sandboxed.experiments.seeders import (
     seed_running_experiment,
     seed_uneven_split_experiment,
 )
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
-@pytest.mark.django_db
-async def eval_bias_uneven_split(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+async def eval_bias_uneven_split(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
             name="uneven_split_alone",
@@ -112,14 +107,12 @@ async def eval_bias_uneven_split(sandboxed_demo_data, pytestconfig, posthog_clie
     ]
 
     await SandboxedPrivateEval(
-        experiment_name=f"sandboxed-experiments-diagnose-bias-{mcp_mode}",
+        experiment_name="sandboxed-experiments-diagnose-bias-cli",
         cases=cases,
         scorers=[
             ExitCodeZero(),
             CitesDiagnosticGroup(),
             SurfacesAllFindings(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )

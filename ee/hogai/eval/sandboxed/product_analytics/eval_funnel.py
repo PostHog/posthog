@@ -6,7 +6,7 @@ the same intents end-to-end through the sandboxed agent + PostHog MCP tools
 and judges the funnel query the agent ran via the ``query-funnel`` MCP tool.
 
 To run:
-    pytest ee/hogai/eval/sandboxed/product_analytics/eval_funnel.py
+    flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness eval_funnel"
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from posthog.schema import (
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.product_analytics.scorers import (
     INSIGHT_WRITE_TOOLS,
     FunnelSchemaAlignment,
@@ -45,7 +46,7 @@ def _funnel_case(
     )
 
 
-async def eval_funnel(sandboxed_demo_data, pytestconfig, posthog_client):
+async def eval_funnel(ctx: EvalContext) -> None:
     now = datetime.now()
     this_year = now.year
     this_month_start = f"{now.year}-{now.month:02d}-01"
@@ -604,7 +605,5 @@ async def eval_funnel(sandboxed_demo_data, pytestconfig, posthog_client):
             FunnelSchemaAlignment(),
             FunnelTimeRangeRelevancy(),
         ],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
+        ctx=ctx,
     )
