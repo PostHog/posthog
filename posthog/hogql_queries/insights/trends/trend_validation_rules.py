@@ -87,3 +87,24 @@ class DisallowUnsupportedPropertyMathForHistogramBreakdown:
             "Use average instead, or turn off binning on the breakdown.",
             code=self.code,
         )
+
+
+class DisallowDaysOfWeekWithSmoothing:
+    """Smoothing averages over the full date axis, where days excluded by daysOfWeek are structural zeros."""
+
+    code = "days_of_week_unsupported_with_smoothing"
+
+    def validate(self, context: QueryValidationContext[TrendsQuery]) -> None:
+        query = context.query
+        trends_filter = query.trendsFilter
+        if trends_filter is None or trends_filter.smoothingIntervals is None or trends_filter.smoothingIntervals <= 1:
+            return
+
+        days = set(query.dateRange.daysOfWeek or []) if query.dateRange else set()
+        if days and len(days) < 7:
+            raise ValidationError(
+                "Smoothing is not supported together with a days-of-week restriction: "
+                "the rolling average would count the excluded days as zeros and understate every value. "
+                "Remove smoothing or the daysOfWeek filter.",
+                code=self.code,
+            )
