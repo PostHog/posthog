@@ -59,13 +59,12 @@ export class BaseChunkPipeline<
         // Apply current step to successful values
         let stepResults: PipelineResult<TOutput, RStep>[] = []
         if (successfulValues.length > 0) {
-            // Metric label value kept as 'batch' for Grafana dashboard continuity.
-            const end = pipelineStepDurationHistogram.startTimer({ step_name: this.stepName, step_type: 'batch' })
+            const end = pipelineStepDurationHistogram.startTimer({ step_name: this.stepName, step_type: 'chunk' })
             try {
                 stepResults = await instrumentFn({ key: this.stepName, sendException: false, measureTime: false }, () =>
                     this.currentStep(successfulValues)
                 )
-                end({ result: 'batch' })
+                end({ result: 'chunk' })
             } catch (e) {
                 end({ result: 'exception' })
                 throw e
