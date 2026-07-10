@@ -220,6 +220,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             insertCommand: definition.insertCommand,
             getTitle: (node: NotebookComponentBlockNode) =>
                 getMarkdownNotebookNodeTitle(node, nodeType, options, label),
+            getHref: (node: NotebookComponentBlockNode) => getMarkdownNotebookNodeHref(node, nodeType, options),
         }
     }),
     {
@@ -313,6 +314,21 @@ export function getMarkdownNotebookNodeTitle(
         getUnknownStringProp(attributes.id) ??
         fallback
     )
+}
+
+export function getMarkdownNotebookNodeHref(
+    node: NotebookComponentBlockNode,
+    nodeType: NotebookNodeType | undefined,
+    options: CreatePostHogWidgetNodeOptions<any> | null
+): string | null {
+    // Reuse the legacy node's `href` (e.g. Query → urls.insightView/urls.insightNew) so saved and
+    // ad-hoc insights, recordings, persons, etc. all expose a link to the underlying resource.
+    if (!options?.href) {
+        return null
+    }
+    const attributes = getNodeAttributes(node.props, node.id, options, nodeType, false)
+    const href = typeof options.href === 'function' ? options.href(attributes) : options.href
+    return href ?? null
 }
 
 export function getNotebookStringProp(value: NotebookPropValue | undefined): string | null {

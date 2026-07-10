@@ -157,6 +157,8 @@ export type NotebookComponentDefinition = {
     defaultProps?: NotebookComponentProps | (() => NotebookComponentProps)
     validateProps?: (props: NotebookComponentProps) => string[]
     getTitle?: (node: NotebookComponentBlockNode) => string | null | undefined
+    /** Canonical PostHog URL the block points at (e.g. the insight, recording, or person it renders), opened in a new tab from the toolbar. */
+    getHref?: (node: NotebookComponentBlockNode) => string | null | undefined
     ViewComponent: (props: NotebookComponentRenderProps) => JSX.Element
     EditComponent?: (props: NotebookComponentRenderProps) => JSX.Element
     exclusiveEditPanel?: boolean

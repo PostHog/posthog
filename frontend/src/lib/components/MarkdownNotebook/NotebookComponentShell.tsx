@@ -10,7 +10,17 @@ import {
     useState,
 } from 'react'
 
-import { IconDatabase, IconEye, IconGraph, IconHide, IconList, IconPencil, IconPeople, IconTrash } from '@posthog/icons'
+import {
+    IconDatabase,
+    IconEye,
+    IconGraph,
+    IconHide,
+    IconList,
+    IconOpenInNew,
+    IconPencil,
+    IconPeople,
+    IconTrash,
+} from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { PostHogErrorBoundary } from '@posthog/react'
 
@@ -91,6 +101,7 @@ export function NotebookComponentShell({
     const hasOpenComponentPanel = componentPanels.filters || componentPanels.results
     const titleDisplay = getComponentTitleDisplay(node, definition)
     const toolbarTitle = getComponentToolbarTitle(node, definition, titleDisplay.label)
+    const href = definition?.getHref?.(node) ?? null
     // The user-set title (props.title) wins; the computed contextual title is the watermark/fallback.
     // A title equal to the component's own label (e.g. code blocks default to "Python") is treated
     // as "no user title" so the field reads as empty by default.
@@ -325,16 +336,28 @@ export function NotebookComponentShell({
                         {resolvedTitle}
                     </div>
                 ) : null}
-                {mode === 'edit' ? (
+                {href || mode === 'edit' ? (
                     <div className="MarkdownNotebook__component-actions">
-                        <LemonButton
-                            aria-label="Delete component"
-                            size="xsmall"
-                            icon={<IconTrash />}
-                            tooltip="Delete"
-                            status="danger"
-                            onClick={deleteNode}
-                        />
+                        {href ? (
+                            <LemonButton
+                                aria-label="Open in new tab"
+                                size="xsmall"
+                                icon={<IconOpenInNew />}
+                                tooltip="Open in new tab"
+                                to={href}
+                                targetBlank
+                            />
+                        ) : null}
+                        {mode === 'edit' ? (
+                            <LemonButton
+                                aria-label="Delete component"
+                                size="xsmall"
+                                icon={<IconTrash />}
+                                tooltip="Delete"
+                                status="danger"
+                                onClick={deleteNode}
+                            />
+                        ) : null}
                     </div>
                 ) : null}
             </div>
