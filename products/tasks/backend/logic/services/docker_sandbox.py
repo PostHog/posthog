@@ -979,12 +979,14 @@ class DockerSandbox(SandboxBase):
         config_yaml = generate_config_yaml(enable_ptrace=False)
         policy_yaml = generate_policy_yaml(allowed_domains)
 
-        self.execute("pkill -f 'agentsh server' || true", timeout_seconds=5)
-        self.execute("mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions", timeout_seconds=5)
+        # 30s not 5: docker exec latency on a loaded local Docker Desktop is bursty (observed >10s
+        # for a no-op exec); these are trivial commands, the generous timeout only bounds hangs.
+        self.execute("pkill -f 'agentsh server' || true", timeout_seconds=30)
+        self.execute("mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions", timeout_seconds=30)
         self.write_file("/etc/agentsh/config.yaml", config_yaml.encode())
         self.write_file("/etc/agentsh/policies/default.yaml", policy_yaml.encode())
         self.write_file(ENV_WRAPPER_SCRIPT, generate_env_wrapper().encode())
-        self.execute(f"chmod +x {ENV_WRAPPER_SCRIPT}", timeout_seconds=5)
+        self.execute(f"chmod +x {ENV_WRAPPER_SCRIPT}", timeout_seconds=30)
 
         setup_script = build_setup_script(workspace_path)
         result = self.execute(setup_script, timeout_seconds=30)
