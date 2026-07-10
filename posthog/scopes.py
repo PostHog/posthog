@@ -26,6 +26,7 @@ APIScopeObject = Literal[
     "approvals",
     "batch_export",
     "batch_import",
+    "batch_import_support",
     "business_knowledge",
     "clickhouse_test_cluster_perf",
     "cohort",
@@ -153,7 +154,16 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 # we don't want OAuth-based clients (the consent screen, MCP, third-party apps)
 # to discover it — alpha / not-yet-public products, or staff-only debug endpoints
 # automation reaches with a PAT (e.g. `query_performance`, also gated by `is_staff`).
-OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"wizard_session", "query_performance"})
+OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
+    {
+        "wizard_session",
+        "query_performance",
+        # Staff-only managed-migrations (batch import) support diagnostics, also gated by
+        # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
+        # OAuth-advertised, and a customer-grantable scope must never name a staff surface.
+        "batch_import_support",
+    }
+)
 
 # llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the
 # ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.

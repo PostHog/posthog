@@ -5525,6 +5525,34 @@
             "readOnlyHint": true
         }
     },
+    "managed-migrations-support-get": {
+        "description": "Get one batch import (managed migration) job by id, from any PostHog team, including the raw worker `state` and `import_config` blobs. PostHog staff only: the backend requires a staff user AND a personal API key explicitly carrying the `batch_import_support:read` scope (a full-access `*` key is rejected; OAuth sign-in can never grant it).\n\nAdds to the list fields:\n\n- `state`: the worker-owned progress blob, `{\"parts\": [{\"key\", \"current_offset\", \"total_size\"}]}`. A part is done when `current_offset >= total_size`; parts are processed in order, so the first unfinished part is the one in flight. `current_offset` is a byte offset into the DECOMPRESSED part - only meaningful against the exact byte stream it was measured on.\n- `import_config`: the job's source / data format / sink configuration. It references credentials by secret key NAME only; secret values live in an encrypted column that is never returned by any API.\n- `created_by_email`: who started the migration, when known.\n\nTroubleshooting reminders (same semantics as the list tool): `waiting_to_start` = running with no worker lease yet; `lease_expired: true` on a running job = the worker died or the job is about to be re-claimed; a `paused` job keeps its lease and resuming (a Django admin action - this API is read-only) must clear it; `paused` with an invalid-JSON parse error at the resume point usually means the source bytes changed under the committed offset and the in-flight part needs a reset to offset 0 via Django admin's \"Resume + re-import in-flight part\".",
+        "category": "Managed migrations",
+        "feature": "managed_migrations",
+        "summary": "Get one batch import job with raw worker state (PostHog staff only)",
+        "title": "Get one batch import job with raw worker state (PostHog staff only)",
+        "required_scopes": ["batch_import_support:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "managed-migrations-support-list": {
+        "description": "List batch import (managed migration) jobs across ALL PostHog teams, for troubleshooting customer migrations. PostHog staff only: the backend requires a staff user AND a personal API key explicitly carrying the `batch_import_support:read` scope. A full-access (`*`) key is rejected; OAuth sign-in can never grant this scope.\n\nFilter with `team_id` (the customer's project id) or `status` (`running`, `paused`, `failed`, `completed`), or `search` (matches the developer status message and team name). Results are newest-first.\n\nHow to read a job's state:\n\n- `display_status: waiting_to_start` means the job is `running` but no worker has claimed it yet (`lease_id` is null) - it is queued, not stuck.\n- Workers hold a lease per job: 30 minutes on initial claim, renewed for 5 minutes on each heartbeat. `lease_expired: true` on a `running` job means the worker died or the row is about to be re-claimed by the next worker poll.\n- A `paused` job KEEPS its worker lease; resuming requires clearing the lease (a Django admin action today - this API is read-only).\n- `paused` with a `status_message` mentioning invalid JSON syntax at the resume point usually means a poisoned byte offset: the source bytes changed under the committed offset (re-downloaded nondeterministic export or replaced source file). The fix is Django admin's \"Resume + re-import in-flight part\", which resets the in-flight part to offset 0 (safe for Mixpanel/Amplitude, which dedupe by deterministic event UUID).\n- `backoff_until` in the future means the job is in a transient-failure retry loop (`backoff_attempt` counts consecutive retries), not stuck.\n- `parts_progress` summarizes the worker's units of work: a part is done when its committed byte offset reaches its total size; parts are processed in order, so the in-flight part is the first unfinished one.\n- `status_message` is the developer-facing debugging signal; `display_status_message` is what the customer sees in the PostHog UI.\n\nUse `managed-migrations-support-get` with a job id for the raw worker `state` and `import_config` blobs. Credentials (`secrets`) are never returned.",
+        "category": "Managed migrations",
+        "feature": "managed_migrations",
+        "summary": "List batch import jobs across all teams (PostHog staff only)",
+        "title": "List batch import jobs across all teams (PostHog staff only)",
+        "required_scopes": ["batch_import_support:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "marketing-analytics-conversion-goals": {
         "description": "List the configured marketing conversion goals for the current project. Each goal returns its kind (EventsNode / ActionsNode / DataWarehouseNode), target, last-30d count, and the integrated vs non-integrated split. Non-integrated breaks into two buckets with OPPOSITE fixes: events_without_utm_source (tag UTMs) vs events_with_unmatched_utm_source (add a custom source mapping). is_approximate is true when the 30d count may differ from the dashboard's attribution-windowed number.",
         "category": "Marketing analytics",

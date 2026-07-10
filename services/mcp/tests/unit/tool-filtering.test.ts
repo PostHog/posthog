@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
+import { OAUTH_HIDDEN_SCOPES, OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
@@ -376,6 +376,11 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         'signal_scout_report:write',
     ])
 
+    // OAuth-hidden scopes (generated from OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py)
+    // are PAT-grantable but never OAuth-advertised: tools requiring one (e.g. the staff-only
+    // managed-migrations support tools) only surface for personal API keys carrying it.
+    const oauthHiddenScopes = new Set<string>(OAUTH_HIDDEN_SCOPES)
+
     it('should include every scope referenced in tool definitions', () => {
         const supportedScopes = new Set<string>(OAUTH_SCOPES_SUPPORTED)
 
@@ -389,7 +394,7 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         }
 
         const missing = [...scopesFromTools]
-            .filter((s) => !supportedScopes.has(s) && !SERVER_MINT_ONLY_SCOPES.has(s))
+            .filter((s) => !supportedScopes.has(s) && !SERVER_MINT_ONLY_SCOPES.has(s) && !oauthHiddenScopes.has(s))
             .sort()
 
         expect(

@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "ordering": {
+            "description": "Which field to use when ordering the results.",
+            "type": "string"
+        },
+        "search": {
+            "description": "A search term.",
+            "type": "string"
+        },
+        "status": {
+            "description": "* `completed` - Completed\n* `failed` - Failed\n* `paused` - Paused\n* `running` - Running",
+            "enum": ["completed", "failed", "paused", "running"],
+            "type": "string"
+        },
+        "team_id": {
+            "type": "number"
+        }
+    },
+    "type": "object"
+}

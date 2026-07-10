@@ -94,4 +94,4 @@ export const resolveAuthorizationServerUrl = (): string => {
 }
 
 // Generated from `posthog/scopes.py` — keep in sync with `hogli build:openapi`.
-export { OAUTH_SCOPES_SUPPORTED, type OAuthScope } from './oauth-scopes.generated'
+export { OAUTH_HIDDEN_SCOPES, OAUTH_SCOPES_SUPPORTED, type OAuthScope } from './oauth-scopes.generated'

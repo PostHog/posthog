@@ -162,7 +162,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
     // `query_performance` is omitted — OAuth-hidden, PAT-grantable only (see `OAUTH_HIDDEN_SCOPE_OBJECTS` in posthog/scopes.py).
-    // `wizard_session` is also omitted for the same reason.
+    // `wizard_session` and `batch_import_support` are also omitted for the same reason.
     { key: 'replay_scanner', objectName: 'Replay scanner', objectPlural: 'replay scanners' },
     { key: 'revenue_analytics', objectName: 'Revenue analytics', objectPlural: 'revenue analytics' },
     { key: 'session_recording', objectName: 'Session recording', objectPlural: 'session recordings' },
