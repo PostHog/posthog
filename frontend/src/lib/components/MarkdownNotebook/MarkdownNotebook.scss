@@ -866,12 +866,6 @@
     }
 }
 
-.MarkdownNotebook__text-block[contenteditable='true'] a,
-.MarkdownNotebook__list-block[contenteditable='true'] .MarkdownNotebook__list-item-content a,
-.MarkdownNotebook__table-cell-content[contenteditable='true'] a {
-    pointer-events: none;
-}
-
 .MarkdownNotebook__text-block--invalid-insert-filter {
     color: inherit;
     text-decoration: underline wavy var(--danger);
