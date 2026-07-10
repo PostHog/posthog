@@ -123,6 +123,43 @@ describe('ingestion-otel-metrics', () => {
         expect(names.map((name) => dataPointsFor(name).length)).toEqual([0, 0, 0, 0, 0])
     })
 
+    it.each([
+        ['recordLogsReceived', () => recordLogsReceived(1, 1)],
+        ['recordLogsAllowed', () => recordLogsAllowed(1, 1)],
+        ['recordLogsDropped', () => recordLogsDropped(42, 1, 1)],
+        ['recordLogMessageDropped', () => recordLogMessageDropped('rate_limited', '42')],
+        ['recordLogMessageDlq', () => recordLogMessageDlq('KafkaError', '42')],
+        [
+            'recordLogProcessingDuration',
+            () =>
+                recordLogProcessingDuration(0.02, {
+                    json_parse_enabled: 'true',
+                    pii_scrub_enabled: 'false',
+                    compression_codec: 'snappy',
+                }),
+        ],
+    ] as const)(
+        '%s swallows a throwing OTel SDK so callers in finally blocks keep the original error',
+        (_name, record) => {
+            // These run in finally blocks and error handlers of the ingestion hot path;
+            // a throw here would mask the real processing error and DLQ with the wrong reason.
+            const throwing = () => {
+                throw new Error('otel exploded')
+            }
+            metricsApi.disable() // the API ignores a second setGlobalMeterProvider without this
+            metricsApi.setGlobalMeterProvider({
+                getMeter: () =>
+                    ({
+                        createCounter: () => ({ add: throwing }),
+                        createHistogram: () => ({ record: throwing }),
+                    }) as any,
+            } as any)
+            resetLogsIngestionInstrumentsForTests()
+
+            expect(record).not.toThrow()
+        }
+    )
+
     it('records processing duration with the prom bucket ladder and pipeline attributes', async () => {
         const attributes = { json_parse_enabled: 'true', pii_scrub_enabled: 'false', compression_codec: 'snappy' }
         recordLogProcessingDuration(0.02, attributes)
