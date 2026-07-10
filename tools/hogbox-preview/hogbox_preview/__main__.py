@@ -63,7 +63,9 @@ def cmd_up(args: argparse.Namespace) -> int:
     stack = build_stack(backend, args)
     url = stack.bring_up()
     print(f"box_id={backend.box_id}")
-    print(f"pen_id={backend.pen_id}")
+    # Empty (not the literal "None") when there's no pen, so the CI parser treats
+    # it as absent rather than rendering an admin link to /pens/None.
+    print(f"pen_id={backend.pen_id or ''}")
     print(f"url={url}")
     if args.destroy:
         backend.destroy()
