@@ -17,6 +17,7 @@ from posthog.hogql.helpers.timestamp_visitor import (
     is_start_of_day_constant,
     is_start_of_hour_constant,
     is_time_or_interval_constant,
+    is_zoned_datetime_string,
 )
 
 
@@ -584,3 +585,29 @@ class TestIsSimpleTimestampFieldExpression(unittest.TestCase):
                 ctx,
             )
         )
+
+
+class TestIsZonedDatetimeString(unittest.TestCase):
+    @parameterized.expand(
+        [
+            # Zone designator present -> ClickHouse's strict DateTime64 reader rejects these.
+            ("iso_utc_micros", "2026-06-30T09:59:12.988000Z", True),
+            ("iso_utc_no_micros", "2026-06-30T09:59:12Z", True),
+            ("space_sep_utc", "2026-06-30 09:59:12Z", True),
+            ("offset_with_colon", "2026-06-30T09:59:12+02:00", True),
+            ("offset_no_colon", "2026-06-30T09:59:12-0800", True),
+            ("offset_with_micros", "2026-06-30T09:59:12.5+02:00", True),
+            # No zone designator -> ClickHouse parses these fine, must stay untouched.
+            ("mysql_style", "2026-06-30 09:59:12", False),
+            ("iso_no_zone", "2026-06-30T09:59:12", False),
+            ("date_only", "2026-06-30", False),
+            ("with_micros_no_zone", "2026-06-30 09:59:12.988000", False),
+            # Not a datetime at all.
+            ("arbitrary_string_ending_z", "some_value_Z", False),
+            ("empty", "", False),
+            ("non_string", 12345, False),
+            ("none", None, False),
+        ]
+    )
+    def test_is_zoned_datetime_string(self, _name: str, value: object, expected: bool) -> None:
+        self.assertEqual(is_zoned_datetime_string(value), expected)

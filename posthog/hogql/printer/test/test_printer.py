@@ -2250,6 +2250,29 @@ class TestPrinter(BaseTest):
             },
         )
 
+    @parameterized.expand([("=",), ("!=",), (">",), ("<",), (">=",), ("<=",)])
+    def test_zoned_datetime_string_compared_to_timestamp_is_best_effort_parsed(self, op: str):
+        # ClickHouse's DateTime64 text reader throws on a trailing 'Z'/offset (the Python isoformat +
+        # orjson OPT_UTC_Z round-trip form), so a zoned ISO string compared against the DateTime
+        # timestamp column must be routed through a best-effort parse rather than left as a bare
+        # literal for CH to cast. Equality is coerced by the printer; range comparisons get rewritten
+        # onto the constant side by PropertySwapper — both must end up best-effort parsed.
+        printed = self._select(f"SELECT count() FROM events WHERE timestamp {op} '2026-06-30T09:59:12.988000Z'")
+        assert "parseDateTime64BestEffort" in printed, printed
+
+    @parameterized.expand(
+        [
+            ("timestamp = '2026-06-30 09:59:12'",),  # no zone designator — CH casts it fine, leave bare
+            ("timestamp = '2026-06-30'",),
+            ("event = '2026-06-30T09:59:12.988000Z'",),  # String column — must not be treated as datetime
+        ]
+    )
+    def test_datetime_string_comparison_stays_bare(self, where: str):
+        # Guard against churn / over-broad coercion: only zoned strings against a datetime-typed field
+        # get wrapped. Plain casts CH already handles, and String columns, must stay untouched.
+        printed = self._select(f"SELECT count() FROM events WHERE {where}")
+        assert "parseDateTime64BestEffort" not in printed, printed
+
     def test_print_timezone_gibberish(self):
         self.team.timezone = "Europe/PostHogLandia"
         self.team.save()

@@ -17,6 +17,7 @@ from posthog.hogql.database.schema.events import (
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.helpers.timestamp_visitor import is_zoned_datetime_string
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
@@ -517,10 +518,17 @@ class PropertySwapper(CloningVisitor):
         if isinstance(inner, ast.Constant):
             if isinstance(inner.value, datetime) and inner.value.tzinfo is not None:
                 return expr
-            new_call = ast.Call(
-                name="toDateTime64",
-                args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
-            )
+            # A zoned ISO string (trailing 'Z' or numeric offset) isn't parseable by toDateTime64's
+            # strict reader — it would throw the same "Cannot parse ... DateTime64" error the bare
+            # cast does — so fall back to best-effort parsing for those. parseDateTimeBestEffort maps
+            # to parseDateTime64BestEffort(OrNull) and the printer injects the precision argument.
+            if is_zoned_datetime_string(inner.value):
+                new_call = ast.Call(name="parseDateTimeBestEffort", args=[inner, ast.Constant(value=tz)])
+            else:
+                new_call = ast.Call(
+                    name="toDateTime64",
+                    args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
+                )
             if isinstance(expr, ast.Alias):
                 return ast.Alias(alias=expr.alias, expr=new_call)
             return new_call

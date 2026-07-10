@@ -1,3 +1,4 @@
+import re
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Optional
@@ -8,6 +9,18 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.errors import NotImplementedError
 from posthog.hogql.visitor import Visitor
+
+# ISO 8601 datetime strings that carry a zone designator — a trailing 'Z' (UTC) or a numeric offset
+# like '+02:00'. ClickHouse's DateTime64 text reader (used by both the implicit String cast and by
+# toDateTime64) rejects these: it parses up to the offset and then throws "Cannot parse ... syntax
+# error at position N". Python's ``datetime.isoformat`` / ``orjson.OPT_UTC_Z`` produce exactly this
+# form (e.g. '2026-06-30T09:59:12.988000Z') when a server-side value round-trips back into a query,
+# so such a constant must be routed through parseDateTime64BestEffort instead of a strict parser.
+ZONED_DATETIME_STRING_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$")
+
+
+def is_zoned_datetime_string(value: object) -> bool:
+    return isinstance(value, str) and ZONED_DATETIME_STRING_RE.match(value) is not None
 
 
 def is_simple_timestamp_field_expression(

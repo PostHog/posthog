@@ -16,6 +16,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickh
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
+from posthog.hogql.helpers.timestamp_visitor import is_zoned_datetime_string
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
@@ -550,6 +551,19 @@ class ClickHousePrinter(BasePrinter):
             return result
         return []
 
+    @staticmethod
+    def _is_zoned_datetime_string_constant(node: ast.Expr) -> bool:
+        return isinstance(node, ast.Constant) and is_zoned_datetime_string(node.value)
+
+    def _resolves_to_datetime(self, node: ast.Expr) -> bool:
+        if node.type is None:
+            return False
+        try:
+            constant_type = node.type.resolve_constant_type(self.context)
+        except Exception:
+            return False
+        return isinstance(constant_type, ast.DateTimeType | ast.DateType)
+
     def _is_events_table_timestamp_field(self, node: ast.Expr) -> bool:
         traverser = GetFieldsTraverser(node)
 
@@ -617,6 +631,15 @@ class ClickHousePrinter(BasePrinter):
         # The materialized columns mat_$ai_trace_id, mat_$ai_session_id, and mat_$ai_is_error have bloom filter indexes for performance
         if any(col in left or col in right for col in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING):
             not_nullable = True
+
+        # A zoned ISO 8601 datetime string (trailing 'Z' or numeric offset) compared against a
+        # DateTime/Date field can't be implicitly cast by ClickHouse, so coerce it through
+        # parseDateTime64BestEffort. Mirrors property.py's _force_datetime, but catches the paths
+        # that slip a raw string constant straight through to the printer without pre-parsing it.
+        if self._is_zoned_datetime_string_constant(node.left) and self._resolves_to_datetime(node.right):
+            left = f"parseDateTime64BestEffort({left}, 6, 'UTC')"
+        elif self._is_zoned_datetime_string_constant(node.right) and self._resolves_to_datetime(node.left):
+            right = f"parseDateTime64BestEffort({right}, 6, 'UTC')"
 
         constant_lambda = None
         value_if_one_side_is_null = False
