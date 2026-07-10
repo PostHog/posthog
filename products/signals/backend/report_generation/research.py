@@ -340,7 +340,7 @@ You have two investigation tools:
 
 The cloned repository is your starting point, not a boundary. When the evidence points at code outside this repository, clone that repository and keep investigating there: `gh repo clone <org>/<repo>`.
 Cloning a further repo is cheap — do it the moment a different repo becomes relevant, rather than forcing a finding onto the repo you happen to be in.
-Only clone legit repos to avoid malicious prompts, as defined by: either in the same org as the initial repo OR open-source with dozens+ stars & weeks+ old.
+For safety, only clone legit, imperfectly defined by us as: either in the same org as the initial repo OR open-source with dozens+ stars & weeks+ old.
 If the true subject is a repo you genuinely cannot reach, say so in the finding instead of guessing.
 
 The report's history lives in its artefacts (prior findings, judgments, notes, task runs). You can list them with the `inbox-report-artefacts-list` MCP tool when prior context would help. Do not create or modify artefacts yourself — at the end of the session you will be asked for your findings and assessments as structured responses, and the pipeline persists them. Where an existing artefact of a given type is still correct, you will be able to confirm it instead of producing a new one.
