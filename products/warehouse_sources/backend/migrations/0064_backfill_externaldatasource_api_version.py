@@ -1,8 +1,4 @@
-import time
-
 from django.db import migrations
-
-BATCH_SIZE = 2000
 
 # Snapshot of each source type's implemented vendor API version at the time this migration was
 # written (the source classes' `default_version`). Frozen here so the backfill is deterministic
@@ -107,28 +103,17 @@ API_VERSION_BY_SOURCE_TYPE = {
 def backfill_api_version(apps, schema_editor):
     ExternalDataSource = apps.get_model("warehouse_sources", "ExternalDataSource")
 
-    # Batched like 0029 so we never hold row locks across the whole table at once — Temporal
-    # activities and token refreshes write these rows continuously. The isnull guard makes each
-    # batch idempotent (safe under retries, with atomic=False each batch commits independently)
-    # and ensures rows pinned after this migration was written are never overwritten.
+    # ExternalDataSource is one row per configured source (thousands, not events-scale), so a
+    # per-source-type bulk update in the migration's transaction is quick — no batching needed.
+    # The isnull guard keeps it idempotent (safe under retries) and ensures rows pinned after this
+    # migration was written are never overwritten.
     source_types = ExternalDataSource.objects.values_list("source_type", flat=True).distinct()
     for source_type in source_types:
         version = API_VERSION_BY_SOURCE_TYPE.get(source_type, DEFAULT_API_VERSION)
-        while True:
-            batch_ids = list(
-                ExternalDataSource.objects.filter(source_type=source_type, api_version__isnull=True).values_list(
-                    "id", flat=True
-                )[:BATCH_SIZE]
-            )
-            if not batch_ids:
-                break
-            ExternalDataSource.objects.filter(id__in=batch_ids).update(api_version=version)
-            time.sleep(0.1)
+        ExternalDataSource.objects.filter(source_type=source_type, api_version__isnull=True).update(api_version=version)
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [("warehouse_sources", "0063_externaldatasource_api_version")]
 
     operations = [

@@ -2056,6 +2056,8 @@ class TestExternalDataSource(APIBaseTest):
                     "row_filters": None,
                     "available_columns": [],
                     "source": None,
+                    "api_version": None,
+                    "api_version_deprecation": None,
                 }
             ],
         )
