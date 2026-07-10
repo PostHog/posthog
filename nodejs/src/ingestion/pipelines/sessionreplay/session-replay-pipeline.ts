@@ -237,7 +237,10 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
         (afterBatch) =>
             afterBatch.pipe(function passThroughAfterBatch(input) {
                 return Promise.resolve(ok(input))
-            })
+            }),
+        // One batch in flight at a time (also the framework default): each feed tags the manager's
+        // current recorder, so a concurrent batch could span a flush and record into a stale recorder.
+        { concurrentBatches: 1 }
     )
 }
 
