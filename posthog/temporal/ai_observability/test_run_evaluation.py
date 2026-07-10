@@ -261,8 +261,17 @@ class TestRunEvaluationWorkflow:
             assert len(sent_prompt) <= JUDGE_EVENT_MAX_CHARS
             assert len(sent_prompt) < raw_size
 
+    @pytest.mark.parametrize(
+        "output_config,expected_verdict,expected_applicable",
+        [
+            pytest.param({}, False, None, id="without_na"),
+            pytest.param({"allows_na": True}, None, False, id="with_na"),
+        ],
+    )
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_skips_on_context_window_exceeded(self, setup_data, grandfathered):
+    def test_execute_llm_judge_activity_skips_on_context_window_exceeded(
+        self, output_config, expected_verdict, expected_applicable, setup_data, grandfathered
+    ):
         team = setup_data["team"]
         evaluation_obj = setup_data["evaluation"]
 
@@ -272,7 +281,7 @@ class TestRunEvaluationWorkflow:
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this response factually accurate?"},
             "output_type": "boolean",
-            "output_config": {},
+            "output_config": output_config,
             "team_id": team.id,
         }
         event_data = create_mock_event_data(
@@ -294,7 +303,8 @@ class TestRunEvaluationWorkflow:
 
         assert result["skipped"] is True
         assert result["skip_reason"] == "context_window_exceeded"
-        assert result["verdict"] is False
+        assert result["verdict"] is expected_verdict
+        assert result.get("applicable") is expected_applicable
         assert result.get("terminal_user_error") is not True
         assert "model" not in result
         mock_client.complete.assert_called_once()
