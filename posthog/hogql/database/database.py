@@ -1246,19 +1246,20 @@ class Database(BaseModel):
                     if direct_source.access_method != ExternalDataSource.AccessMethod.DIRECT:
                         virtual_source = direct_source
                         # Dual-mode live queries run under warehouse table-level access control. The
-                        # introspected `available_functions` list feeds function passthrough (e.g.
-                        # query_to_xml, which executes arbitrary SQL on the upstream DB) that bypasses
-                        # the should_sync / row-filter / column / warehouse-object checks enforced when
-                        # virtual tables are built. Drop it so only built-in safe functions pass through;
-                        # DIRECT sources (full DB access by design) keep introspected passthrough.
-                        if (
-                            isinstance(direct_connection_metadata, dict)
-                            and "available_functions" in direct_connection_metadata
+                        # introspected `available_functions` (scalar passthrough, e.g. query_to_xml) and
+                        # `available_table_functions` (FROM func() via OpaqueFunctionCallTable) both let a
+                        # user execute arbitrary SQL against the upstream DB, bypassing the should_sync /
+                        # row-filter / column / warehouse-object checks enforced when virtual tables are
+                        # built. Drop both so only built-in safe functions pass through; DIRECT sources
+                        # (full DB access by design) keep introspected passthrough.
+                        introspected_function_keys = {"available_functions", "available_table_functions"}
+                        if isinstance(direct_connection_metadata, dict) and (
+                            introspected_function_keys & direct_connection_metadata.keys()
                         ):
                             direct_connection_metadata = {
                                 key: value
                                 for key, value in direct_connection_metadata.items()
-                                if key != "available_functions"
+                                if key not in introspected_function_keys
                             }
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):

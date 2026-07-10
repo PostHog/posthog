@@ -1280,15 +1280,16 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert not database.has_table("public.events")
 
     def test_dual_mode_strips_introspected_function_passthrough(self):
-        # `available_functions` feeds function passthrough (e.g. query_to_xml, which executes
-        # arbitrary SQL on the upstream DB). A synced source runs under warehouse table-level access
-        # control, so exposing it would bypass those checks — it must be dropped from the dual-mode
-        # context while other metadata the direct table needs is preserved.
+        # `available_functions` (scalar passthrough, e.g. query_to_xml) and `available_table_functions`
+        # (FROM func()) both let a query execute arbitrary SQL on the upstream DB. A synced source runs
+        # under warehouse table-level access control, so exposing either would bypass those checks —
+        # both must be dropped from the dual-mode context while other metadata is preserved.
         source = self._create_dual_mode_postgres_source()
         source.connection_metadata = {
             "engine": "postgres",
             "database": "db",
             "available_functions": ["query_to_xml"],
+            "available_table_functions": ["some_set_returning_fn"],
         }
         source.save(update_fields=["connection_metadata"])
 
@@ -1296,6 +1297,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert database._direct_connection_metadata is not None
         assert "available_functions" not in database._direct_connection_metadata
+        assert "available_table_functions" not in database._direct_connection_metadata
         assert database._direct_connection_metadata.get("engine") == "postgres"
 
     def test_direct_source_keeps_introspected_function_passthrough(self):
@@ -1311,6 +1313,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 "engine": "postgres",
                 "database": "db",
                 "available_functions": ["query_to_xml"],
+                "available_table_functions": ["some_set_returning_fn"],
             },
         )
 
@@ -1318,6 +1321,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert database._direct_connection_metadata is not None
         assert database._direct_connection_metadata.get("available_functions") == ["query_to_xml"]
+        assert database._direct_connection_metadata.get("available_table_functions") == ["some_set_returning_fn"]
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_raises_when_modifier_table_has_no_backing_row(self, patch_execute):
