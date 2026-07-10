@@ -12,8 +12,8 @@ import click
 from .conversion import Converter, parse_soft_file, write_generated_files
 from .legacy_diff import diff_all, render_markdown
 from .matcher import compile_pattern, normalize_path
-from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersResolver
-from .schema import UNSET, OwnersFile, normalize_product_owners, parse_owners_file, parse_product_yaml_as_owners
+from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersResolver, read_stdin_paths, resolution_to_wire
+from .schema import is_simple_owners_file, normalize_product_owners, parse_product_yaml_as_owners
 
 
 def _read_paths(paths: tuple[str, ...]) -> list[str]:
@@ -22,7 +22,7 @@ def _read_paths(paths: tuple[str, ...]) -> list[str]:
         return list(paths)
     if sys.stdin.isatty():
         return []
-    return [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
+    return read_stdin_paths()
 
 
 @click.command(name="owners:resolve", help="Resolve ownership for paths (args or newline-delimited stdin)")
@@ -31,15 +31,7 @@ def _read_paths(paths: tuple[str, ...]) -> list[str]:
 def cmd_resolve(as_json: bool, paths: tuple[str, ...]) -> None:
     resolver = OwnersResolver()
     targets = _read_paths(paths)
-    result = {}
-    for path in targets:
-        r = resolver.resolve(path)
-        result[normalize_path(path)] = {
-            "owners": r.owners or [],
-            "status": r.status,
-            "slack": r.slack,
-            "source": r.source,
-        }
+    result = {normalize_path(path): resolution_to_wire(resolver.resolve(path)) for path in targets}
     if as_json:
         click.echo(json.dumps(result, indent=2, sort_keys=True))
         return
@@ -116,26 +108,12 @@ def _reserved_location_error(rel: str) -> str | None:
     return None
 
 
-def _is_simple_owners(parsed: OwnersFile | None) -> bool:
-    """A file whose only content is a non-empty top-level ``owners:`` list (keys
-    ⊆ {version, owners}) — the kind a parent can absorb into a single anchored rule."""
-    if parsed is None or not parsed.owners:
-        return False
-    return (
-        not parsed.rules
-        and parsed.slack is UNSET
-        and parsed.oncall is UNSET
-        and parsed.status is UNSET
-        and parsed.inherit is True
-    )
-
-
 def _consolidation_suggestions(owners_dirs: dict[str, bool], threshold: int = 3) -> list[tuple[str, int]]:
     """Advisory: directories that could fold a cluster of single-purpose owners.yaml
     files into one anchored ``rules:`` block.
 
     ``owners_dirs`` maps each owners.yaml's directory ("" = repo root) to whether it
-    is simple (see ``_is_simple_owners``). A directory D is suggested when at least
+    is simple (see ``is_simple_owners_file``). A directory D is suggested when at least
     ``threshold`` simple files sit strictly below it with no non-simple file on the
     path between (a non-simple file keeps nearest-wins correct, so its subtree stays
     put), and those files span ≥2 of D's immediate children — so D is their genuine
@@ -194,32 +172,37 @@ def cmd_lint(live: bool) -> None:
         directory = path.rsplit("/", 1)[0] if "/" in path else ""
         tracked_by_dir.setdefault(directory, []).append(path)
 
-    for owners_file in resolver.ownership_files():
-        rel = owners_file.relative_to(repo_root).as_posix()
-        directory = rel.rsplit("/", 1)[0] if "/" in rel else ""
+    entries = resolver.parsed_ownership_files()  # the single parse pass
+    owners_yaml_dirs = {e.rel_dir for e in entries if e.name == OWNERS_FILENAME}
 
-        if owners_file.name == OWNERS_FILENAME:
+    for entry in entries:
+        rel = entry.path.relative_to(repo_root).as_posix()
+        directory = entry.rel_dir
+        parsed = entry.parsed
+
+        if entry.name == OWNERS_FILENAME:
             reserved_error = _reserved_location_error(rel)
             if reserved_error is not None:
                 errors.append(reserved_error)
 
-        if owners_file.name == PRODUCT_FILENAME:
+        if entry.name == PRODUCT_FILENAME:
             # Only flags a conflict; product.yaml owners are validated by product:lint:owners.
-            if (owners_file.parent / OWNERS_FILENAME).is_file():
+            if directory in owners_yaml_dirs:
                 errors.append(f"{directory or '<root>'}: has both product.yaml (with owners) and owners.yaml")
-            parsed = parse_product_yaml_as_owners(owners_file.read_text(), path=owners_file, directory=directory)
             if parsed and parsed.owners:
                 all_owners.update(normalize_product_owners(parsed.owners))
             continue
 
-        parsed, file_errors = parse_owners_file(owners_file.read_text(), path=owners_file, directory=directory)
-        for err in file_errors:
+        for err in entry.errors:
             errors.append(f"{rel}: {err}")
-        owners_dirs[directory] = _is_simple_owners(parsed)
+        owners_dirs[directory] = is_simple_owners_file(parsed)
         if parsed is None:
             continue
         if parsed.owners:
             all_owners.update(parsed.owners)
+
+        if not parsed.rules:
+            continue
 
         # Dead rule globs: a rule matching zero tracked files under its directory.
         under_dir = (
@@ -227,10 +210,11 @@ def cmd_lint(live: bool) -> None:
             if directory
             else tracked
         )
+        # Slice paths relative to the file's directory once, not per rule.
+        rel_paths = [p[len(directory) + 1 :] for p in under_dir] if directory else under_dir
         for rule in parsed.rules:
             all_owners.update(o for o in (rule.owners if isinstance(rule.owners, list) else []))
             matcher = compile_pattern(rule.match)
-            rel_paths = (p[len(directory) + 1 :] if directory else p for p in under_dir)
             if not any(matcher.test(rp) for rp in rel_paths):
                 warnings.append(f"{rel}: rule '{rule.match}' matches zero tracked files (dead glob)")
 
@@ -373,8 +357,7 @@ def cmd_fmt() -> None:
 
     if plan.is_canonical:
         click.echo(f"✓ layout is canonical (cost {plan.canonical_cost})")
-        if plan.proved:
-            click.echo("✓ canonical layout resolves identically")
+        click.echo("✓ canonical layout resolves identically")
         return
 
     if plan.creations:
@@ -393,6 +376,5 @@ def cmd_fmt() -> None:
 
     click.echo(f"\ncost: current {plan.current_cost} → canonical {plan.canonical_cost}")
     click.echo(f"(constants: ALPHA={ALPHA}, GAMMA={GAMMA}, MAX_RULES={MAX_RULES})")
-    if plan.proved:
-        click.echo("✓ canonical layout resolves identically")
+    click.echo("✓ canonical layout resolves identically")
     click.echo("\nnote: owners:fmt is a read-only oracle — it never writes. Reflows are deliberate human decisions.")

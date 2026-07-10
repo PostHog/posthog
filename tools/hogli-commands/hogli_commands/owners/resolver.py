@@ -7,9 +7,11 @@ merges them nearest-file-wins per field. See ``docs/internal/ownership-model-pro
 
 from __future__ import annotations
 
+import sys
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypedDict
 
 from .matcher import compile_pattern, normalize_path
 from .schema import UNSET, OwnersFile, _Unset, parse_owners_file, parse_product_yaml_as_owners
@@ -38,6 +40,37 @@ class Resolution:
     def is_unowned(self) -> bool:
         """Unowned and NOT exempt — what the coverage check fails on."""
         return not self.owners and not self.unowned_by_design
+
+
+class WireResolution(TypedDict):
+    """The JSON wire shape shared by ``hogli owners:resolve --json`` and the
+    dependency-light ``python -m hogli_commands.owners`` entrypoint. Both emit
+    exactly this dict per path so consumers see one format."""
+
+    owners: list[str]
+    status: str
+    slack: str | None
+    source: str | None
+
+
+def resolution_to_wire(r: Resolution) -> WireResolution:
+    return {"owners": r.owners or [], "status": r.status, "slack": r.slack, "source": r.source}
+
+
+def read_stdin_paths() -> list[str]:
+    """Newline-delimited repo-relative paths from stdin, blanks dropped."""
+    return [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
+
+
+@dataclass
+class ParsedOwnershipFile:
+    """One tracked ownership file, parsed once."""
+
+    path: Path  # absolute
+    rel_dir: str  # repo-relative posix dir ("" = root)
+    name: str  # OWNERS_FILENAME or PRODUCT_FILENAME
+    parsed: OwnersFile | None
+    errors: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -69,6 +102,9 @@ class OwnersResolver:
     def __init__(self, repo_root: Path | None = None) -> None:
         self.repo_root = (repo_root or _git_repo_root()).resolve()
         self._dir_cache: dict[str, OwnersFile | None] = {}
+        # The worktree is treated as immutable for the resolver's lifetime.
+        self._tracked_cache: dict[str | None, list[str]] = {}
+        self._parsed_ownership: list[ParsedOwnershipFile] | None = None
 
     def _load_dir_file(self, directory: str) -> OwnersFile | None:
         """Ownership file for a repo-relative directory ("" = root), or None."""
@@ -218,18 +254,40 @@ class OwnersResolver:
         return [p for p in paths if self.resolve(p).is_unowned]
 
     def tracked_files(self, prefix: str | None = None) -> list[str]:
-        """Repo-relative paths from ``git ls-files``, optionally under ``prefix``."""
+        """Repo-relative paths from ``git ls-files``, optionally under ``prefix``.
+        Cached per prefix — the worktree is treated as immutable per run."""
+        if prefix in self._tracked_cache:
+            return self._tracked_cache[prefix]
         args = ["git", "-C", str(self.repo_root), "ls-files", "-z"]
         if prefix:
             args.append(prefix)
         result = subprocess.run(args, capture_output=True, text=True, check=True)
-        return [p for p in result.stdout.split("\0") if p]
+        paths = [p for p in result.stdout.split("\0") if p]
+        self._tracked_cache[prefix] = paths
+        return paths
 
     def ownership_files(self) -> list[Path]:
         """Absolute paths of every tracked ownership file (owners.yaml + product.yaml)."""
-        files: list[Path] = []
+        return [entry.path for entry in self.parsed_ownership_files()]
+
+    def parsed_ownership_files(self) -> list[ParsedOwnershipFile]:
+        """Every tracked ownership file, parsed exactly once (cached). This is the
+        single parse pass consumers (lint, fmt) should thread through instead of
+        re-reading and re-parsing the same YAML per concern."""
+        if self._parsed_ownership is not None:
+            return self._parsed_ownership
+        entries: list[ParsedOwnershipFile] = []
         for rel in self.tracked_files():
             name = rel.rsplit("/", 1)[-1]
-            if name in (OWNERS_FILENAME, PRODUCT_FILENAME):
-                files.append(self.repo_root / rel)
-        return files
+            if name not in (OWNERS_FILENAME, PRODUCT_FILENAME):
+                continue
+            abs_path = self.repo_root / rel
+            rel_dir = rel.rsplit("/", 1)[0] if "/" in rel else ""
+            if name == PRODUCT_FILENAME:
+                parsed = parse_product_yaml_as_owners(abs_path.read_text(), path=abs_path, directory=rel_dir)
+                errors: list[str] = []
+            else:
+                parsed, errors = parse_owners_file(abs_path.read_text(), path=abs_path, directory=rel_dir)
+            entries.append(ParsedOwnershipFile(path=abs_path, rel_dir=rel_dir, name=name, parsed=parsed, errors=errors))
+        self._parsed_ownership = entries
+        return entries

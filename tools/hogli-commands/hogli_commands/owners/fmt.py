@@ -30,11 +30,11 @@ tracked path re-resolved; it must match the current resolution exactly.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersFile, OwnersResolver
-from .schema import UNSET, OwnersRule, parse_owners_file, parse_product_yaml_as_owners
+from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersFile, OwnersResolver, ParsedOwnershipFile
+from .schema import OwnersRule, is_simple_owners_file, match_is_glob
 
 # Cost model. "Canonical" is optimal only relative to these; tune to taste.
 ALPHA = 8  # cost of a dedicated simple owners.yaml existing
@@ -54,24 +54,10 @@ _BLOCKED = 10**6
 OwnerSet = tuple[str, ...] | None
 
 
-def _is_glob(match: str) -> bool:
-    """A rule match is a crosscutting glob (not a tree boundary) when it carries a
-    wildcard. Glob-bearing files are pinned and pass through fmt untouched."""
-    return any(ch in match for ch in "*?[")
-
-
 def _is_simple_file(f: OwnersFile | None) -> bool:
-    """A file fmt may rewrite/relocate: a plain top-level owners list with only
-    anchored (non-glob) rules. Mirrors ``_is_simple_owners`` intent but also
-    admits simple rule-carrying files, since fmt reasons about statements."""
-    if f is None:
-        return False
-    if f.is_alias:  # product.yaml manifest — pinned carrier
-        return False
-    # inherit:false or any contact/status field makes the file non-simple → pinned.
-    if f.inherit is False or f.status is not UNSET or f.slack is not UNSET or f.oncall is not UNSET:
-        return False
-    return not any(_is_glob(r.match) for r in f.rules)
+    """A file fmt may rewrite/relocate — the shared predicate, admitting anchored
+    rules since fmt reasons about statements."""
+    return is_simple_owners_file(f, allow_anchored_rules=True)
 
 
 @dataclass
@@ -112,19 +98,19 @@ class _Placement:
 
 @dataclass
 class CanonicalPlan:
-    """The result of a fmt run: the canonical placement plus a diff vs. current."""
+    """The result of a fmt run: the canonical placement plus a diff vs. current.
+    A plan only exists once the equivalence proof has passed — ``build`` raises
+    otherwise — so holding a plan means the layout is proven sound."""
 
     current_cost: int
     canonical_cost: int
     creations: list[str]
     deletions: list[str]
     additions: dict[str, list[str]]  # file -> human-readable rule lines added
-    removals: dict[str, list[str]]  # file -> human-readable rule lines removed
-    proved: bool
 
     @property
     def is_canonical(self) -> bool:
-        return not self.creations and not self.deletions and not self.additions and not self.removals
+        return not self.creations and not self.deletions and not self.additions
 
 
 class CanonicalPlacer:
@@ -202,8 +188,9 @@ class CanonicalPlacer:
 
     # --- classification: pinned carriers vs frozen glob files ------------
 
-    def _classify(self) -> tuple[dict[str, OwnerSet], set[str], set[str]]:
-        """Scan ownership files once. Returns (pinned_carriers, frozen_dirs, alias_dirs).
+    def _classify(self, entries: list[ParsedOwnershipFile]) -> tuple[dict[str, OwnerSet], set[str], set[str]]:
+        """Classify the parsed ownership files. Returns (pinned_carriers, frozen_dirs,
+        alias_dirs).
 
         Pinned carriers (``product.yaml`` with owners, or a non-simple owners.yaml
         with contact/status/inherit) absorb statements for free. Frozen dirs host a
@@ -214,22 +201,19 @@ class CanonicalPlacer:
         pinned: dict[str, OwnerSet] = {}
         frozen: set[str] = set()
         alias: set[str] = set()
-        for f in self.resolver.ownership_files():
-            rel_dir = f.parent.relative_to(self.repo_root).as_posix()
-            rel_dir = "" if rel_dir == "." else rel_dir
-            if f.name == PRODUCT_FILENAME:
-                parsed = parse_product_yaml_as_owners(f.read_text(), path=f, directory=rel_dir)
+        for entry in entries:
+            parsed = entry.parsed
+            if entry.name == PRODUCT_FILENAME:
                 if parsed and parsed.owners:
-                    pinned[rel_dir] = tuple(parsed.owners)
-                    alias.add(rel_dir)
+                    pinned[entry.rel_dir] = tuple(parsed.owners)
+                    alias.add(entry.rel_dir)
                 continue
-            parsed_owners, _errs = parse_owners_file(f.read_text(), path=f, directory=rel_dir)
-            if parsed_owners is None:
+            if parsed is None:
                 continue
-            if any(_is_glob(r.match) for r in parsed_owners.rules):
-                frozen.add(rel_dir)
-            elif not _is_simple_file(parsed_owners):
-                pinned[rel_dir] = tuple(parsed_owners.owners) if parsed_owners.owners else None
+            if any(match_is_glob(r.match) for r in parsed.rules):
+                frozen.add(entry.rel_dir)
+            elif not _is_simple_file(parsed):
+                pinned[entry.rel_dir] = tuple(parsed.owners) if parsed.owners else None
         return pinned, frozen, alias
 
     def _apply_classification(
@@ -259,45 +243,42 @@ class CanonicalPlacer:
         open_dirs: set[str] = set()
         placements: list[_Placement] = []
 
-        memo: dict[tuple[str, int], int] = {}
+        # memo[(path, d)] = (min cost, opens) — reconstruct is a pure lookup of the
+        # decision cost() already made, so the two can never disagree.
+        memo: dict[tuple[str, int], tuple[int, bool]] = {}
 
-        def cost(node: _Node, d: int) -> int:
+        def cost(node: _Node, d: int) -> tuple[int, bool]:
             """Min cost to serve node's subtree given the nearest open facility sits
-            ``d`` levels above node (``d`` unused when node opens). A ``d`` of
-            ``_BLOCKED`` or more means no usable ancestor exists (an alias manifest
-            shadows everything above by nearest-file-wins), which prices carry-up out
-            so the subtree opens its own facility."""
+            ``d`` levels above node (``d`` unused when node opens), plus whether the
+            node opens its own facility. A ``d`` of ``_BLOCKED`` or more means no
+            usable ancestor exists (an alias manifest shadows everything above by
+            nearest-file-wins), which prices carry-up out so the subtree opens its
+            own facility."""
             key = (node.path, d)
             if key in memo:
                 return memo[key]
-            movable = [s for s in node.statements if not self._served_by_pin(node, s)]
-            n_here = len(movable)
+            n_here = sum(1 for s in node.statements if not self._served_by_pin(node, s))
 
             forced_open = (node.pinned and not node.alias) or node.path == ""
             # Statements below an alias can never live above it: the manifest's own
             # owners would shadow any ancestor rule under nearest-file-wins.
             child_d = _BLOCKED if node.alias else d + 1
             # Option A: do not open here; carry own statements up ``d`` levels.
-            carry_up = GAMMA * d * n_here + sum(cost(c, child_d) for c in node.children.values())
+            carry_up = GAMMA * d * n_here + sum(cost(c, child_d)[0] for c in node.children.values())
             if (node.frozen or node.alias) and not forced_open:
                 # A glob file or product.yaml manifest lives here — it can never carry
                 # new rules; statements pass through.
-                memo[key] = carry_up
-                return carry_up
+                memo[key] = (carry_up, False)
+                return memo[key]
             # Option B: open here; own statements are free, children are one level down.
-            open_here = self._facility_cost(node) + sum(cost(c, 1) for c in node.children.values())
-            best = open_here if forced_open else min(carry_up, open_here)
-            memo[key] = best
-            return best
+            open_here = self._facility_cost(node) + sum(cost(c, 1)[0] for c in node.children.values())
+            opens = forced_open or open_here <= carry_up
+            memo[key] = (open_here if opens else carry_up, opens)
+            return memo[key]
 
         def reconstruct(node: _Node, d: int, nearest_open: str) -> None:
+            _best, opens = cost(node, d)
             movable = [s for s in node.statements if not self._served_by_pin(node, s)]
-            child_d = _BLOCKED if node.alias else d + 1
-            carry_up = GAMMA * d * len(movable) + sum(cost(c, child_d) for c in node.children.values())
-            open_here = self._facility_cost(node) + sum(cost(c, 1) for c in node.children.values())
-            forced_open = (node.pinned and not node.alias) or node.path == ""
-            opens = (forced_open or open_here <= carry_up) and not ((node.frozen or node.alias) and not forced_open)
-
             if opens:
                 open_dirs.add(node.path)
                 for s in movable:
@@ -305,6 +286,7 @@ class CanonicalPlacer:
                 for c in node.children.values():
                     reconstruct(c, 1, node.path)
             else:
+                child_d = _BLOCKED if node.alias else d + 1
                 for s in movable:
                     placements.append(_Placement(statement=s, carrier_dir=nearest_open, distance=d))
                 for c in node.children.values():
@@ -369,7 +351,10 @@ class CanonicalPlacer:
     # --- current layout cost + diff -------------------------------------
 
     def build(self) -> CanonicalPlan:
-        pinned, frozen, alias = self._classify()
+        entries = self.resolver.parsed_ownership_files()  # the single parse pass
+        pinned, frozen, alias = self._classify(entries)
+        # One definition of "a carrier file already exists here": the _classify one.
+        pinned_dirs = set(pinned) | frozen
 
         tracked = self.resolver.tracked_files()
         code_files = [p for p in tracked if p.rsplit("/", 1)[-1] not in (OWNERS_FILENAME, PRODUCT_FILENAME)]
@@ -397,77 +382,63 @@ class CanonicalPlacer:
         self._collect_statements(root, None, by_dir)
 
         placements, open_dirs = self._plan_placements(root)
+        proposed = self._proposed_files(entries, placements, open_dirs)
+        self._prove(proposed, all_owners)  # raises on any resolution mismatch
 
-        plan = self._diff(placements, open_dirs)
-        plan.current_cost = self._current_cost()
-        plan.canonical_cost = self._layout_cost(open_dirs, placements)
-        plan.proved = self._prove(placements, open_dirs, all_owners)
-        return plan
+        creations, deletions, additions = self._diff(entries, proposed, open_dirs, pinned_dirs)
+        return CanonicalPlan(
+            current_cost=self._current_cost(entries),
+            canonical_cost=self._layout_cost(open_dirs, placements, pinned_dirs),
+            creations=creations,
+            deletions=deletions,
+            additions=additions,
+        )
 
-    def _layout_cost(self, open_dirs: set[str], placements: list[_Placement]) -> int:
-        pinned_dirs = self._pinned_dirs
+    def _layout_cost(self, open_dirs: set[str], placements: list[_Placement], pinned_dirs: set[str]) -> int:
         # A dedicated file costs ALPHA; the root and pinned carriers are free.
         total = sum(ALPHA for d in open_dirs if d != "" and d not in pinned_dirs)
         total += sum(GAMMA * p.distance for p in placements)
         return total
 
-    def _current_cost(self) -> int:
+    def _current_cost(self, entries: list[ParsedOwnershipFile]) -> int:
         """Cost of the layout as it stands: ALPHA per dedicated simple file, plus the
         carry distance of every statement each file currently holds as a rule."""
         total = 0
-        for f in self.resolver.ownership_files():
-            rel_dir = f.parent.relative_to(self.repo_root).as_posix()
-            rel_dir = "" if rel_dir == "." else rel_dir
-            if f.name == PRODUCT_FILENAME:
+        for entry in entries:
+            if entry.name == PRODUCT_FILENAME or entry.parsed is None:
                 continue
-            parsed, _e = parse_owners_file(f.read_text(), path=f, directory=rel_dir)
-            if parsed is None:
-                continue
-            if _is_simple_file(parsed) and rel_dir != "":
+            parsed = entry.parsed
+            if _is_simple_file(parsed) and entry.rel_dir != "":
                 total += ALPHA
             for rule in parsed.rules:
-                if _is_glob(rule.match):
+                if match_is_glob(rule.match):
                     continue
                 target = rule.match.strip("/")
                 total += GAMMA * max(0, len(target.split("/")) - (0 if rule.match.endswith("/") else 1))
         return total
 
-    @property
-    def _pinned_dirs(self) -> set[str]:
-        dirs: set[str] = set()
-        for f in self.resolver.ownership_files():
-            rel_dir = f.parent.relative_to(self.repo_root).as_posix()
-            rel_dir = "" if rel_dir == "." else rel_dir
-            if f.name == PRODUCT_FILENAME:
-                dirs.add(rel_dir)
-                continue
-            parsed, _e = parse_owners_file(f.read_text(), path=f, directory=rel_dir)
-            if not _is_simple_file(parsed):
-                dirs.add(rel_dir)
-        return dirs
-
-    def _proposed_files(self, placements: list[_Placement], open_dirs: set[str]) -> dict[str, OwnersFile]:
+    def _proposed_files(
+        self, entries: list[ParsedOwnershipFile], placements: list[_Placement], open_dirs: set[str]
+    ) -> dict[str, OwnersFile]:
         """Materialize the proposed layout as in-memory OwnersFile objects, keyed by
-        directory. Pinned files are carried over verbatim and augmented with rules."""
+        directory. Pinned files are carried over verbatim (as copies, since rules are
+        appended) and augmented with their placements."""
         files: dict[str, OwnersFile] = {}
-        # Start from pinned files (kept as-is).
-        for f in self.resolver.ownership_files():
-            rel_dir = f.parent.relative_to(self.repo_root).as_posix()
-            rel_dir = "" if rel_dir == "." else rel_dir
-            if f.name == PRODUCT_FILENAME:
-                parsed = parse_product_yaml_as_owners(f.read_text(), path=f, directory=rel_dir)
-                if parsed:
-                    files[rel_dir] = parsed
+        for entry in entries:
+            parsed = entry.parsed
+            if parsed is None:
                 continue
-            parsed_o, _e = parse_owners_file(f.read_text(), path=f, directory=rel_dir)
-            if parsed_o is not None and not _is_simple_file(parsed_o):
-                files[rel_dir] = parsed_o  # pinned non-simple / glob file
+            if entry.name == PRODUCT_FILENAME:
+                files[entry.rel_dir] = parsed  # aliases never receive placements
+            elif not _is_simple_file(parsed):
+                # Copy: placements are appended, and the parsed entries are cached.
+                files[entry.rel_dir] = replace(parsed, rules=list(parsed.rules))
 
         for carrier in open_dirs:
-            existing = files.get(carrier)
-            if existing is None:
-                existing = OwnersFile(path=self.repo_root / carrier / OWNERS_FILENAME, directory=carrier, owners=[])
-                files[carrier] = existing
+            if carrier not in files:
+                files[carrier] = OwnersFile(
+                    path=self.repo_root / carrier / OWNERS_FILENAME, directory=carrier, owners=[]
+                )
         for p in placements:
             carrier = p.carrier_dir
             f = files[carrier]
@@ -479,33 +450,31 @@ class CanonicalPlacer:
             f.rules.append(OwnersRule(match=match, owners=list(p.statement.owners) if p.statement.owners else None))
         return files
 
-    def _diff(self, placements: list[_Placement], open_dirs: set[str]) -> CanonicalPlan:
-        proposed = self._proposed_files(placements, open_dirs)
-        current_simple_dirs: dict[str, OwnersFile] = {}  # dirs whose file fmt may delete
-        current_rules: dict[str, set[str]] = {}  # dir -> anchored rule matches already present
-        for f in self.resolver.ownership_files():
-            rel_dir = f.parent.relative_to(self.repo_root).as_posix()
-            rel_dir = "" if rel_dir == "." else rel_dir
-            if f.name != OWNERS_FILENAME:
+    def _diff(
+        self,
+        entries: list[ParsedOwnershipFile],
+        proposed: dict[str, OwnersFile],
+        open_dirs: set[str],
+        pinned_dirs: set[str],
+    ) -> tuple[list[str], list[str], dict[str, list[str]]]:
+        current_simple_dirs: set[str] = set()  # dirs whose file fmt may delete
+        current_rules: dict[str, set[str]] = {}  # dir -> rule matches already present
+        for entry in entries:
+            if entry.name != OWNERS_FILENAME or entry.parsed is None:
                 continue
-            parsed, _e = parse_owners_file(f.read_text(), path=f, directory=rel_dir)
-            if parsed is None:
-                continue
-            current_rules[rel_dir] = {r.match for r in parsed.rules}
-            if _is_simple_file(parsed):
-                current_simple_dirs[rel_dir] = parsed
+            current_rules[entry.rel_dir] = {r.match for r in entry.parsed.rules}
+            if _is_simple_file(entry.parsed):
+                current_simple_dirs.add(entry.rel_dir)
 
         creations, deletions = [], []
         additions: dict[str, list[str]] = {}
-        removals: dict[str, list[str]] = {}
-        pinned_dirs = self._pinned_dirs
 
         for carrier in sorted(open_dirs):
-            proposed_rules = {r.match: r.owners for r in proposed[carrier].rules}
+            proposed_file = proposed[carrier]
+            proposed_rules = {r.match: r.owners for r in proposed_file.rules}
             cur_rules = current_rules.get(carrier, set())
             path = f"{carrier}/{OWNERS_FILENAME}" if carrier else OWNERS_FILENAME
             file_exists = carrier in current_rules or carrier in pinned_dirs
-            proposed_file = proposed[carrier]
             # A new file matters if it carries rules OR contributes owners itself
             # (a non-empty list, or explicit null); owners: [] with no rules is a no-op.
             has_content = bool(proposed_file.rules) or bool(proposed_file.owners) or proposed_file.owners is None
@@ -515,28 +484,23 @@ class CanonicalPlacer:
             if added:
                 additions[path] = sorted(added)
 
-        for carrier, _cur in current_simple_dirs.items():
+        for carrier in current_simple_dirs:
             if carrier not in open_dirs:
                 deletions.append(f"{carrier}/{OWNERS_FILENAME}" if carrier else OWNERS_FILENAME)
 
-        return CanonicalPlan(0, 0, sorted(creations), sorted(deletions), additions, removals, False)
+        return sorted(creations), sorted(deletions), additions
 
     # --- equivalence proof ----------------------------------------------
 
-    def _prove(
-        self,
-        placements: list[_Placement],
-        open_dirs: set[str],
-        file_owners: dict[str, OwnerSet],
-    ) -> bool:
-        proposed = self._proposed_files(placements, open_dirs)
+    def _prove(self, proposed: dict[str, OwnersFile], file_owners: dict[str, OwnerSet]) -> None:
+        """Re-resolve every tracked path against the proposed layout; raises on any
+        mismatch with the current resolution."""
         sim = _InMemoryResolver(self.repo_root, proposed)
         for path, owners in file_owners.items():
             got = sim.resolve(path)
             got_owners = tuple(got.owners) if got.owners else None
             if got_owners != owners:
                 raise AssertionError(f"fmt bug: canonical layout resolves {path} to {got_owners}, expected {owners}")
-        return True
 
 
 class _InMemoryResolver(OwnersResolver):

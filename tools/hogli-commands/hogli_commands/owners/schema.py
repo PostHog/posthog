@@ -68,14 +68,20 @@ class OwnersFile:
     is_alias: bool = False
 
 
+def normalize_product_owners(owners: list[str]) -> list[str]:
+    """Drop the ``team-CHANGEME`` scaffold placeholder: it never carries ownership
+    signal, so a list consisting only of it is empty. Applied to both ``product.yaml``
+    aliases and ``owners.yaml`` owners lists — one CHANGEME semantics everywhere."""
+    return [o for o in owners if o != CHANGEME_SLUG]
+
+
 def _validate_owners_value(value: object, where: str, errors: list[str]) -> list[str] | None | _Unset:
     if value is None:
         return None
     if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
         errors.append(f"{where}: 'owners' must be a list of strings or null")
         return UNSET
-    owners: list[str] = [str(x) for x in value]
-    return owners
+    return normalize_product_owners([str(x) for x in value])
 
 
 def _validate_contact(value: object, where: str, errors: list[str]) -> tuple[str | bool | _Unset, str | _Unset]:
@@ -195,14 +201,6 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
     return file, errors
 
 
-def normalize_product_owners(owners: list[str]) -> list[str]:
-    """Apply the ``product.yaml`` alias rule: keep ``@handles`` and team slugs, but
-    a list consisting only of the ``team-CHANGEME`` scaffold placeholder is empty."""
-    if all(o == CHANGEME_SLUG for o in owners):
-        return []
-    return [o for o in owners if o != CHANGEME_SLUG]
-
-
 def parse_product_yaml_as_owners(text: str, *, path: Path, directory: str) -> OwnersFile | None:
     """Load ``product.yaml`` as an aliased ownership file, or None if it has no
     usable ``owners:`` list."""
@@ -217,3 +215,29 @@ def parse_product_yaml_as_owners(text: str, *, path: Path, directory: str) -> Ow
         return None
     owners = normalize_product_owners(raw)
     return OwnersFile(path=path, directory=directory, owners=owners, is_alias=True)
+
+
+def match_is_glob(match: str) -> bool:
+    """A rule match is a crosscutting glob (not a tree boundary) when it carries a
+    wildcard character."""
+    return any(ch in match for ch in "*?[")
+
+
+def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bool = False) -> bool:
+    """Whether a file is "simple" — mechanically relocatable, nothing but ownership.
+
+    Both callers agree that contact/status/``inherit: false`` (and being a
+    ``product.yaml`` alias) disqualify a file. They differ on rules:
+
+    - lint's consolidation suggestions (``allow_anchored_rules=False``) only fold
+      files whose entire content is one non-empty ``owners:`` list;
+    - fmt (``allow_anchored_rules=True``) reasons about statements, so files whose
+      rules are all anchored (no globs) are fair game too.
+    """
+    if parsed is None or parsed.is_alias:
+        return False
+    if parsed.inherit is False or parsed.status is not UNSET or parsed.slack is not UNSET or parsed.oncall is not UNSET:
+        return False
+    if allow_anchored_rules:
+        return not any(match_is_glob(r.match) for r in parsed.rules)
+    return bool(parsed.owners) and not parsed.rules

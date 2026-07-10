@@ -278,7 +278,6 @@ def test_fmt_folds_dedicated_child_into_pinned_parent(tmp_path: Path) -> None:
     assert plan.deletions == ["a/b/owners.yaml"]
     assert plan.additions == {"a/owners.yaml": ["/b/ -> [team-b]"]}
     assert plan.creations == []
-    assert plan.proved
 
 
 def test_fmt_splits_when_carrier_exceeds_capacity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -296,7 +295,6 @@ def test_fmt_splits_when_carrier_exceeds_capacity(tmp_path: Path, monkeypatch: p
         files[f"P/c/s{i}/g.py"] = "x"
     plan = _fmt_plan(tmp_path, files)
     assert "P/c/owners.yaml" in plan.creations
-    assert plan.proved
 
 
 def test_fmt_never_exiles_singleton_rules_on_overflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -314,7 +312,6 @@ def test_fmt_never_exiles_singleton_rules_on_overflow(tmp_path: Path, monkeypatc
         files[f"P/d{i}/g.py"] = "x"
     plan = _fmt_plan(tmp_path, files)
     assert plan.creations == []
-    assert plan.proved
 
 
 def test_fmt_product_yaml_is_a_free_carrier(tmp_path: Path) -> None:
@@ -330,7 +327,6 @@ def test_fmt_product_yaml_is_a_free_carrier(tmp_path: Path) -> None:
         },
     )
     assert plan.is_canonical
-    assert plan.proved
 
 
 def test_fmt_never_places_rules_on_a_product_yaml_dir(tmp_path: Path) -> None:
@@ -351,7 +347,6 @@ def test_fmt_never_places_rules_on_a_product_yaml_dir(tmp_path: Path) -> None:
     )
     assert "products/foo/owners.yaml" not in plan.additions
     assert "products/foo/owners.yaml" not in plan.creations
-    assert plan.proved
 
 
 def test_fmt_leaves_glob_files_untouched(tmp_path: Path) -> None:
@@ -365,7 +360,6 @@ def test_fmt_leaves_glob_files_untouched(tmp_path: Path) -> None:
         },
     )
     assert plan.is_canonical
-    assert plan.proved
 
 
 def test_fmt_is_idempotent_on_canonical_layout(tmp_path: Path) -> None:
@@ -383,7 +377,6 @@ def test_fmt_is_idempotent_on_canonical_layout(tmp_path: Path) -> None:
         },
     )
     assert plan.is_canonical
-    assert plan.proved
 
 
 def test_fmt_equivalence_proof_catches_a_wrong_layout(tmp_path: Path) -> None:
@@ -395,4 +388,4 @@ def test_fmt_equivalence_proof_catches_a_wrong_layout(tmp_path: Path) -> None:
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
     placer = CanonicalPlacer(OwnersResolver(repo_root=tmp_path))
     with pytest.raises(AssertionError):
-        placer._prove([], {""}, {"a/f.py": ("team-wrong",)})
+        placer._prove({}, {"a/f.py": ("team-wrong",)})

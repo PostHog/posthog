@@ -169,9 +169,9 @@ def _owner_to_team_handle(owner: str) -> str | None:
     Resolver owners are bare team slugs (`team-foo`) plus `@handle` individuals.
     The ownership gate is team-based, so keep team slugs (formatted as the
     handle the reviewer prompt and membership check expect) and drop individuals.
-    Empty and placeholder `team-CHANGEME` slugs carry no ownership signal.
+    The `team-CHANGEME` placeholder is already filtered by the resolver's parsers.
     """
-    if not owner or owner.startswith("@") or owner == "team-CHANGEME":
+    if not owner or owner.startswith("@"):
         return None
     return f"@PostHog/{owner}"
 

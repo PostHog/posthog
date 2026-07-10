@@ -13,12 +13,10 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-import yaml
-
 from .conversion import parse_soft_file
 from .matcher import compile_pattern, normalize_path
 from .resolver import OwnersResolver
-from .schema import CHANGEME_SLUG
+from .schema import parse_product_yaml_as_owners
 
 
 class DiffClass(str, Enum):
@@ -37,7 +35,9 @@ class LegacyRule:
 
 def synthesize_product_rules(repo_root: Path) -> list[LegacyRule]:
     """Recreate ``loadProductYamlRules``: a ``products/<name>/**`` rule per product,
-    with ``@handles`` and ``team-CHANGEME`` skipped (only auto-assignable team slugs)."""
+    with ``@handles`` and ``team-CHANGEME`` skipped (only auto-assignable team slugs).
+    Parsing goes through the shared product.yaml alias reader; the assigner's
+    skip-``@handles`` behavior is the one delta layered on top."""
     rules: list[LegacyRule] = []
     products_dir = repo_root / "products"
     if not products_dir.is_dir():
@@ -46,12 +46,12 @@ def synthesize_product_rules(repo_root: Path) -> list[LegacyRule]:
         product_yaml = entry / "product.yaml"
         if not entry.is_dir() or not product_yaml.is_file():
             continue
-        data = yaml.safe_load(product_yaml.read_text())
-        if not isinstance(data, dict) or not isinstance(data.get("owners"), list):
+        parsed = parse_product_yaml_as_owners(
+            product_yaml.read_text(), path=product_yaml, directory=f"products/{entry.name}"
+        )
+        if parsed is None:
             continue
-        owners = [
-            o for o in data["owners"] if isinstance(o, str) and o and o != CHANGEME_SLUG and not o.startswith("@")
-        ]
+        owners = [o for o in (parsed.owners or []) if o and not o.startswith("@")]
         if owners:
             rules.append(LegacyRule(pattern=f"products/{entry.name}/**", owners=owners))
     return rules
