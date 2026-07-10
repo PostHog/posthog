@@ -602,14 +602,11 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
     }),
-    propsChanged(
-        ({ actions, props }, oldProps) => {
-            if (props.settingId && props.settingId !== oldProps.settingId) {
-                actions.selectSetting(props.settingId)
-            }
-        },
-        ['settingId']
-    ),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.settingId && props.settingId !== oldProps.settingId) {
+            actions.selectSetting(props.settingId)
+        }
+    }),
 
     actionToUrl(({ props }) => ({
         // Skip the URL update in the full settings scene — settingsSceneLogic already pushes
