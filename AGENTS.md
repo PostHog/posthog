@@ -166,17 +166,13 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 
 ## User-facing copy
 
-Applies to every string a person reads: UI labels, buttons, tooltips, empty states, error and success messages, notifications, docs, and support or customer replies.
-When copy matters and you're unsure whether it reads well, ask a human rather than guessing.
+For any text a person reads (UI labels, tooltips, empty/error states, notifications, docs, support replies). When unsure whether copy reads well, ask a human.
 
-- PostHog writes in sentence case, not Title Case: capitalize only the first word and proper nouns.
-  This covers product names ('Product analytics', not 'Product Analytics'), buttons, tab text, tooltips, titles, and headings ('Save as view', not 'Save As View').
-- Do not use the common signatures of AI-generated text.
-  No em dashes (—); no "it's not just X, it's Y" constructions; no rule-of-three padding; no hedging setups ("Here's the thing:", "A few things to note:"); no tidy parallel-list scaffolding.
-  Write like a person typed it, and when a phrasing feels machine-generated but you can't tell, ask a human.
-- Plain language, no jargon. Never leak internal terminology or code identifiers into user-facing text. Name the actual feature or plan (not "premium PostHog offering"), and use the labels a user sees in the UI, never internal field names (`surveyPopupDelaySeconds` becomes "Delay the survey popup").
-- Be direct and friendly. Get to the point, keep sentences short and each paragraph about one thing, and keep the tone consistent across tooltips, modals, empty states, and error pages. Explain things the way you would to a smart colleague, not in a corporate memo.
-- Error and empty states must guide, not dead-end. An error says what happened and what to do next; a permission error names which permission and how to get it; an empty state points to the next action.
+- Sentence case, not Title Case: capitalize only the first word and proper nouns ('Product analytics', 'Save as view').
+- Avoid the tells of AI-generated text: em dashes (—), "not just X, but Y", rule-of-three padding, hedging preambles. Write like a person typed it; if you can't tell, ask a human.
+- Plain language, no jargon. Use the labels users see, not internal names (`surveyPopupDelaySeconds` becomes "Delay the survey popup").
+- Be direct and friendly: short sentences, consistent tone across surfaces.
+- Errors and empty states guide, don't dead-end: say what happened and the next action.
 
 ## Agent automation
 
