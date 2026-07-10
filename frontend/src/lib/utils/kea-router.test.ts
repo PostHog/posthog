@@ -1,4 +1,4 @@
-import { addProjectIdIfMissing, stripTrailingSlash } from 'lib/utils/kea-router'
+import { addProjectIdIfMissing, getProjectSwitchTargetUrl, stripTrailingSlash } from 'lib/utils/kea-router'
 
 describe('router-utils', () => {
     it('does not redirect account URLs to a project URL', () => {
@@ -65,6 +65,69 @@ describe('router-utils', () => {
         })
         it('leaves the empty string unchanged', () => {
             expect(stripTrailingSlash('')).toEqual('')
+        })
+    })
+
+    describe('getProjectSwitchTargetUrl', () => {
+        const CURRENT_TEAM = 111
+        const NEW_TEAM = 222
+
+        it('falls back to the new project home from an org-level page (would 404 as bare /organization)', () => {
+            // /organization/* has no project prefix; mapping it onto a project gets stripped back to
+            // a routeless bare path by locationChanged, landing on "Page not found".
+            expect(getProjectSwitchTargetUrl('/organization/billing', NEW_TEAM)).toEqual(`/project/${NEW_TEAM}`)
+        })
+
+        it.each([
+            ['/instance/status', `/project/${NEW_TEAM}`],
+            ['/account/two_factor', `/project/${NEW_TEAM}`],
+            ['/organization/members', `/project/${NEW_TEAM}`],
+        ])('sends project-less path %s to the new project home', (path, expected) => {
+            expect(getProjectSwitchTargetUrl(path, NEW_TEAM)).toEqual(expected)
+        })
+
+        it.each([
+            ['/project/111/replay-vision', `/project/${NEW_TEAM}`],
+            ['/project/111/replay-vision/018f-scanner-uuid', `/project/${NEW_TEAM}`],
+        ])(
+            'sends beta flag-gated product route %s to the new project home (flag may be off there)',
+            (path, expected) => {
+                expect(getProjectSwitchTargetUrl(path, NEW_TEAM)).toEqual(expected)
+            }
+        )
+
+        it('does not keep a stale beta resource id even within the same project', () => {
+            expect(getProjectSwitchTargetUrl('/project/111/replay-vision/018f-scanner-uuid', NEW_TEAM, 5, 5)).toEqual(
+                `/project/${NEW_TEAM}`
+            )
+        })
+
+        it('keeps settings routes on the same page in the new project', () => {
+            expect(getProjectSwitchTargetUrl('/project/111/settings/project', NEW_TEAM)).toEqual(
+                `/project/${NEW_TEAM}/settings/project`
+            )
+        })
+
+        it('redirects products/onboarding to the new project home', () => {
+            expect(getProjectSwitchTargetUrl('/project/111/products', NEW_TEAM)).toEqual(`/project/${NEW_TEAM}`)
+        })
+
+        it('drops a resource id when switching across projects', () => {
+            expect(getProjectSwitchTargetUrl('/project/111/insights/abc123', NEW_TEAM, 1, 2)).toEqual(
+                `/project/${NEW_TEAM}/insights`
+            )
+        })
+
+        it('keeps a resource id when switching between teams in the same project', () => {
+            expect(getProjectSwitchTargetUrl('/project/111/insights/abc123', NEW_TEAM, 7, 7)).toEqual(
+                `/project/${NEW_TEAM}/insights/abc123`
+            )
+        })
+
+        it('keeps a top-level product route across projects', () => {
+            expect(getProjectSwitchTargetUrl(`/project/${CURRENT_TEAM}/dashboard`, NEW_TEAM)).toEqual(
+                `/project/${NEW_TEAM}/dashboard`
+            )
         })
     })
 })
