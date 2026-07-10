@@ -89,9 +89,12 @@ PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else 2
 # ClickHouse's default is 600s, which turns any quorum breakage (dead replica,
 # stale registration, ZK trouble) into ten-minute request hangs; the executor is
 # built to treat failed inserts as retryable and callers fall back to the live
-# query, so failing fast is strictly better. Replication between two healthy
-# replicas takes seconds; 60s is generous headroom.
-PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS = 60 * 1000
+# query, so failing fast is strictly better. Part replication between two healthy
+# colocated replicas is sub-second; 2s keeps a spurious-timeout margin while making
+# a broken quorum cost two seconds instead of ten minutes. A false positive is
+# cheap: the part is already written, the retry re-insert is idempotent under
+# ReplacingMergeTree, and the caller falls back to the live query meanwhile.
+PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS = 2 * 1000
 
 
 # Mirrors the `lazy_computation.executed` structured log so the same outcomes
