@@ -128,10 +128,18 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # The parent walk bounds on the PR's updated_at (the parent's own default cursor); the
         # invariant making that sound against the submitted_at watermark is documented at
         # parent_cursor_field in github.py.
-        # Full-history backfill would be one request per PR over the repo's whole life (tens of
-        # thousands of requests). Floor the first incremental sync at 30 days of PR updates; older
-        # history is a deliberate one-off backfill, not paid for on every connect.
-        initial_lookback_days=30,
+        # One /reviews call per PR: any poll backfill re-fans every PR bumped for any reason, and a
+        # historical crawl is one request per PR over the repo's whole life. So poll does no
+        # backfill: the pull_request_review webhook is the source of truth for reviews, and the
+        # poll only re-fans the tiny window since the latest synced review. Repos that want history
+        # should run a deliberate one-off backfill, not pay for it on every connect.
+        initial_lookback_days=0,
+        # A review can emit several webhook events sharing an id (submitted, then edited or
+        # dismissed) and the delta merge doesn't dedupe within a batch, so collapse each batch to
+        # one row per id. submitted_at is constant across those events, so ties pick arbitrarily;
+        # acceptable since same-drain-window duplicates are rare and terminal events usually land
+        # in a later drain.
+        version_keys=["submitted_at"],
         # Reviews need only the repo Pull requests read grant the source already validates at
         # create, unlike the org-scoped teams tables, so leave the table selectable by default.
         should_sync_default=True,

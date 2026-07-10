@@ -57,7 +57,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "reviews": {
-        "description": "A submitted review on a pull request (an approval, change request, or comment). One row per submitted review, with the reviewed pull request's number attached for attribution.",
+        "description": "A submitted review on a pull request (an approval, change request, or comment). One row per submitted review, with the reviewed pull request's number attached for attribution. Rows arrive via the repository's pull_request_review webhook.",
         "docs_url": "https://docs.github.com/en/rest/pulls/reviews",
         "columns": {
             "id": "Unique identifier for the review.",

@@ -1407,6 +1407,7 @@ class TestGithubWebhookSource:
         assert self.source.webhook_resource_map == {
             "workflow_jobs": "workflow_job",
             "workflow_runs": "workflow_run",
+            "reviews": "pull_request_review",
         }
 
     def test_webhook_template_identity(self) -> None:
@@ -1415,10 +1416,10 @@ class TestGithubWebhookSource:
         assert template.id == "template-warehouse-source-github"
         assert template.type == "warehouse_source_webhook"
 
-    def test_get_schemas_marks_only_workflow_schemas_webhook_capable(self) -> None:
+    def test_get_schemas_marks_only_mapped_schemas_webhook_capable(self) -> None:
         schemas = self.source.get_schemas(_pat_config(), team_id=1)
         webhook_capable = {s.name for s in schemas if s.supports_webhooks}
-        assert webhook_capable == {"workflow_jobs", "workflow_runs"}
+        assert webhook_capable == {"workflow_jobs", "workflow_runs", "reviews"}
 
     def test_workflow_jobs_is_webhook_only_but_workflow_runs_keeps_poll(self) -> None:
         # workflow_jobs does no poll backfill (zero floor), so it must not be offered as a
@@ -1439,7 +1440,11 @@ class TestGithubWebhookSource:
 
     @parameterized.expand(
         [
-            ("both", ["workflow_jobs", "workflow_runs"], ["workflow_job", "workflow_run"]),
+            (
+                "all_webhook_schemas",
+                ["workflow_jobs", "workflow_runs", "reviews"],
+                ["workflow_job", "workflow_run", "pull_request_review"],
+            ),
             ("jobs_only", ["workflow_jobs"], ["workflow_job"]),
             ("drops_non_webhook_schemas", ["workflow_jobs", "issues", "commits"], ["workflow_job"]),
         ]

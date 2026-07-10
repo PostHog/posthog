@@ -119,10 +119,12 @@ class TestGithubSource:
         assert schemas["workflow_jobs"].supports_webhooks is True
         assert all(s.should_sync_default for s in schemas.values() if s.name not in ("teams", "team_members"))
 
-    def test_reviews_schema_advertises_incremental_on_submitted_at_and_is_default_on(self):
-        # reviews syncs incrementally on submitted_at and needs only the repo grant validated at
-        # create, so unlike the org tables it must advertise incremental/append and stay selected by
-        # default. It is poll-only (no webhook wiring), so it must not be offered as webhook-capable.
+    def test_reviews_schema_is_webhook_only_and_default_on(self):
+        # reviews does no poll backfill (zero lookback floor), so it must be offered webhook-only;
+        # advertising a poll mode would sync an empty table forever. It needs only the repo grant
+        # validated at create, unlike the org tables, so it stays selected by default. If the
+        # webhook map entry or the zero floor regressed, these flags would flip and the picker
+        # would offer a broken mode.
         config = GithubSourceConfig(
             auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="t"),
             repository="acme/widgets",
@@ -130,10 +132,11 @@ class TestGithubSource:
         schemas = {s.name: s for s in self.source.get_schemas(config, self.team_id)}
 
         reviews = schemas["reviews"]
-        assert reviews.supports_incremental is True
-        assert reviews.supports_append is True
+        assert reviews.supports_webhooks is True
+        assert reviews.webhook_only is True
+        assert reviews.supports_incremental is False
+        assert reviews.supports_append is False
         assert reviews.should_sync_default is True
-        assert reviews.supports_webhooks is False
         assert [f["field"] for f in reviews.incremental_fields] == ["submitted_at"]
 
     def test_get_access_token_returns_pat(self):

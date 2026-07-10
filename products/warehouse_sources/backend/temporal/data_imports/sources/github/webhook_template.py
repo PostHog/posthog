@@ -84,6 +84,40 @@ if (empty(schemaId)) {
 // nested webhook object matches the REST "list jobs for a workflow run" response shape.
 let row := request.body?.[eventType]
 
+// pull_request_review does not nest the object under the event-type key: the review is at
+// body.review and its PR at body.pull_request. Reshape so webhook rows match poll rows, which
+// carry pr_number injected from the parent PR. Deployed hog functions are snapshots of this
+// template; a source whose schema_mapping predates an event type no-ops on it above.
+if (eventType = 'pull_request_review') {
+  let review := request.body?.review
+  let pullRequest := request.body?.pull_request
+  if (empty(review) or empty(pullRequest)) {
+    return {
+      'httpResponse': {
+        'status': 200,
+        'body': 'No review or pull_request object in payload, skipping'
+      }
+    }
+  }
+  // The poll path drops reviews without submitted_at (unsubmitted drafts); mirror it so
+  // the partition/cursor column stays non-null.
+  if (empty(review?.submitted_at)) {
+    return {
+      'httpResponse': {
+        'status': 200,
+        'body': 'Review has no submitted_at, skipping'
+      }
+    }
+  }
+  // REST returns uppercase review states ('APPROVED') while webhook payloads use lowercase
+  // ('approved'); normalize to the REST shape so a fallback poll never mixes casings in one column.
+  if (not empty(review?.state)) {
+    review.state := upper(review.state)
+  }
+  review.pr_number := pullRequest?.number
+  row := review
+}
+
 if (empty(row)) {
   return {
     'httpResponse': {
@@ -117,7 +151,7 @@ produceToWarehouseWebhooks(row, schemaId)""",
             "type": "json",
             "key": "schema_mapping",
             "label": "Schema mapping",
-            "description": "Maps GitHub event types (workflow_job, workflow_run) to ExternalDataSchema IDs",
+            "description": "Maps GitHub event types (workflow_job, workflow_run, pull_request_review) to ExternalDataSchema IDs",
             "required": True,
             "secret": False,
             "hidden": True,

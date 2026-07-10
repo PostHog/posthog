@@ -878,7 +878,7 @@ def github_source(
     # passed (or it isn't enabled), the poll path below stays unchanged.
     #
     # An endpoint whose poll does no first-sync backfill (initial_lookback_days == 0,
-    # i.e. workflow_jobs) would otherwise deadlock a fresh webhook schema: the
+    # i.e. workflow_jobs and reviews) would otherwise deadlock a fresh webhook schema: the
     # zero-row poll never creates a table, so initial_sync_complete is never set, so
     # webhook_enabled stays False forever and queued webhook files never drain. There
     # is no backfill to lose for these, so activate webhook mode from the first run
@@ -898,6 +898,9 @@ def github_source(
             # job and workflow-run objects once: the "list jobs for a workflow run" REST
             # response object is the same schema as the workflow_job webhook event's nested
             # workflow_job object (same for workflow_run), so the rows are interchangeable.
+            # Reviews need a reshape (the event nests the review under body.review, states
+            # are lowercase, and pr_number is injected) which the template does before
+            # producing, so rows land here already in the polled REST shape.
             #
             # Each event for an id arrives as its own row (queued -> in_progress -> completed);
             # collapse them to the latest per id here, since the delta merge doesn't dedupe a

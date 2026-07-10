@@ -62,6 +62,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 GITHUB_WEBHOOK_RESOURCE_MAP: dict[str, str] = {
     "workflow_jobs": "workflow_job",
     "workflow_runs": "workflow_run",
+    "reviews": "pull_request_review",
 }
 
 
@@ -159,7 +160,7 @@ class GithubSource(
 3. Paste the webhook URL shown below into the **Payload URL** field
 4. Set **Content type** to **application/json**
 5. Enter a **Secret** and add the same value to the **Signing secret** field below
-6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs** and **Workflow runs**
+6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs**, **Workflow runs**, and **Pull request reviews**
 7. Click **Add webhook**
 
 If automatic creation failed, your token needs webhook permissions — the **admin:repo_hook** scope on a classic token, or **Repository webhooks: read and write** on a fine-grained token. Add it and reconnect, or set the webhook up manually using the steps above.""",
@@ -248,9 +249,9 @@ If automatic creation failed, your token needs webhook permissions — the **adm
     def _schema_for_endpoint(endpoint: str) -> SourceSchema:
         webhook_capable = endpoint in GITHUB_WEBHOOK_RESOURCE_MAP
         # An endpoint whose poll does no first-sync backfill (initial_lookback_days == 0,
-        # i.e. workflow_jobs) can only ever be populated by the webhook — the per-run
-        # fan-out is too expensive to backfill at run volume. Offer it as webhook-only so
-        # users can't pick a poll mode that would sync an empty table forever. workflow_runs
+        # i.e. workflow_jobs and reviews) can only ever be populated by the webhook: the
+        # per-parent fan-out is too expensive to backfill at volume. Offer it as webhook-only
+        # so users can't pick a poll mode that would sync an empty table forever. workflow_runs
         # keeps its poll backfill; the webhook just replaces re-polling for it.
         webhook_only = webhook_capable and GITHUB_ENDPOINTS[endpoint].initial_lookback_days == 0
         supports_poll = bool(INCREMENTAL_FIELDS.get(endpoint)) and not webhook_only
@@ -352,8 +353,9 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         # hook's config.secret, and return it via extra_inputs so it lands on the hog function for
         # signature verification. (Contrast Stripe, which generates and returns its own secret.)
         secret = secrets.token_hex(32)
-        # Always subscribe to the full workflow event pair, not just the enabled schemas: jobs fan
-        # out under runs, so the two travel together and we want both regardless of which is synced.
+        # Always subscribe to every webhook-capable event, not just the enabled schemas: jobs fan
+        # out under runs so the workflow pair travels together, and an unmapped event no-ops in the
+        # hog function anyway, so over-subscribing is harmless while enabling a table later is free.
         events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
         return create_repo_webhook(access_token, config.repository, webhook_url, events, secret=secret)
 
