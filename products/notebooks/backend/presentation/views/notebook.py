@@ -64,6 +64,7 @@ from products.notebooks.backend.sql_v2 import (
     sql_v2_page_lock_key,
 )
 from products.notebooks.backend.sql_v2_references import (
+    PythonNodeRef,
     SQLV2ReferenceError,
     resolve_python_node_inputs,
     resolve_sql_v2_references,
@@ -963,25 +964,36 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # happens once here, so the run stores a self-contained query and paging re-queries it
         # without re-resolving refs.
         ref_node_ids: dict[str, str] = serializer.validated_data.get("refs") or {}
-        # One DISTINCT ON query fetches the latest DONE run for every referenced node at once.
-        code_by_node_id: dict[str, str] = dict(
-            NotebookNodeRun.objects.for_team(self.team_id)
-            .filter(notebook=notebook, node_id__in=set(ref_node_ids.values()), status=NotebookNodeRun.Status.DONE)
-            .order_by("node_id", "-created_at")
-            .distinct("node_id")
-            .values_list("node_id", "code")
-        )
-        last_run_code: dict[str, str | None] = {
-            name: code_by_node_id.get(node_id) for name, node_id in ref_node_ids.items()
+        # One DISTINCT ON query fetches the latest DONE run (id + code) for every referenced node.
+        latest_by_node: dict[str, tuple[str, str]] = {
+            node_id: (str(run_id), code)
+            for node_id, run_id, code in (
+                NotebookNodeRun.objects.for_team(self.team_id)
+                .filter(notebook=notebook, node_id__in=set(ref_node_ids.values()), status=NotebookNodeRun.Status.DONE)
+                .order_by("node_id", "-created_at")
+                .distinct("node_id")
+                .values_list("node_id", "id", "code")
+            )
         }
         node_type = serializer.validated_data["node_type"]
         code = serializer.validated_data["code"]
         output_name = serializer.validated_data["output_name"]
         try:
             if node_type == "python":
-                # A python node stores its code as-is; referenced frames become materialization inputs.
-                run_code, inputs = code, resolve_python_node_inputs(code, last_run_code)
+                # A python node stores its code as-is; referenced frames become materialization inputs,
+                # keyed by the upstream run_id so a re-run yields a fresh (not stale) frame.
+                python_refs: dict[str, PythonNodeRef | None] = {
+                    name: (PythonNodeRef(node_id, *latest_by_node[node_id]) if node_id in latest_by_node else None)
+                    for name, node_id in ref_node_ids.items()
+                }
+                run_code, inputs = code, resolve_python_node_inputs(code, python_refs)
             else:
+                # A join recomputes against each ref's last-run query (not its live editor text), so
+                # inlining happens once here and paging re-queries the stored self-contained query.
+                last_run_code: dict[str, str | None] = {
+                    name: (latest_by_node[node_id][1] if node_id in latest_by_node else None)
+                    for name, node_id in ref_node_ids.items()
+                }
                 run_code, inputs = resolve_sql_v2_references(code, last_run_code), []
         except SQLV2ReferenceError as e:
             return Response({"detail": str(e)}, status=400)

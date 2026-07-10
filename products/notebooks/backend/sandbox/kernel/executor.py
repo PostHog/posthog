@@ -15,6 +15,7 @@ Flow for a Python node:
 """
 
 import os
+import glob
 import json
 import time
 import queue
@@ -104,8 +105,12 @@ class KernelExecutor:
             if spec.get("kind") == "local":
                 kernel_inputs.append({"name": name, "kind": "local"})
                 continue
-            frame_path = os.path.join(self._frames_dir, f"{spec['query_hash']}.arrow")
-            if not os.path.exists(frame_path):  # unchanged upstream query → reuse the frame
+            # Keyed by the upstream run_id, so the same run reuses its frame while a re-run (new
+            # run_id) fetches fresh data instead of the stale cached rows.
+            node_id, run_id = spec["node_id"], spec["run_id"]
+            frame_path = os.path.join(self._frames_dir, f"{node_id}.{run_id}.arrow")
+            if not os.path.exists(frame_path):
+                self._evict_superseded_frames(node_id, keep=frame_path)
                 data_plane.materialize_query_to_file(
                     payload["data_plane_url"],
                     payload["data_plane_token"],
@@ -115,6 +120,15 @@ class KernelExecutor:
                 )
             kernel_inputs.append({"name": name, "kind": "hogql", "path": frame_path})
         return kernel_inputs
+
+    def _evict_superseded_frames(self, node_id: str, keep: str) -> None:
+        """Drop this upstream node's older frames so iterating a query doesn't pile up unread frames."""
+        for stale in glob.glob(os.path.join(self._frames_dir, f"{glob.escape(node_id)}.*.arrow")):
+            if stale != keep:
+                try:
+                    os.remove(stale)
+                except OSError:
+                    pass  # best-effort: a concurrent run or teardown may have removed it already
 
     def _invoke_run_node(self, payload: dict[str, Any], inputs: list[dict[str, Any]]) -> dict[str, Any]:
         run_id = str(payload.get("run_id") or "run")
