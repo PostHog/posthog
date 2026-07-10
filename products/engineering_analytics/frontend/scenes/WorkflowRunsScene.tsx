@@ -336,7 +336,7 @@ export function WorkflowRunsScene(): JSX.Element {
                     value={
                         healthSummary.medianSeconds != null ? humanFriendlyDuration(healthSummary.medianSeconds) : '—'
                     }
-                    valueSuffix={
+                    sub={
                         healthSummary.p95Seconds != null
                             ? `→ ${humanFriendlyDuration(healthSummary.p95Seconds)} p95`
                             : undefined

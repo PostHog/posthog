@@ -9,7 +9,7 @@ import {
     isExperimentFunnelMetric,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { getVariantColor } from '~/scenes/experiments/utils'
+import { getExperimentVariants, getVariantColor } from '~/scenes/experiments/utils'
 import { funnelTitle } from '~/scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from '~/scenes/trends/persons-modal/PersonsModal'
 import type { Experiment } from '~/types'
@@ -131,10 +131,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
     // Source variants from the feature flag (the source of truth used by VariantTag and the rest
     // of the experiment UI). A saved experiment always has a linked flag; if it somehow lacks
     // variants, the bars fall back to the muted color.
-    const seriesColor =
-        experiment.feature_flag?.filters.multivariate?.variants && variantKey
-            ? getVariantColor(variantKey, experiment.feature_flag?.filters.multivariate?.variants)
-            : 'var(--muted)'
+    const seriesColor = variantKey ? getVariantColor(variantKey, getExperimentVariants(experiment)) : 'var(--muted)'
 
     const handleDropoffClick = (): void => {
         if (experimentQuery) {
