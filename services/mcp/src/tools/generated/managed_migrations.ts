@@ -9,6 +9,23 @@ import {
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const ManagedMigrationsSupportGetSchema = ManagedMigrationsSupportRetrieveParams
+
+const managedMigrationsSupportGet = (): ToolBase<
+    typeof ManagedMigrationsSupportGetSchema,
+    Schemas.BatchImportSupportDetail
+> => ({
+    name: 'managed-migrations-support-get',
+    schema: ManagedMigrationsSupportGetSchema,
+    handler: async (context: Context, params: z.infer<typeof ManagedMigrationsSupportGetSchema>) => {
+        const result = await context.api.request<Schemas.BatchImportSupportDetail>({
+            method: 'GET',
+            path: `/api/managed_migrations_support/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const ManagedMigrationsSupportListSchema = ManagedMigrationsSupportListQueryParams
 
 const managedMigrationsSupportList = (): ToolBase<
@@ -34,24 +51,7 @@ const managedMigrationsSupportList = (): ToolBase<
     },
 })
 
-const ManagedMigrationsSupportGetSchema = ManagedMigrationsSupportRetrieveParams
-
-const managedMigrationsSupportGet = (): ToolBase<
-    typeof ManagedMigrationsSupportGetSchema,
-    Schemas.BatchImportSupportDetail
-> => ({
-    name: 'managed-migrations-support-get',
-    schema: ManagedMigrationsSupportGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ManagedMigrationsSupportGetSchema>) => {
-        const result = await context.api.request<Schemas.BatchImportSupportDetail>({
-            method: 'GET',
-            path: `/api/managed_migrations_support/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'managed-migrations-support-list': managedMigrationsSupportList,
     'managed-migrations-support-get': managedMigrationsSupportGet,
+    'managed-migrations-support-list': managedMigrationsSupportList,
 }
