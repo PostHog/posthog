@@ -238,8 +238,8 @@ export function ProjectTree({
                     <div className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1')}>
                         You can display your preferred tools here. You can configure what items show up in here by
                         clicking on the{' '}
-                        <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon above.
-                        We'll automatically suggest new tools to this list as you use them.
+                        <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
+                        above. We'll automatically suggest new tools to this list as you use them.
                         <br />
                         <br />
                         <span className="cursor-pointer underline" onClick={seed}>
