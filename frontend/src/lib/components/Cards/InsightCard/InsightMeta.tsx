@@ -40,7 +40,7 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
-import { Node, ProductKey } from '~/queries/schema/schema-general'
+import { DashboardFilter, Node, ProductKey, TileFilters } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -103,6 +103,19 @@ interface InsightMetaProps extends Pick<
     onCreateAlert?: () => void
     onEditAlert?: (alertId: AlertType['id']) => void
     onCreateAnomalyAlert?: () => void
+}
+
+// A non-empty tile override replaces the dashboard override wholesale (see apply_dashboard_filters
+// on the backend), so don't fall back to the dashboard's dates when the tile override has none —
+// the insight's own date range is what actually applies then.
+export function getEffectiveDateOverride(
+    filtersOverride: DashboardFilter | null | undefined,
+    tileFiltersOverride: TileFilters | null | undefined
+): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
+    const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).length > 0
+    return hasTileOverrides
+        ? { dateFromOverride: tileFiltersOverride?.date_from, dateToOverride: tileFiltersOverride?.date_to }
+        : { dateFromOverride: filtersOverride?.date_from, dateToOverride: filtersOverride?.date_to }
 }
 
 export function InsightMeta({
@@ -186,16 +199,13 @@ export function InsightMeta({
     const showCompactHeading = !showCompactTile || !isSqlInsight
 
     const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).length > 0
-    // A non-empty tile override replaces the dashboard override wholesale (see apply_dashboard_filters
-    // on the backend), so don't fall back to the dashboard's dates when the tile override has none —
-    // the insight's own date range is what actually applies then.
+    const dateOverride = getEffectiveDateOverride(filtersOverride, tileFiltersOverride)
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
         hasTileOverrides,
         resolvedDateRange: insightData?.resolved_date_range,
-        dateFromOverride: hasTileOverrides ? tileFiltersOverride?.date_from : filtersOverride?.date_from,
-        dateToOverride: hasTileOverrides ? tileFiltersOverride?.date_to : filtersOverride?.date_to,
+        ...dateOverride,
     }
 
     const summary = useSummarizeInsight()(insight.query)
