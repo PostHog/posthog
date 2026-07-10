@@ -45,6 +45,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     ceil_utc_day,
     check_common_eligibility,
     floor_utc_day,
+    handle_stale_served,
     host_filter_expr,
     log_eligibility_outcome,
     test_account_filter_expr,
@@ -55,6 +56,8 @@ if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
 
 logger = structlog.get_logger(__name__)
+
+_FAMILY = "web_goals"
 
 
 # Sentinel action_id used for the per-hour denominator row. Real Django
@@ -446,6 +449,8 @@ def execute_lazy_precomputed_read(runner: "WebGoalsQueryRunner") -> Optional[dic
             job_count=len(result.job_ids),
             ensure_duration_ms=ensure_duration_ms,
         )
+        if result.stale:
+            handle_stale_served(runner=runner, family=_FAMILY)
 
         if not result.job_ids or not result.ready:
             return None
@@ -479,6 +484,10 @@ def execute_lazy_precomputed_read(runner: "WebGoalsQueryRunner") -> Optional[dic
                         time_range_end=prev_range_end,
                     )
                     ensure_duration_ms += int((time.perf_counter() - prev_ensure_started) * 1000)
+                    if prev_result.stale:
+                        # Debounced with the current-period enqueue; one revalidation
+                        # re-runs the whole query, covering both periods.
+                        handle_stale_served(runner=runner, family=_FAMILY)
                     if not prev_result.ready:
                         logger.info(
                             "web_goals_lazy_precompute_previous_not_ready",
