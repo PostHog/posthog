@@ -135,7 +135,6 @@ export function CardMeta({
                                 <div className="CardMeta__heading">{topHeading}</div>
                                 <div className="CardMeta__controls">
                                     {refreshControl}
-                                    {extraControlsWithLabel}
                                     {showEditingControls &&
                                         (moreTooltip ? (
                                             <Tooltip title={moreTooltip}>

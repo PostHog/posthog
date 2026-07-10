@@ -2,7 +2,9 @@ import { AlertCalculationInterval, SingleDetectorConfig } from '~/queries/schema
 
 export const DEFAULT_ANOMALY_DETECTION_THRESHOLD = 0.95
 
-/** Default window size based on how often the alert checks. */
+/** Default window size in data points based on how often the alert checks.
+ * Every 15 minutes: 672 (7 days), Hourly: 168 (7 days), Daily: 90 (90 days),
+ * Weekly: 26 (6 months), Monthly: 12 (1 year). */
 export function getDefaultWindow(interval?: AlertCalculationInterval): number {
     switch (interval) {
         case AlertCalculationInterval.EVERY_15_MINUTES:

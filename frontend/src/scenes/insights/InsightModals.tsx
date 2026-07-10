@@ -89,7 +89,6 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
     const { insightMode, alertId } = useValues(insightSceneLogic)
     const { insightProps, insight } = useValues(insightLogic(insightLogicProps))
     const { query } = useValues(insightDataLogic(insightProps))
-    const { searchParams } = useValues(router)
     const { push } = useActions(router)
 
     const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
@@ -119,8 +118,6 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
                     insightId={insight.id}
                     onEditSuccess={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
                     insightLogicProps={insightLogicProps}
-                    defaultToAnomalyDetection={alertId === 'new' && searchParams.alert_type === 'anomaly'}
-                    insightName={insight.name || insight.derived_name}
                 />
             )}
         </>
