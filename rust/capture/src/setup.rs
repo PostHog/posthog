@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use axum::Router;
+use common_ingestion_warnings::{KafkaWarningEmitter, WarningEmitter, WarningProducerConfig};
 use common_redis::RedisClient;
 use tracing::{info, warn};
 
@@ -33,6 +34,7 @@ pub struct LifecycleHandles {
     pub sink: Option<lifecycle::Handle>,
     pub advisory: Option<lifecycle::Handle>,
     pub event_restrictions: Option<lifecycle::Handle>,
+    pub ingestion_warnings: Option<lifecycle::Handle>,
     pub v1_sinks: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
     pub readiness: lifecycle::ReadinessHandler,
     pub liveness: lifecycle::LivenessHandler,
@@ -79,6 +81,21 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
             None
         };
 
+    // Advisory: the warnings producer is best-effort, so a stalled or dead
+    // producer must never gate pod liveness/readiness or trigger shutdown.
+    let ingestion_warnings = if config.capture_ingestion_warnings_enabled {
+        Some(
+            manager.register(
+                "ingestion-warnings",
+                lifecycle::ComponentOptions::new()
+                    .with_liveness_deadline(Duration::from_secs(30))
+                    .is_advisory(true),
+            ),
+        )
+    } else {
+        None
+    };
+
     let v1_sinks: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle> =
         if !config.capture_v1_sinks.is_empty() {
             crate::v1::sinks::parse_sink_names(&config.capture_v1_sinks)
@@ -108,6 +125,7 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
         sink,
         advisory,
         event_restrictions,
+        ingestion_warnings,
         v1_sinks,
         readiness,
         liveness,
@@ -132,6 +150,7 @@ pub async fn build_components(
         sink: sink_handle,
         advisory: advisory_handle,
         event_restrictions: event_restrictions_handle,
+        ingestion_warnings: ingestion_warnings_handle,
         v1_sinks: v1_sink_handles,
         readiness,
         liveness,
@@ -357,6 +376,9 @@ pub async fn build_components(
         None
     };
 
+    let ingestion_warning_emitter =
+        create_ingestion_warning_emitter(&config, ingestion_warnings_handle);
+
     let app = router::router(
         crate::time::SystemTime {},
         readiness,
@@ -387,6 +409,7 @@ pub async fn build_components(
         v1_sink_router.clone(),
         config.capture_v1_scatter_gather_min_batch,
         config.ai_gateway_signing_secret.clone(),
+        ingestion_warning_emitter,
     );
 
     info!(
@@ -527,6 +550,79 @@ async fn create_sink(
 
         Ok(Box::new(kafka_sink))
     }
+}
+
+/// Build the optional v2 ingestion warnings emitter. Best-effort by contract:
+/// any misconfiguration or producer-creation failure logs and returns `None`
+/// (capture runs without warnings) instead of failing startup. When built, a
+/// background task heartbeats the advisory lifecycle handle, sweeps the
+/// throttle's per-key state, and flushes the producer once at shutdown.
+fn create_ingestion_warning_emitter(
+    config: &Config,
+    handle: Option<lifecycle::Handle>,
+) -> Option<Arc<dyn WarningEmitter>> {
+    if !config.capture_ingestion_warnings_enabled {
+        return None;
+    }
+
+    let Some(hosts) = config
+        .capture_ingestion_warnings_kafka_hosts
+        .clone()
+        .filter(|h| !h.is_empty())
+    else {
+        warn!("ingestion warnings enabled but CAPTURE_INGESTION_WARNINGS_KAFKA_HOSTS not set; emitter disabled");
+        return None;
+    };
+
+    let producer_config = WarningProducerConfig {
+        kafka_hosts: hosts,
+        kafka_topic: config.capture_ingestion_warnings_kafka_topic.clone(),
+        kafka_tls: config.capture_ingestion_warnings_kafka_tls,
+        message_timeout_ms: config.capture_ingestion_warnings_kafka_message_timeout_ms,
+        queue_max_messages: config.capture_ingestion_warnings_kafka_queue_max_messages,
+        acks: config.capture_ingestion_warnings_kafka_acks.clone(),
+        linger_ms: config.capture_ingestion_warnings_kafka_linger_ms,
+    };
+
+    let emitter = match KafkaWarningEmitter::new(&producer_config) {
+        Ok(emitter) => Arc::new(emitter),
+        Err(e) => {
+            tracing::error!(
+                "failed to create ingestion warnings producer, emitter disabled: {e:#}"
+            );
+            return None;
+        }
+    };
+
+    if let Some(handle) = handle {
+        let emitter_bg = emitter.clone();
+        tokio::spawn(async move {
+            let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
+            let mut sweep = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                tokio::select! {
+                    _ = heartbeat.tick() => handle.report_healthy(),
+                    _ = sweep.tick() => emitter_bg.sweep_throttle(),
+                    _ = handle.shutdown_recv() => break,
+                }
+            }
+            // Advisory flush: rdkafka flush blocks, so keep it off the async
+            // workers. Dropping the handle after shutdown signals completion.
+            let flush_result = tokio::task::spawn_blocking(move || {
+                emitter_bg.flush(Duration::from_secs(2));
+            })
+            .await;
+            if let Err(e) = flush_result {
+                warn!("ingestion warnings flush task panicked: {e}");
+            }
+        });
+    }
+
+    info!(
+        topic = config.capture_ingestion_warnings_kafka_topic.as_str(),
+        "ingestion warnings emitter enabled"
+    );
+    Some(emitter)
 }
 
 fn create_event_restriction_service(

@@ -52,8 +52,14 @@ Warnings are rate-limited per `team:type:key`. Set `key` to the entity you want 
 
 ## Rust
 
-No Rust service emits ingestion warnings today — the Rust capture service only routes `$$client_ingestion_warning` events to Kafka; the nodejs pipeline turns them into warnings.
-If a Rust service ever needs to produce to `clickhouse_ingestion_warnings` directly, mirror the nodejs registry in a Rust module (type enum with `category()` / `severity()`), keep the JSON shape identical to `serializeIngestionWarning`, and update this skill to point at it.
+Rust services emit v2 warnings through the `common-ingestion-warnings` crate ([rust/common/ingestion_warnings](../../../rust/common/ingestion_warnings)), which mirrors the nodejs registry and serializer contract:
+
+- **Register the type** in `WarningType` (`src/registry.rs`) — variant, `from_tag` allowlist entry, `as_str`, and `ALL`. `category()` / `severity()` follow the same conventions as `INGESTION_WARNING_TYPES`; `from_tag` is an explicit allowlist, so unregistered tags emit nothing.
+- **Emit it** via `WarningEmitter::emit(token, warning, details, count)` — the serializer injects `token`, `count`, `category`, `severity`, and `pipelineStep` itself. Use the same camelCase details keys as nodejs (`distinctId`, `eventUuid`, ...).
+- **Token, not team**: Rust producers have no database access, so rows carry `team_id: 0` with the API token in `details.token` (materialized into the v2 `token` column); the read side matches them to a team by token.
+- Emission is best-effort and fire-and-forget: throttled per `(token, type)` per pod, never awaited, never fails the caller. Capture wires it behind `CAPTURE_INGESTION_WARNINGS_*` env vars (see `rust/capture/src/config.rs`), default-disabled.
+
+The registry duplication between nodejs and Rust is intentional (no shared artifact yet); when adding a type both sides emit, keep the `type` strings and details keys identical.
 
 ## Downstream checklist
 

@@ -253,6 +253,14 @@ mod tests {
             capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
             capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
             capture_v1_scatter_gather_min_batch: 8,
+            capture_ingestion_warnings_enabled: false,
+            capture_ingestion_warnings_kafka_hosts: None,
+            capture_ingestion_warnings_kafka_topic: "clickhouse_ingestion_warnings".to_string(),
+            capture_ingestion_warnings_kafka_tls: false,
+            capture_ingestion_warnings_kafka_message_timeout_ms: 5000,
+            capture_ingestion_warnings_kafka_queue_max_messages: 10_000,
+            capture_ingestion_warnings_kafka_acks: "1".to_string(),
+            capture_ingestion_warnings_kafka_linger_ms: 100,
         }
     }
 
