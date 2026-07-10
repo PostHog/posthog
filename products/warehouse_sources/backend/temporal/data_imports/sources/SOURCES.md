@@ -576,6 +576,7 @@ doesn't conflict with concurrent PRs.
 - helpscout
 - heroku
 - hetzner
+- hex
 - heygen
 - hibob
 - high_level

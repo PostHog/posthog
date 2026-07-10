@@ -1802,6 +1802,7 @@ export interface CredentialApi {
  * * `Vultr` - Vultr
  * * `Windmill` - Windmill
  * * `Zep` - Zep
+ * * `Hex` - Hex
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2560,6 +2561,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Vultr: 'Vultr',
     Windmill: 'Windmill',
     Zep: 'Zep',
+    Hex: 'Hex',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

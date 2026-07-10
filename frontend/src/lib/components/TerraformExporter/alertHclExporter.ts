@@ -1,7 +1,8 @@
 import { formatHclValue, sanitizeResourceName } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
 
-import { AlertType, isTrendsAlertConfig } from '~/lib/components/Alerts/types'
 import { HogFunctionType } from '~/types'
+
+import { AlertType, isTrendsAlertConfig } from 'products/alerts/frontend/types'
 
 import { FieldMapping, HclExportOptions, HclExportResult, ResourceExporter, generateHCL } from './hclExporter'
 import { generateHogFunctionHCL } from './hogFunctionHclExporter'
