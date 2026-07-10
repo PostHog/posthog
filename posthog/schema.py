@@ -5273,8 +5273,8 @@ class MCPToolFailureItem(BaseModel):
     message: str = Field(
         ...,
         description=(
-            'Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. "api_5xx (HTTP '
-            '500)").'
+            "Failure label composed from $mcp_error_type and, when present,"
+            ' $mcp_error_status (e.g. "api_5xx (HTTP 500)").'
         ),
     )
     occurrences: int
@@ -24185,7 +24185,7 @@ class MCPToolFailuresQuery(BaseModel):
     tags: QueryLogTags | None = None
     toolName: str = Field(
         ...,
-        description="The effective tool name to scope to (matched against the single-exec-resolved tool name).",
+        description=("The effective tool name to scope to (matched against the single-exec-resolved tool name)."),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
