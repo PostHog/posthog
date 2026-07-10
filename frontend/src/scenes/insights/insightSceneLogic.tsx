@@ -354,19 +354,27 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.insight],
             (insight): SidePanelSceneContext | null => {
-                return insight?.id
-                    ? {
-                          activity_scope: ActivityScope.INSIGHT,
-                          activity_item_id: `${insight.id}`,
-                          // when e.g. constructing URLs for an insight we don't use the id,
-                          // so we also store the short id
-                          activity_item_context: {
-                              short_id: `${insight.short_id}`,
-                          },
-                          access_control_resource: 'insight',
-                          access_control_resource_id: `${insight.id}`,
-                      }
-                    : null
+                if (!insight?.id) {
+                    // An unsaved insight has no numeric id yet. Still declare the Insight scope so
+                    // sidePanelContextLogic does not fall back to the URL-based guesser (which would
+                    // drop the missing item_id and list every Insight-scoped comment in the team),
+                    // but mark discussions disabled until the insight is saved.
+                    return {
+                        activity_scope: ActivityScope.INSIGHT,
+                        discussions_disabled: true,
+                    }
+                }
+                return {
+                    activity_scope: ActivityScope.INSIGHT,
+                    activity_item_id: `${insight.id}`,
+                    // when e.g. constructing URLs for an insight we don't use the id,
+                    // so we also store the short id
+                    activity_item_context: {
+                        short_id: `${insight.short_id}`,
+                    },
+                    access_control_resource: 'insight',
+                    access_control_resource_id: `${insight.id}`,
+                }
             },
         ],
         maxContext: [

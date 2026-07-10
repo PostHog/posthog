@@ -13,7 +13,7 @@ import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { InsightShortId, InsightType, ItemMode } from '~/types'
+import { ActivityScope, InsightShortId, InsightType, ItemMode } from '~/types'
 
 const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
@@ -51,6 +51,34 @@ describe('insightSceneLogic', () => {
             .toMatchValues({
                 location: partial({ pathname: addProjectIdIfMissing(urls.insightNew(), MOCK_TEAM_ID) }),
             })
+    })
+
+    it('disables discussions for an unsaved insight so comments do not leak across the team', async () => {
+        // A new insight has no numeric id yet. The side panel context must still declare the Insight
+        // scope (so sidePanelContextLogic does not fall back to the URL guesser and drop item_id, which
+        // would list every Insight-scoped comment in the team) but mark discussions disabled.
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.insight?.id).toBeUndefined()
+        expect(logic.values.sidePanelContext).toEqual({
+            activity_scope: ActivityScope.INSIGHT,
+            discussions_disabled: true,
+        })
+
+        // Once saved, the context carries the concrete item_id and discussions become enabled.
+        logic.values.insightLogicRef?.logic.actions.setInsight(
+            { id: 42, short_id: Insight42, result: ['some result'] },
+            { fromPersistentApi: true, overrideQuery: true }
+        )
+
+        expect(logic.values.sidePanelContext).toMatchObject({
+            activity_scope: ActivityScope.INSIGHT,
+            activity_item_id: '42',
+        })
+        expect(logic.values.sidePanelContext?.discussions_disabled).toBeUndefined()
     })
 
     it('redirects maintaining url params when opening /insight/new with insight type in theurl', async () => {
