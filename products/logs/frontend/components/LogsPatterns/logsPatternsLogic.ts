@@ -137,14 +137,22 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
     })),
 
     // A failed mine (e.g. the sampling query exceeding its execution budget) must surface as
-    // an error, not render as "no patterns found" — that would misrepresent the data.
+    // an error, not render as "no patterns found" — that would misrepresent the data. The two
+    // modes track their own error: the loaders run independently (toggling compare off fires a
+    // plain mine without cancelling an in-flight diff), so a shared error would let a stale diff
+    // failure clobber a successful plain-mine table's empty state.
     reducers({
-        patternsError: [
+        mineError: [
             null as string | null,
             {
                 loadPatterns: () => null,
                 loadPatternsSuccess: () => null,
                 loadPatternsFailure: (_, { error }) => error ?? 'Pattern analysis failed',
+            },
+        ],
+        diffError: [
+            null as string | null,
+            {
                 loadDiff: () => null,
                 loadDiffSuccess: () => null,
                 loadDiffFailure: (_, { error }) => error ?? 'Pattern comparison failed',
@@ -153,6 +161,14 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
     }),
 
     selectors({
+        // Surface only the active mode's error. The loaders run independently, so a stale diff
+        // failure landing after the user toggled compare off must not overwrite the successful
+        // plain-mine table's empty state (and vice versa).
+        patternsError: [
+            (s) => [s.compareEnabled, s.mineError, s.diffError],
+            (compareEnabled: boolean, mineError: string | null, diffError: string | null): string | null =>
+                compareEnabled ? diffError : mineError,
+        ],
         // The shared query body for both the mine and the diff — the diff must scope its two
         // windows with exactly the filters a plain mine would use, or compare mode would
         // silently answer a different question than the table next to it.

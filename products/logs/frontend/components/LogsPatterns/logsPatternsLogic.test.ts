@@ -265,6 +265,24 @@ describe('logsPatternsLogic', () => {
         expect(logic.values.patternsError).toBeNull()
     })
 
+    it('a diff failure does not surface as an error once compare is toggled off', async () => {
+        silenceKeaLoadersErrors()
+        // The two loaders run independently: toggling compare off fires a plain mine without
+        // cancelling an in-flight diff. If that stale diff fails afterwards, its error must not
+        // clobber the successful plain-mine table's "no patterns" empty state.
+        mockDiffCreate.mockRejectedValueOnce(new Error('estimated query execution time is too long'))
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+
+        logic.actions.setCompareEnabled(true)
+        await expectLogic(logic).toDispatchActions(['loadDiff', 'loadDiffFailure'])
+        expect(logic.values.patternsError).toBeTruthy()
+
+        logic.actions.setCompareEnabled(false)
+        await expectLogic(logic).toDispatchActions(['loadPatterns', 'loadPatternsSuccess'])
+        expect(logic.values.patternsError).toBeNull()
+    })
+
     it('reloads when a shared filter changes', async () => {
         // Mining only re-runs while Patterns is the active view (the logic is mounted only then).
         const configLogic = logsViewerConfigLogic({ id: ID })
