@@ -513,9 +513,11 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return redirect(_change_url(schema_id))
 
-        try:
-            schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id)
-        except ExternalDataSchema.DoesNotExist:
+        # Resolve through the admin's scoped object path (get_queryset) rather than a bare
+        # manager .get(), so any queryset scoping applies to this action exactly as it does
+        # to the change form.
+        schema = self.get_object(request, str(schema_id))
+        if schema is None:
             messages.error(request, f"Schema {schema_id} not found.")
             return redirect(reverse("admin:warehouse_sources_externaldataschema_changelist"))
 
