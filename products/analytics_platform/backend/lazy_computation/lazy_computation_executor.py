@@ -70,13 +70,28 @@ DEFAULT_STALE_PENDING_THRESHOLD_SECONDS = 60  # 1 minute
 # Grace period before declaring a job "not started" as stale. Covers executor boot time.
 DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
 
-# Quorum for INSERT queries. "auto" = majority of replicas must acknowledge writes before
-# the INSERT returns. This ensures data is replicated before the subsequent SELECT reads it,
-# preventing stale reads from hitting a replica that hasn't received the data yet.
+# Quorum for INSERT queries: both aux replicas must acknowledge writes before the INSERT
+# returns. This ensures data is replicated before the subsequent SELECT reads it,
+# preventing stale reads from hitting a replica that hasn't received the data yet
+# (Approach E in CONSISTENCY.md, paired with in_order load balancing on reads).
+# An explicit 2 rather than "auto": auto means majority of *registered* replicas, which
+# counts dead ZooKeeper registrations — during a node replacement that left the old
+# replicas registered (2 live of 4 registered), auto demanded an unreachable 3 acks and
+# every insert hung for the full quorum timeout. 2 equals the majority whenever
+# registrations are correct (aux runs 2 replicas; it stays a majority at 3) and is
+# immune to ghost registrations inflating the denominator.
 # Disabled in tests AND local dev (DEBUG) — both run against a single-node ClickHouse
-# where `insert_quorum=auto` waits 600s for an acknowledgement that never comes (the local
+# where a quorum insert waits for an acknowledgement that never comes (the local
 # replica writes immediately but ClickHouse still blocks on the quorum protocol).
-PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else "auto"
+PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else 2
+
+# How long a quorum INSERT waits for replica acknowledgements before failing.
+# ClickHouse's default is 600s, which turns any quorum breakage (dead replica,
+# stale registration, ZK trouble) into ten-minute request hangs; the executor is
+# built to treat failed inserts as retryable and callers fall back to the live
+# query, so failing fast is strictly better. Replication between two healthy
+# replicas takes seconds; 60s is generous headroom.
+PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS = 60 * 1000
 
 
 # Mirrors the `lazy_computation.executed` structured log so the same outcomes
@@ -148,6 +163,7 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
         {
             "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
             "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
+            "insert_quorum_timeout": PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
             # The executor marks a job READY as soon as the INSERT returns, so rows must be on the
             # shards by then — not sitting in the initiator's async distribution queue, where they
             # become visible to readers only minutes later. We set this per-insert rather than
