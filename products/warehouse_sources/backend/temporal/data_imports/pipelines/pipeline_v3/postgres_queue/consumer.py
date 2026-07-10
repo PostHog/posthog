@@ -8,7 +8,8 @@ polling, retry, and recovery mechanics to the v3 batch consumer engine.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
+from datetime import datetime
 from typing import Any
 
 from django.db import close_old_connections
@@ -30,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     RETRY_BACKOFF_BASE_SECONDS,
     BatchConsumer as SharedBatchConsumer,
     BatchConsumerConfig,
+    OwnershipLostError,
     ProcessBatchFn,
     _group_by_key,
 )
@@ -50,6 +52,11 @@ from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 logger = structlog.get_logger(__name__)
 
 ConsumerConfig = BatchConsumerConfig
+
+# Raises OwnershipLostError when this consumer no longer holds the group lease.
+VerifyOwnership = Callable[[], None]
+# Unlike the engine's ProcessBatchFn, the Delta sink also receives the per-batch ownership check.
+DeltaProcessBatchFn = Callable[[PendingBatch, VerifyOwnership | None], Coroutine[Any, Any, None]]
 
 # Ceiling for the queue-freshness probe, deliberately far below the sweep
 # timeout so a degraded probe can't starve the reconcile sweep it rides on.
@@ -114,22 +121,15 @@ class DeltaBatchConsumerAdapter:
         job_state: str,
         attempt: int,
         error_response: dict[str, Any] | None = None,
+        batch_created_at: datetime | None = None,
     ) -> None:
-        if error_response is None:
-            await BatchQueue.update_status(
-                conn,
-                batch_id=batch_id,
-                job_state=job_state,
-                attempt=attempt,
-            )
-            return
-
         await BatchQueue.update_status(
             conn,
             batch_id=batch_id,
             job_state=job_state,
             attempt=attempt,
             error_response=error_response,
+            batch_created_at=batch_created_at,
         )
 
     async def fail_run(
@@ -329,15 +329,40 @@ class BatchConsumer(SharedBatchConsumer):
     def __init__(
         self,
         config: ConsumerConfig,
-        process_batch: ProcessBatchFn,
+        process_batch: DeltaProcessBatchFn,
         health_reporter: Callable[[], None] | None = None,
     ) -> None:
+        async def process_with_ownership_check(batch: PendingBatch) -> None:
+            await process_batch(batch, self._make_verify_ownership(batch))
+
         super().__init__(
             config=config,
-            process_batch=process_batch,
+            process_batch=process_with_ownership_check,
             adapter=DeltaBatchConsumerAdapter(),
             health_reporter=health_reporter,
         )
+
+    def _make_verify_ownership(self, batch: PendingBatch) -> Callable[[], None]:
+        """Sync ownership check for the worker thread: the engine's lease checks bracket
+        the batch but can't see a loss mid-write. Fails closed — an unverified lease is lost."""
+        database_url = self._config.database_url
+        connect_timeout = self._config.connect_timeout_seconds
+
+        def verify_ownership() -> None:
+            try:
+                owns = BatchQueue.verify_group_lease_sync(
+                    database_url,
+                    team_id=batch.team_id,
+                    schema_id=batch.schema_id,
+                    owner_token=self._owner_token,
+                    connect_timeout_seconds=connect_timeout,
+                )
+            except Exception as e:
+                raise OwnershipLostError("pre-commit lease verification query failed") from e
+            if not owns:
+                raise OwnershipLostError(f"group lease lost before commit for ({batch.team_id}, {batch.schema_id})")
+
+        return verify_ownership
 
 
 def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> None:

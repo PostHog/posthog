@@ -7,6 +7,8 @@ from typing import Any, cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
@@ -132,6 +134,36 @@ _COMMIT_LAYOUT_CASES: list[tuple[str, list[dict], dict, bool]] = [
 ]
 
 
+class TestStorageOptionsCommitSafety:
+    # Re-adding AWS_S3_ALLOW_UNSAFE_RENAME unconditionally would silently restore
+    # the legacy rename backend, which has no commit-conflict detection.
+    @parameterized.expand(
+        [
+            ("production_default_safe", False, False),
+            ("production_rollback_escape_hatch", False, True),
+            ("local_default_safe", True, False),
+        ]
+    )
+    def test_conditional_put_on_unsafe_rename_gated(
+        self, _case: str, use_local_setup: bool, allow_unsafe: bool
+    ) -> None:
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+
+        with (
+            override_settings(
+                USE_LOCAL_SETUP=use_local_setup,
+                DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME=allow_unsafe,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper.ensure_bucket_exists"
+            ),
+        ):
+            options = helper.get_storage_options()
+
+        assert options["conditional_put"] == "etag"
+        assert ("AWS_S3_ALLOW_UNSAFE_RENAME" in options) is allow_unsafe
+
+
 class TestHasCommitWithMetadata:
     @pytest.mark.asyncio
     async def test_returns_false_when_no_delta_table(self, helper: DeltaTableHelper):
@@ -236,6 +268,52 @@ class TestCompactIfFragmented:
             mock_compact.assert_called_once()
         else:
             mock_compact.assert_not_called()
+
+
+class TestGetDeltaTableUnrecoverableErrors:
+    # (case_name, error_message, expect_heal) — heal = wipe the table and fall back to first-sync mode
+    _ERROR_CASES: list[tuple[str, str, bool]] = [
+        (
+            "orphaned_delta_log",
+            "Kernel error: No table metadata or protocol found in delta log.",
+            True,
+        ),
+        ("bugged_decimal_data", "parse decimal overflow at column x", True),
+        ("other_errors_reraise", "Generic DeltaTable error: something else went wrong", False),
+    ]
+
+    @parameterized.expand(_ERROR_CASES)
+    @pytest.mark.asyncio
+    async def test_open_failure_handling(self, _name: str, error_message: str, expect_heal: bool):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        s3 = MagicMock()
+        s3._rm = AsyncMock()
+        s3_cm = MagicMock()
+        s3_cm.__aenter__ = AsyncMock(return_value=s3)
+        s3_cm.__aexit__ = AsyncMock(return_value=False)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+        with (
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.aget_s3_client", MagicMock(return_value=s3_cm)),
+            patch(f"{module}.capture_exception"),
+        ):
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = Exception(error_message)
+
+            if expect_heal:
+                result = await helper.get_delta_table()
+                assert result is None
+                assert helper.is_first_sync is True
+                s3._rm.assert_awaited_once_with(delta_uri, recursive=True)
+            else:
+                with pytest.raises(Exception, match="something else went wrong"):
+                    await helper.get_delta_table()
+                s3._rm.assert_not_awaited()
+                assert helper.is_first_sync is False
 
 
 class TestWriteToDeltalakeCommitMetadataPassThrough:
@@ -706,3 +784,112 @@ class TestWriteMisalignedDecimalEndToEnd:
         assert set(final.column("amount").to_pylist()) == {5, 7}
         closed = final.filter(pc.equal(final.column("amount"), Decimal("5.00")))
         assert closed.column("valid_to").to_pylist() == [ts2]
+
+
+class TestVacuumIfStale:
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper("t", MagicMock(), MagicMock(adebug=AsyncMock(), ainfo=AsyncMock()), False)
+
+    @parameterized.expand(
+        [
+            # (last_vacuum_version, expect_vacuum, expected_return) — current version=150, threshold=100.
+            # First encounter must seed the watermark WITHOUT vacuuming (else every existing table vacuums
+            # at once on deploy); below threshold must skip (else vacuum runs every sync); at/above threshold
+            # must vacuum (else tombstones accumulate forever on tables that never reach post-load compaction).
+            ("first_encounter_seeds_no_vacuum", None, False, 150),
+            ("below_threshold_skips", 100, False, None),
+            ("at_threshold_vacuums", 50, True, 150),
+            ("above_threshold_vacuums", 40, True, 150),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_vacuum_cadence(
+        self, _name: str, last_version: int | None, expect_vacuum: bool, expected_return: int | None
+    ):
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+        helper = self._helper()
+        table = MagicMock()
+        table.version = MagicMock(return_value=150)
+        with (
+            patch.object(helper, "get_delta_table", new=AsyncMock(return_value=table)),
+            patch.object(helper, "vacuum_table", new=AsyncMock()) as vacuum,
+            patch(f"{module}.posthoganalytics") as ph,
+        ):
+            result = await helper.vacuum_if_stale(last_version, 100)
+
+        assert result == expected_return
+        assert vacuum.await_count == (1 if expect_vacuum else 0)
+        # The observability event fires exactly when a vacuum runs — not on seed/skip — so the cadence is measurable.
+        assert ph.capture.call_count == (1 if expect_vacuum else 0)
+        if expect_vacuum:
+            assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_vacuumed"
+
+
+class TestRunMaintenance:
+    """run_maintenance is the single pre-write entry point: compaction supersedes the cadence vacuum."""
+
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper("t", MagicMock(), MagicMock(adebug=AsyncMock(), ainfo=AsyncMock()), False)
+
+    @pytest.mark.asyncio
+    async def test_compaction_supersedes_vacuum_and_advances_watermark(self):
+        # Fragmented table: compact runs (and vacuums as part of it), so the cadence vacuum is skipped —
+        # no double vacuum in one run — and the watermark advances to the post-compaction version.
+        helper = self._helper()
+        table = MagicMock(version=MagicMock(return_value=200))
+        with (
+            patch.object(helper, "compact_if_fragmented", new=AsyncMock(return_value=True)),
+            patch.object(helper, "get_delta_table", new=AsyncMock(return_value=table)),
+            patch.object(helper, "vacuum_if_stale", new=AsyncMock()) as vacuum_if_stale,
+        ):
+            result = await helper.run_maintenance(partition_count=10, last_vacuum_version=50, commit_threshold=100)
+
+        assert result == 200
+        vacuum_if_stale.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_falls_through_to_vacuum_when_not_fragmented(self):
+        # Not fragmented → no compaction; fall through to the commit-cadence vacuum and return its watermark.
+        helper = self._helper()
+        with (
+            patch.object(helper, "compact_if_fragmented", new=AsyncMock(return_value=False)),
+            patch.object(helper, "vacuum_if_stale", new=AsyncMock(return_value=150)) as vacuum_if_stale,
+        ):
+            result = await helper.run_maintenance(partition_count=10, last_vacuum_version=40, commit_threshold=100)
+
+        assert result == 150
+        vacuum_if_stale.assert_awaited_once_with(40, 100)
+
+
+class TestIsTableCorrupted:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper("t", MagicMock(), MagicMock(adebug=AsyncMock()), False)
+
+    @parameterized.expand(
+        [
+            # (is_deltatable, open_exception, expected_corrupt) — only DeltaError/FileNotFoundError on a
+            # table whose _delta_log exists count as corrupt; a missing table or an unknown error must NOT,
+            # so we never trigger a destructive revive on a non-existent table or a transient failure.
+            ("not_a_delta_table", False, None, False),
+            ("opens_fine", True, None, False),
+            ("delta_error_is_corrupt", True, deltalake.exceptions.DeltaError("no protocol"), True),
+            ("file_not_found_is_corrupt", True, FileNotFoundError("missing data file"), True),
+            ("unknown_error_not_corrupt", True, ValueError("transient"), False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_is_table_corrupted(self, _name: str, is_delta: bool, open_exc: Exception | None, expected: bool):
+        helper = self._helper()
+        with (
+            patch.object(helper, "_get_delta_table_uri", new=AsyncMock(return_value="s3://b/t")),
+            patch.object(helper, "_get_credentials", return_value={}),
+            patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_dt,
+        ):
+            mock_dt.is_deltatable = MagicMock(return_value=is_delta)
+            if open_exc is not None:
+                mock_dt.side_effect = open_exc
+            result = await helper.is_table_corrupted()
+
+        assert result is expected

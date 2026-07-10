@@ -3,6 +3,7 @@ import {
     convertPropertiesToPropertyGroup,
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
+    isAnyPropertyfilter,
     isGroupCardFilterKey,
     isValidPropertyFilter,
     normalizePropertyFilterValue,
@@ -262,6 +263,20 @@ describe('normalizePropertyFilterValue()', () => {
         expect(normalizePropertyFilterValue('test', null)).toEqual('test')
         expect(normalizePropertyFilterValue('test', undefined)).toEqual('test')
     })
+})
+
+describe('isAnyPropertyfilter()', () => {
+    // A taxonomic-backed attribute filter that isn't recognized here resolves to no
+    // activeTaxonomicGroup, so its value picker loses `valuesEndpoint` and falls back to a
+    // bogus `api/<type>/values` URL that returns nothing. Guards that regression for each
+    // attribute family (metric_attribute broke exactly this way).
+    it.each([PropertyFilterType.MetricAttribute, PropertyFilterType.LogAttribute, PropertyFilterType.SpanAttribute])(
+        'recognizes %s as a property filter',
+        (type) => {
+            const filter = { type, key: 'env', operator: PropertyOperator.Exact, value: ['prod'] } as AnyPropertyFilter
+            expect(isAnyPropertyfilter(filter)).toBe(true)
+        }
+    )
 })
 
 describe('type mapping round-trip', () => {

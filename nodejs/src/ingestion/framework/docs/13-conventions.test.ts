@@ -453,7 +453,7 @@ describe('Pipeline Phases', () => {
 
         // Compose subpipelines like joined-ingestion-pipeline:
         // messageAware → concurrently(preTeam) → filterMap(addTeam,
-        //     teamAware(concurrently(postTeam) → groupBy → concurrently(sequentially(processing)))
+        //     teamAware(concurrently(postTeam) → concurrentlyPerGroup(processing))
         //     → handleIngestionWarnings)
         // → handleResults → handleSideEffects
         function createPipeline() {
@@ -474,10 +474,11 @@ describe('Pipeline Phases', () => {
                                         b
                                             // Post-team preprocessing: validate (concurrent)
                                             .concurrently((b) => createPostTeamPreprocessingSubpipeline(b))
-                                            // Processing: group by team and process sequentially within each group
-                                            .groupBy((item) => item.teamId)
-                                            .concurrently((group) =>
-                                                group.sequentially((b) => createProcessingSubpipeline(b))
+                                            // Processing: group by team; groups run concurrently while the
+                                            // explicit `sequentially` step processes items within a group in order
+                                            .concurrentlyPerGroup(
+                                                (item) => item.teamId,
+                                                (group) => group.sequentially((b) => createProcessingSubpipeline(b))
                                             )
                                     )
                                     .handleIngestionWarnings(createMockIngestionOutputs<IngestionWarningsOutput>())

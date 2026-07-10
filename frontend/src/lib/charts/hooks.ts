@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
-import { type DependencyList, useMemo } from 'react'
+import { type DependencyList, useCallback, useMemo } from 'react'
 
-import type { ChartTheme } from '@posthog/quill-charts'
+import type { ChartTheme, DateRangeZoomData } from '@posthog/quill-charts'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -46,6 +46,41 @@ export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
         () => buildTheme({ ...(refreshEnabled ? refreshedThemeOverrides(isDarkModeOn) : {}), ...overrides }),
         [isDarkModeOn, refreshEnabled, overrides]
     )
+}
+
+/** The single rollout gate for chart drag-to-zoom, applied inside `useDateRangeZoom` so every
+ *  surface is enabled (and testable) through one check rather than per-host flag reads. */
+export function useDragToZoomEnabled(): boolean {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return !!featureFlags[FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]
+}
+
+/** Adapts a quill chart's drag-to-zoom callback to the host's `onZoom(dateFrom, dateTo)` by mapping
+ *  the dragged label indices into `dates` — the date value for each x position (trends result days,
+ *  a SQL date column's values). Both emitted dates are bucket *starts*; widening the end to the
+ *  last bucket's end is the host's job (insights do it in `zoomDateRange`, which knows the query's
+ *  interval). Returns undefined when zooming is unavailable — drag-to-zoom is opt-in: it only
+ *  surfaces behind the rollout flag, where the host passes a handler, and when the x positions map
+ *  to dates. */
+export function useDateRangeZoom(
+    dates: string[] | undefined,
+    onZoom: ((dateFrom: string, dateTo: string) => void) | undefined
+): ((data: DateRangeZoomData) => void) | undefined {
+    const enabled = useDragToZoomEnabled()
+    const handler = useCallback(
+        ({ startIndex, endIndex }: DateRangeZoomData) => {
+            const start = dates?.[startIndex]
+            const end = dates?.[endIndex]
+            if (!start || !end) {
+                return
+            }
+            // Screen order isn't guaranteed chronological (e.g. unsorted SQL results).
+            const [dateFrom, dateTo] = start <= end ? [start, end] : [end, start]
+            onZoom?.(dateFrom, dateTo)
+        },
+        [dates, onZoom]
+    )
+    return enabled && dates?.length && onZoom ? handler : undefined
 }
 
 /** Drop-in replacement for the `useMemo` that builds a chart's config object. On top of memoizing,

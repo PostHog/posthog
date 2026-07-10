@@ -100,7 +100,7 @@ class QueryDateRange:
                 team_week_start_day=self._team.week_start_day,
             )
         elif self._exact_timerange:
-            return date_to
+            return self._clip_incomplete_period(date_to)
 
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
@@ -113,7 +113,30 @@ class QueryDateRange:
                     date_to = date_to.replace(second=59, microsecond=999999)
                 elif self.interval_type == IntervalType.SECOND:
                     date_to = (date_to - timedelta(seconds=1)).replace(microsecond=999999)
-        return date_to
+
+        return self._clip_incomplete_period(date_to)
+
+    def _clip_incomplete_period(self, date_to: datetime) -> datetime:
+        """Clip date_to to the end of the last complete interval when the range reaches into the
+        current, still-collecting one (DateRange.excludeIncompletePeriods)."""
+        if not (self._date_range and self._date_range.excludeIncompletePeriods):
+            return date_to
+        if self._interval_count != 1:
+            # Multi-unit buckets don't sit on single-interval boundaries, so a clip here would
+            # truncate the trailing bucket mid-bucket instead of excluding it.
+            return date_to
+        current_interval_start = self.align_with_interval(self.now_with_timezone)
+        if date_to < current_interval_start:
+            return date_to
+        clipped = current_interval_start - timedelta(microseconds=1)
+        # The base implementation is called explicitly: subclasses redefine date_from() in terms of
+        # date_to() (e.g. the previous-period range), which would recurse, and the clip must be
+        # evaluated against the current range's own start regardless.
+        if clipped < QueryDateRange.date_from(self):
+            # No complete interval in range: keep the partial current one rather than inverting the
+            # range (mirrors alerts never dropping the only data point).
+            return date_to
+        return clipped
 
     def get_earliest_timestamp(self) -> datetime:
         if self._earliest_timestamp_fallback:
@@ -200,7 +223,7 @@ class QueryDateRange:
 
     def interval_relativedelta(self) -> relativedelta:
         spec = interval_spec(self.interval_name)
-        return relativedelta(**{spec.relativedelta_kwarg: self.interval_count})  # type: ignore[arg-type]
+        return relativedelta(**{spec.relativedelta_kwarg: self.interval_count * spec.relativedelta_multiplier})  # type: ignore[arg-type]
 
     def all_values(self, *, interval_name: Optional[IntervalLiteral] = None) -> list[datetime]:
         start = self.align_with_interval(self.date_from(), interval_name=interval_name)
@@ -212,6 +235,34 @@ class QueryDateRange:
             values.append(start)
             start += delta
         return values
+
+    def days_of_week(self) -> Optional[list[int]]:
+        # Returns None for unset, empty input, or all seven days; all three mean "no restriction".
+        # The schema constrains values to 1..7, so no range validation is needed here.
+        days = self._date_range.daysOfWeek if self._date_range else None
+        if not days:
+            return None
+        valid_days = sorted({int(day) for day in days})
+        if len(valid_days) == 7:
+            return None
+        return valid_days
+
+    def day_of_week_filter_expr(self, timestamp_field: ast.Expr) -> Optional[ast.Expr]:
+        """`toDayOfWeek(ts, 0) IN (...)`, where mode 0 is ISO (1=Mon...7=Sun).
+
+        No explicit timezone argument: the HogQL property-type transform wraps DateTime fields
+        in `toTimeZone(..., <project tz>)`, so the day boundary follows the project timezone and
+        stays consistent with interval bucketing, including when the convertToProjectTimezone
+        modifier switches everything to UTC.
+        """
+        days = self.days_of_week()
+        if days is None:
+            return None
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Call(name="toDayOfWeek", args=[timestamp_field, ast.Constant(value=0)]),
+            right=ast.Tuple(exprs=[ast.Constant(value=day) for day in days]),
+        )
 
     def date_to_as_hogql(self) -> ast.Expr:
         return ast.Call(

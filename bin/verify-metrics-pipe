@@ -59,7 +59,7 @@ Check, in order:
          curl -s localhost:6743/_metrics | head   # logs-ingestion
          curl -s localhost:6744/_metrics | head   # metrics-ingestion
   4. Is capture-logs receiving?                    docker logs capture-logs | tail
-  5. Were the CH tables initialised?               bin/clickhouse-metrics-init
+  5. Were the CH tables initialized?               bin/clickhouse-metrics-init
   6. Give it ~30s after start (15s scrape + ingest lag), then re-run.
 MSG
     exit 1

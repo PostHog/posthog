@@ -30,6 +30,7 @@
  * * `log` - log
  * * `log_attribute` - log_attribute
  * * `log_resource_attribute` - log_resource_attribute
+ * * `metric_attribute` - metric_attribute
  * * `span` - span
  * * `span_attribute` - span_attribute
  * * `span_resource_attribute` - span_resource_attribute
@@ -62,6 +63,7 @@ export const PropertyFilterTypeEnumApi = {
     Log: 'log',
     LogAttribute: 'log_attribute',
     LogResourceAttribute: 'log_resource_attribute',
+    MetricAttribute: 'metric_attribute',
     Span: 'span',
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
@@ -119,6 +121,7 @@ export interface StringPropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
@@ -189,6 +192,7 @@ export interface NumericPropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
@@ -255,6 +259,7 @@ export interface ArrayPropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
@@ -316,6 +321,7 @@ export interface DatePropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
@@ -374,6 +380,7 @@ export interface ExistencePropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute

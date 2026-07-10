@@ -9,12 +9,14 @@ import numpy as np
 import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
+import posthoganalytics
 import deltalake.exceptions
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
+from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -176,19 +178,23 @@ class DeltaTableHelper:
                 settings.OBJECT_STORAGE_ENDPOINT,
             )
 
-            return {
+            options = {
                 "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
                 "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
                 "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
                 "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
                 "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
                 "AWS_ALLOW_HTTP": "true",
-                "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
             }
+        else:
+            options = {}
 
-        return {
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
+        # Conditional puts make a clashing concurrent commit fail loudly instead of
+        # clobbering _delta_log; set explicitly so a library default change can't undo it.
+        options["conditional_put"] = "etag"
+        if settings.DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME:
+            options["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"
+        return options
 
     async def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention.normalize_identifier(self._resource_name)
@@ -234,9 +240,14 @@ class DeltaTableHelper:
                     deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options
                 )
             except Exception as e:
-                # Temp fix for bugged tables
                 capture_exception(e)
-                if "parse decimal overflow" in "".join(e.args):
+                error_text = "".join(str(arg) for arg in e.args)
+                # Unrecoverable tables (bugged decimals, or an orphaned _delta_log missing its
+                # metadata action — impossible on a healthy table): wipe so the sync starts fresh.
+                if "parse decimal overflow" in error_text or "No table metadata or protocol found" in error_text:
+                    await self._logger.aerror(
+                        f"get_delta_table: deleting unrecoverable delta table for a fresh sync: {error_text}"
+                    )
                     async with aget_s3_client() as s3:
                         await s3._rm(delta_uri, recursive=True)
                 else:
@@ -245,6 +256,32 @@ class DeltaTableHelper:
         self._is_first_sync = True
 
         return None
+
+    async def is_table_corrupted(self) -> bool:
+        """True when the Delta log exists but the table can't be opened (DeltaError / FileNotFoundError).
+
+        The signature of a `_delta_log` left inconsistent by an interrupted repartition swap or an
+        OOM-crashed merge — after which every sync fails to open the table and loops. Non-destructive:
+        only attempts an open (bypassing the get_delta_table cache). A table that simply doesn't exist is
+        not corrupt; an unknown open error is not classified as corrupt, so a transient failure never
+        triggers a destructive revive.
+        """
+        delta_uri = await self._get_delta_table_uri()
+        storage_options = self._get_credentials()
+
+        is_delta = await asyncio.to_thread(
+            deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
+        )
+        if not is_delta:
+            return False
+
+        try:
+            await asyncio.to_thread(deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options)
+            return False
+        except (deltalake.exceptions.DeltaError, FileNotFoundError):
+            return True
+        except Exception:
+            return False
 
     async def reset_table(self):
         delta_uri = await self._get_delta_table_uri()
@@ -650,6 +687,17 @@ class DeltaTableHelper:
         """
         return await self.has_commit_with_metadata({"run_uuid": run_uuid, "batch_index": str(batch_index)})
 
+    async def vacuum_table(self) -> None:
+        table = await self.get_delta_table()
+        if table is None:
+            raise Exception("Deltatable not found")
+
+        await self._logger.adebug("Vacuuming table...")
+        vacuum_stats = await asyncio.to_thread(
+            table.vacuum, retention_hours=24, enforce_retention_duration=False, dry_run=False
+        )
+        await self._logger.adebug(json.dumps(vacuum_stats))
+
     async def compact_table(self) -> None:
         table = await self.get_delta_table()
         if table is None:
@@ -659,13 +707,61 @@ class DeltaTableHelper:
         compact_stats = await asyncio.to_thread(table.optimize.compact)
         await self._logger.adebug(json.dumps(compact_stats))
 
-        await self._logger.adebug("Vacuuming table...")
-        vacuum_stats = await asyncio.to_thread(
-            table.vacuum, retention_hours=24, enforce_retention_duration=False, dry_run=False
-        )
-        await self._logger.adebug(json.dumps(vacuum_stats))
-
+        await self.vacuum_table()
         await self._logger.adebug("Compacting and vacuuming complete")
+
+    async def vacuum_if_stale(self, last_vacuum_version: int | None, commit_threshold: int) -> int | None:
+        """Vacuum tombstoned files once enough commits have accrued since the last vacuum.
+
+        Decoupled from merge success (called pre-write) so a table that OOMs its merge every run still
+        gets cleaned — the post-load compaction never runs for it, which is how tables reach ~99% dead
+        files. Vacuum only deletes dead files (an S3 LIST + delete), so unlike `compact_table`'s
+        `optimize.compact` (which rewrites partitions) it is memory-safe even on an oversized table.
+
+        Uses the delta version (commit count) as a cheap proxy for tombstone accumulation — no S3 LIST to
+        decide. Returns the current version to persist as the new watermark when it vacuumed, or on first
+        encounter (seeding the watermark without vacuuming, to avoid a synchronized vacuum wave on deploy);
+        None when nothing changed.
+        """
+        table = await self.get_delta_table()
+        if table is None:
+            return None
+
+        version = await asyncio.to_thread(table.version)
+        if last_vacuum_version is None:
+            # First encounter: seed the watermark without vacuuming so existing tables clean up gradually
+            # over the next `commit_threshold` commits rather than all vacuuming at once on deploy.
+            return version
+
+        commits_since = version - last_vacuum_version
+        if commits_since < commit_threshold:
+            await self._logger.adebug(
+                f"vacuum_if_stale: skipping, {commits_since} commits since last vacuum (< {commit_threshold})"
+            )
+            return None
+
+        await self._logger.ainfo(
+            f"vacuum_if_stale: {commits_since} commits since last vacuum (>= {commit_threshold}), vacuuming"
+        )
+        await self.vacuum_table()
+        try:
+            # Observability for the maintenance path — how often tables vacuum and how much log churn
+            # accrued between vacuums. Best-effort: telemetry must never break the sync.
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="warehouse_delta_vacuumed",
+                properties={
+                    "team_id": self._job.team_id,
+                    "schema_id": str(self._job.schema_id),
+                    "source_id": str(self._job.pipeline_id),
+                    "resource_name": self._resource_name,
+                    "commits_since_last_vacuum": commits_since,
+                    "delta_version": version,
+                },
+            )
+        except Exception as e:
+            capture_exception(e)
+        return version
 
     async def compact_if_fragmented(
         self,
@@ -709,3 +805,29 @@ class DeltaTableHelper:
         await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
         await self.compact_table()
         return True
+
+    async def run_maintenance(
+        self,
+        partition_count: int | None,
+        last_vacuum_version: int | None,
+        commit_threshold: int,
+    ) -> int | None:
+        """Single pre-write maintenance entry point: compact if fragmented, else vacuum on commit cadence.
+
+        The two triggers are orthogonal — fragmentation (active file count) vs. commit cadence (tombstone
+        accrual) — but they share one outcome, the vacuum watermark. `compact_if_fragmented` already
+        vacuums as part of compaction, so when it runs it supersedes the cadence vacuum (no double vacuum
+        in one run) and the watermark advances to the post-compaction version. When nothing was fragmented,
+        fall through to `vacuum_if_stale`. Returns the single delta version to persist as the new
+        `last_vacuum_version` watermark, or None when nothing changed; the caller is the sole writer of
+        the watermark so it lives in exactly one place.
+        """
+        compacted = await self.compact_if_fragmented(partition_count=partition_count)
+        if compacted:
+            table = await self.get_delta_table()
+            if table is None:
+                return None
+            # Compaction (which vacuumed) added a commit, advancing the version; reset the cadence
+            # watermark to it so the next vacuum is measured from this cleanup, not the old baseline.
+            return await asyncio.to_thread(table.version)
+        return await self.vacuum_if_stale(last_vacuum_version, commit_threshold)

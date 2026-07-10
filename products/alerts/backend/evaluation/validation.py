@@ -113,6 +113,9 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
     except Exception as e:
         raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")
 
+    if ctx.detector_config is not None and is_non_time_series_trend(trends_query):
+        raise ValueError("Anomaly detection isn't supported for non time series trends")
+
     if ctx.parsed_condition.type in (
         AlertConditionType.RELATIVE_INCREASE,
         AlertConditionType.RELATIVE_DECREASE,
@@ -196,6 +199,8 @@ _INTERVAL_DURATION_MINUTES: dict[IntervalType, float] = {
     IntervalType.DAY: 60 * 24,
     IntervalType.WEEK: 60 * 24 * 7,
     IntervalType.MONTH: 60 * 24 * 30,
+    IntervalType.QUARTER: 60 * 24 * 30 * 3,
+    IntervalType.YEAR: 60 * 24 * 365,
 }
 
 

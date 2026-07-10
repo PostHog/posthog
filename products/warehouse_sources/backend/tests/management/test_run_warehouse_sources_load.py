@@ -40,6 +40,14 @@ class TestBuildConsumerConfig:
 
         assert getattr(config, field) == expected
 
+    @parameterized.expand([(["--claim-path", "state"],), (["--claim-path", "legacy"],)])
+    def test_deprecated_claim_path_flag_is_still_accepted(self, argv: list[str]):
+        # Deployed pods still pass --claim-path; dropping the arg would crash
+        # the whole fleet at startup with "unrecognized arguments".
+        config = build_consumer_config(_parse_options(argv))
+
+        assert not hasattr(config, "claim_path")
+
     def test_lease_ttl_follows_recovery_grace_when_not_set(self):
         config = build_consumer_config(_parse_options(["--recovery-grace", "900"]))
 

@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -107,7 +107,7 @@ class TestProcessSingle:
         batch = _make_batch(latest_attempt=0)
         states: list[str] = []
 
-        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None):
+        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None, batch_created_at=None):
             states.append(job_state)
 
         consumer._process_batch = AsyncMock()
@@ -125,7 +125,7 @@ class TestProcessSingle:
         batch = _make_batch(latest_attempt=0)
         states: list[str] = []
 
-        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None):
+        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None, batch_created_at=None):
             states.append(job_state)
 
         consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
@@ -329,6 +329,8 @@ class TestProcessGroup:
     @pytest.mark.asyncio
     async def test_abandons_group_when_lease_lost_before_dispatch(self):
         consumer = _make_consumer()
+        process_mock = AsyncMock()
+        consumer._process_batch = process_mock
         batch = _make_batch()
 
         with (
@@ -346,7 +348,7 @@ class TestProcessGroup:
             await consumer._process_group((1, "schema-1"), [batch])
 
         # Another pod owns the group now — processing it here would double-write.
-        cast(AsyncMock, consumer._process_batch).assert_not_called()
+        process_mock.assert_not_called()
         mock_unlock.assert_called_once()
 
 
@@ -379,6 +381,7 @@ class TestRecoverySweep:
             job_state=SourceBatchStatus.State.WAITING_RETRY,
             attempt=1,
             error_response={"error": "executing timed out - pod restart or OOM"},
+            batch_created_at=stale_batch.created_at,
         )
         mock_unlock.assert_called_once_with(
             consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
@@ -1339,6 +1342,47 @@ class TestOwnershipVerification:
 
         assert result is True
         mock_verify.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_batch_receives_working_precommit_ownership_check(self):
+        # Guards the wiring: without a working check handed to the processor,
+        # a write could start (or post-load run) after a takeover.
+        config = ConsumerConfig(database_url="postgres://unused:unused@localhost/unused")
+        captured: dict[str, Any] = {}
+
+        async def fake_process(batch, verify_ownership=None):
+            captured["check"] = verify_ownership
+
+        consumer = BatchConsumer(config=config, process_batch=fake_process)
+        await consumer._process_batch(_make_batch())
+
+        check = captured["check"]
+        assert check is not None
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_group_lease_sync",
+            return_value=True,
+        ):
+            check()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_group_lease_sync",
+                return_value=False,
+            ),
+            pytest.raises(OwnershipLostError),
+        ):
+            check()
+
+        # Fail-closed: an unverifiable lease must not be treated as owned.
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_group_lease_sync",
+                side_effect=Exception("queue db unreachable"),
+            ),
+            pytest.raises(OwnershipLostError),
+        ):
+            check()
 
     @pytest.mark.asyncio
     async def test_heartbeat_stops_when_lease_renewal_fails(self):
