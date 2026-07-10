@@ -83,7 +83,7 @@ from products.experiments.backend.running_time_calculator import (
 from products.experiments.backend.temporal.models import (
     ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
 )
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.facade.api import serialize_flags
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
@@ -915,16 +915,15 @@ class EnterpriseExperimentsViewSet(
             has_evaluation_contexts=request.query_params.get("has_evaluation_contexts"),
         )
 
-        # Serialize using the standard FeatureFlagSerializer
-        serializer = FeatureFlagSerializer(
+        # Serialize using the flag API's standard representation
+        results = serialize_flags(
             eligible_feature_flags["results"],
-            many=True,
             context=self.get_serializer_context(),
         )
 
         return Response(
             {
-                "results": serializer.data,
+                "results": results,
                 "count": eligible_feature_flags["count"],
             }
         )
