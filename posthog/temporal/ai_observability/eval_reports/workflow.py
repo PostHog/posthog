@@ -145,6 +145,11 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
 async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -> list[str]:
     due_report_ids: list[str] = []
     failed: list[tuple[str, str]] = []
+    skipped_counts = {
+        "cooldown": 0,
+        "daily_cap": 0,
+        "not_deliverable": 0,
+    }
 
     for batch in _batch_report_ids(report_ids, COUNT_TRIGGER_CHECK_BATCH_SIZE):
         tasks = [
@@ -162,6 +167,8 @@ async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -
                 failed.append((report_id, f"{type(result).__name__}: {result}"))
             elif result.due:
                 due_report_ids.append(result.report_id)
+            elif result.skipped_reason is not None:
+                skipped_counts[result.skipped_reason] = skipped_counts.get(result.skipped_reason, 0) + 1
 
     if failed:
         temporalio.workflow.logger.warning(
@@ -169,6 +176,16 @@ async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -
             extra={"failed_count": len(failed), "failures": failed},
         )
 
+    temporalio.workflow.logger.info(
+        "llma_eval_reports_coordinator_count_triggered_poll",
+        extra={
+            "reports_found": len(due_report_ids),
+            "total_checked": len(report_ids),
+            "skipped_cooldown": skipped_counts["cooldown"],
+            "skipped_daily_cap": skipped_counts["daily_cap"],
+            "skipped_not_deliverable": skipped_counts["not_deliverable"],
+        },
+    )
     record_coordinator_reports_found(len(due_report_ids), "count_triggered")
     return due_report_ids
 
