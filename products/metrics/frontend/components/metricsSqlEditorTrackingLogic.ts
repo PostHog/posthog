@@ -4,15 +4,14 @@ import posthog from 'posthog-js'
 import { SaveAsMenuItem } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import type { metricsSqlEditorTrackingLogicType } from './metricsSqlEditorTrackingLogicType'
 
 export interface MetricsSqlEditorTrackingLogicProps {
     sqlEditorTabId: string
-}
-
-const captureSaved = (target: SaveAsMenuItem['action']): void => {
-    posthog.capture('metrics sql query saved', { target })
 }
 
 export const metricsSqlEditorTrackingLogic = kea<metricsSqlEditorTrackingLogicType>([
@@ -28,21 +27,37 @@ export const metricsSqlEditorTrackingLogic = kea<metricsSqlEditorTrackingLogicTy
                 'saveAsInsightSubmit as sqlEditorSaveAsInsightSubmit',
                 'saveAsEndpointSubmit as sqlEditorSaveAsEndpointSubmit',
             ],
+            teamLogic,
+            ['addProductIntent'],
         ],
     })),
-    listeners(({ cache }) => ({
-        sqlEditorRunQuery: () => {
-            // Skip the auto-init runQuery dispatched by MetricsSqlEditor's first mount.
-            // Trade-off: on revisit (queryInput already set, no auto-init), the user's first
-            // manual run is also skipped. Acceptable under-count for an alpha metric.
-            if (!cache.firstRunSeen) {
-                cache.firstRunSeen = true
-                return
-            }
-            posthog.capture('metrics sql query run')
-        },
-        sqlEditorSaveAsViewSubmit: () => captureSaved('view'),
-        sqlEditorSaveAsInsightSubmit: () => captureSaved('insight'),
-        sqlEditorSaveAsEndpointSubmit: () => captureSaved('endpoint'),
-    })),
+    listeners(({ actions, cache }) => {
+        const trackSaved = (target: SaveAsMenuItem['action']): void => {
+            posthog.capture('metrics sql query saved', { target })
+            actions.addProductIntent({
+                product_type: ProductKey.METRICS,
+                intent_context: ProductIntentContext.METRICS_QUERY_SAVED,
+                metadata: { target },
+            })
+        }
+        return {
+            sqlEditorRunQuery: () => {
+                // Skip the auto-init runQuery dispatched by MetricsSqlEditor's first mount.
+                // Trade-off: on revisit (queryInput already set, no auto-init), the user's first
+                // manual run is also skipped. Acceptable under-count for an alpha metric.
+                if (!cache.firstRunSeen) {
+                    cache.firstRunSeen = true
+                    return
+                }
+                posthog.capture('metrics sql query run')
+                actions.addProductIntent({
+                    product_type: ProductKey.METRICS,
+                    intent_context: ProductIntentContext.METRICS_SQL_QUERY_RUN,
+                })
+            },
+            sqlEditorSaveAsViewSubmit: () => trackSaved('view'),
+            sqlEditorSaveAsInsightSubmit: () => trackSaved('insight'),
+            sqlEditorSaveAsEndpointSubmit: () => trackSaved('endpoint'),
+        }
+    }),
 ])
