@@ -753,6 +753,20 @@ export interface CommitDiffResponseApi {
     readonly truncated: boolean
 }
 
+/**
+ * Response for the `commit` artefact merge endpoint — the outcome of merging the report's
+ * implementation pull request via the team's GitHub integration.
+ */
+export interface MergeResponseApi {
+    /** True when the pull request was merged (or was already merged). */
+    readonly merged: boolean
+    /**
+     * SHA of the merge commit GitHub created, when available. Null when GitHub did not return one (e.g. the pull request was already merged).
+     * @nullable
+     */
+    readonly sha: string | null
+}
+
 export interface SignalReportBulkStateRequestApi {
     /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
      *

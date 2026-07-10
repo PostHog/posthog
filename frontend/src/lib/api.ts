@@ -251,6 +251,7 @@ import type {
     SessionGroupSummaryType,
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
+import type { MergeResponseApi } from 'products/signals/frontend/generated/api.schemas'
 import type {
     ClaudeTaskRunCreateSchemaApi,
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
@@ -5188,6 +5189,11 @@ const api = {
             content: Record<string, any>[]
         ): Promise<SignalReportArtefact> {
             return await new ApiRequest().signalReportArtefact(reportId, artefactId).put({ data: { content } })
+        },
+        // Squash-merge the report's implementation PR, resolved from the given `commit` artefact.
+        // Backend: SignalReportArtefactViewSet.merge (GitHub's own merge rules are the guardrail).
+        async merge(reportId: SignalReport['id'], artefactId: string): Promise<MergeResponseApi> {
+            return await new ApiRequest().signalReportArtefact(reportId, artefactId).withAction('merge').create()
         },
     },
 

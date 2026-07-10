@@ -31577,6 +31577,20 @@ export namespace Schemas {
       scraping_status?: ScrapingStatusEnum | BlankEnum | null;
     }
 
+    /**
+     * Response for the `commit` artefact merge endpoint — the outcome of merging the report's
+     * implementation pull request via the team's GitHub integration.
+     */
+    export interface MergeResponse {
+      /** True when the pull request was merged (or was already merged). */
+      readonly merged: boolean;
+      /**
+         * SHA of the merge commit GitHub created, when available. Null when GitHub did not return one (e.g. the pull request was already merged).
+         * @nullable
+         */
+      readonly sha: string | null;
+    }
+
     export type MessageContextualTools = { [key: string]: unknown };
 
     /**

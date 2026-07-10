@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconArchive, IconMessage, IconPullRequest, IconUndo } from '@posthog/icons'
-import { lemonToast } from '@posthog/lemon-ui'
+import { IconArchive, IconCheckCircle, IconMessage, IconPullRequest, IconUndo } from '@posthog/icons'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
@@ -57,8 +57,8 @@ function canCreateImplementationPr(report: SignalReport): boolean {
  * `useReportArchive` dialog flow. Callers render these inline or inside a menu.
  */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
-    const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
-    const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
+    const { isCreatingPr, isMergingPr } = useValues(inboxTaskKickoffLogic)
+    const { createPrFromReport, mergePrFromReport } = useActions(inboxTaskKickoffLogic)
     const { reportArchived } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
@@ -167,6 +167,35 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             onClick: () => {
                 captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
                 createPrFromReport(report)
+            },
+        })
+    }
+
+    // Offer Merge PR once an implementation PR exists (and the report isn't resolved/suppressed —
+    // those cases returned above). GitHub's own merge rules are the guardrail: an unmergeable /
+    // already-merged / closed PR is surfaced as a clean error on click rather than pre-hidden here.
+    if (report.implementation_pr_url) {
+        actions.push({
+            key: 'merge-pr',
+            label: 'Merge PR',
+            icon: <IconCheckCircle />,
+            loading: isMergingPr,
+            tooltip: "Squash-merge this report's pull request on GitHub",
+            onClick: () => {
+                // Merging ships code, so confirm first — mirrors the guardrail on other state-changing actions.
+                LemonDialog.open({
+                    title: 'Merge pull request?',
+                    description:
+                        "This squash-merges the report's pull request on GitHub. It can't be undone from here.",
+                    primaryButton: {
+                        children: 'Merge PR',
+                        onClick: () => {
+                            captureInboxReportAction({ report, actionType: 'merge_pr', surface: 'detail_pane' })
+                            mergePrFromReport(report)
+                        },
+                    },
+                    secondaryButton: { children: 'Cancel' },
+                })
             },
         })
     }

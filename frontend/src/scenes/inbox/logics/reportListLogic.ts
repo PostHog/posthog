@@ -301,6 +301,8 @@ export const reportListLogic = kea<reportListLogicType>([
         // A single report archived elsewhere (e.g. the detail pane) – reconcile this tab against
         // the server so the report leaves Reports/Pull requests and joins Archived, counts included.
         [inboxBulkActionsLogic.actionTypes.reportArchived]: () => actions.refresh(),
+        // A report's PR merged from the detail pane – reconcile so it moves toward resolved server-side.
+        [inboxBulkActionsLogic.actionTypes.reportMerged]: () => actions.refresh(),
     })),
 
     events(({ actions }) => ({

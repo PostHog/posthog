@@ -2952,6 +2952,42 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "status_code": response.status_code,
             }
 
+    def merge_pull_request(self, repository: str, pull_number: int, merge_method: str = "squash") -> dict[str, Any]:
+        """Merge a pull request via ``PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge``.
+
+        ``repository`` may be ``owner/name`` or a bare name (resolved against the installation org).
+        Squash-merges by default. Never raises for a GitHub rejection: GitHub's own 405 (the PR is
+        not in a mergeable state), 409 (the head moved since the merge was requested) and 403
+        (insufficient permission) responses are the guardrail and are surfaced to the caller as
+        ``{"success": False, "status_code": ..., "error": ...}`` rather than re-implementing merge
+        policy here. Returns ``{"success": True, "sha": ...}`` (the merge commit SHA) on a 200.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        # `repository` reaches us from team-writable artefact content, and is interpolated into an
+        # authenticated PUT below — reject anything that isn't a plain ``owner/repo`` so a crafted
+        # value can't steer that authenticated write at a different GitHub endpoint.
+        if not _is_safe_github_repo_path(repo_path):
+            return {"success": False, "error": f"Invalid repository '{repository}'.", "status_code": 400}
+
+        try:
+            response = self.api_request(
+                "PUT",
+                f"/repos/{repo_path}/pulls/{pull_number}/merge",
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/merge",
+                json_body={"merge_method": merge_method},
+            )
+        except GitHubIntegrationError:
+            # Don't let a slow/unreachable GitHub 500 the caller.
+            return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
+
+        if response.status_code == 200:
+            try:
+                data = response.json()
+            except ValueError:
+                data = {}
+            return {"success": True, "sha": data.get("sha")}
+        return {"success": False, "error": response.text, "status_code": response.status_code}
+
 
 class GitLabIntegrationError(Exception):
     pass

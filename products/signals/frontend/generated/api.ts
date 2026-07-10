@@ -19,6 +19,7 @@ import type {
     FleetFindingsSummaryApi,
     ForgetRequestApi,
     ForgetResponseApi,
+    MergeResponseApi,
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportListApi,
@@ -410,6 +411,26 @@ export const signalsReportArtefactsDiff = async (
     return apiMutator<CommitDiffResponseApi>(getSignalsReportArtefactsDiffUrl(projectId, reportId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsReportArtefactsMergeUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/merge/`
+}
+
+/**
+ * Squash-merge the pull request associated with a `commit` artefact's branch via the team's GitHub integration. The pull request is resolved from the report's implementation PR link, falling back to the open PR whose head branch matches the commit's branch. GitHub's own merge rules are the guardrail: an unmergeable, already-merged, or closed pull request is surfaced as a clean error, never a 500.
+ * @summary Merge the implementation pull request for a commit artefact
+ */
+export const signalsReportArtefactsMerge = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MergeResponseApi> => {
+    return apiMutator<MergeResponseApi>(getSignalsReportArtefactsMergeUrl(projectId, reportId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
