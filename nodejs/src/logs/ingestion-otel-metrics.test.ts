@@ -48,7 +48,7 @@ describe('ingestion-otel-metrics', () => {
             .flatMap((rm) => rm.scopeMetrics)
             .flatMap((sm) => sm.metrics)
             .filter((m) => m.descriptor.name === name)
-            .flatMap((m) => m.dataPoints as readonly DataPoint<T>[])
+            .flatMap((m) => m.dataPoints as unknown as readonly DataPoint<T>[])
 
     it.each([
         [
