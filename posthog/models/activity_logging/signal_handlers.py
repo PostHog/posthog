@@ -33,7 +33,7 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
-from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+from posthog.models.activity_logging.model_activity import get_current_trigger, get_current_user, get_was_impersonated
 from posthog.models.activity_logging.personal_api_key_utils import (
     log_personal_api_key_activity,
     log_personal_api_key_scope_change,
@@ -598,6 +598,8 @@ def handle_tagged_item_change(
     team = tagged_item.tag.team
     organization_id = team.organization_id if team else None
     team_id = tagged_item.tag.team_id
+    # Set by ActivityTriggerContext when the change comes from an automated source (e.g. a workflow)
+    trigger = get_current_trigger()
 
     log_activity(
         organization_id=organization_id,
@@ -611,6 +613,7 @@ def handle_tagged_item_change(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=tagged_item.tag.name,
             context=context,
+            trigger=trigger,
         ),
     )
 
@@ -638,6 +641,7 @@ def handle_tagged_item_change(
                         before=tagged_item.tag.name if activity == "deleted" else None,
                     )
                 ],
+                trigger=trigger,
             ),
         )
 

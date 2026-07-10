@@ -221,11 +221,11 @@ class PropertySwapper(CloningVisitor):
     }
 
     # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
-    # toFloat64OrDefault) require a String first argument and raise
+    # toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
     # ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
     # Numeric-typed property in one of these, we must not auto-convert the property
-    # to Float — the raw String value has to flow through for the parser to work.
-    _STRING_INPUT_CONVERSIONS: set[str] = {"toFloatOrZero", "toIntOrZero", "toFloatOrDefault"}
+    # to Float, the raw String value has to flow through for the parser to work.
+    _STRING_INPUT_CONVERSIONS: set[str] = {"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"}
 
     def __init__(
         self,
