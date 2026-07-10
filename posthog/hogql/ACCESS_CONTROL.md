@@ -152,7 +152,7 @@ Userless runs that do touch access-controlled tables get `restricted_resources: 
 ## Key files
 
 | Concern | Where |
-|---|---|
+| --- | --- |
 | Schema build, fail-closed, warehouse filtering, denied-table error | `posthog/hogql/database/database.py` |
 | System table definitions (`access_scope`) | `posthog/hogql/database/schema/system.py` |
 | Object-level SQL guard for system tables | `posthog/hogql/printer/access_control.py` |
