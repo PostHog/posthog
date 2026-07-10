@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, cast
 
 from django.db.models import QuerySet
@@ -16,24 +17,32 @@ from products.metrics.backend.models import MetricsView
 
 # The `filters` blob is free-form frontend state, so it is not schema-validated field by field.
 # These bounds keep a teammate from persisting a pathologically large or deeply nested payload
-# that every other viewer of the shared view then has to parse and render.
+# that every other viewer of the shared view then has to serialize, transfer, and render.
+# The byte cap is the real ceiling — it subsumes long strings, wide arrays, and node counts
+# in one measure; the depth cap separately bounds recursion for the recursive consumers.
+MAX_FILTERS_BYTES = 64 * 1024
 MAX_FILTERS_DEPTH = 20
-MAX_FILTERS_ARRAY_LENGTH = 1000
 
 
-def _validate_filters_bounds(value: Any, depth: int = 0) -> None:
+def _validate_filters_depth(value: Any, depth: int = 0) -> None:
     if depth > MAX_FILTERS_DEPTH:
         raise serializers.ValidationError(f"Saved filters nest deeper than the {MAX_FILTERS_DEPTH} level limit.")
     if isinstance(value, dict):
         for item in value.values():
-            _validate_filters_bounds(item, depth + 1)
+            _validate_filters_depth(item, depth + 1)
     elif isinstance(value, list):
-        if len(value) > MAX_FILTERS_ARRAY_LENGTH:
-            raise serializers.ValidationError(
-                f"Saved filters contain an array longer than the {MAX_FILTERS_ARRAY_LENGTH} entry limit."
-            )
         for item in value:
-            _validate_filters_bounds(item, depth + 1)
+            _validate_filters_depth(item, depth + 1)
+
+
+def _validate_filters_bounds(value: dict) -> None:
+    try:
+        serialized_bytes = len(json.dumps(value).encode("utf-8"))
+    except (TypeError, ValueError):
+        raise serializers.ValidationError("Saved filters must be JSON-serializable.")
+    if serialized_bytes > MAX_FILTERS_BYTES:
+        raise serializers.ValidationError(f"Saved filters exceed the {MAX_FILTERS_BYTES // 1024} KB size limit.")
+    _validate_filters_depth(value)
 
 
 class MetricsViewSerializer(serializers.ModelSerializer):

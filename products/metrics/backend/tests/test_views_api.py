@@ -72,17 +72,21 @@ class TestMetricsViewAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("too_deep", {"nested": {}}),
-            ("array_too_long", {"values": list(range(1001))}),
+            ("too_deep",),
+            ("too_large",),
         ]
     )
-    def test_rejects_out_of_bounds_filters(self, label, filters):
+    def test_rejects_out_of_bounds_filters(self, label):
         if label == "too_deep":
-            node: dict = filters["nested"]
+            filters: dict = {}
+            node = filters
             for _ in range(25):
                 child: dict = {}
                 node["nested"] = child
                 node = child
+        else:
+            # A single oversized string slips past any per-array/depth bound but is caught by the byte cap.
+            filters = {"metricName": "x" * (128 * 1024)}
 
         response = self.client.post(self.base_url, {"name": "Bad view", "filters": filters}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
