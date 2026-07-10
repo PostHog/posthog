@@ -8,6 +8,7 @@ import { toolbarFetch } from '~/toolbar/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import type { ElementsEventType, WebExperiment } from '~/toolbar/types'
+import { SAFE_FETCH_NETWORK_ERROR_MARKER } from '~/toolbar/utils'
 import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, ProductTour, Survey } from '~/types'
 
 /**
@@ -152,10 +153,11 @@ async function request<T>(
     } = options
     const pathname = pathnameForLog(url)
 
-    let response: Response
-    try {
-        response = await toolbarFetch(url, method, payload, urlConstruction)
-    } catch (e) {
+    // A request that never reached the server (offline, CORS, ad blocker, connection refused,
+    // navigation away). `safeFetch` no longer throws on a rejected fetch — it resolves to a synthetic
+    // 502 tagged with the network-error marker — so this is reachable both via a genuine throw
+    // (e.g. token refresh) and via that tagged response below.
+    const networkError = (e: unknown): ToolbarApiResult<T> => {
         const error: ToolbarApiErrorInfo = {
             status: 0,
             detail: 'Network error',
@@ -169,6 +171,13 @@ async function request<T>(
         }
         emitToast(toastOnError, error)
         return { ok: false, status: 0, data: null, error }
+    }
+
+    let response: Response
+    try {
+        response = await toolbarFetch(url, method, payload, urlConstruction)
+    } catch (e) {
+        return networkError(e)
     }
 
     const status = response.status
@@ -199,6 +208,13 @@ async function request<T>(
     }
 
     const body = await response.json().catch(() => null)
+
+    // `safeFetch` tags a rejected fetch as a synthetic 502 — surface it as the network error it
+    // really is, not a server 502, so the toast and error-tracking classification stay correct.
+    if (body && typeof body === 'object' && (body as Record<string, unknown>)[SAFE_FETCH_NETWORK_ERROR_MARKER]) {
+        return networkError(new Error(`${context}: network request failed`))
+    }
+
     const isAuthError = status === 401 || status === 403
     const isServerError = status >= 500
     const error: ToolbarApiErrorInfo = {

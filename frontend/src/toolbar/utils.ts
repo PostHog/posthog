@@ -18,6 +18,10 @@ export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 // load-bearing at runtime — verify before storing strings that flow into auth headers.
 export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null)
 
+// Body marker on the synthetic response `safeFetch` returns when the underlying fetch rejects.
+// `toolbarApi` keys off it to reclassify the failure as a network error rather than a genuine 502.
+export const SAFE_FETCH_NETWORK_ERROR_MARKER = 'safe_fetch_network_error'
+
 // `fetch` that always resolves to something safe to read `.status`/`.ok`/`.json()` off. Two things
 // can go wrong on an embedded toolbar running on an arbitrary customer page: a site-level
 // `window.fetch` wrapper can resolve to `undefined`/`null` (or another non-object), and the request
@@ -30,7 +34,7 @@ export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): P
     try {
         response = await fetch(input, init)
     } catch {
-        return new Response(JSON.stringify({ results: [], detail: 'fetch_failed' }), { status: 502 })
+        return new Response(JSON.stringify({ results: [], [SAFE_FETCH_NETWORK_ERROR_MARKER]: true }), { status: 502 })
     }
     if (response && typeof response === 'object') {
         return response as Response
