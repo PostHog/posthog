@@ -7,6 +7,7 @@ import {
     IconBolt,
     IconButton,
     IconClock,
+    IconInfo,
     IconLeave,
     IconPeople,
     IconPlusSmall,
@@ -470,6 +471,7 @@ function StepTriggerConfigurationWebhook({
                     })
                 }
                 errors={validationResult?.errors}
+                warnings={validationResult?.warnings}
             />
         </div>
     )
@@ -679,6 +681,7 @@ function StepTriggerConfigurationTrackingPixel({
                     })
                 }
                 errors={validationResult?.errors}
+                warnings={validationResult?.warnings}
             />
         </>
     )
@@ -783,9 +786,12 @@ function ConversionGoalSection(): JSX.Element {
 
     return (
         <div className="flex flex-col py-2 w-full">
-            <span className="flex gap-1">
+            <span className="flex gap-1 items-center">
                 <IconTarget className="text-lg" />
                 <span className="text-md font-semibold">Conversion goal (optional)</span>
+                <Tooltip title="When a conversion goal is set, each conversion is sent as a billable $workflows_conversion event (with the workflow id and conversion type). You can build insights and cohorts from it, and it counts toward your event usage.">
+                    <IconInfo className="text-secondary" />
+                </Tooltip>
             </span>
             <p>
                 Define what a user must do to be considered converted. All conditions must be met for the user to be

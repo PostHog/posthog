@@ -95,12 +95,10 @@ class ActivityLogTestHelper(APILicensedTest):
     # Group
     def create_group(self, group_type_index: int = 0, group_key: Optional[str] = None, **kwargs) -> dict[str, Any]:
         """Create a group via API."""
-        # First ensure group type exists
-        from posthog.models.group_type_mapping import GroupTypeMapping
+        # First ensure group type exists (seeds the personhog fake, no persons DB write)
+        from posthog.test.persons import create_group_type_mapping
 
-        GroupTypeMapping.objects.get_or_create(
-            team=self.team, group_type_index=group_type_index, defaults={"group_type": "organization"}
-        )
+        create_group_type_mapping(team=self.team, group_type_index=group_type_index, group_type="organization")
 
         if not group_key:
             group_key = f"org:{uuid4()}"

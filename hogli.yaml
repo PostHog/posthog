@@ -62,6 +62,8 @@ metadata:
           title: Authenticate to internal services
         - key: tools
           title: Developer tools and utilities
+        - key: devex
+          title: Developer experience feedback
         - key: utilities
           title: Git worktrees and admin
         - key: devbox
@@ -144,6 +146,9 @@ devbox:
     devbox:start:
         click: hogli_commands.devbox.cli:devbox_start
         description: Start or create your remote devbox
+    devbox:clone:
+        click: hogli_commands.devbox.cli:devbox_clone
+        description: Clone a running devbox into a new one (carries full disk state)
     devbox:stop:
         click: hogli_commands.devbox.cli:devbox_stop
         description: Stop your devbox (preserves disk, stops billing)
@@ -300,7 +305,7 @@ core:
             - name: dev:demo-data
               cmd: python manage.py generate_demo_data --skip-flag-sync
             - dev:sync-flags
-            - dev:api-key
+            - ensure:local:setup
         description: Full reset - wipe volumes, migrate, load demo data, sync flags
         prompt: true
     dev:api-key:
@@ -548,7 +553,7 @@ build:
         description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build
-        description: Generate HogQL grammar definitions (Python and C++)
+        description: Generate HogQL grammar definitions (C++)
     build:products:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
@@ -611,7 +616,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run NGINX Unit application server
+        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
         hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
@@ -818,6 +823,9 @@ quality:
     lint:workflows:
         click: hogli_commands.workflow_lint.cli:cmd_lint_workflows
         description: Lint .github/workflows/** for repo conventions
+    lint:migration-deletions:
+        click: hogli_commands.migration_deletions:cmd_lint_migration_deletions
+        description: Block deleting historical Django migration files
     format:mcp:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
@@ -933,6 +941,10 @@ tools:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references
         hidden: true
+    tool:granian-metrics:
+        bin_script: granian_metrics.py
+        description: HTTP server that aggregates Prometheus metrics from Granian workers
+        hidden: true
     sync:storage:
         bin_script: sync-storage
         description: 'TODO: add description for sync-storage'
@@ -982,6 +994,13 @@ tools:
     ci:insights:
         click: hogli_commands.ci_insights:ci_insights
         description: Show CI insights for the current repo + branch (search/view/plan subcommands)
+    ci:preflight:
+        click: hogli_commands.ci_preflight:ci_preflight
+        description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
+devex:
+    devex:feedback:
+        click: hogli_commands.feedback:devex_feedback
+        description: Send feedback about the dev experience to the devex team (humans and agents)
 utilities:
     nuke:
         steps:
@@ -998,6 +1017,12 @@ utilities:
             - dev:reset
         description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
         prompt: true
+    worktrees:clean:
+        click: hogli_commands.worktrees:worktrees_clean
+        description: Clear out unused Claude Code / Codex / PostHog Code worktrees by age
+    pr:upload-image:
+        click: hogli_commands.upload_image:upload_image
+        description: Upload screenshot(s) to the public PostHog/pr-assets repo and print embeddable PR markdown
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
@@ -1114,4 +1139,8 @@ environment:
     docker:agent:proxy:
         cmd: node dist/agent-proxy-server.mjs
         description: 'Production entrypoint: run the agent-proxy Node service'
+        hidden: true
+    ensure:local:setup:
+        bin_script: ensure-local-setup
+        description: Idempotent local-dev bootstrap (e.g. the wizard OAuth app); runs automatically on hogli start
         hidden: true

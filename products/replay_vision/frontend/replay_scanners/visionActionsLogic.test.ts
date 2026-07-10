@@ -4,7 +4,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { VisionActionApi } from '../generated/api.schemas'
-import { visionActionsLogic } from './visionActionsLogic'
+import { DeliveryTargetTypeEnumApi } from '../generated/api.schemas'
+import { buildActionBody, type VisionActionForm, visionActionsLogic } from './visionActionsLogic'
 
 const action = (id: string, enabled = true): VisionActionApi => ({
     id,
@@ -28,6 +29,9 @@ describe('visionActionsLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/vision/actions/': { results: [action('a'), action('b')], count: 2 },
+            },
+            post: {
+                '/api/projects/:team/vision/actions/': () => [201, action('new')],
             },
             patch: {
                 '/api/projects/:team/vision/actions/:id/': () => [200, {}],
@@ -82,5 +86,48 @@ describe('visionActionsLogic', () => {
         }).toMatchValues({
             visionActions: [expect.objectContaining({ id: 'b' })],
         })
+    })
+
+    it('buildActionBody maps the form to the API body, including a Slack delivery target and targeting', () => {
+        const form: VisionActionForm = {
+            name: '  Daily digest  ',
+            cadence: { weekdays: [0, 2], hour: 14, minute: 30 },
+            timezone: 'Europe/Prague',
+            prompt_guide: 'focus on checkout',
+            integration_id: 5,
+            channel: 'C123|#general',
+            verdict: ['yes'],
+            tags: ['bug'],
+            min_score: 1,
+            max_score: 5,
+        }
+        expect(buildActionBody(form, 's1')).toEqual({
+            name: 'Daily digest', // trimmed
+            scanner: 's1',
+            trigger_config: { rrule: 'FREQ=WEEKLY;BYDAY=MO,WE;BYHOUR=14;BYMINUTE=30', timezone: 'Europe/Prague' },
+            selection: { verdict: ['yes'], tags: ['bug'], min_score: 1, max_score: 5 },
+            synthesis_config: { prompt_guide: 'focus on checkout' },
+            // The full `${id}|#${name}` composite is stored so the actions table can show the channel
+            // name; the backend strips it to the bare id for the Slack destination.
+            delivery_config: [{ type: DeliveryTargetTypeEnumApi.Slack, integration_id: 5, channel: 'C123|#general' }],
+        })
+    })
+
+    it('buildActionBody emits empty delivery_config and selection when nothing is set', () => {
+        const form: VisionActionForm = {
+            name: 'No delivery',
+            cadence: { weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 9, minute: 0 },
+            timezone: 'UTC',
+            prompt_guide: '',
+            integration_id: null,
+            channel: '',
+            verdict: [],
+            tags: [],
+            min_score: null,
+            max_score: null,
+        }
+        expect(buildActionBody(form, 's1').delivery_config).toEqual([])
+        // Empty selection is sent explicitly so clearing targeting on edit persists as "run on everything".
+        expect(buildActionBody(form, 's1').selection).toEqual({})
     })
 })

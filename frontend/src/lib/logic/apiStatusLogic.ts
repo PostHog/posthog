@@ -85,6 +85,13 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                                 autoClose: false,
                             }
                         )
+                    } else if (responseData.code === 'impersonation_read_only') {
+                        lemonToast.error(
+                            typeof responseData.detail === 'string' && responseData.detail
+                                ? responseData.detail
+                                : 'This action is not allowed during read-only user impersonation.',
+                            { hideButton: true }
+                        )
                     }
                 }
             } catch {

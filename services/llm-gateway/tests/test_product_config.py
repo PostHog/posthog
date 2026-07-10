@@ -43,6 +43,9 @@ class TestCheckProductAccess:
             ("llm_gateway", "personal_api_key", None, "claude-3-opus", True, None),
             ("llm_gateway", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
             ("llm_gateway", "personal_api_key", None, None, True, None),
+            # ci allows API keys with any model (used by e2e test runs); OAuth rejected (no app IDs)
+            ("ci", "personal_api_key", None, "claude-3-opus", True, None),
+            ("ci", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
             # posthog_code requires OAuth with valid app ID
             ("posthog_code", "personal_api_key", None, None, False, "requires OAuth"),
             ("posthog_code", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
@@ -69,6 +72,14 @@ class TestCheckProductAccess:
             ("signals", "oauth_access_token", "any-app-id", "claude-haiku-4-5", False, "not authorized"),
             ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-haiku-4-5", True, None),
             ("signals", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-5", True, None),
+            # conversations: utility prompts (API key) and support-reply sandbox (array OAuth app)
+            ("conversations", "personal_api_key", None, "claude-haiku-4-5", True, None),
+            ("conversations", "personal_api_key", None, "claude-sonnet-4-6", True, None),
+            ("conversations", "personal_api_key", None, "claude-sonnet-5", True, None),
+            ("conversations", "personal_api_key", None, "claude-opus-4-8", False, "not allowed"),
+            ("conversations", "oauth_access_token", "any-app-id", "claude-sonnet-5", False, "not authorized"),
+            ("conversations", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", True, None),
+            ("conversations", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-6", True, None),
             # posthog_ai allows API keys with any model and OAuth from the PostHog AI app.
             ("posthog_ai", "personal_api_key", None, "claude-sonnet-4-5", True, None),
             ("posthog_ai", "personal_api_key", None, "gpt-5.3-codex", True, None),
@@ -102,9 +113,14 @@ class TestCheckProductAccess:
             "claude-opus-4-6",
             "claude-opus-4-7",
             "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
             "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
             "gpt-5.5",
             "gpt-5.3-codex",
             "gpt-5.2",
@@ -123,7 +139,6 @@ class TestCheckProductAccess:
             "gpt-4o-mini",
             "claude-3-5-haiku-20241022",
             "claude-3-opus",
-            "claude-fable-5",
             "o1",
         ],
     )
@@ -140,8 +155,10 @@ class TestCheckProductAccess:
             "claude-opus-4-6",
             "claude-opus-4-7",
             "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
             "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.5",
             "gpt-5.3-codex",
@@ -207,23 +224,6 @@ class TestCheckProductAccess:
         assert allowed is True
         assert error is None
 
-    @patch(
-        "llm_gateway.products.config.get_settings", return_value=MagicMock(debug=False, bedrock_region_name="us-east-1")
-    )
-    def test_posthog_code_rejects_claude_fable_5_via_bedrock_provider(self, mock_get_settings: MagicMock):
-        # Fable 5 has no Bedrock mapping, so the bedrock provider path must not
-        # resurrect it via the BEDROCK_MODELS entries in the allowlist union.
-        allowed, error = check_product_access(
-            "posthog_code",
-            "oauth_access_token",
-            POSTHOG_CODE_US_APP_ID,
-            "claude-fable-5",
-            provider="bedrock",
-        )
-        assert allowed is False
-        assert error is not None
-        assert "not allowed" in error
-
     @pytest.mark.parametrize(
         "model",
         [
@@ -231,7 +231,9 @@ class TestCheckProductAccess:
             "claude-opus-4-6",
             "claude-opus-4-7",
             "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.3-codex",
             "gpt-5.2",
@@ -311,6 +313,7 @@ class TestCheckProductAccess:
             "claude-opus-4-7",
             "claude-opus-4-8",
             "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.3-codex",
         ],

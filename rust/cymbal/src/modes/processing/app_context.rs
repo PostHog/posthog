@@ -14,7 +14,6 @@ use crate::{
     core::resolver::build_catalog,
     error::UnhandledError,
     modes::processing::config::{init_global_state, ProcessingConfig},
-    signals::{MaybeSignalClient, SignalClient},
     stages::rate_limiting::RedisRateLimiter,
     stages::resolution::remote::{
         dns::TokioDnsResolver, pool::EndpointPool, resolver::RemoteResolutionContext,
@@ -32,6 +31,10 @@ pub struct AppContext {
     // Dedicated producer for `cdp_internal_events`. Points at warpstream-cyclotron when
     // `CYMBAL_CYCLOTRON_KAFKA_HOSTS` is set; otherwise falls back to `immediate_producer`.
     pub cyclotron_producer: FutureProducer<KafkaContext>,
+    // Dedicated producer for `clickhouse_app_metrics2`. Points at warpstream-ingestion when
+    // `CYMBAL_APP_METRICS_KAFKA_HOSTS` is set; otherwise falls back to `immediate_producer`.
+    // The primary producer's cluster (warpstream-shared) does not carry that topic.
+    pub app_metrics_producer: FutureProducer<KafkaContext>,
     pub posthog_pool: PgPool,
     pub catalog: Arc<Catalog>,
     pub symbol_resolver: Arc<dyn SymbolResolver>,
@@ -53,7 +56,6 @@ pub struct AppContext {
     // Team allowlist for the rate limiter: `None` = all teams, `Some(set)` = only
     // these. Parsed from ERROR_TRACKING_RATE_LIMITER_ENABLED_TEAM_IDS.
     pub rate_limiter_enabled_team_ids: Option<HashSet<i32>>,
-    pub signal_client: MaybeSignalClient,
     // Shared `(team_id, fingerprint) -> issue_id` mapping cache. Lives on AppContext so
     // it persists across requests — only the stable mapping is cached, never the Issue
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
@@ -134,6 +136,24 @@ impl AppContext {
             _ => immediate_producer.clone(),
         };
 
+        // Build the app-metrics producer if a separate broker list is configured; otherwise
+        // reuse the primary producer (so local dev, where one cluster carries every topic,
+        // works without extra config).
+        let app_metrics_producer = match config.app_metrics_kafka_hosts.as_deref() {
+            Some(hosts) if !hosts.is_empty() => {
+                let mut app_metrics_config = config.kafka.clone();
+                app_metrics_config.kafka_hosts = hosts.to_string();
+                if let Some(tls) = config.app_metrics_kafka_tls {
+                    app_metrics_config.kafka_tls = tls;
+                }
+                let kafka_app_metrics_liveness = health_registry
+                    .register("app_metrics_kafka".to_string(), Duration::from_secs(30))
+                    .await;
+                create_kafka_producer(&app_metrics_config, kafka_app_metrics_liveness).await?
+            }
+            _ => immediate_producer.clone(),
+        };
+
         s3_client
             .ping_bucket(&config.resolver.object_storage_bucket)
             .await?;
@@ -143,16 +163,6 @@ impl AppContext {
         info!("AppContext initialized");
 
         let team_manager = TeamManager::new(config);
-
-        let signal_client = if config.signals_api_base_url.is_empty() {
-            MaybeSignalClient::disabled()
-        } else {
-            info!(
-                "Signal emission enabled, base_url={}",
-                config.signals_api_base_url
-            );
-            MaybeSignalClient::enabled(SignalClient::new(config))
-        };
 
         let symbol_resolver = Arc::new(LocalSymbolResolver::new(
             &config.resolver,
@@ -180,6 +190,7 @@ impl AppContext {
             health_registry,
             immediate_producer,
             cyclotron_producer,
+            app_metrics_producer,
             posthog_pool,
             catalog,
             config: config.clone(),
@@ -189,7 +200,6 @@ impl AppContext {
             issue_buckets_redis_client,
             rate_limiter,
             rate_limiter_enabled_team_ids,
-            signal_client,
             symbol_resolver,
             issue_cache,
             remote_resolution,

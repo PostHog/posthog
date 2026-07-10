@@ -7,16 +7,16 @@ import api from 'lib/api'
 import { identifierToHuman } from 'lib/utils/strings'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
-import { RunViewer } from 'products/posthog_ai/frontend/api/run'
+import { TaskRunStatusDot } from 'products/posthog_ai/frontend/api/primitives'
+import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { isCustomAgentTaskRun, taskRunTypeLabel, TaskRunArtefactContent } from './artefactTypes'
-import { TaskRunStatusDot } from './taskRunDisplay'
 
 /**
  * A `task_run` artefact: the linked task badged from its `(product, type)` (signals-pipeline runs
  * show Research / Implementation / Repo selection; custom agents show their humanized product +
- * type), expanding to the task's run transcript via the shared `RunViewer`. Mirrors desktop
+ * type), expanding to the task's run transcript via the shared `ReadonlyRunSurface`. Mirrors desktop
  * `ArtefactTaskRun` (which embeds `TaskLogsPanel`). The task is resolved lazily and the row is
  * disabled until it loads.
  */
@@ -107,7 +107,13 @@ export function ArtefactTaskRun({
 
             {expanded && task && runId ? (
                 <div className="mt-2 h-[420px] overflow-hidden rounded border border-primary bg-surface-primary">
-                    <RunViewer taskId={task.id} runId={runId} interaction={replayOnly ? 'read-only' : 'live'} />
+                    <ReadonlyRunSurface
+                        taskId={task.id}
+                        runId={runId}
+                        interaction={replayOnly ? 'read-only' : 'live'}
+                        threadRowClassName="px-3"
+                        threadListClassName="py-3"
+                    />
                 </div>
             ) : null}
         </div>

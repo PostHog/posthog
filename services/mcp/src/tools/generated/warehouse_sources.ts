@@ -31,12 +31,14 @@ import {
     ExternalDataSourcesRefreshSchemasCreateParams,
     ExternalDataSourcesReloadCreateBody,
     ExternalDataSourcesReloadCreateParams,
+    ExternalDataSourcesRepairCdcCreateParams,
     ExternalDataSourcesRetrieveParams,
     ExternalDataSourcesSetupCreateBody,
     ExternalDataSourcesStoredCredentialsListQueryParams,
     ExternalDataSourcesUpdateWebhookInputsCreateBody,
     ExternalDataSourcesUpdateWebhookInputsCreateParams,
     ExternalDataSourcesWebhookInfoRetrieveParams,
+    ExternalDataSourcesWizardRetrieveQueryParams,
 } from '@/generated/warehouse_sources/api'
 import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -762,6 +764,21 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
     },
 })
 
+const ExternalDataSourcesRepairCdcCreateSchema = ExternalDataSourcesRepairCdcCreateParams.omit({ project_id: true })
+
+const externalDataSourcesRepairCdcCreate = (): ToolBase<typeof ExternalDataSourcesRepairCdcCreateSchema, unknown> => ({
+    name: 'external-data-sources-repair-cdc-create',
+    schema: ExternalDataSourcesRepairCdcCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesRepairCdcCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/repair_cdc/`,
+        })
+        return result
+    },
+})
+
 const ExternalDataSourcesRetrieveSchema = ExternalDataSourcesRetrieveParams.omit({ project_id: true })
 
 const externalDataSourcesRetrieve = (): ToolBase<
@@ -843,17 +860,19 @@ const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesWizardSchema = z.object({})
+const ExternalDataSourcesWizardSchema = ExternalDataSourcesWizardRetrieveQueryParams
 
 const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardSchema, unknown> => ({
     name: 'external-data-sources-wizard',
     schema: ExternalDataSourcesWizardSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesWizardSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/wizard/`,
+            query: {
+                source_type: params.source_type,
+            },
         })
         const filtered = pickResponseFields(result, [
             '*.name',
@@ -889,6 +908,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-partial-update': externalDataSourcesPartialUpdate,
     'external-data-sources-refresh-schemas': externalDataSourcesRefreshSchemas,
     'external-data-sources-reload': externalDataSourcesReload,
+    'external-data-sources-repair-cdc-create': externalDataSourcesRepairCdcCreate,
     'external-data-sources-retrieve': externalDataSourcesRetrieve,
     'external-data-sources-update-webhook-inputs-create': externalDataSourcesUpdateWebhookInputsCreate,
     'external-data-sources-webhook-info-retrieve': externalDataSourcesWebhookInfoRetrieve,

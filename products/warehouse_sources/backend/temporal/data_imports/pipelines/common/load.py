@@ -411,3 +411,15 @@ async def run_post_load_operations(
 
     logger.debug("Syncing revenue analytics views if needed")
     await database_sync_to_async_pool(sync_revenue_analytics_views)(schema, source)
+
+    # Measure partition sizes and flag the table for an in-place repartition if a partition has grown
+    # past the memory-safe budget. CDC tables are excluded for now (their companion-table semantics
+    # need separate validation). Detection never raises — it must not break post-load.
+    if not is_cdc_companion and schema.sync_type != ExternalDataSchema.SyncType.CDC:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition_controller import (
+            maybe_flag_for_repartition,
+        )
+
+        delta_table = await delta_table_helper.get_delta_table()
+        if delta_table is not None:
+            await maybe_flag_for_repartition(schema, source, job, delta_table, logger)

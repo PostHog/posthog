@@ -5,10 +5,7 @@ auto-generated grammar PBT introduced in PR #58627) but runs as an
 ad-hoc CLI rather than a pytest collection. Defaults to `cpp-json` vs
 `rust-py` (the primary parity target — `rust-json` was a stepping
 stone and may end up in a future wasm build, but isn't the primary
-production candidate). The `python` antlr4 visitor is intentionally
-excluded from `--oracle` / `--candidate` — it's order-of-magnitude
-slower and useless for the tight diagnose-then-fix loop the grind is
-built for.
+production candidate).
 
 Distinct from the pytest PBT in five ways:
 
@@ -216,7 +213,6 @@ def main() -> int:
             "so the match denominator is exactly --n."
         ),
     )
-    # `python` excluded — too slow for the diagnose-then-fix loop (see module docstring).
     _BACKENDS = ("cpp-json", "rust-json", "rust-py")
     parser.add_argument(
         "--oracle",

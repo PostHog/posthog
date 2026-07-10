@@ -1,12 +1,32 @@
-from posthog.hogql.ast import IntegerType, StringType
+from posthog.hogql.ast import BooleanType, IntegerType, StringType
 
 from ..core import HogQLFunctionMeta
+
+# Shared return-type signatures for string search/predicate helpers. These ClickHouse functions
+# have a fixed return family regardless of which valid overload is used. Modeling them removes a
+# large share of `missing_function_signature` type-inference gaps for common analytics queries.
+# Predicates (match/startsWith/hasToken/…) return a 0/1 flag, modeled as Boolean to match how the
+# resolver already types the like/ilike family; counts/positions/lengths return an integer; and
+# extractors return a String. (The like/ilike/notLike/notILike family is already typed as Boolean
+# by generic inference, which runs ahead of legacy signatures, so it needs no signature here.)
+_STR_TO_INT: list = [((StringType(),), IntegerType())]
+_STR_STR_TO_INT: list = [((StringType(), StringType()), IntegerType())]
+_STR_STR_OPT_INT_TO_INT: list = [
+    ((StringType(), StringType()), IntegerType()),
+    ((StringType(), StringType(), IntegerType()), IntegerType()),
+]
+_STR_STR_TO_BOOL: list = [((StringType(), StringType()), BooleanType())]
+_STR_STR_TO_STR: list = [((StringType(), StringType()), StringType())]
+_STR_STR_OPT_INT_TO_STR: list = [
+    ((StringType(), StringType()), StringType()),
+    ((StringType(), StringType(), IntegerType()), StringType()),
+]
 
 # Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "left": HogQLFunctionMeta("leftUTF8", 2, 2, signatures=[((StringType(), IntegerType()), StringType())]),
     "right": HogQLFunctionMeta("rightUTF8", 2, 2, signatures=[((StringType(), IntegerType()), StringType())]),
-    "lengthUTF8": HogQLFunctionMeta("lengthUTF8", 1, 1),
+    "lengthUTF8": HogQLFunctionMeta("lengthUTF8", 1, 1, signatures=_STR_TO_INT),
     "leftPad": HogQLFunctionMeta("leftPad", 2, 3),
     "rightPad": HogQLFunctionMeta("rightPad", 2, 3),
     "leftPadUTF8": HogQLFunctionMeta("leftPadUTF8", 2, 3),
@@ -30,22 +50,24 @@ STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "base64Encode": HogQLFunctionMeta("base64Encode", 1, 1),
     "base64Decode": HogQLFunctionMeta("base64Decode", 1, 1),
     "tryBase64Decode": HogQLFunctionMeta("tryBase64Decode", 1, 1),
-    "endsWith": HogQLFunctionMeta("endsWith", 2, 2),
-    "startsWith": HogQLFunctionMeta("startsWith", 2, 2),
+    "endsWith": HogQLFunctionMeta("endsWith", 2, 2, signatures=_STR_STR_TO_BOOL),
+    "startsWith": HogQLFunctionMeta("startsWith", 2, 2, signatures=_STR_STR_TO_BOOL),
     "encodeXMLComponent": HogQLFunctionMeta("encodeXMLComponent", 1, 1),
     "decodeXMLComponent": HogQLFunctionMeta("decodeXMLComponent", 1, 1),
     "extractTextFromHTML": HogQLFunctionMeta("extractTextFromHTML", 1, 1),
-    "ascii": HogQLFunctionMeta("ascii", 1, 1, case_sensitive=False),
+    "ascii": HogQLFunctionMeta("ascii", 1, 1, case_sensitive=False, signatures=_STR_TO_INT),
     "concatWithSeparator": HogQLFunctionMeta("concatWithSeparator", 2, None),
 }
 
 # searching in strings
 # Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 STRING_SEARCH_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
-    "position": HogQLFunctionMeta("position", 2, 3, case_sensitive=False),
-    "positionCaseInsensitive": HogQLFunctionMeta("positionCaseInsensitive", 2, 3),
-    "positionUTF8": HogQLFunctionMeta("positionUTF8", 2, 3),
-    "positionCaseInsensitiveUTF8": HogQLFunctionMeta("positionCaseInsensitiveUTF8", 2, 3),
+    "position": HogQLFunctionMeta("position", 2, 3, case_sensitive=False, signatures=_STR_STR_OPT_INT_TO_INT),
+    "positionCaseInsensitive": HogQLFunctionMeta("positionCaseInsensitive", 2, 3, signatures=_STR_STR_OPT_INT_TO_INT),
+    "positionUTF8": HogQLFunctionMeta("positionUTF8", 2, 3, signatures=_STR_STR_OPT_INT_TO_INT),
+    "positionCaseInsensitiveUTF8": HogQLFunctionMeta(
+        "positionCaseInsensitiveUTF8", 2, 3, signatures=_STR_STR_OPT_INT_TO_INT
+    ),
     "multiSearchAllPositions": HogQLFunctionMeta("multiSearchAllPositions", 2, 2),
     "multiSearchAllPositionsUTF8": HogQLFunctionMeta("multiSearchAllPositionsUTF8", 2, 2),
     "multiSearchFirstPosition": HogQLFunctionMeta("multiSearchFirstPosition", 2, 2),
@@ -64,14 +86,14 @@ STRING_SEARCH_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "multiSearchFirstPositionCaseInsensitiveUTF8": HogQLFunctionMeta(
         "multiSearchFirstPositionCaseInsensitiveUTF8", 2, 2
     ),
-    "match": HogQLFunctionMeta("match", 2, 2),
+    "match": HogQLFunctionMeta("match", 2, 2, signatures=_STR_STR_TO_BOOL),
     "multiMatchAny": HogQLFunctionMeta("multiMatchAny", 2, 2),
     "multiMatchAnyIndex": HogQLFunctionMeta("multiMatchAnyIndex", 2, 2),
     "multiMatchAllIndices": HogQLFunctionMeta("multiMatchAllIndices", 2, 2),
     "multiFuzzyMatchAny": HogQLFunctionMeta("multiFuzzyMatchAny", 3, 3),
     "multiFuzzyMatchAnyIndex": HogQLFunctionMeta("multiFuzzyMatchAnyIndex", 3, 3),
     "multiFuzzyMatchAllIndices": HogQLFunctionMeta("multiFuzzyMatchAllIndices", 3, 3),
-    "extract": HogQLFunctionMeta("extract", 2, 2, case_sensitive=False),
+    "extract": HogQLFunctionMeta("extract", 2, 2, case_sensitive=False, signatures=_STR_STR_TO_STR),
     "extractAll": HogQLFunctionMeta("extractAll", 2, 2),
     "extractAllGroupsHorizontal": HogQLFunctionMeta("extractAllGroupsHorizontal", 2, 2),
     "extractAllGroupsVertical": HogQLFunctionMeta("extractAllGroupsVertical", 2, 2),
@@ -80,7 +102,7 @@ STRING_SEARCH_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "ilike": HogQLFunctionMeta("ilike", 2, 2),
     "notLike": HogQLFunctionMeta("notLike", 2, 2),
     "notILike": HogQLFunctionMeta("notILike", 2, 2),
-    "locate": HogQLFunctionMeta("locate", 2, 3),
+    "locate": HogQLFunctionMeta("locate", 2, 3, signatures=_STR_STR_OPT_INT_TO_INT),
     "ngramDistance": HogQLFunctionMeta("ngramDistance", 2, 2),
     "ngramDistanceCaseInsensitive": HogQLFunctionMeta("ngramDistanceCaseInsensitive", 2, 2),
     "ngramDistanceUTF8": HogQLFunctionMeta("ngramDistanceUTF8", 2, 2),
@@ -89,22 +111,32 @@ STRING_SEARCH_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "ngramSearchCaseInsensitive": HogQLFunctionMeta("ngramSearchCaseInsensitive", 2, 2),
     "ngramSearchUTF8": HogQLFunctionMeta("ngramSearchUTF8", 2, 2),
     "ngramSearchCaseInsensitiveUTF8": HogQLFunctionMeta("ngramSearchCaseInsensitiveUTF8", 2, 2),
-    "countSubstrings": HogQLFunctionMeta("countSubstrings", 2, 3),
-    "countSubstringsCaseInsensitive": HogQLFunctionMeta("countSubstringsCaseInsensitive", 2, 3),
-    "countSubstringsCaseInsensitiveUTF8": HogQLFunctionMeta("countSubstringsCaseInsensitiveUTF8", 2, 3),
-    "countMatches": HogQLFunctionMeta("countMatches", 2, 2),
-    "countMatchesCaseInsensitive": HogQLFunctionMeta("countMatchesCaseInsensitive", 2, 2),
-    "hasSubsequence": HogQLFunctionMeta("hasSubsequence", 2, 2),
-    "hasSubsequenceCaseInsensitive": HogQLFunctionMeta("hasSubsequenceCaseInsensitive", 2, 2),
-    "hasSubsequenceUTF8": HogQLFunctionMeta("hasSubsequenceUTF8", 2, 2),
-    "hasSubsequenceCaseInsensitiveUTF8": HogQLFunctionMeta("hasSubsequenceCaseInsensitiveUTF8", 2, 2),
-    "hasToken": HogQLFunctionMeta("hasToken", 2, 2),
-    "hasTokenCaseInsensitive": HogQLFunctionMeta("hasTokenCaseInsensitive", 2, 2),
-    "hasTokenOrNull": HogQLFunctionMeta("hasTokenOrNull", 2, 2),
-    "hasTokenCaseInsensitiveOrNull": HogQLFunctionMeta("hasTokenCaseInsensitiveOrNull", 2, 2),
+    "countSubstrings": HogQLFunctionMeta("countSubstrings", 2, 3, signatures=_STR_STR_OPT_INT_TO_INT),
+    "countSubstringsCaseInsensitive": HogQLFunctionMeta(
+        "countSubstringsCaseInsensitive", 2, 3, signatures=_STR_STR_OPT_INT_TO_INT
+    ),
+    "countSubstringsCaseInsensitiveUTF8": HogQLFunctionMeta(
+        "countSubstringsCaseInsensitiveUTF8", 2, 3, signatures=_STR_STR_OPT_INT_TO_INT
+    ),
+    "countMatches": HogQLFunctionMeta("countMatches", 2, 2, signatures=_STR_STR_TO_INT),
+    "countMatchesCaseInsensitive": HogQLFunctionMeta("countMatchesCaseInsensitive", 2, 2, signatures=_STR_STR_TO_INT),
+    "hasSubsequence": HogQLFunctionMeta("hasSubsequence", 2, 2, signatures=_STR_STR_TO_BOOL),
+    "hasSubsequenceCaseInsensitive": HogQLFunctionMeta(
+        "hasSubsequenceCaseInsensitive", 2, 2, signatures=_STR_STR_TO_BOOL
+    ),
+    "hasSubsequenceUTF8": HogQLFunctionMeta("hasSubsequenceUTF8", 2, 2, signatures=_STR_STR_TO_BOOL),
+    "hasSubsequenceCaseInsensitiveUTF8": HogQLFunctionMeta(
+        "hasSubsequenceCaseInsensitiveUTF8", 2, 2, signatures=_STR_STR_TO_BOOL
+    ),
+    "hasToken": HogQLFunctionMeta("hasToken", 2, 2, signatures=_STR_STR_TO_BOOL),
+    "hasTokenCaseInsensitive": HogQLFunctionMeta("hasTokenCaseInsensitive", 2, 2, signatures=_STR_STR_TO_BOOL),
+    "hasTokenOrNull": HogQLFunctionMeta("hasTokenOrNull", 2, 2, signatures=_STR_STR_TO_BOOL),
+    "hasTokenCaseInsensitiveOrNull": HogQLFunctionMeta(
+        "hasTokenCaseInsensitiveOrNull", 2, 2, signatures=_STR_STR_TO_BOOL
+    ),
     "hasAllTokens": HogQLFunctionMeta("hasAllTokens", 2, 2),
     "hasAnyTokens": HogQLFunctionMeta("hasAnyTokens", 2, 2),
-    "regexpExtract": HogQLFunctionMeta("regexpExtract", 2, 3),
+    "regexpExtract": HogQLFunctionMeta("regexpExtract", 2, 3, signatures=_STR_STR_OPT_INT_TO_STR),
 }
 
 # replacing in strings

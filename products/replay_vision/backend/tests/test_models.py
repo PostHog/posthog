@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 
 from django.db import IntegrityError
@@ -83,7 +85,7 @@ class TestReplayScanner(BaseTest):
             ("scanner_config", {"prompt": "different prompt"}),
             ("query", {"properties": [{"key": "foo"}]}),
             ("sampling_rate", 0.25),
-            ("model", ScannerModel.GEMINI_3_FLASH_LITE),
+            ("model", ScannerModel.GEMINI_2_5_FLASH),
             ("emits_signals", True),
         ]
     )
@@ -129,6 +131,36 @@ class TestReplayScanner(BaseTest):
         scanner.refresh_from_db()
         self.assertEqual(scanner.scanner_version, 2)
         self.assertEqual(scanner.scanner_config, {"prompt": "persisted"})
+
+    @parameterized.expand([("full_save", None), ("update_fields_save", ["enabled"])])
+    def test_reenabling_resets_sweep_watermark(self, _label: str, update_fields: list[str] | None) -> None:
+        # Without the reset, a re-enabled scanner backfills every session since it was disabled.
+        stale = timezone.now() - timedelta(days=21)
+        scanner = self._create_scanner(enabled=False, last_swept_at=stale, last_seen_session_id="sess-tie")
+        scanner.enabled = True
+        scanner.save(update_fields=update_fields)
+        scanner.refresh_from_db()
+        self.assertGreater(scanner.last_swept_at, timezone.now() - timedelta(hours=1))
+        self.assertEqual(scanner.last_seen_session_id, "")
+
+    @parameterized.expand(
+        [
+            ("disable", True, False),
+            ("stays_enabled", True, True),
+            ("stays_disabled", False, False),
+        ]
+    )
+    def test_watermark_is_kept_unless_reenabled(self, label: str, enabled_before: bool, enabled_after: bool) -> None:
+        stale = timezone.now() - timedelta(days=21)
+        scanner = self._create_scanner(
+            name=label, enabled=enabled_before, last_swept_at=stale, last_seen_session_id="sess-tie"
+        )
+        scanner.enabled = enabled_after
+        scanner.description = "touched"
+        scanner.save()
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.last_swept_at, stale)
+        self.assertEqual(scanner.last_seen_session_id, "sess-tie")
 
 
 class TestReplayObservation(BaseTest):

@@ -62,6 +62,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import streaming_response
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.encrypted_fields import EncryptedTextField
@@ -73,7 +74,17 @@ from posthog.security.outbound_proxy import internal_requests
 from ..db import WRITER_DB
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
+from ..logic.kernel_skills import all_kernel_skill_ids, kernel_skills_for
 from ..logic.posthog_identity_app import provision_posthog_identity_apps
+from ..logic.skill_editing import (
+    LLMSkill,
+    assert_skills_writable,
+    create_store_skill,
+    publish_skill_body,
+    publish_skill_md_edit,
+    store_skill_exists,
+    validate_store_write,
+)
 from ..logic.skill_resolution import assert_skill_refs_readable, resolve_skill_ref, stamp_skill_provenance
 from ..logic.spec_schema import missing_required_secrets
 from ..models import AgentApplication, AgentIdentityCredential, AgentRevision
@@ -83,12 +94,16 @@ from .serializers import (
     AgentRevisionSerializer,
     CloneFromRequestSerializer,
     DecideApprovalRequestSerializer,
+    DryRunToolRequestSerializer,
+    ImportBundleRequestSerializer,
     NewDraftRevisionRequestSerializer,
     PreviewProxyInvokeRequestSerializer,
     PromoteRevisionRequestSerializer,
+    RevisionNotDraftErrorSerializer,
     SetEnvKeyRequestSerializer,
     SetEnvRequestSerializer,
     SetSkillRefsRequestSerializer,
+    UpdateBundleFileRequestSerializer,
     WriteAgentMdRequestSerializer,
     WriteSpecRequestSerializer,
     WriteToolRequestSerializer,
@@ -118,6 +133,21 @@ def _resolve_application(queryset: QuerySet, lookup_value: str | None) -> AgentA
 def _janitor() -> JanitorClient:
     """Indirection so tests can monkey-patch."""
     return default_client()
+
+
+# Mirrors `RESOURCE_ID_REGEX` in
+# services/agent-shared/src/storage/typed-bundle.ts. The janitor enforces this
+# regex on every PUT /skills/<id>; pre-checking on the Django side turns a
+# noisy janitor 400 into a clean reject before we make any upstream calls,
+# and is cheap. Keep these two in sync (per agent-shared CLAUDE.md rule 3).
+# Also classifies `skills/<id>/` folders in the freeze sweep, keeping Django's
+# sweep set identical to the set the janitor derives as skills.
+# Always use `.fullmatch()`: Python's `$` matches before a trailing newline
+# (JS's `$` does not), so `.match()` would accept `"abc\n"` and mint a store
+# skill + ref alias the janitor later rejects at freeze.
+_RESOURCE_ID_REGEX = re.compile(r"[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?")
+# Canonical bundle path for one skill's markdown body. Same fullmatch rule.
+_SKILL_BODY_PATH_REGEX = re.compile(r"skills/([a-z0-9](?:[a-z0-9_-]*[a-z0-9])?)/SKILL\.md")
 
 
 def _decode_env_map(raw: str | None) -> dict[str, str]:
@@ -190,18 +220,28 @@ class JanitorUpstreamError(APIException):
                 if parts:
                     joined = "; ".join(parts)
                     msg = f"{msg}: {joined}" if isinstance(msg, str) else joined
+            # Zod-validation rejects (typed-bundle PUTs: spec/agent_md/skill_refs/
+            # tools) -> issues=[{message, path:[...]}] with `error=invalid_request`.
+            # Surface `message [path]` so the caller sees the offending field, not
+            # just the opaque code.
+            issues = e.body.get("issues")
+            if isinstance(issues, list) and issues:
+                issue_parts: list[str] = []
+                for iss in issues:
+                    if not isinstance(iss, dict) or not isinstance(iss.get("message"), str):
+                        continue
+                    path = iss.get("path")
+                    loc = ".".join(str(p) for p in path) if isinstance(path, list) and path else ""
+                    issue_parts.append(f"{iss['message']} [{loc}]" if loc else iss["message"])
+                if issue_parts:
+                    joined = "; ".join(issue_parts)
+                    msg = f"{msg}: {joined}" if isinstance(msg, str) else joined
             detail_str: str = msg if isinstance(msg, str) else json.dumps(e.body)
         elif isinstance(e.body, str):
             detail_str = e.body
         else:
             detail_str = e.message
         super().__init__(detail=detail_str)
-
-
-# Skill folder aliases the janitor recognizes (mirrors the `skills/<id>/` id regex
-# in agent-janitor's typed-bundle.ts). Used to keep the freeze sweep set identical
-# to the set the janitor derives as skills.
-_SKILL_ALIAS_RE = re.compile(r"^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$")
 
 
 def _is_sealed_bundle_conflict(e: JanitorClientError) -> bool:
@@ -590,6 +630,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "list",
         "retrieve",
         "models",
+        "spec_schema",
         "sessions_list",
         "sessions_retrieve",
         "session_logs",
@@ -785,10 +826,10 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             finally:
                 await sync_to_async(upstream.close, thread_sensitive=False)()
 
-        resp = StreamingHttpResponse(
+        resp = streaming_response(
             _stream(),
-            status=upstream.status_code,
             content_type=upstream.headers.get("Content-Type", "application/octet-stream"),
+            status=upstream.status_code,
         )
         # Forward upstream response headers verbatim minus connection-control
         # ones that Django handles itself.
@@ -993,6 +1034,47 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(payload)
 
     @extend_schema(
+        operation_id="agent_applications_spec_schema",
+        parameters=[
+            OpenApiParameter(
+                "section",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Return only this top-level slice of the spec schema to save tokens — one of "
+                    "`models`, `triggers`, `tools`, `mcps`, `skills`, `identity_providers`, `secrets`, "
+                    "`limits`, `reasoning`, `framework_prompt`, `resume`. Omit for the whole spec schema."
+                ),
+            ),
+        ],
+        description=(
+            "The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the "
+            "discriminated unions for `models` / `triggers[]` / `tools[]`, each with an inline description. "
+            "Emitted from the same source the runner validates against (fields with a default are optional "
+            "on write), so read it BEFORE composing a spec for create / revisions-spec-update instead of "
+            "guessing the shape. Pass `section` to fetch just one part."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="spec_schema")
+    def spec_schema(self, request: Request, **kwargs) -> Response:
+        """The agent-spec JSON Schema, proxied from the janitor, which emits it
+        from the canonical zod `AgentSpecSchema` (no Python mirror — the schema
+        an author reads can't drift from the one the runner parses). Optional
+        `section` slices one top-level property."""
+        section = request.query_params.get("section") or None
+        try:
+            payload = _janitor().get_spec_schema(section=section)
+        except JanitorClientError as e:
+            # A bad `section` is a client error — the janitor returns 400 with the
+            # valid section list. Surface that as a clean 400, not a 502.
+            if e.status_code == status.HTTP_400_BAD_REQUEST:
+                body = e.body if isinstance(e.body, dict) else {"detail": e.message}
+                return Response(body, status=status.HTTP_400_BAD_REQUEST)
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
         operation_id="agent_applications_sessions_list",
         parameters=[
             OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
@@ -1078,7 +1160,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["get"], url_path="sessions")
     def sessions_list(self, request: Request, **kwargs) -> Response:
-        """List sessions for this application, newest first. Strips the
+        """List sessions for this application, most recently active first. Strips the
         conversation transcript from each summary, but includes a `preview`
         (last assistant text, ~120 chars) and `usage_total` (token + cost
         aggregate). Use `agent-applications-sessions-retrieve` for the full
@@ -1681,6 +1763,12 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "set_skill_refs",
         "put_tool",
         "delete_tool",
+        # Dry-run reads the persisted compiled.js but actually executes user
+        # code in a sandbox — treat it as a write-scoped op so the scope
+        # gates arbitrary compute, not just data reads.
+        "dry_run_tool",
+        "update_bundle_file",
+        "import_bundle",
         "cron_fire",
         "set_env",
         # env_keys_key handles GET/PUT/DELETE on /env_keys/<KEY>/ — bundled
@@ -2050,10 +2138,16 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({**result, "events_url": events_url, "interactivity_url": interactivity_url})
 
     # DRF routes the typed bundle verbs across @action + .mapping.<verb>
-    # chains. Three separate @action decorators with the same url_path
-    # don't merge — the last one registered wins and the others 405. So
-    # GET+PUT under /bundle/, PUT+DELETE under /skills/<id>/ and
-    # /tools/<id>/ share a single @action with mapping chains below.
+    # chains. Separate @action decorators with the same url_path don't merge —
+    # the last one registered wins and the others 405 — so GET+PUT under /bundle/
+    # share a single @action with a mapping chain below.
+    # NOTE: skill folders are deliberately NOT author-writable through Django.
+    # There is no `skills/<id>` author action (only agent_md/spec/skill_refs/tools);
+    # `skills/` is populated only at freeze (resolved store `skill_refs` + injected
+    # platform kernel skills). The janitor's `PUT/DELETE /revisions/:id/skills/:id`
+    # is internal-only, reachable solely via `janitor_client.put_skill`/`delete_skill`
+    # during freeze. Do NOT proxy it through to authors — that re-opens the
+    # store-only boundary kernel skills + skill_refs are built to enforce.
 
     # ── typed bundle authoring API ──────────────────────────────────────
     # Django
@@ -2149,6 +2243,314 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_tool(self, request: Request, tool_id: str, **kwargs) -> Response:
         revision: AgentRevision = self.get_object()
         return Response(self._call(_janitor().delete_tool, str(revision.id), tool_id))
+
+    # ── editable .md surface: per-file PUT + bulk import ────────────────
+    # Author surface for the configuration-pane editor and the bulk-paste
+    # migration dialog. `agent.md` writes proxy to the draft bundle via the
+    # janitor. Skill writes are store-backed: freeze materializes
+    # `skill_refs` from the skill store and sweeps everything else out of
+    # `skills/`, so a draft-bundle write could never stick — instead an
+    # edit publishes a new version of the referenced store skill and
+    # re-pins the draft's ref to it (see logic/skill_editing.py). Both
+    # endpoints are draft-only — once a revision is frozen
+    # (ready/live/archived) the stamped bundle sha is the source of truth
+    # and neither the bundle nor the refs may move underneath it.
+
+    _BUNDLE_EDIT_409_RESPONSE = OpenApiResponse(
+        response=RevisionNotDraftErrorSerializer,
+        description="The revision is frozen (ready/live/archived); clone a new draft and edit that instead.",
+    )
+
+    def _require_draft_or_409(self, revision: AgentRevision) -> Response | None:
+        if revision.state == "draft":
+            return None
+        return Response(
+            {
+                "error": "revision_not_draft",
+                "state": revision.state,
+                "detail": (
+                    f"Cannot edit the bundle on a '{revision.state}' revision. Clone a new draft and edit it instead."
+                ),
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    def _locked_repin_skill_refs(
+        self,
+        revision: AgentRevision,
+        published_by_alias: dict[str, LLMSkill],
+        appended_refs: list[dict[str, Any]] | None = None,
+    ) -> Response | None:
+        """Re-pin edited refs (and append new ones) under a row lock, re-checking
+        draft state — a concurrent freeze could have sealed the revision since
+        the unlocked gate, and writing refs onto a frozen row would desync the
+        column from the sealed bundle (mirrors `set_skill_refs`). Returns the
+        409 response when frozen, None on success. Store versions already
+        published stay valid either way — they're append-only and merely go
+        unreferenced.
+        """
+        with transaction.atomic(using=WRITER_DB):
+            locked = AgentRevision.all_teams.using(WRITER_DB).select_for_update().get(pk=revision.pk)
+            if locked.state != "draft":
+                return self._require_draft_or_409(locked)
+            refs = [dict(r) for r in (locked.skill_refs or [])]
+            for ref in refs:
+                alias = ref.get("alias")
+                if not isinstance(alias, str):
+                    continue
+                published = published_by_alias.get(alias)
+                if published is not None:
+                    ref["version"] = published.version
+                    ref["source_version_id"] = str(published.id)
+            refs.extend(appended_refs or [])
+            locked.skill_refs = refs
+            locked.save(update_fields=["skill_refs"])
+        return None
+
+    def _publish_referenced_skill_edit(
+        self, request: Request, revision: AgentRevision, alias: str, content: str
+    ) -> Response | None:
+        """Publish edited SKILL.md content as a new store version and re-pin the
+        draft's ref to it. Returns the 409 response if the revision froze
+        concurrently, None on success."""
+        if alias in all_kernel_skill_ids():
+            raise ValidationError(
+                f"Skill '{alias}' is a platform kernel skill — its content is code-locked and cannot be edited."
+            )
+        ref = next((r for r in (revision.skill_refs or []) if r.get("alias") == alias), None)
+        name = ref.get("from_template") if ref else None
+        if not isinstance(name, str) or not name:
+            raise ValidationError(
+                f"Skill '{alias}' is not referenced by this revision. Add it via the skill_refs "
+                "endpoint or bundle/import/ first."
+            )
+        assert_skills_writable(
+            [name],
+            scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
+            user_access_control=self.user_access_control,
+        )
+        published = publish_skill_md_edit(self.team, user=cast(User, request.user), skill_name=name, content=content)
+        return self._locked_repin_skill_refs(revision, {alias: published})
+
+    @extend_schema(
+        request=UpdateBundleFileRequestSerializer,
+        responses={200: AgentRevisionSerializer, 409: _BUNDLE_EDIT_409_RESPONSE},
+    )
+    @action(detail=True, methods=["put"], url_path="bundle/file")
+    def update_bundle_file(self, request: Request, **kwargs) -> Response:
+        """Update one `.md` file on a draft revision.
+
+        `agent.md` writes go to the draft bundle. `skills/<id>/SKILL.md`
+        writes are store-backed — skills are materialized from the skill
+        store at freeze, so the edit publishes a new version of the
+        referenced store skill and re-pins the draft's `skill_refs` entry
+        to it. `<id>` must be a ref alias on this revision; add new skills
+        via `bundle/import/` or `skill_refs`. Tool source / schema editing
+        is out of scope here — use the per-tool endpoints. Returns the
+        updated revision so the caller can refresh in one round-trip.
+        """
+        revision: AgentRevision = self.get_object()
+        # Gate on draft state before validating the payload so a non-draft
+        # revision always returns 409, never a 400 that hides the real reason
+        # the request can't proceed.
+        if (resp := self._require_draft_or_409(revision)) is not None:
+            return resp
+
+        body = UpdateBundleFileRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+
+        path = body.validated_data["path"]
+        content = body.validated_data["content"]
+
+        if path == "agent.md":
+            self._call(_janitor().put_agent_md, str(revision.id), content)
+        elif (match := _SKILL_BODY_PATH_REGEX.fullmatch(path)) is not None:
+            if (resp := self._publish_referenced_skill_edit(request, revision, match.group(1), content)) is not None:
+                return resp
+        else:
+            raise ValidationError(
+                f"Path '{path}' is not editable through this endpoint. "
+                "Only 'agent.md' and 'skills/<id>/SKILL.md' are supported."
+            )
+
+        revision.refresh_from_db()
+        return Response(AgentRevisionSerializer(revision, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=ImportBundleRequestSerializer,
+        responses={200: AgentRevisionSerializer, 409: _BUNDLE_EDIT_409_RESPONSE},
+    )
+    @action(detail=True, methods=["post"], url_path="bundle/import")
+    def import_bundle(self, request: Request, **kwargs) -> Response:
+        """Bulk-merge a set of `.md` files into a draft revision.
+
+        Sets `agent_md` on the draft bundle if present. `skills[]` are
+        store-backed and merge by `id`: an id already referenced by the
+        draft publishes a new version of its store skill; an unreferenced
+        id attaches the store skill of that name (publishing the payload's
+        body to it), or creates it when no such skill exists — and each
+        ref is (re-)pinned to the published version. Skills not mentioned
+        are left alone, so the import is safe to retry. Draft-only;
+        non-draft revisions return 409 untouched.
+        """
+        revision: AgentRevision = self.get_object()
+        # Gate on draft state before validating the payload so a non-draft
+        # revision always returns 409, never a 400 that hides the real reason
+        # the request can't proceed.
+        if (resp := self._require_draft_or_409(revision)) is not None:
+            return resp
+
+        body = ImportBundleRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+
+        agent_md = body.validated_data.get("agent_md")
+        skills = body.validated_data.get("skills") or []
+
+        # Validate everything up-front so a single bad entry rejects the whole
+        # request before anything is published — callers expect "all-or-nothing"
+        # semantics for the bulk paste. (Store publishes are append-only, so a
+        # mid-flight failure can't corrupt existing versions, but half an
+        # import is still a state the UI can't easily explain.)
+        seen_ids: set[str] = set()
+        for skill in skills:
+            skill_id = skill["id"]
+            if not _RESOURCE_ID_REGEX.fullmatch(skill_id):
+                raise ValidationError(
+                    f"Skill id '{skill_id}' is invalid. Use lowercase letters, "
+                    "digits, hyphens, or underscores; must start and end with [a-z0-9]."
+                )
+            if skill_id in seen_ids:
+                raise ValidationError(f"Skill id '{skill_id}' appears more than once in the import payload.")
+            seen_ids.add(skill_id)
+        kernel_collisions = sorted(seen_ids & all_kernel_skill_ids())
+        if kernel_collisions:
+            raise ValidationError(
+                f"Skill id(s) {kernel_collisions} collide with platform kernel skills — pick different ids."
+            )
+
+        # Plan each entry against the refs and the store: an id already
+        # referenced by the draft targets its ref's store skill; anything else
+        # targets (or creates) the store skill of the same name and appends a
+        # ref. New store skills must carry a description — there's no current
+        # version to fall back to.
+        refs_by_alias = {r.get("alias"): r for r in (revision.skill_refs or [])}
+        plan: list[tuple[dict[str, Any], str, bool]] = []  # (payload entry, store name, exists in store)
+        for skill in skills:
+            skill_id = skill["id"]
+            ref = refs_by_alias.get(skill_id)
+            name = ref.get("from_template") if ref is not None else skill_id
+            if not isinstance(name, str) or not name:
+                raise ValidationError(f"Skill reference '{skill_id}' on this revision is malformed.")
+            exists = ref is not None or store_skill_exists(self.team, name)
+            if not exists and not skill.get("description"):
+                raise ValidationError(f"Skill '{skill_id}' is new — `description` is required when adding a skill.")
+            # Store-side caps (body size, description length, name format for
+            # creates) checked up-front too, so a bad entry mid-payload can't
+            # leave earlier entries already published.
+            validate_store_write(skill["body"], skill.get("description"), new_skill_name=None if exists else name)
+            plan.append((skill, name, exists))
+
+        appended_count = sum(1 for entry, _, _ in plan if entry["id"] not in refs_by_alias)
+        if len(revision.skill_refs or []) + appended_count > MAX_SKILL_REFS:
+            raise ValidationError(f"A revision may reference at most {MAX_SKILL_REFS} store skills.")
+
+        if plan:
+            assert_skills_writable(
+                [name for _, name, _ in plan],
+                scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
+                user_access_control=self.user_access_control,
+            )
+
+        published_by_alias: dict[str, LLMSkill] = {}
+        appended_refs: list[dict[str, Any]] = []
+        user = cast(User, request.user)
+        for skill, name, exists in plan:
+            skill_id = skill["id"]
+            if exists:
+                published = publish_skill_body(
+                    self.team, user=user, skill_name=name, body=skill["body"], description=skill.get("description")
+                )
+            else:
+                published = create_store_skill(
+                    self.team, user=user, name=name, description=skill["description"], body=skill["body"]
+                )
+            published_by_alias[skill_id] = published
+            if skill_id not in refs_by_alias:
+                appended_refs.append(
+                    {
+                        "from_template": name,
+                        "alias": skill_id,
+                        "version": published.version,
+                        "source_version_id": str(published.id),
+                    }
+                )
+
+        if (
+            published_by_alias
+            and (resp := self._locked_repin_skill_refs(revision, published_by_alias, appended_refs)) is not None
+        ):
+            return resp
+
+        if agent_md is not None:
+            self._call(_janitor().put_agent_md, str(revision.id), agent_md)
+
+        revision.refresh_from_db()
+        return Response(AgentRevisionSerializer(revision, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=DryRunToolRequestSerializer,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentRevisionDryRunToolResponse",
+                fields={
+                    "ok": drf_serializers.BooleanField(
+                        help_text="True when the tool's `actions.default` returned without throwing. False when the tool threw or the sandbox rejected the invocation (the structured `error` describes which)."
+                    ),
+                    "tool_id": drf_serializers.CharField(help_text="Echo of the tool id from the URL."),
+                    "result": drf_serializers.JSONField(
+                        required=False,
+                        help_text="Present on success — the value the tool's `actions.default` returned.",
+                    ),
+                    "error": inline_serializer(
+                        name="AgentRevisionDryRunToolError",
+                        fields={
+                            "code": drf_serializers.CharField(
+                                help_text=(
+                                    "Stable error code. `sandbox_acquire_failed` — the platform could not start a "
+                                    "sandbox (infrastructure issue, not tool code). `sandbox_invoke_failed` — the "
+                                    "sandbox started but the invoke threw uncaught (problem in the tool body, or a "
+                                    "runtime error). Dispatcher-side codes come through on `ok:false` invoke results: "
+                                    "`timeout`, `secret_not_provisioned`, `action_not_found`, `tool_not_found`."
+                                )
+                            ),
+                            "message": drf_serializers.CharField(help_text="One-line human-readable detail."),
+                        },
+                        required=False,
+                    ),
+                    "duration_ms": drf_serializers.IntegerField(
+                        help_text=(
+                            "Wall-clock duration in milliseconds, measured from sandbox acquire to after release. "
+                            "Captured consistently across success, tool-throw, and acquire-failure paths so authors "
+                            "can compare timings between calls. Always present."
+                        )
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path=r"tools/(?P<tool_id>[a-z0-9][a-z0-9_-]*)/dry_run")
+    def dry_run_tool(self, request: Request, tool_id: str, **kwargs) -> Response:
+        """Execute one persisted custom tool in a single-shot sandbox.
+
+        Authoring loop's "test this tool" button. The tool's source must
+        already be PUT (compiled.js is what runs); this just invokes it
+        with the caller-supplied args and a stubbed ctx. No real secrets
+        leave Django — `mock_secrets` is a `{name → placeholder}` map.
+        """
+        revision: AgentRevision = self.get_object()
+        body = DryRunToolRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        return Response(self._call(_janitor().dry_run_tool, str(revision.id), tool_id, body.validated_data))
 
     @extend_schema(
         request=None,
@@ -2380,6 +2782,24 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             r.alias: {"from_template": r.from_template, "version": r.version, "source_version_id": r.source_version_id}
             for r in resolved_skills
         }
+        # Platform kernel skills — code-locked operator behaviour injected from
+        # backend code, never authored through the API. The store (`skill_refs`)
+        # is the only author path into `skills/`, so an author can't supply or
+        # forge these; the freeze materializes them alongside the resolved store
+        # skills below and merges both into the derived `spec.skills[]`. Empty for
+        # any agent the platform hasn't designated (see logic/kernel_skills.py).
+        # Per-slug targeting is safe to key on the slug only because human-readable
+        # slugs are gated behind a first-party allowlist
+        # (AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS); a normal team gets an opaque
+        # server-minted slug it can't use to claim e.g. `agent-builder`.
+        kernel_skills = kernel_skills_for(revision.application.slug)
+        kernel_ids = {k.id for k in kernel_skills}
+        collisions = sorted(kernel_ids & aliases)
+        if collisions:
+            raise ValidationError(
+                f"Skill reference alias(es) {collisions} collide with a platform kernel skill id — "
+                "rename the alias in `skill_refs`."
+            )
         # Migration guard for pre-store agents: a revision forked from one authored
         # before the store became canonical carries inline skill entries in its
         # spec with no store provenance. Discriminate on `source_version_id`, NOT
@@ -2392,16 +2812,30 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # left by a failed prior freeze — absent from the spec — is swept on retry
         # rather than misclassified as legacy. An unreferenced inline skill is
         # refused: silently dropping it would lose real content.
+        #
+        # Exempt ANY shipped kernel id (`all_kernel_ids`), not just this agent's
+        # applicable set (`kernel_ids`): an inline entry whose id is a platform
+        # kernel skill is platform-owned content the author can't author or remove
+        # (there is no `skills` write path). It reaches a fork two ways the guard
+        # must not brick — a kernel de-designated for this slug, or a cross-team
+        # `clone_from` that lands an opaque slug no kernel targets. In both the id
+        # is still a shipped kernel, so it's safe to let through: the sweep below
+        # drops it from the bundle when it's no longer applicable, re-injecting only
+        # what `kernel_ids` still designates. Only a genuinely deleted kernel folder
+        # falls through to the legacy path, which is the honest outcome.
+        all_kernel_ids = all_kernel_skill_ids()
         legacy_orphans = sorted(
             sid
             for s in ((revision.spec or {}).get("skills") or [])
-            if (sid := s.get("id")) and not s.get("source_version_id") and sid not in aliases
+            if (sid := s.get("id"))
+            and not s.get("source_version_id")
+            and sid not in aliases
+            and sid not in all_kernel_ids
         )
         if legacy_orphans:
             raise ValidationError(
-                f"Revision carries inline skill(s) {legacy_orphans} not backed by a store reference "
-                "(authored before the skill store became canonical). Recreate them in the skill store and set "
-                "`skill_refs` before freezing — otherwise the freeze would silently drop them."
+                f"Revision carries inline skill(s) {legacy_orphans} not backed by a store reference. "
+                "These predate the skill store — recreate them in the store and set `skill_refs` before freezing."
             )
         # Materialize the resolved refs into the bundle, then seal. Skills are
         # store-only — nothing else writes `skills/` — so the frozen bundle must
@@ -2410,6 +2844,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # freeze already sealed the bundle (its HTTP response was lost): the
         # janitor refuses edits to a sealed bundle, and its `freeze` is idempotent
         # — it re-derives the sha + spec from what's already sealed.
+        bundle_already_sealed = False
         try:
             manifest = janitor_client.manifest(str(revision.id))
             # Only `skills/<alias>/<file>` paths whose alias matches the janitor's
@@ -2419,7 +2854,9 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             bundle_aliases = {
                 parts[1]
                 for f in manifest.get("files", [])
-                if len(parts := f["path"].split("/")) >= 3 and parts[0] == "skills" and _SKILL_ALIAS_RE.match(parts[1])
+                if len(parts := f["path"].split("/")) >= 3
+                and parts[0] == "skills"
+                and _RESOURCE_ID_REGEX.fullmatch(parts[1])
             }
             # Write the resolved skills BEFORE sweeping leftovers: a failure
             # mid-flight then leaves the bundle with extra folders, never missing a
@@ -2427,7 +2864,14 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # leave a window where the draft has neither the old nor the new skill.
             for resolved in resolved_skills:
                 janitor_client.put_skill(str(revision.id), resolved.alias, resolved.put_skill_payload())
-            for stale in bundle_aliases - aliases:
+            # Inject the platform kernel skills the same way — re-written from
+            # backend code every freeze, so the frozen bundle always carries the
+            # current bytes (never a stale DB copy) and stays in lockstep.
+            for kskill in kernel_skills:
+                janitor_client.put_skill(str(revision.id), kskill.id, kskill.put_skill_payload())
+            # Sweep store-orphan folders, but keep the kernel folders just written:
+            # `kernel_ids` are legitimate, not leftovers from a removed ref.
+            for stale in bundle_aliases - aliases - kernel_ids:
                 try:
                     janitor_client.delete_skill(str(revision.id), stale)
                 except JanitorClientError as e:
@@ -2441,6 +2885,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # to the idempotent freeze below. Any other error is a real failure.
             if not _is_sealed_bundle_conflict(e):
                 raise JanitorUpstreamError(e) from e
+            bundle_already_sealed = True
         result = self._call(janitor_client.freeze, str(revision.id))
         # Pin resolved versions back into `skill_refs` so an unpinned ref becomes a
         # concrete pin after its first freeze. A fork copies `skill_refs` verbatim,
@@ -2459,6 +2904,29 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         derived_spec = result.get("derived_spec")
         if derived_spec is not None:
             stamp_skill_provenance(derived_spec, provenance_by_alias)
+            # Post-seal invariant: every kernel skill we injected must be present in
+            # the sealed spec. A 2xx `put_skill` whose body didn't materialize (S3
+            # eventual consistency, a future janitor derivation change) would
+            # otherwise flip a `ready` agent live while silently missing a kernel
+            # skill — e.g. `safety-and-boundaries`. Fail before the draft→ready flip
+            # so the revision stays a draft and the freeze is retriable.
+            #
+            # Only enforce it when we actually (re)wrote the bundle this freeze. On
+            # the sealed-bundle fall-through the bytes are immutable and `put_skill`
+            # can no longer touch them — the freeze that sealed them already ran this
+            # check. Re-running it here would permanently wedge the draft whenever
+            # the kernel set drifted (grew/renamed) after that seal, or whenever a
+            # concurrent freeze won the seal first — turning a lost-response retry
+            # into a dead end. The conditional draft→ready UPDATE below is what keeps
+            # concurrent freezes consistent in that case.
+            if not bundle_already_sealed:
+                materialized_ids = {s.get("id") for s in derived_spec.get("skills") or []}
+                missing_kernel = sorted(kernel_ids - materialized_ids)
+                if missing_kernel:
+                    raise APIException(
+                        detail=f"Freeze sealed without kernel skill(s) {missing_kernel}; materialization failed — "
+                        "revision left in draft. Retry the freeze."
+                    )
             fields["spec"] = derived_spec
         # Conditional draft→ready flip: only the first freeze of a draft wins, so
         # two concurrent freezes can't both stamp the row, and a `set_skill_refs`

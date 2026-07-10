@@ -10,7 +10,12 @@ export function downloadBlob(content: Blob, filename: string): void {
     anchor.download = filename
     document.body.appendChild(anchor)
     anchor.click()
-    window.URL.revokeObjectURL(objectURL)
+    // Firefox can cancel the download if the anchor is removed (or the URL revoked) synchronously
+    // after click() — defer both, matching downloadFile in lib/utils/dom.ts.
+    setTimeout(() => {
+        document.body.removeChild(anchor)
+        window.URL.revokeObjectURL(objectURL)
+    }, 0)
 }
 
 export async function exportedAssetBlob(asset: ExportedAssetType): Promise<Blob> {

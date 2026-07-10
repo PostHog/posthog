@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -21,6 +21,8 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionTemplateType } from '~/types'
+
+import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
@@ -145,7 +147,7 @@ export const workflowLogic = kea<workflowLogicType>([
     ),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
-        actions: [workflowsLogic, ['archiveWorkflow']],
+        actions: [workflowsLogic, ['archiveWorkflow'], resourceEditedLogic, ['resourceEdited']],
     })),
     actions({
         partialSetWorkflowActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({
@@ -183,8 +185,12 @@ export const workflowLogic = kea<workflowLogicType>([
         markAutoSave: (isAutoSave: boolean) => ({ isAutoSave }),
         setAutoSaveEnabled: (enabled: boolean) => ({ enabled }),
         clearAutoSavePending: true,
+        setExternallyEdited: (externallyEdited: boolean) => ({ externallyEdited }),
+        setSyncingExternalEdit: (syncing: boolean) => ({ syncing }),
+        setSaveBaseUpdatedAt: (updatedAt: string | null) => ({ updatedAt }),
+        keepMyWorkflowVersion: true,
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         originalWorkflow: [
             null as HogFlow | null,
             {
@@ -235,7 +241,22 @@ export const workflowLogic = kea<workflowLogicType>([
                         return result
                     }
 
-                    return api.hogFlows.updateHogFlow(props.id, updates)
+                    try {
+                        return await api.hogFlows.updateHogFlow(props.id, {
+                            ...updates,
+                            // Let the server reject the save if a newer copy exists (optimistic concurrency).
+                            // saveBaseUpdatedAt overrides the loaded timestamp after the user picks "Keep mine".
+                            base_updated_at: values.saveBaseUpdatedAt ?? values.originalWorkflow?.updated_at ?? null,
+                        })
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status === 409) {
+                            // A newer version exists (SSE event likely missed) — surface the reconcile banner,
+                            // which carries the actionable Reload / Keep mine choice. No toast: it would just
+                            // duplicate the banner (the global kea handler already skips 409).
+                            actions.setExternallyEdited(true)
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -369,6 +390,38 @@ export const workflowLogic = kea<workflowLogicType>([
             true as boolean,
             {
                 setAutoSaveEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        // Set when another channel (another UI tab, MCP, or the API) saved this workflow while we had
+        // unsaved local edits. Surfaces a non-destructive "reload / keep mine" banner. Cleared whenever
+        // we reload or save, since both reconcile us with the server copy.
+        externallyEdited: [
+            false as boolean,
+            {
+                setExternallyEdited: (_, { externallyEdited }) => externallyEdited,
+                loadWorkflowSuccess: () => false,
+                saveWorkflowSuccess: () => false,
+            },
+        ],
+        // True while we silently reconcile to an external edit (clean local state). Drives a brief
+        // overlay so the canvas is disabled and visibly "working" during the reload, like auto-save.
+        isSyncingExternalEdit: [
+            false as boolean,
+            {
+                setSyncingExternalEdit: (_, { syncing }) => syncing,
+                loadWorkflowSuccess: () => false,
+                loadWorkflowFailure: () => false,
+            },
+        ],
+        // Overrides the base timestamp sent with the next save. Set when the user chooses "Keep mine" on
+        // the conflict banner — we adopt the latest server updated_at so their save deliberately wins
+        // instead of dead-ending on a 409. Reset once any load or save reconciles us with the server.
+        saveBaseUpdatedAt: [
+            null as string | null,
+            {
+                setSaveBaseUpdatedAt: (_, { updatedAt }) => updatedAt,
+                loadWorkflowSuccess: () => null,
+                saveWorkflowSuccess: () => null,
             },
         ],
     }),
@@ -638,6 +691,43 @@ export const workflowLogic = kea<workflowLogicType>([
             // the setScheduleTimezone listener's wall-clock reinterpretation.
             actions.setSchedules(values.schedules)
         },
+        resourceEdited: ({ event }) => {
+            // Another channel (a second UI tab, MCP, or the API) saved this workflow. React only to
+            // events for the workflow we currently have open.
+            if (event.resource_type !== 'HogFlow' || event.resource_id !== props.id) {
+                return
+            }
+            const loadedUpdatedAt = values.originalWorkflow?.updated_at
+            // Strictly-newer comparison rather than equality: equal means the event is the echo of our
+            // own save (originalWorkflow already carries that updated_at), so we ignore it. Only a server
+            // copy that is genuinely ahead of what we loaded is a real external edit.
+            if (!loadedUpdatedAt || !dayjs(event.updated_at).isAfter(dayjs(loadedUpdatedAt))) {
+                return
+            }
+            if (values.hasUnsavedChanges) {
+                // Don't clobber the user's in-progress edits — let them choose (banner).
+                actions.setExternallyEdited(true)
+            } else {
+                // Clean slate: catch up to the external edit. Flag the sync first so the editor shows a
+                // brief working/disabled overlay and re-enables once the fresh copy loads (like auto-save).
+                actions.setSyncingExternalEdit(true)
+                actions.loadWorkflow()
+            }
+        },
+        keepMyWorkflowVersion: async () => {
+            // The user wants their in-progress edits to win. Adopt the latest server updated_at as the
+            // save baseline (without touching their canvas) so the next save passes the optimistic-lock
+            // check and deliberately overwrites the other channel's version, instead of looping on 409.
+            if (props.id && props.id !== 'new') {
+                try {
+                    const latest = await api.hogFlows.getHogFlow(props.id)
+                    actions.setSaveBaseUpdatedAt(latest.updated_at)
+                } catch {
+                    // If we can't fetch the latest timestamp, just dismiss; the 409 backstop still protects them.
+                }
+            }
+            actions.setExternallyEdited(false)
+        },
         saveWorkflowPartial: async ({ workflow }) => {
             const merged = { ...values.workflow, ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {
@@ -775,11 +865,16 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
 
-            action.config = { ...config } as HogFlowAction['config']
+            // Replace the action rather than mutating it: subscribers diff the workflow against
+            // their previous snapshot, and an in-place write updates that snapshot too, making
+            // every config edit look like a no-op.
+            const updatedAction = { ...action, config: { ...config } as HogFlowAction['config'] }
 
-            const changes = { actions: [...values.workflow.actions] } as Partial<HogFlow>
-            if (action.type === 'trigger') {
-                changes.trigger = action.config as TriggerAction['config']
+            const changes = {
+                actions: values.workflow.actions.map((a) => (a.id === actionId ? updatedAction : a)),
+            } as Partial<HogFlow>
+            if (updatedAction.type === 'trigger') {
+                changes.trigger = updatedAction.config as TriggerAction['config']
             }
 
             actions.setWorkflowValues(changes)

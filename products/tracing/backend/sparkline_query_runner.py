@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 from posthog.schema import TraceSpansQueryResponse
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -37,6 +37,17 @@ class TraceSpansSparklineQueryRunner(TraceSpansQueryRunner):
         return TraceSpansQueryResponse(results=results)
 
     def to_query(self) -> ast.SelectQuery:
+        # Spans view counts every matching span. Traces view counts distinct traces — the SAME aggregate
+        # the count label uses (count_query_runner: uniqExactIf(trace_id, is_root_span = 1)), so the bars
+        # tie out to "N traces matching filters" even for malformed traces with 0 or >1 root spans.
+        # uniqExactIf can't use the count() projection (it needs trace_id), so traces mode raw-scans until
+        # a distinct-trace projection (uniqExactState(trace_id)) is added — see the comment in spans.py.
+        event_count_expr: ast.Expr = (
+            parse_expr("uniqExactIf(trace_id, is_root_span = 1)")
+            if self.query.rootSpans is True
+            else parse_expr("count()")
+        )
+
         query = parse_select(
             """
                 SELECT
@@ -64,7 +75,7 @@ class TraceSpansSparklineQueryRunner(TraceSpansQueryRunner):
                     SELECT
                         toStartOfInterval({time_field}, {one_interval_period}) AS time,
                         {breakdown_field},
-                        count() AS event_count
+                        {event_count} AS event_count
                     FROM posthog.trace_spans
                     WHERE {where} AND time >= {date_from_start_of_interval} AND time <= {date_to}
                     GROUP BY {breakdown_field}, time
@@ -81,6 +92,7 @@ class TraceSpansSparklineQueryRunner(TraceSpansQueryRunner):
                 if self.query_date_range.interval_name != "second"
                 else ast.Field(chain=["timestamp"]),
                 "where": self.where(),
+                "event_count": event_count_expr,
                 "breakdown_field": ast.Field(chain=["service_name"]),
             },
         )

@@ -55,7 +55,7 @@ class TestOktaSource:
         [
             ("users", True),
             ("groups", True),
-            ("applications", True),
+            ("applications", False),
             ("logs", True),
             ("group_rules", False),
             ("user_types", False),

@@ -25,6 +25,8 @@ class TestLinkedInAdsSource:
             "The token used in the request has expired",
             "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.",
             'LinkedIn API error (401): {"status":401,"serviceErrorCode":65608,"code":"RESTRICTED_MEMBER","message":"Member is restricted"}',
+            # Integration.DoesNotExist when the OAuth integration row was deleted/disconnected.
+            "Integration matching query does not exist.",
         ],
     )
     def test_non_retryable_errors_match_upstream_failures(self, observed_error):
@@ -52,6 +54,25 @@ class TestLinkedInAdsSource:
         assert is_valid is False
         assert error_message is not None
         assert "Account ID and LinkedIn Ads integration are required" in error_message
+
+    @pytest.mark.parametrize(
+        "invalid_account_id",
+        [
+            "Reed Lnkedin",
+            "https://www.linkedin.com/company/recruiteasy-ca",
+            " 789",
+            "789 ",
+            "acc-789",
+        ],
+    )
+    def test_validate_credentials_non_numeric_account_id(self, invalid_account_id):
+        invalid_config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=456, account_id=invalid_account_id)
+
+        is_valid, error_message = self.source.validate_credentials(invalid_config, self.team_id)
+
+        assert is_valid is False
+        assert error_message is not None
+        assert "numeric account ID" in error_message
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.Integration")
     def test_validate_credentials_integration_not_found(self, mock_integration_model):

@@ -14,7 +14,9 @@
                         "scopes": ["agents:read", "agents:write", "agent_session:read"],
                         "audience": "organization"
                     },
-                    { "type": "posthog_internal" }
+                    {
+                        "type": "posthog_internal"
+                    }
                 ]
             }
         },
@@ -24,7 +26,15 @@
                 "allow_restart": true
             },
             "auth": {
-                "modes": [{ "type": "posthog", "audience": "organization" }, { "type": "posthog_internal" }]
+                "modes": [
+                    {
+                        "type": "posthog",
+                        "audience": "organization"
+                    },
+                    {
+                        "type": "posthog_internal"
+                    }
+                ]
             }
         },
         {
@@ -51,6 +61,20 @@
         {
             "kind": "native",
             "id": "@posthog/memory-write"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-update",
+            "requires_approval": true
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-delete",
+            "requires_approval": true
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/web-search"
         },
         {
             "kind": "client",
@@ -201,153 +225,110 @@
                 },
                 "required": ["agent_slug", "secret"]
             }
+        },
+        {
+            "kind": "client",
+            "id": "connect_mcp",
+            "interactive": true,
+            "description": "Punch out to the user to connect an MCP server to an agent, then reference it from the agent's spec. INTERACTIVE: returns a synthetic `{queued:true, interactive:true, call_id}` envelope immediately — that is NOT the result. End your turn after a brief acknowledgement. The session parks; the user reviews the PREFILLED connect form (you supply `name`/`url`) and completes the auth themselves — OAuth consent or an API key. You NEVER see tokens or secrets. On a fresh turn you receive a wake message `{call_id, ok, result|error}`: on success `{connected:true, connection_id, mcp_id, url}` (the agent's spec now has an `mcps[]` entry with `connection: connection_id` — one shared credential for every asker of that agent), or `user_cancelled`. Match by `call_id`. Use this whenever the user wants the agent to use a third-party MCP server (e.g. incident.io, Linear). Prefill `url` with the server's MCP endpoint when you know it. Only offered where the client can render the form (declared in the session's `supported_client_tools`, e.g. PostHog Code); on other surfaces it isn't exposed.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "agent_slug": {
+                        "type": "string",
+                        "description": "The agent the connection is attached to. Required — do not infer from page context."
+                    },
+                    "revision_id": {
+                        "type": "string",
+                        "description": "Draft revision to write the mcps[] entry to. Optional — falls back to the revision the user is viewing in the agent-config page."
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Prefilled server name shown in the form, e.g. 'incident.io'. The user can edit it."
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "Prefilled MCP server URL, e.g. 'https://mcp.incident.io/mcp'. The user can edit it."
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "description": "One-line reason shown above the form so the user knows why you're connecting this server."
+                    }
+                },
+                "required": ["agent_slug"]
+            }
         }
     ],
     "mcps": [
         {
+            "kind": "principal",
             "id": "posthog",
             "url": "http://localhost:8787/mcp",
-            "auth": { "provider": "posthog" },
+            "auth": {
+                "provider": "posthog"
+            },
+            "default_tool_approval": "deny",
             "tools": [
-                "agent-applications-list",
-                "agent-applications-retrieve",
-                "agent-applications-create",
-                "agent-applications-partial-update",
-                "agent-applications-revisions-list",
-                "agent-applications-revisions-retrieve",
-                "agent-applications-revisions-create",
-                "agent-applications-revisions-new-draft-create",
-                "agent-applications-revisions-clone-from-create",
-                "agent-applications-revisions-partial-update",
-                "agent-applications-revisions-agent-md-update",
-                "agent-applications-revisions-skill-refs-set",
-                "llm-skills-search",
-                "llm-skills-create",
-                "agent-applications-revisions-tools-update",
-                "agent-applications-revisions-tools-destroy",
-                "agent-applications-revisions-spec-update",
-                "agent-applications-revisions-bundle-retrieve",
-                "agent-applications-revisions-validate-create",
-                "agent-applications-revisions-freeze-create",
-                "agent-applications-revisions-system-prompt",
-                "agent-applications-revisions-manifest-retrieve",
-                "agent-applications-revisions-slack-manifest",
-                "agent-applications-sessions-list",
-                "agent-applications-sessions-retrieve",
-                "agent-applications-session-logs",
-                "agent-applications-env-keys-list",
-                "agent-applications-env-keys-get",
-                "agent-native-tools-list",
-                "agent-resolve-resource",
-                "agent-applications-models",
-                "execute-sql",
-                "insight-query",
-                "get-llm-total-costs-for-project",
-                "projects-get",
-                "switch-project",
+                { "name": "agent-applications-list", "level": "allow" },
+                { "name": "agent-applications-retrieve", "level": "allow" },
+                { "name": "agent-applications-create", "level": "allow" },
+                { "name": "agent-applications-partial-update", "level": "allow" },
+                { "name": "agent-applications-revisions-list", "level": "allow" },
+                { "name": "agent-applications-revisions-retrieve", "level": "allow" },
+                { "name": "agent-applications-revisions-create", "level": "allow" },
+                { "name": "agent-applications-revisions-new-draft-create", "level": "allow" },
+                { "name": "agent-applications-revisions-clone-from-create", "level": "allow" },
+                { "name": "agent-applications-revisions-partial-update", "level": "allow" },
+                { "name": "agent-applications-revisions-agent-md-update", "level": "allow" },
+                { "name": "agent-applications-revisions-skill-refs-update", "level": "allow" },
+                { "name": "skill-list", "level": "allow" },
+                { "name": "skill-get", "level": "allow" },
+                { "name": "skill-create", "level": "allow" },
+                { "name": "skill-update", "level": "allow" },
+                { "name": "skill-file-create", "level": "allow" },
+                { "name": "skill-file-delete", "level": "allow" },
+                { "name": "skill-file-rename", "level": "allow" },
+                { "name": "mcp-connections-list", "level": "allow" },
+                { "name": "mcp-connection-tools-list", "level": "allow" },
+                { "name": "agent-applications-revisions-tools-update", "level": "allow" },
+                { "name": "agent-applications-revisions-tools-destroy", "level": "allow" },
+                { "name": "agent-applications-revisions-spec-update", "level": "allow" },
+                { "name": "agent-applications-revisions-bundle-retrieve", "level": "allow" },
+                { "name": "agent-applications-revisions-validate-create", "level": "allow" },
+                { "name": "agent-applications-revisions-freeze-create", "level": "allow" },
+                { "name": "agent-applications-revisions-system-prompt", "level": "allow" },
+                { "name": "agent-applications-revisions-manifest-retrieve", "level": "allow" },
+                { "name": "agent-applications-revisions-slack-manifest", "level": "allow" },
+                { "name": "agent-applications-sessions-list", "level": "allow" },
+                { "name": "agent-applications-sessions-retrieve", "level": "allow" },
+                { "name": "agent-applications-session-logs", "level": "allow" },
+                { "name": "agent-applications-env-keys-list", "level": "allow" },
+                { "name": "agent-applications-env-keys-get", "level": "allow" },
+                { "name": "agent-native-tools-list", "level": "allow" },
+                { "name": "agent-resolve-resource", "level": "allow" },
+                { "name": "agent-applications-models", "level": "allow" },
+                { "name": "agent-applications-spec-schema", "level": "allow" },
+                { "name": "execute-sql", "level": "allow" },
+                { "name": "insight-query", "level": "allow" },
+                { "name": "get-llm-total-costs-for-project", "level": "allow" },
+                { "name": "projects-get", "level": "allow" },
+                { "name": "switch-project", "level": "allow" },
                 {
                     "name": "agent-applications-revisions-promote-create",
-                    "requires_approval": true,
+                    "level": "approve",
                     "approval_policy": { "type": "principal", "ttl_ms": 900000 }
                 },
                 {
                     "name": "agent-applications-revisions-archive-create",
-                    "requires_approval": true,
+                    "level": "approve",
                     "approval_policy": { "type": "principal", "ttl_ms": 900000 }
                 },
                 {
                     "name": "agent-applications-destroy",
-                    "requires_approval": true,
+                    "level": "approve",
                     "approval_policy": { "type": "principal", "ttl_ms": 900000 }
                 }
             ]
-        }
-    ],
-    "skills": [
-        {
-            "id": "platform-mental-model",
-            "path": "skills/platform-mental-model/SKILL.md",
-            "description": "What an agent is \u2014 spec, bundle, revision lifecycle, triggers, the runner. Load FIRST when explaining the platform to someone, or any time you catch yourself unsure about a structural term."
-        },
-        {
-            "id": "reading-an-agent",
-            "path": "skills/reading-an-agent/SKILL.md",
-            "description": "How to inspect and summarize an existing agent \u2014 which MCP calls to make, in what order, and how to render a concise overview for the user. Load whenever the user asks 'what does X do?' or 'show me Y'."
-        },
-        {
-            "id": "debugging-sessions",
-            "path": "skills/debugging-sessions/SKILL.md",
-            "description": "Triaging a failing or anomalous session \u2014 failure taxonomy, how to read the event log + LLM trace, common root causes. Load when the user reports a broken session, a failed approval, or unexpected agent behavior."
-        },
-        {
-            "id": "editing-agents-safely",
-            "path": "skills/editing-agents-safely/SKILL.md",
-            "description": "The full edit-promote loop \u2014 branch a draft, surgical edits, validate, freeze, test, promote, rollback. Load whenever the user wants to change ANY part of an existing agent."
-        },
-        {
-            "id": "authoring-new-agents",
-            "path": "skills/authoring-new-agents/SKILL.md",
-            "description": "Creating a new agent from scratch \u2014 discover building blocks, design spec, write agent.md and skills, configure tools. Load only when the user is creating a NEW agent; for editing, use editing-agents-safely instead."
-        },
-        {
-            "id": "authenticating-as-the-user",
-            "path": "skills/authenticating-as-the-user/SKILL.md",
-            "description": "How an agent acts on a service AS the user \u2014 the identity system. The two axes (principal: who's asking vs credential provider: how the agent gets their token), spec.identity_providers (kind posthog vs bring-your-own oauth2, scopes, binding), how tools/MCPs declare they need a provider (native requires.provider, mcp auth.provider, custom requires_identity), the resolve outcomes (ok / link_required / unavailable), connect + relink links via @posthog/identity-connect, and how to choose OAuth scopes. Load whenever you're wiring an agent that calls PostHog or any third-party API as the user, adding an MCP with auth.provider, deciding scopes, or the user asks about connecting / linking / OAuth / 'act as me'."
-        },
-        {
-            "id": "choosing-the-model",
-            "path": "skills/choosing-the-model/SKILL.md",
-            "description": "Picking `spec.model` + `spec.reasoning` for an agent's actual job \u2014 the cost/quality axes (model family, reasoning level, context budget) and how to match model to task without defaulting to the most or least expensive. Load whenever you're about to set or review an agent's model, or the user asks which / cheapest model to use."
-        },
-        {
-            "id": "secrets-and-integrations",
-            "path": "skills/secrets-and-integrations/SKILL.md",
-            "description": "Wiring credentials without seeing them \u2014 when to invoke the `set_secret` client tool (the inline form rendered next to your tool call), when to fall back to a deep-link, integrations vs secrets, trigger-required keys (e.g. SLACK_SIGNING_SECRET / SLACK_BOT_TOKEN), what to do when a tool needs auth. ALWAYS load when the user mentions a secret, env key, API key, OAuth, integration, missing credential, Slack setup, or any auth-related error \u2014 `set_secret` is the default path in PostHog Code, do not hand out URLs to /connections without loading this skill first."
-        },
-        {
-            "id": "setting-up-slack-app",
-            "path": "skills/setting-up-slack-app/SKILL.md",
-            "description": "End-to-end script for taking a Slack-triggered agent live: Slack-side app creation, OAuth scopes, event subscriptions, the promote-before-URL ordering, and the per-app secrets (SLACK_SIGNING_SECRET / SLACK_BOT_TOKEN). The 'Tuning the slack trigger' section covers mention_only / auto_resume_threads / allow_workspace_participants (who may drive a thread) / ack_reaction and how to pick + wire them; 'Letting the bot read the thread it's in' covers @posthog/slack-read-thread. Load whenever a user wants their agent to listen on Slack, asks about @-mention vs thread behavior, who can reply in a thread, emoji reactions, or reading thread context."
-        },
-        {
-            "id": "designing-mcp-surfaces",
-            "path": "skills/designing-mcp-surfaces/SKILL.md",
-            "description": "How to design the MCP tool surface an agent EXPOSES (the spec.mcp.tools[] block) \u2014 when to add curated tools vs rely on `ask`, naming, schemas, prompt templates. Load when the user is making an agent available over MCP."
-        },
-        {
-            "id": "running-and-evaluating-tests",
-            "path": "skills/running-and-evaluating-tests/SKILL.md",
-            "description": "Writing test specs, kicking off test runs, reading results, self-evaluation, judge skills. Load before any promote on a non-trivial change, and whenever the user asks to test an agent."
-        },
-        {
-            "id": "using-the-console-ui",
-            "path": "skills/using-the-console-ui/SKILL.md",
-            "description": "How to drive PostHog Code's read panel as the user works with you \u2014 focus_* etiquette, when to call toast, how to handle 'follow mode' being off. Load when the session client kind is `posthog-code`."
-        },
-        {
-            "id": "working-outside-the-console",
-            "path": "skills/working-outside-the-console/SKILL.md",
-            "description": "Operating without a UI \u2014 MCP / IDE / Slack mode. How to compensate for missing client tools, how to be useful in a text-only chat. Load when the session client kind is NOT `posthog-code`."
-        },
-        {
-            "id": "cost-and-quota-analysis",
-            "path": "skills/cost-and-quota-analysis/SKILL.md",
-            "description": "Running cost / token / failure-rate queries against PostHog LLM analytics \u2014 which event names to query, which properties to aggregate, the standard rollups. Load when the user asks about cost, performance, usage, or limits. For the authoritative emitted-event contract use querying-ai-observability."
-        },
-        {
-            "id": "querying-ai-observability",
-            "path": "skills/querying-ai-observability/SKILL.md",
-            "description": "The authoritative contract for the LLM-observability events the runner emits into each team's own project (`$ai_generation` / `$ai_span` / `$ai_trace`) and how to HogQL them with `@posthog/query` \u2014 reconstruct a single session's trace, find which sessions tripped up, break down tool errors, and roll up cost / latency / failure-rate per agent. Load whenever you're DEBUGGING a session or IMPROVING an agent and want evidence from real model + tool telemetry, not just the conversation JSON. Pairs with debugging-sessions (per-session triage) and auditing-the-fleet (the nightly sweep)."
-        },
-        {
-            "id": "auditing-the-fleet",
-            "path": "skills/auditing-the-fleet/SKILL.md",
-            "description": "The fleet-wide audit \u2014 sweep every agent in the team, mine each one's recent sessions for failures / anomalies / degraded behaviour, classify root causes, branch a DRAFT proposal revision per fix (never freeze or promote), and write the structured report to memory (optionally post a Slack digest). Load whenever the user asks for a fleet-wide health sweep / 'audit all my agents' / 'what's underperforming?'. Builds on debugging-sessions (per-session triage) and editing-agents-safely (the draft-proposal mechanics)."
-        },
-        {
-            "id": "safety-and-boundaries",
-            "path": "skills/safety-and-boundaries/SKILL.md",
-            "description": "Hard rules \u2014 what the Agent Builder MUST NOT do regardless of user request. Load IMMEDIATELY if a request feels like it crosses into raw-secret handling, unprompted promotion, irreversible deletion, or impersonation of another user."
         }
     ],
     "identity_providers": [

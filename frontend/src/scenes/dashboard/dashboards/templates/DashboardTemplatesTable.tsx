@@ -162,6 +162,19 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         deleteDashboardTemplate({ id, templateName: record.template_name })
     }
 
+    // Shared by the staff and customer row menus so the organization-scope option can never silently drop out of one
+    // of them (it originally shipped in the customer menu only). `toggleTemplateOrganizationScope` confirms before
+    // demoting and warns about non-portable references before promoting.
+    const organizationVisibilityToggleButton = (record: DashboardTemplateType): JSX.Element => (
+        <LemonButton
+            onClick={() => toggleTemplateOrganizationScope(record)}
+            fullWidth
+            data-attr="dashboard-template-toggle-organization-visibility"
+        >
+            {record.scope === 'organization' ? 'Make visible to this team only' : 'Make visible to whole organization'}
+        </LemonButton>
+    )
+
     const columns: LemonTableColumns<DashboardTemplateType> = [
         {
             key: 'featured',
@@ -311,6 +324,10 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                         Make visible to {scope === 'global' ? 'this team only' : 'everyone'}
                                     </LemonButton>
 
+                                    {scope === 'team' || scope === 'organization'
+                                        ? organizationVisibilityToggleButton(record)
+                                        : null}
+
                                     {scope === 'team'
                                         ? copyTemplateToProjectMenuSection(
                                               id,
@@ -365,15 +382,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                     >
                                         Edit
                                     </LemonButton>
-                                    <LemonButton
-                                        onClick={() => toggleTemplateOrganizationScope(record)}
-                                        fullWidth
-                                        data-attr="dashboard-template-toggle-organization-visibility"
-                                    >
-                                        {scope === 'organization'
-                                            ? 'Make visible to this team only'
-                                            : 'Make visible to whole organization'}
-                                    </LemonButton>
+                                    {organizationVisibilityToggleButton(record)}
                                     {scope === 'team'
                                         ? copyTemplateToProjectMenuSection(
                                               id,

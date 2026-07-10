@@ -32,9 +32,8 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource, update_should_sync
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 

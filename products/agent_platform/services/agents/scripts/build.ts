@@ -1,7 +1,7 @@
 /**
  * Bundles the agent-platform runtime entrypoints into self-contained ESM
  * files under `dist/`. Mirrors services/mcp/scripts/build-hono.ts in shape
- * (single esbuild invocation, no externals, banner that shims `require`
+ * (single esbuild invocation, minimal externals, banner that shims `require`
  * for CJS deps like `pg`).
  *
  * Output layout (consumed by services/agents/Dockerfile):
@@ -41,10 +41,14 @@ await build({
     //   Leave unresolved at bundle time to avoid dragging libpq into the runtime image.
     // - `node-rdkafka`: native binding (.node); cannot be inlined into a .mjs bundle. The runtime
     //   image ships its node_modules so `await import('node-rdkafka')` resolves at boot.
-    external: ['pg-native', 'node-rdkafka'],
+    // - `esbuild`: the janitor's compile-custom-tools calls esbuild's JS API at runtime, and that
+    //   API refuses to run when inlined into a bundle ("The esbuild JavaScript API cannot be
+    //   bundled"). Ships as a runtime dep of @posthog/agents-image (same pattern as node-rdkafka)
+    //   so the bundle's `require('esbuild')` resolves from the image's node_modules.
+    external: ['pg-native', 'node-rdkafka', 'esbuild'],
     loader: { '.json': 'json', '.sql': 'text' },
     define: { 'process.env.NODE_ENV': '"production"' },
-    // CJS deps (pg, node-pg-migrate, jose) call through to a global
+    // CJS deps (pg, jose) call through to a global
     // `require`. ESM has no `require`; banner injects one. `typescript`
     // (bundled via the janitor's compile-custom-tools) also reaches for
     // `__filename` / `__dirname`, which ESM doesn't define — shim both from

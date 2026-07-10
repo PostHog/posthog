@@ -29,6 +29,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import count_cohort_members
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.utils import (
@@ -1216,7 +1217,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         if filter_name == "cohort_static" and cohort:
             cohort.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
-            self.assertEqual(cohort.people.count(), 3)
+            self.assertEqual(count_cohort_members(cohort.team_id, cohort.id, consistency="strong"), 3)
         elif filter_name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 

@@ -1,7 +1,6 @@
 from django.db import IntegrityError, transaction
 
 import structlog
-from loginas.utils import is_impersonated_session
 from rest_framework import (
     response,
     serializers,
@@ -11,6 +10,7 @@ from rest_framework import (
 from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.materialized_column_slots import MAX_SLOTS_PER_TEAM
@@ -190,7 +190,7 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             organization_id=self.team.organization_id,
             team_id=self.team_id,
             user=request.user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=str(slot.id),
             scope="DataManagement",
             activity="materialized_column_created",
@@ -264,7 +264,7 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             organization_id=slot.team.organization_id,
             team_id=slot.team_id,
             user=request.user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=str(slot.id),
             scope="DataManagement",
             activity="materialized_column_deleted",
@@ -319,7 +319,7 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             organization_id=slot.team.organization_id,
             team_id=slot.team_id,
             user=request.user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=str(slot.id),
             scope="DataManagement",
             activity="materialized_column_retried",

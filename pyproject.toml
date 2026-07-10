@@ -14,7 +14,6 @@ dependencies = [
     "aiohttp==3.13.5",
     "aiokafka~=0.12.0",
     "anthropic==0.80.0",
-    "antlr4-python3-runtime==4.13.1",
     "asyncstdlib==3.13.1",
     "beautifulsoup4==4.12.3",
     "boto3==1.40.49",
@@ -64,11 +63,12 @@ dependencies = [
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
     "google-genai==1.46.0",
+    "granian[uvloop,reload,pname]==2.7.6",
     "grimp~=3.14",
     "grpcio~=1.71.0",
     "gspread==6.2.1",
-    "hogql-parser==1.3.72",
-    "hogql-parser-rs==1.3.99",  # built from rust/hogql/parser via the build-hogql-parser-rs workflow + published to PyPI; rebuild locally with `uv pip install -e rust/hogql/parser` when iterating
+    "hogql-parser==1.3.77",
+    "hogql-parser-rs==1.3.106",  # built from rust/hogql/parser via the build-hogql-parser-rs workflow + published to PyPI; rebuild locally with `uv pip install -e rust/hogql/parser` when iterating
     "humanize~=4.12.3",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
@@ -179,8 +179,8 @@ dependencies = [
     "linkedin-api-client~=0.3.0",
     "glom~=24.11.0",
     "modal~=1.5.0",
-    "databricks-sql-connector~=4.2.5",
-    "databricks-sdk~=0.102.0",
+    "databricks-sql-connector~=4.3.0",
+    "databricks-sdk~=0.118.0",
     "free-email-domains~=1.0.1",
     "disposable-email-domains~=0.0.140",
     "pymediainfo~=7.0.1",
@@ -199,6 +199,7 @@ dependencies = [
     "scrubadub~=2.0.1",
     "braintrust-core>=0.0.59,<1",
     "wrapt==1.17.3",
+    "limits==5.8.0",
 ]
 
 [dependency-groups]
@@ -210,7 +211,6 @@ dev = [
     "braintrust==0.2.4",
     "braintrust-langchain==0.0.4",
     "dagster-dg-cli~=1.10.18",
-    "granian[uvloop,reload,pname]==2.5.5",
     "datamodel-code-generator~=0.36.0",
     "debugpy~=1.8.0",
     "import-linter~=2.11",
@@ -290,7 +290,7 @@ hogql-parser-parity = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false }
+exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false }
 
 [tool.uv.workspace]
 members = ["tools/hogli"]
@@ -510,12 +510,13 @@ ignore_imports = [
     "products.**.backend.presentation.** -> products.**.backend.facade.**",
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
     # TODO: existing violations — fix by routing through facade
-    "products.agent_platform.backend.presentation.serializers -> products.agent_platform.backend.logic.spec_schema",
     "products.agent_platform.backend.presentation.serializers -> products.agent_platform.backend.models",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.db",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.internal_jwt",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.janitor_client",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.kernel_skills",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.posthog_identity_app",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.skill_editing",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.skill_resolution",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.spec_schema",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.models",
@@ -532,19 +533,25 @@ ignore_imports = [
     "products.tracing.backend.presentation.views -> products.tracing.backend.logic",
     "products.tracing.backend.presentation.views -> products.tracing.backend.sparkline_query_runner",
     "products.tracing.backend.presentation.views -> products.tracing.backend.has_spans_query_runner",
+    # Saved-views ModelViewSet needs the model class for its serializer; same accepted pattern as
+    # logs' views_api. TODO: route through facade with the broader presentation cleanup.
+    "products.tracing.backend.presentation.views_api -> products.tracing.backend.models",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.models",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.invite_email",
     "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.models",
     # logs presentation isolation (temporary): the moved viewsets still reach in-product
     # internals directly. Removed by the follow-up that thins each viewset to go through
     # the facade.
+    "products.logs.backend.presentation.views.api -> products.logs.backend.column_expressions",
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_ranges_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.group_by_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.has_logs_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_attributes_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_facet_values_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_values_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.logs_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.patterns_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.services_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.sparkline_query_runner",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_check_query",
@@ -564,6 +571,7 @@ ignore_imports = [
     # directly. Thin it to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.activity_logging",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.analytics",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab_stream",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.kernel_runtime",
@@ -572,68 +580,16 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.presence",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.python_analysis",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.query_validation",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_references",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_serializers",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",
     # TODO: data_warehouse presentation wave — the structural move landed the viewsets under
     # presentation/views/ but they still reach in-product internals and sibling products
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)
     # directly. Thin each viewset to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
-    "products.data_warehouse.backend.presentation.views.column_annotation -> products.warehouse_sources.backend.models.column_annotation",
-    "products.data_warehouse.backend.presentation.views.column_annotation -> products.warehouse_sources.backend.models.table",
-    "products.data_warehouse.backend.presentation.views.data_modeling_job -> products.data_modeling.backend.models.data_modeling_job",
-    "products.data_warehouse.backend.presentation.views.data_warehouse -> products.batch_exports.backend.models.batch_export",
-    "products.data_warehouse.backend.presentation.views.data_warehouse -> products.cdp.backend.models.hog_functions.hog_function",
-    "products.data_warehouse.backend.presentation.views.data_warehouse -> products.data_modeling.backend.models.data_modeling_job",
-    "products.data_warehouse.backend.presentation.views.data_warehouse -> products.data_modeling.backend.models.datawarehouse_saved_query",
-    "products.data_warehouse.backend.presentation.views.data_warehouse -> products.data_warehouse.backend.models.team_data_warehouse_config",
-    "products.data_warehouse.backend.presentation.views.data_warehouse -> products.warehouse_sources.backend.models.external_data_job",
-    "products.data_warehouse.backend.presentation.views.data_warehouse -> products.warehouse_sources.backend.models.external_data_schema",
-    "products.data_warehouse.backend.presentation.views.data_warehouse -> products.warehouse_sources.backend.models.external_data_source",
-    "products.data_warehouse.backend.presentation.views.data_warehouse -> products.warehouse_sources.backend.models.util",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.cdp.backend.api.hog_function",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.cdp.backend.models.hog_functions.hog_function",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.data_modeling.backend.models.datawarehouse_managed_viewset",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.data_warehouse.backend.direct_mysql",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.data_warehouse.backend.direct_postgres",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.data_warehouse.backend.logic.data_load.service",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.data_warehouse.backend.logic.external_data_source.webhooks",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.data_warehouse.backend.models.revenue_analytics_config",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.data_warehouse.backend.mysql_helpers",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.data_warehouse.backend.postgres_helpers",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.data_warehouse.backend.postgres_warehouse_migration",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.data_warehouse.backend.sql_warehouse_migration",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.revenue_analytics.backend.joins",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.warehouse_sources.backend.models.external_data_job",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.warehouse_sources.backend.models.external_data_schema",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.warehouse_sources.backend.models.external_data_source",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.warehouse_sources.backend.models.pending_source_credential",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.warehouse_sources.backend.models.table",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.warehouse_sources.backend.models.util",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.warehouse_sources.backend.types",
-    "products.data_warehouse.backend.presentation.views.fix_hogql -> products.data_warehouse.backend.hogql_fixer_ai",
-    "products.data_warehouse.backend.presentation.views.lineage -> products.data_modeling.backend.models.datawarehouse_saved_query",
-    "products.data_warehouse.backend.presentation.views.lineage -> products.warehouse_sources.backend.models.table",
-    "products.data_warehouse.backend.presentation.views.managed_viewset -> products.data_modeling.backend.models.datawarehouse_managed_viewset",
-    "products.data_warehouse.backend.presentation.views.managed_viewset -> products.warehouse_sources.backend.types",
-    "products.data_warehouse.backend.presentation.views.modeling -> products.data_modeling.backend.models.modeling",
-    "products.data_warehouse.backend.presentation.views.query_tab_state -> products.data_tools.backend.models.query_tab_state",
-    "products.data_warehouse.backend.presentation.views.saved_query -> products.data_modeling.backend.models.dag",
-    "products.data_warehouse.backend.presentation.views.saved_query -> products.data_modeling.backend.models.data_modeling_job",
-    "products.data_warehouse.backend.presentation.views.saved_query -> products.data_modeling.backend.models.datawarehouse_saved_query",
-    "products.data_warehouse.backend.presentation.views.saved_query -> products.data_modeling.backend.models.modeling",
-    "products.data_warehouse.backend.presentation.views.saved_query -> products.data_modeling.backend.models.node",
-    "products.data_warehouse.backend.presentation.views.saved_query -> products.data_modeling.backend.services.saved_query_dag_sync",
-    "products.data_warehouse.backend.presentation.views.saved_query -> products.data_tools.backend.models.datawarehouse_saved_query_folder",
-    "products.data_warehouse.backend.presentation.views.saved_query -> products.data_tools.backend.models.join",
-    "products.data_warehouse.backend.presentation.views.saved_query -> products.data_warehouse.backend.logic.data_load.saved_query_service",
-    "products.data_warehouse.backend.presentation.views.saved_query -> products.warehouse_sources.backend.models.external_data_schema",
-    "products.data_warehouse.backend.presentation.views.saved_query -> products.warehouse_sources.backend.models.util",
-    "products.data_warehouse.backend.presentation.views.saved_query_draft -> products.data_modeling.backend.models.datawarehouse_saved_query",
-    "products.data_warehouse.backend.presentation.views.saved_query_draft -> products.data_modeling.backend.models.datawarehouse_saved_query_draft",
-    "products.data_warehouse.backend.presentation.views.table -> products.warehouse_sources.backend.models.credential",
-    "products.data_warehouse.backend.presentation.views.table -> products.warehouse_sources.backend.models.external_data_source",
-    "products.data_warehouse.backend.presentation.views.table -> products.warehouse_sources.backend.models.table",
-    "products.data_warehouse.backend.presentation.views.table -> products.warehouse_sources.backend.models.util",
-    "products.data_warehouse.backend.presentation.views.view_link -> products.data_tools.backend.models.join",
 ]
 
 [tool.ty.rules]

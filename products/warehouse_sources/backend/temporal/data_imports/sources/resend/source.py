@@ -115,6 +115,26 @@ Grant the key **full access** or a read-enabled access token so the following re
             "403 Client Error: Forbidden for url: https://api.resend.com": (
                 "Your Resend API key does not have the required permissions. Please check the key permissions and try again."
             ),
+            # Resend rejects the well-formed list request with a 400 when the connected account
+            # can't access the Audiences/Contacts API (the Marketing/Audiences feature isn't enabled,
+            # or the key lacks full access). Retrying the identical request can't fix an account-level
+            # restriction. Scope the match to the audiences path so a 400 from another endpoint (which
+            # could be our bug) stays retryable and visible.
+            "400 Client Error: Bad Request for url: https://api.resend.com/audiences": (
+                "Resend rejected the request to sync your Audiences/Contacts. This usually means the connected "
+                "Resend account can't access the Audiences API — enable Audiences in Resend and grant the API key "
+                "full access, or unselect the Audiences and Contacts tables to keep syncing your other Resend data."
+            ),
+            # Resend rejects the well-formed list request with a 400 when the connected account
+            # can't access the Broadcasts API (the Marketing/Audiences feature isn't enabled, or
+            # the key lacks full access to broadcasts). Retrying the identical request can't fix an
+            # account-level restriction. Scope the match to the broadcasts path so a 400 from another
+            # endpoint (which could be our bug) stays retryable and visible.
+            "400 Client Error: Bad Request for url: https://api.resend.com/broadcasts": (
+                "Resend rejected the request to sync your Broadcasts. This usually means the connected Resend "
+                "account can't access the Broadcasts API — enable Broadcasts in Resend and grant the API key full "
+                "access, or unselect the Broadcasts table to keep syncing your other Resend data."
+            ),
         }
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ResendResumeConfig]:

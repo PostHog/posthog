@@ -9,12 +9,14 @@ import numpy as np
 import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
+import posthoganalytics
 import deltalake.exceptions
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
+from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -25,6 +27,28 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     normalize_column_name,
     pyarrow_schema_from_arrow_exportable,
 )
+
+# A pre-write defensive compact fires when EITHER threshold is exceeded.
+#
+# Calibrated against the production file-count distribution (delta merge stats across
+# all teams): total files per table sit at p50≈60, p90≈470, p95≈850, with a long tail
+# (p99≈12k → ~14s merges; an observed pathological case hit ~82k files → ~45s merges).
+# Merge planning time tracks TOTAL files, not files-per-partition — delta still
+# enumerates every file's metadata even when partition pruning skips reading them — so
+# we gate on both:
+#
+# - files-per-partition: bounds per-partition fragmentation and rescues partitioned
+#   (esp. md5) tables, where a merge touches every partition. 200 sits well above the
+#   healthy steady state (compaction runs at the end of each successful sync) yet
+#   triggers long before a table reaches the slow tail.
+# - total files: a partition-count-independent backstop so a table with a high
+#   partition_count can't accumulate tens of thousands of files (each adding to merge
+#   planning time) while staying under the per-partition bar. 5,000 is above p95 (~850)
+#   — so healthy tables never trip it — and well below the p99/pathological tail.
+#
+# Tune further once the admin fragmentation view gives per-customer distributions.
+DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
+DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
 
 def _write_deltalake(
@@ -173,6 +197,14 @@ class DeltaTableHelper:
         folder_path = await database_sync_to_async_pool(self._job.folder_path)()
         return f"{settings.BUCKET_URL}/{folder_path}/{normalized_resource_name}"
 
+    async def get_table_uri(self) -> str:
+        """Public accessor for the live Delta table S3 URI (used by the in-place repartitioner)."""
+        return await self._get_delta_table_uri()
+
+    def get_storage_options(self) -> dict[str, str]:
+        """Public accessor for the delta-rs storage options (used by the in-place repartitioner)."""
+        return self._get_credentials()
+
     async def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:
         delta_table = await self.get_delta_table()
         if delta_table is None:
@@ -215,6 +247,32 @@ class DeltaTableHelper:
         self._is_first_sync = True
 
         return None
+
+    async def is_table_corrupted(self) -> bool:
+        """True when the Delta log exists but the table can't be opened (DeltaError / FileNotFoundError).
+
+        The signature of a `_delta_log` left inconsistent by an interrupted repartition swap or an
+        OOM-crashed merge — after which every sync fails to open the table and loops. Non-destructive:
+        only attempts an open (bypassing the get_delta_table cache). A table that simply doesn't exist is
+        not corrupt; an unknown open error is not classified as corrupt, so a transient failure never
+        triggers a destructive revive.
+        """
+        delta_uri = await self._get_delta_table_uri()
+        storage_options = self._get_credentials()
+
+        is_delta = await asyncio.to_thread(
+            deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
+        )
+        if not is_delta:
+            return False
+
+        try:
+            await asyncio.to_thread(deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options)
+            return False
+        except (deltalake.exceptions.DeltaError, FileNotFoundError):
+            return True
+        except Exception:
+            return False
 
     async def reset_table(self):
         delta_uri = await self._get_delta_table_uri()
@@ -283,6 +341,16 @@ class DeltaTableHelper:
         if PARTITION_KEY in data.column_names:
             use_partitioning = True
             await self._logger.adebug(f"Using partitioning on {PARTITION_KEY}")
+
+        # The column can exist without the table being partitioned by it; defer to the
+        # table's real partition_columns or delta-rs rejects the write as a mismatch.
+        if use_partitioning and delta_table is not None:
+            existing_partition_columns = getattr(delta_table.metadata(), "partition_columns", None) or []
+            if PARTITION_KEY not in existing_partition_columns:
+                use_partitioning = False
+                await self._logger.adebug(
+                    f"Existing table is not partitioned by {PARTITION_KEY}; skipping partitioning to match its layout"
+                )
 
         commit_properties: deltalake.CommitProperties | None = (
             deltalake.CommitProperties(custom_metadata=commit_metadata) if commit_metadata else None
@@ -610,6 +678,17 @@ class DeltaTableHelper:
         """
         return await self.has_commit_with_metadata({"run_uuid": run_uuid, "batch_index": str(batch_index)})
 
+    async def vacuum_table(self) -> None:
+        table = await self.get_delta_table()
+        if table is None:
+            raise Exception("Deltatable not found")
+
+        await self._logger.adebug("Vacuuming table...")
+        vacuum_stats = await asyncio.to_thread(
+            table.vacuum, retention_hours=24, enforce_retention_duration=False, dry_run=False
+        )
+        await self._logger.adebug(json.dumps(vacuum_stats))
+
     async def compact_table(self) -> None:
         table = await self.get_delta_table()
         if table is None:
@@ -619,10 +698,127 @@ class DeltaTableHelper:
         compact_stats = await asyncio.to_thread(table.optimize.compact)
         await self._logger.adebug(json.dumps(compact_stats))
 
-        await self._logger.adebug("Vacuuming table...")
-        vacuum_stats = await asyncio.to_thread(
-            table.vacuum, retention_hours=24, enforce_retention_duration=False, dry_run=False
-        )
-        await self._logger.adebug(json.dumps(vacuum_stats))
-
+        await self.vacuum_table()
         await self._logger.adebug("Compacting and vacuuming complete")
+
+    async def vacuum_if_stale(self, last_vacuum_version: int | None, commit_threshold: int) -> int | None:
+        """Vacuum tombstoned files once enough commits have accrued since the last vacuum.
+
+        Decoupled from merge success (called pre-write) so a table that OOMs its merge every run still
+        gets cleaned — the post-load compaction never runs for it, which is how tables reach ~99% dead
+        files. Vacuum only deletes dead files (an S3 LIST + delete), so unlike `compact_table`'s
+        `optimize.compact` (which rewrites partitions) it is memory-safe even on an oversized table.
+
+        Uses the delta version (commit count) as a cheap proxy for tombstone accumulation — no S3 LIST to
+        decide. Returns the current version to persist as the new watermark when it vacuumed, or on first
+        encounter (seeding the watermark without vacuuming, to avoid a synchronized vacuum wave on deploy);
+        None when nothing changed.
+        """
+        table = await self.get_delta_table()
+        if table is None:
+            return None
+
+        version = await asyncio.to_thread(table.version)
+        if last_vacuum_version is None:
+            # First encounter: seed the watermark without vacuuming so existing tables clean up gradually
+            # over the next `commit_threshold` commits rather than all vacuuming at once on deploy.
+            return version
+
+        commits_since = version - last_vacuum_version
+        if commits_since < commit_threshold:
+            await self._logger.adebug(
+                f"vacuum_if_stale: skipping, {commits_since} commits since last vacuum (< {commit_threshold})"
+            )
+            return None
+
+        await self._logger.ainfo(
+            f"vacuum_if_stale: {commits_since} commits since last vacuum (>= {commit_threshold}), vacuuming"
+        )
+        await self.vacuum_table()
+        try:
+            # Observability for the maintenance path — how often tables vacuum and how much log churn
+            # accrued between vacuums. Best-effort: telemetry must never break the sync.
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="warehouse_delta_vacuumed",
+                properties={
+                    "team_id": self._job.team_id,
+                    "schema_id": str(self._job.schema_id),
+                    "source_id": str(self._job.pipeline_id),
+                    "resource_name": self._resource_name,
+                    "commits_since_last_vacuum": commits_since,
+                    "delta_version": version,
+                },
+            )
+        except Exception as e:
+            capture_exception(e)
+        return version
+
+    async def compact_if_fragmented(
+        self,
+        partition_count: int | None,
+        threshold: int = DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD,
+        total_threshold: int = DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD,
+    ) -> bool:
+        """Run compact + vacuum if the table is fragmented past either threshold.
+
+        Fragmented = files-per-partition > `threshold` OR total files > `total_threshold`.
+        The total-files backstop matters because delta enumerates every file's metadata
+        during a merge even when partition pruning skips reading them, so merge planning
+        time tracks total files — a high partition_count must not let a table accumulate
+        tens of thousands of files while staying under the per-partition bar.
+
+        Returns True if compaction ran, False if it was skipped. Cheap when the table is
+        healthy: one S3 LIST via `get_file_uris`. Intended for pre-write defensive cleanup
+        so a sync that arrived at a fragmented state (e.g. an earlier attempt that failed
+        before reaching `_post_run_operations`) cleans up before adding to the pile.
+        """
+        table = await self.get_delta_table()
+        if table is None:
+            return False
+
+        file_uris = await self.get_file_uris()
+        total_files = len(file_uris)
+        # Treat unpartitioned tables as one "partition" for the threshold math.
+        effective_partitions = max(partition_count or 1, 1)
+        files_per_partition = total_files / effective_partitions
+
+        fragmented = files_per_partition > threshold or total_files > total_threshold
+        stats = (
+            f"total_files={total_files}, partitions={effective_partitions}, "
+            f"files_per_partition={files_per_partition:.1f}, threshold={threshold}, "
+            f"total_threshold={total_threshold}"
+        )
+        if not fragmented:
+            await self._logger.adebug(f"compact_if_fragmented: skipping ({stats})")
+            return False
+
+        await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
+        await self.compact_table()
+        return True
+
+    async def run_maintenance(
+        self,
+        partition_count: int | None,
+        last_vacuum_version: int | None,
+        commit_threshold: int,
+    ) -> int | None:
+        """Single pre-write maintenance entry point: compact if fragmented, else vacuum on commit cadence.
+
+        The two triggers are orthogonal — fragmentation (active file count) vs. commit cadence (tombstone
+        accrual) — but they share one outcome, the vacuum watermark. `compact_if_fragmented` already
+        vacuums as part of compaction, so when it runs it supersedes the cadence vacuum (no double vacuum
+        in one run) and the watermark advances to the post-compaction version. When nothing was fragmented,
+        fall through to `vacuum_if_stale`. Returns the single delta version to persist as the new
+        `last_vacuum_version` watermark, or None when nothing changed; the caller is the sole writer of
+        the watermark so it lives in exactly one place.
+        """
+        compacted = await self.compact_if_fragmented(partition_count=partition_count)
+        if compacted:
+            table = await self.get_delta_table()
+            if table is None:
+                return None
+            # Compaction (which vacuumed) added a commit, advancing the version; reset the cadence
+            # watermark to it so the next vacuum is measured from this cleanup, not the old baseline.
+            return await asyncio.to_thread(table.version)
+        return await self.vacuum_if_stale(last_vacuum_version, commit_threshold)

@@ -9,7 +9,6 @@ from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from loginas.utils import is_impersonated_session
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -22,6 +21,7 @@ from posthog.schema import LogsAlertFilters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -997,7 +997,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 organization_id=self.team.organization_id,
                 team_id=self.team_id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=alert.id,
                 scope="LogsAlertConfiguration",
                 activity="reset",

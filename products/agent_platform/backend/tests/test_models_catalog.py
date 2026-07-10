@@ -19,8 +19,6 @@ from ..presentation.views import AgentApplicationViewSet
 class TestAgentApplicationModels(APIBaseTest):
     databases = {
         "default",
-        "persons_db_writer",
-        "persons_db_reader",
         "agent_platform_db_writer",
         "agent_platform_db_reader",
     }

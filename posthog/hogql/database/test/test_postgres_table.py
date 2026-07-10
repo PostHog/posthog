@@ -21,7 +21,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     TableNode,
 )
-from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.postgres_table import PostgresTable, build_function_call
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -37,6 +37,23 @@ ALL_POSTGRES_SYSTEM_TABLES: list[tuple[str, PostgresTable]] = [
 _SCOPED_SYSTEM_TABLES: dict[str, PostgresTable] = {
     name: table for name, table in ALL_POSTGRES_SYSTEM_TABLES if table.access_scope is not None
 }
+
+# Facade-isolated products route data through their facade: their viewsets declare
+# `queryset = None` and DTO serializers, so the object-restrictable model can't be derived
+# from the viewset. Declared by db_table so product internals stay unimported here.
+_FACADE_OBJECT_GRANT_TABLES: dict[str, str] = {
+    "customer_analytics_account": "account",
+}
+
+# Team-level definition tables gated under an object-restrictable scope for resource-level
+# access only: their rows describe shapes shared by every account, not any single account's
+# data, so object-level denies don't apply (the default pk guard never matches a denied id).
+_SCOPE_GATED_METADATA_TABLES: frozenset[str] = frozenset(
+    {
+        "custom_property_definitions",
+        "account_relationship_definitions",
+    }
+)
 
 
 @lru_cache(maxsize=1)
@@ -66,6 +83,8 @@ def _object_grant_registry() -> dict[type[Model], str]:
             model = getattr(meta, "model", None)
         if model is not None:
             registry[model] = scope
+    for db_table, scope in _FACADE_OBJECT_GRANT_TABLES.items():
+        registry[_model_by_pg_table()[db_table]] = scope
     return registry
 
 
@@ -153,6 +172,19 @@ class TestPostgresTable(BaseTest):
 
     def _select(self, query: str, dialect: Literal["hogql", "clickhouse"] = "clickhouse") -> str:
         return prepare_and_print_ast(parse_select(query), self.context, dialect=dialect)[0]
+
+    def test_persons_model_table_resolves_to_persons_db(self):
+        # In DEBUG/TEST, persons-model system tables (e.g. system.groups) build a federated
+        # postgresql(...) call pointing at the persons database — sourced off-ORM from
+        # PERSONS_DB_WRITER_URL — while main-DB tables resolve to the default database. The
+        # persons test DB name carries the "_persons" suffix, which discriminates the two.
+        persons_ctx = HogQLContext(team_id=self.team.pk)
+        build_function_call("posthog_group", persons_ctx)
+        assert any(str(v).endswith("_persons") for v in persons_ctx.values.values())
+
+        default_ctx = HogQLContext(team_id=self.team.pk)
+        build_function_call("posthog_dashboard", default_ctx)
+        assert not any(str(v).endswith("_persons") for v in default_ctx.values.values())
 
     def test_select(self):
         self._init_database()
@@ -444,6 +476,14 @@ class TestObjectAccessControlIdField(SimpleTestCase):
             self.assertIsNone(
                 table.access_control_id_field,
                 f"system.{table_name} scope '{scope}' has no object-level grants; remove access_control_id_field.",
+            )
+            return
+
+        if table_name in _SCOPE_GATED_METADATA_TABLES:
+            self.assertIsNone(
+                table.access_control_id_field,
+                f"system.{table_name} is team-level metadata under '{scope}'; object-level denies "
+                f"don't apply to it — leave access_control_id_field unset.",
             )
             return
 

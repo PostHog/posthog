@@ -6,6 +6,7 @@ import { IconBell, IconClock, IconDownload, IconLeave, IconNotification } from '
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { toSentenceCase } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -29,6 +30,7 @@ import { filterSearchItems } from './utils'
 
 let cachedProductIconColorByType: Map<string, FileSystemIconColor> | null = null
 let cachedProductDisplayLabelByPath: Map<string, string> | null = null
+let cachedProductIconTypeByPath: Map<string, string> | null = null
 
 const getProductIconColorByType = (): Map<string, FileSystemIconColor> => {
     if (cachedProductIconColorByType === null) {
@@ -55,6 +57,19 @@ const getProductDisplayLabelByPath = (): Map<string, string> => {
     return cachedProductDisplayLabelByPath
 }
 
+const getProductIconTypeByPath = (): Map<string, string> => {
+    if (cachedProductIconTypeByPath === null) {
+        cachedProductIconTypeByPath = new Map()
+        for (const product of getTreeItemsProducts()) {
+            const iconType = product.type || product.iconType
+            if (iconType) {
+                cachedProductIconTypeByPath.set(product.path, iconType)
+            }
+        }
+    }
+    return cachedProductIconTypeByPath
+}
+
 const fileSystemEntryToSearchItem = (
     item: FileSystemEntry,
     overrides: { id: string; category: string; searchKeywords?: string[] }
@@ -62,14 +77,19 @@ const fileSystemEntryToSearchItem = (
     const name = splitPath(item.path).pop()
     const itemName = name ? unescapePath(name) : item.path
     const displayName = getProductDisplayLabelByPath().get(itemName)
-    const productIconColor = item.type ? getProductIconColorByType().get(item.type) : undefined
+    // Older starred shortcuts (e.g. Logs, Web analytics) were saved with a blank (empty-string)
+    // type because their product only defines `iconType`. The `||` (not `??`) is deliberate: an
+    // empty string must fall through to the product registry, keyed by name, so the icon resolves.
+    const itemType = item.type || getProductIconTypeByPath().get(itemName) || null
+    const productIconColor = itemType ? getProductIconColorByType().get(itemType) : undefined
     return {
         name: itemName,
         displayName,
         href: item.href || '#',
         lastViewedAt: item.last_viewed_at ?? null,
-        itemType: item.type ?? null,
+        itemType,
         record: { ...item, iconColor: productIconColor },
+        disabledReason: getEntryAccessDisabledReason(item),
         ...overrides,
     }
 }
@@ -93,6 +113,9 @@ export interface SearchItem {
     searchKeywords?: string[]
     record?: Record<string, unknown>
     rank?: number | null // PostgreSQL full-text search rank (from unified search API)
+    /** When set, the item is shown greyed out and non-clickable, with this reason as tooltip
+     * (e.g. the user has no access to the product or resource). */
+    disabledReason?: string
 }
 
 export interface SearchCategory {
@@ -379,6 +402,7 @@ export const searchLogic = kea<searchLogicType>([
                     itemType: product.iconType || product.type || null,
                     tags: product.tags,
                     lastViewedAt: product.sceneKey ? (sceneLogViewsByRef[product.sceneKey] ?? null) : null,
+                    disabledReason: getProductAccessDisabledReason(product),
                     record: {
                         type: product.type || product.iconType,
                         iconType: product.iconType,
@@ -447,6 +471,7 @@ export const searchLogic = kea<searchLogicType>([
                     tags: item.tags,
                     searchKeywords: item.category ? categorySearchKeywords[item.category] : undefined,
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
+                    disabledReason: getProductAccessDisabledReason(item),
                     record: {
                         type: item.type || item.iconType,
                         iconType: item.iconType,
@@ -608,6 +633,7 @@ export const searchLogic = kea<searchLogicType>([
                         category: 'session_recording_playlist',
                         href: item.href || '#',
                         itemType: 'session_recording_playlist',
+                        disabledReason: getEntryAccessDisabledReason(item),
                         record: item as unknown as Record<string, unknown>,
                     }
                 })
@@ -846,6 +872,7 @@ export const searchLogic = kea<searchLogicType>([
                         href,
                         itemType: result.type,
                         rank: result.rank,
+                        disabledReason: getEntryAccessDisabledReason(result),
                         record: {
                             type: result.type,
                             ...result.extra_fields,

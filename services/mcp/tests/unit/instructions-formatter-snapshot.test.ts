@@ -30,7 +30,7 @@ const STATIC_QUERY_TOOLS: QueryToolInfo[] = [
     { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
 ]
 const STATIC_METADATA = [
-    'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).',
+    'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).',
     'Project timezone: America/New_York.',
     "The user's name is Jane Doe (jane@acme.com).",
 ].join('\n')
@@ -41,7 +41,7 @@ const STATIC_CTX: InstructionsContext = {
     metadata: STATIC_METADATA,
     tools: STATIC_TOOLS,
     queryTools: STATIC_QUERY_TOOLS,
-    featureFlags: { 'mcp-feedback-tool': true, 'mcp-render-ui': true },
+    featureFlags: { 'mcp-feedback-tool': true },
     renderUiEnabled: true,
 }
 

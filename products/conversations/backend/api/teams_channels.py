@@ -2,13 +2,13 @@ from django.db import transaction
 
 import requests
 import structlog
-from loginas.utils import is_impersonated_session
 from rest_framework import serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.team.team import Team
@@ -436,7 +436,7 @@ class TeamsSelectChannelView(APIView):
             organization_id=team.organization_id,
             team_id=team.pk,
             user=user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             scope="Team",
             item_id=team.pk,
             activity="updated",
@@ -481,7 +481,7 @@ class TeamsSelectChannelView(APIView):
             organization_id=team.organization_id,
             team_id=team.pk,
             user=user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             scope="Team",
             item_id=team.pk,
             activity="updated",
@@ -595,7 +595,7 @@ class TeamsSelectChannelView(APIView):
             organization_id=team.organization_id,
             team_id=team.pk,
             user=user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             scope="Team",
             item_id=team.pk,
             activity="updated",

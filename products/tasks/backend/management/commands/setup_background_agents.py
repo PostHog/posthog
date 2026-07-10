@@ -23,7 +23,7 @@ AUTO_FILL_KEYS = [
 ]
 GITHUB_APP_KEYS = ["GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY"]
 # Canonical local-dev redirect URIs for the Array OAuth app (matches
-# posthog/demo/products/hedgebox/matrix.py and docs/published/handbook/engineering/oauth-development-guide.md).
+# products/demo/backend/logic/products/hedgebox/matrix.py and docs/published/handbook/engineering/oauth-development-guide.md).
 EXPECTED_REDIRECT_URIS = (
     "http://localhost:3000/callback "
     "https://example.com/callback "

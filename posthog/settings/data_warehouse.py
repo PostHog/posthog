@@ -19,6 +19,31 @@ USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "h
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
+# At-rest (compressed) byte budget per Delta partition. The auto-repartition controller rewrites a
+# table into a finer scheme once its largest partition exceeds this. delta-rs merges decompress the
+# whole target partition into an Arrow working set — roughly ~20x the at-rest size, and far more for
+# wide nested-JSON columns. Worker pods are multi-tenant (a single OOM kills every co-tenant activity),
+# so the budget must leave headroom for concurrent merges under the 29 GB pod limit, not just fit one.
+# ~0.5 GB → ~10 GB worst-case working set, leaving room for other activities on the same pod.
+# The wide-column case (where the ~20x multiplier under-counts) is caught empirically by the OOM-history
+# override below rather than by trying to model per-column expansion here.
+DATA_WAREHOUSE_TARGET_PARTITION_BYTES = get_from_env(
+    "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000, type_cast=int
+)
+
+# A schema that records at least this many sync OOMs within the lookback window is force-repartitioned
+# even when its largest partition is within the size budget — its real merge working set is bigger than
+# the compressed at-rest size implies (e.g. wide nested-JSON columns). See ExternalDataSchemaOOMEvent.
+DATA_WAREHOUSE_REPARTITION_OOM_THRESHOLD = get_from_env("DATA_WAREHOUSE_REPARTITION_OOM_THRESHOLD", 3, type_cast=int)
+DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS = get_from_env(
+    "DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS", 7, type_cast=int
+)
+
+# Pre-write vacuum runs when this many delta commits have accrued since the last vacuum. Decoupled from
+# merge success so tables that OOM their merge still get their tombstones cleared (the compact-after-merge
+# path never runs for them). Vacuum only deletes dead files, so it's memory-safe even on oversized tables.
+DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD = get_from_env("DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100, type_cast=int)
+
 GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")

@@ -390,6 +390,7 @@ class ExternalDataSourceType(models.TextChoices):
     INFORNEXUS = "InforNexus", "InforNexus"
     INSIGHTFUL = "Insightful", "Insightful"
     INSIGHTLY = "Insightly", "Insightly"
+    INSTANTLY = "Instantly", "Instantly"
     INSTATUS = "Instatus", "Instatus"
     INTRUDER = "Intruder", "Intruder"
     INVOICED = "Invoiced", "Invoiced"
@@ -691,6 +692,43 @@ class ExternalDataSourceType(models.TextChoices):
     NEXTDOORADS = "NextdoorAds", "NextdoorAds"
     APPLOVIN = "AppLovin", "AppLovin"
     BASEROW = "Baserow", "Baserow"
+    PLUNK = "Plunk", "Plunk"
+    DUB = "Dub", "Dub"
+    AIROPS = "AirOps", "AirOps"
+    PODIUM = "Podium", "Podium"
+    LOOPS = "Loops", "Loops"
+    REDIS = "Redis", "Redis"
+    MERCURY = "Mercury", "Mercury"
+    GOJIBERRY = "Gojiberry", "Gojiberry"
+    TEACHABLE = "Teachable", "Teachable"
+    PEECAI = "PeecAI", "PeecAI"
+    HEALTHCHECKS = "Healthchecks", "Healthchecks"
+    IMPACT = "Impact", "Impact"
+    AIKIDOSECURITY = "AikidoSecurity", "AikidoSecurity"
+    ALGUNA = "Alguna", "Alguna"
+    ANTHROPIC = "Anthropic", "Anthropic"
+    APPWRITE = "Appwrite", "Appwrite"
+    BLANDAI = "BlandAI", "BlandAI"
+    BROWSEAI = "BrowseAI", "BrowseAI"
+    BROWSERUSE = "BrowserUse", "BrowserUse"
+    CHARTHOP = "ChartHop", "ChartHop"
+    CODY = "Cody", "Cody"
+    CURSOR = "Cursor", "Cursor"
+    DECAGON = "Decagon", "Decagon"
+    DEEPGRAM = "Deepgram", "Deepgram"
+    ELEVENLABS = "ElevenLabs", "ElevenLabs"
+    HARVEY = "Harvey", "Harvey"
+    HYPERSPELL = "Hyperspell", "Hyperspell"
+    LANGFUSE = "Langfuse", "Langfuse"
+    LINGODEV = "LingoDev", "LingoDev"
+    M3TER = "M3ter", "M3ter"
+    MAXIO = "Maxio", "Maxio"
+    METORIAL = "Metorial", "Metorial"
+    OPENROUTER = "OpenRouter", "OpenRouter"
+    TOGETHERAI = "TogetherAI", "TogetherAI"
+    VAPI = "Vapi", "Vapi"
+    VESPA = "Vespa", "Vespa"
+    WRITESONIC = "Writesonic", "Writesonic"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
@@ -699,6 +737,7 @@ class ExternalDataSourceType(models.TextChoices):
 DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.POSTGRES: "postgres",
     ExternalDataSourceType.MYSQL: "mysql",
+    ExternalDataSourceType.SNOWFLAKE: "snowflake",
 }
 
 

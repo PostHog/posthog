@@ -9,15 +9,14 @@ use std::sync::Arc;
 use crate::app_context::AppContext;
 use crate::server::start_server;
 
-pub mod analytics;
 pub mod app_context;
 pub mod config;
 pub mod fingerprinting;
 pub mod issue_resolution;
+pub mod normalization;
 pub mod router;
 pub mod rules;
 pub mod server;
-pub mod signals;
 pub mod stages;
 pub mod teams;
 pub mod tokenizer;

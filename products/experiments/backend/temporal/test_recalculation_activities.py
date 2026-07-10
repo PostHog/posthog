@@ -8,9 +8,14 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -19,9 +24,11 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.temporal.models import RecalculationProgressUpdate
+from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_logic import (
     _calculate_experiment_metric_for_recalculation_sync,
     _discover_experiment_metrics_sync,
+    _store_result,
     _update_recalculation_progress_sync,
 )
 from products.experiments.stats.shared.statistics import StatisticError
@@ -505,6 +512,103 @@ class TestCalculateActivity(BaseTest):
         assert len(recalc.metric_errors) == 2
         assert set(recalc.metric_errors.keys()) == {"missing-a", "missing-b"}
 
+    def test_skips_query_when_completed_result_already_exists_for_this_fingerprint(self):
+        # Speed optimization: if a COMPLETED row already exists at this (experiment, metric_uuid, query_to)
+        # under THIS run's recalc fingerprint, the metric is unchanged and already computed for this window, so
+        # the activity returns success without re-running the ClickHouse query. The fingerprint is the
+        # correctness gate: a config change produces a different fingerprint, so no match, and it recomputes.
+        metric = _mean_metric("m1")
+        exp = self._experiment(flag_key="calc-skip-existing", metrics=[metric])
+        query_to = datetime.fromisoformat(_QUERY_TO)
+        recalc_fp = compute_recalc_fingerprint(
+            compute_metric_fingerprint(
+                metric,
+                exp.start_date,
+                get_experiment_stats_method(exp),
+                exp.exposure_criteria,
+                only_count_matured_users=exp.only_count_matured_users,
+            )
+        )
+        existing = ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint=recalc_fp,
+            query_from=query_to,
+            query_to=query_to,
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"already": "computed"},
+        )
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        mock_runner.assert_not_called()
+        assert result.success is True
+        # The existing row is left untouched: same id, same result.
+        rows = ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1", query_to=query_to)
+        assert rows.count() == 1
+        row = rows.get()
+        assert row.id == existing.id
+        assert row.result == {"already": "computed"}
+
+    def test_recomputes_when_existing_result_has_a_different_fingerprint(self):
+        # A config change yields a different recalc fingerprint, so the existing row does not match and the
+        # activity must recompute rather than reuse a stale result.
+        metric = _mean_metric("m1")
+        exp = self._experiment(flag_key="calc-skip-stale", metrics=[metric])
+        query_to = datetime.fromisoformat(_QUERY_TO)
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint="stale-fingerprint-from-old-config",
+            query_from=query_to,
+            query_to=query_to,
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"stale": True},
+        )
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        mock_runner.assert_called_once()
+
+    def test_store_result_updates_existing_row_with_different_fingerprint_in_place(self):
+        # The unique constraint is (experiment, metric_uuid, query_to); fingerprint is not part of it. A row may
+        # already occupy that key under a different fingerprint (an earlier run written under the old per-run
+        # scheme, or the timeseries workflow). _store_result must update that row in place, not insert a second
+        # one and crash with IntegrityError. This is what unsticks experiments already collided in production.
+        exp = self._experiment(flag_key="store-upsert-key", metrics=[_mean_metric("m1")])
+        query_to = datetime.fromisoformat(_QUERY_TO)
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint="legacy-fingerprint-from-a-prior-run",
+            query_from=query_to,
+            query_to=query_to,
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"stale": True},
+        )
+
+        _store_result(
+            experiment_id=exp.id,
+            metric_uuid="m1",
+            recalc_fp="new-deterministic-fingerprint",
+            query_from=query_to,
+            query_to=query_to,
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"fresh": True},
+            error_message=None,
+        )
+
+        rows = ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1", query_to=query_to)
+        assert rows.count() == 1
+        row = rows.get()
+        assert row.fingerprint == "new-deterministic-fingerprint"
+        assert row.result == {"fresh": True}
+
     @parameterized.expand(
         [
             # (name, metric_uuid, metrics_on_experiment, run_with_mocked_failure, expected_result_rows)
@@ -652,20 +756,16 @@ class TestMissingRecalcRow:
 
 @contextmanager
 def _record_captures():
-    """Patch ph_scoped_capture so the analytics tests can assert the exact event name + properties
-    without standing up a real PostHog client. Yields the list of captured capture(...) kwargs."""
+    """Patch the global posthoganalytics client so the analytics tests can assert the exact event
+    name + properties without sending anything. Yields the list of captured capture(...) kwargs."""
     captured: list[dict] = []
 
     def _fake_capture(*args, **kwargs) -> None:
         captured.append(kwargs)
 
-    @contextmanager
-    def _fake_scoped():
-        yield _fake_capture
-
     with patch(
-        "products.experiments.backend.temporal.recalculation_logic.ph_scoped_capture",
-        _fake_scoped,
+        "products.experiments.backend.temporal.recalculation_logic.posthoganalytics.capture",
+        _fake_capture,
     ):
         yield captured
 
@@ -765,9 +865,9 @@ class TestRecalculationAnalytics(BaseTest):
 
         assert captured[0]["properties"]["is_primary"] is False
 
-    def test_transient_failure_emits_no_per_metric_event(self):
-        # The transient except-Exception path re-raises for Temporal to retry; emitting there would
-        # double-count per attempt. The failure is reflected in the run-level event instead.
+    def test_non_final_failure_emits_no_per_metric_event(self):
+        # A non-final attempt re-raises for Temporal to retry; emitting there would double-count a
+        # failure that may still succeed on a later attempt. Only the terminal attempt emits.
         exp = self._experiment(flag_key="an-transient", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
@@ -777,9 +877,46 @@ class TestRecalculationAnalytics(BaseTest):
             ) as mock_runner:
                 mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
                 with pytest.raises(RuntimeError, match="kaboom"):
-                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
 
         assert captured == []
+
+    @parameterized.expand(
+        [
+            ("wrapped_oom", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
+            ("wrapped_timeout", ClickHouseQueryTimeOut(), "timeout"),
+            ("wrapped_at_capacity", ClickHouseAtCapacity(), "rate_limited"),
+            ("ch_timeout_code", ServerException("timed out", code=159), "timeout"),
+            ("ch_socket_timeout_code", ServerException("socket timed out", code=209), "timeout"),
+            ("ch_memory_limit_code", ServerException("memory limit exceeded", code=241), "out_of_memory"),
+            ("ch_too_many_bytes_code", ServerException("too many bytes", code=307), "byte_limit"),
+            ("ch_too_many_queries_code", ServerException("too many queries", code=202), "rate_limited"),
+            ("other", RuntimeError("kaboom"), "server_error"),
+        ]
+    )
+    def test_terminal_failure_emits_metric_error_event(self, name, exc, expected_error_type):
+        # On the terminal attempt (retries exhausted) an infra failure emits 'experiment metric error'
+        # with the shared backend error_type taxonomy — including byte_limit (307) and rate_limited (202),
+        # the two real failure modes that used to collapse into server_error and stay invisible.
+        exp = self._experiment(flag_key=f"an-terminal-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with _record_captures() as captured:
+            with patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
+            ) as mock_runner:
+                mock_runner.return_value.run.side_effect = exc
+                with pytest.raises(type(exc)):
+                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
+
+        assert len(captured) == 1
+        assert captured[0]["event"] == "experiment metric error"
+        props = captured[0]["properties"]
+        assert props["error_type"] == expected_error_type
+        assert props["execution_mode"] == "recalculation"
+        assert props["context"] == "ui"
+        assert props["mechanism"] == "orchestrated"
+        assert props["trigger"] == "manual"
 
     def test_results_refresh_completed_event_on_finish(self):
         exp = self._experiment(flag_key="an-finish", metrics=[_mean_metric("m1")])

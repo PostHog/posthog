@@ -36,6 +36,19 @@ from posthog.temporal.session_replay.delete_recordings.types import (
     RecordingsWithTeamInput,
 )
 
+# Back off on transient ClickHouse overload (Code 202); fail fast on deterministic errors that won't recover.
+_LOAD_RECORDINGS_RETRY_POLICY = common.RetryPolicy(
+    maximum_attempts=8,
+    initial_interval=timedelta(seconds=2),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(seconds=30),
+    non_retryable_error_types=[
+        "LoadRecordingError",
+        "ClickHouseMemoryLimitExceededError",
+        "ClickHouseTooManyBytesError",
+    ],
+)
+
 
 async def _delete_page(
     page: LoadRecordingsPage,
@@ -122,7 +135,7 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
                 ),
                 start_to_close_timeout=timedelta(minutes=2),
                 schedule_to_close_timeout=timedelta(minutes=30),
-                retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+                retry_policy=_LOAD_RECORDINGS_RETRY_POLICY,
             )
 
             await _delete_page(page, input.team_id, input.config, progress)
@@ -168,7 +181,7 @@ class DeleteRecordingsWithTeamWorkflow(PostHogWorkflow):
                 ),
                 start_to_close_timeout=timedelta(minutes=2),
                 schedule_to_close_timeout=timedelta(minutes=30),
-                retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+                retry_policy=_LOAD_RECORDINGS_RETRY_POLICY,
             )
 
             await _delete_page(page, input.team_id, input.config, progress)
@@ -213,7 +226,7 @@ class DeleteRecordingsWithQueryWorkflow(PostHogWorkflow):
                 ),
                 start_to_close_timeout=timedelta(minutes=15),
                 schedule_to_close_timeout=timedelta(hours=1),
-                retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=2)),
+                retry_policy=_LOAD_RECORDINGS_RETRY_POLICY,
             )
 
             await _delete_page(page, input.team_id, input.config, progress)

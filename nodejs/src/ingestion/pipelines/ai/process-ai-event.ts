@@ -8,7 +8,7 @@
  * - Model parameter extraction (for generation/embedding/evaluation events)
  */
 import { logger } from '~/common/utils/logger'
-import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { convertRawEvent } from './convert-raw-event'

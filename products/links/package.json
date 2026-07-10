@@ -11,7 +11,7 @@
         "qrcode.react": "^4.2.0"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
         "@types/react": "*",
         "clsx": "*",

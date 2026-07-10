@@ -28,7 +28,7 @@ class TestPersonsDbUrl:
             assert persons_db_url(writer=False) == LOCAL_DEV_PERSONS_DB_URL
 
 
-@pytest.mark.django_db(databases=["persons_db_writer", "persons_db_reader"])
+@pytest.mark.django_db()
 def test_sync_connection_targets_persons_db():
     with persons_db_connection() as conn, conn.cursor() as cursor:
         cursor.execute("SELECT current_database()")
@@ -37,14 +37,14 @@ def test_sync_connection_targets_persons_db():
     assert row[0].endswith("_persons")
 
 
-@pytest.mark.django_db(databases=["persons_db_writer", "persons_db_reader"])
+@pytest.mark.django_db()
 def test_sync_reader_connection_works():
     with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
         cursor.execute("SELECT 1")
         assert cursor.fetchone() == (1,)
 
 
-@pytest.mark.django_db(databases=["persons_db_writer", "persons_db_reader"])
+@pytest.mark.django_db()
 async def test_async_connection_targets_persons_db():
     async with persons_db_aconnection() as conn, conn.cursor() as cursor:
         await cursor.execute("SELECT current_database()")

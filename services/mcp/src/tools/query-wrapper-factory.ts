@@ -48,7 +48,10 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             const { output_format: callerOutputFormat, ...queryParams } = params as typeof params & {
                 output_format?: 'optimized' | 'json'
             }
-            const query: Record<string, unknown> = { ...queryParams, kind: config.kind }
+            const query: Record<string, unknown> = {
+                ...queryParams,
+                kind: config.kind,
+            }
             const baseUrl = context.api.getProjectBaseUrl(projectId)
             const effectiveOutputFormat = callerOutputFormat ?? config.outputFormat
 
@@ -93,6 +96,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 query,
                 results: data.results,
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
+                ...(data.warnings ? { warnings: data.warnings } : {}),
                 ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
             }
         },

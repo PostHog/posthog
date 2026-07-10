@@ -5,17 +5,118 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.tasks.backend.constants import (
+    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    DEFAULT_SANDBOX_WORKING_DIR,
+    SNAPSHOT_KIND_DIRECTORY,
+)
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import (
     GitHubCredentialSource,
     McpServerConfig,
+    RunState,
     get_git_identity_env_vars,
     get_github_credential_source,
     get_sandbox_github_token,
     get_sandbox_ph_mcp_configs,
+    get_task_run_actor_user,
+    get_task_run_credential_user,
     get_user_mcp_server_configs,
     is_caller_token_run,
 )
+
+
+class TestRunStateSnapshotPaths(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "new_directory_snapshot",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY},
+                DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+            ),
+            (
+                "stored_directory_snapshot_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
+                DEFAULT_SANDBOX_WORKING_DIR,
+            ),
+            # A disallowed stored path invalidates the snapshot (None) — it must NOT be remapped
+            # to the default: the snapshot's content layout only fits the path it was captured
+            # from. "/tmp" is the legacy default whose re-mount killed the sandbox.
+            (
+                "legacy_tmp_directory_snapshot",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
+                None,
+            ),
+            (
+                "unsupported_directory_snapshot_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp/agent-env"},
+                None,
+            ),
+            ("filesystem_snapshot", {"snapshot_kind": "filesystem"}, None),
+        ]
+    )
+    def test_resume_snapshot_mount_path(self, _name: str, state: dict[str, str], expected_path: str | None) -> None:
+        assert RunState.model_validate(state).resume_snapshot_mount_path() == expected_path
+
+    @parameterized.expand(
+        [
+            (
+                "directory_workspace_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
+                True,
+            ),
+            ("directory_no_path", {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY}, True),
+            (
+                "directory_legacy_tmp_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
+                False,
+            ),
+            ("filesystem", {"snapshot_kind": "filesystem"}, True),
+            ("no_kind", {}, True),
+        ]
+    )
+    def test_resume_snapshot_is_usable(self, _name: str, state: dict[str, str], expected: bool) -> None:
+        assert RunState.model_validate(state).resume_snapshot_is_usable() is expected
+
+    @parameterized.expand(
+        [
+            (
+                "directory_full_triple",
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                },
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                },
+            ),
+            (
+                "filesystem_no_mount_path",
+                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
+                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
+            ),
+            (
+                "legacy_no_kind",
+                {"snapshot_external_id": "im-old"},
+                {"snapshot_external_id": "im-old", "snapshot_kind": "filesystem"},
+            ),
+            (
+                "unusable_directory",
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_mount_path": "/tmp",
+                },
+                {},
+            ),
+            ("no_snapshot", {}, {}),
+        ]
+    )
+    def test_resume_snapshot_carry_state(self, _name: str, state: dict[str, str], expected: dict[str, str]) -> None:
+        assert RunState.model_validate(state).resume_snapshot_carry_state() == expected
 
 
 class TestGetSandboxMcpConfigs(TestCase):
@@ -172,6 +273,7 @@ class TestGetSandboxMcpConfigs(TestCase):
             ("posthog-code", "posthog-code"),
             ("some-other-origin", "posthog-code"),
             ("slack", "slack"),
+            ("posthog_ai", "posthog_ai"),
         ]
     )
     def test_consumer_header_reflects_interaction_origin(
@@ -262,6 +364,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
     @parameterized.expand(
         [
             ("slack", "slack"),
+            ("posthog_ai", "posthog_ai"),
             ("posthog_code", "posthog-code"),
             (None, "posthog-code"),
         ]
@@ -366,6 +469,7 @@ class TestGetGitIdentityEnvVars(TestCase):
         [
             (Task.OriginProduct.ERROR_TRACKING,),
             (Task.OriginProduct.SUPPORT_QUEUE,),
+            (Task.OriginProduct.HOGDESK,),
             (Task.OriginProduct.EVAL_CLUSTERS,),
             (Task.OriginProduct.SESSION_SUMMARIES,),
         ]
@@ -403,6 +507,82 @@ class TestGetGitIdentityEnvVars(TestCase):
         result = get_git_identity_env_vars(task)
         assert result["GIT_AUTHOR_NAME"] == "PostHog User"
         assert result["GIT_AUTHOR_EMAIL"] == "anon@example.com"
+
+
+class TestGetGithubToken(TestCase):
+    def test_raises_credential_unavailable_for_dead_installation_instead_of_stale_token(self):
+        from posthog.models import Integration, Organization, Team
+
+        from products.tasks.backend.exceptions import CredentialUnavailableError
+        from products.tasks.backend.temporal.process_task.utils import get_github_token
+
+        org = Organization.objects.create(name="o")
+        team = Team.objects.create(organization=org, name="t")
+        integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            config={"installation_id": "INSTALL", "installation_unavailable_since": 1700000000},
+            sensitive_config={"access_token": "ghs_stale"},
+        )
+
+        with self.assertRaises(CredentialUnavailableError):
+            get_github_token(integration.id)
+
+
+class TestSlackTaskRunActorUser(TestCase):
+    def test_credential_user_grandfathers_legacy_runs_without_actor_state(self) -> None:
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+
+        organization = Organization.objects.create(name="slack-actor-org")
+        team = Team.objects.create(organization=organization, name="slack-actor-team")
+        creator = User.objects.create(email="creator@example.com")
+        task = Task.objects.create(
+            team=team,
+            title="Investigate thread",
+            created_by=creator,
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        # Slack runs started before actor tracking carry no slack_actor_user_id at all;
+        # they must keep running on the creator's credentials across the rollout.
+        state = {"interaction_origin": "slack"}
+
+        assert get_task_run_actor_user(task, state) == creator
+        assert get_task_run_credential_user(task, state) == creator
+
+    def test_credential_user_fails_closed_when_slack_actor_invalid(self) -> None:
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+
+        organization = Organization.objects.create(name="slack-actor-invalid-org")
+        team = Team.objects.create(organization=organization, name="slack-actor-invalid-team")
+        creator = User.objects.create(email="creator-invalid@example.com")
+        task = Task.objects.create(
+            team=team,
+            title="Investigate thread",
+            created_by=creator,
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        state = {"interaction_origin": "slack", "slack_actor_user_id": creator.id + 999_999}
+
+        assert get_task_run_credential_user(task, state) is None
+
+    def test_credential_user_allows_creator_when_slack_actor_is_creator(self) -> None:
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+
+        organization = Organization.objects.create(name="slack-actor-creator-org")
+        team = Team.objects.create(organization=organization, name="slack-actor-creator-team")
+        creator = User.objects.create(email="creator-actor@example.com")
+        task = Task.objects.create(
+            team=team,
+            title="Investigate thread",
+            created_by=creator,
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        state = {"interaction_origin": "slack", "slack_actor_user_id": creator.id}
+
+        assert get_task_run_credential_user(task, state) == creator
 
 
 class TestGetSandboxGitHubToken(TestCase):
@@ -552,6 +732,65 @@ class TestGetSandboxGitHubToken(TestCase):
 
         assert result is None
         mock_get_identity.assert_not_called()
+        mock_get_github_token.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.process_task.sandbox_credentials.resolve_coordinated_user_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
+    def test_slack_user_authorship_uses_actor_user_integration(
+        self,
+        mock_get_github_token: MagicMock,
+        mock_get_identity: MagicMock,
+        mock_cached: MagicMock,
+        mock_resolve: MagicMock,
+    ) -> None:
+        actor = MagicMock(name="actor")
+        identity = MagicMock()
+        mock_cached.return_value = None
+        mock_get_identity.return_value = identity
+        mock_resolve.return_value = "ghu_actor"
+
+        result = get_sandbox_github_token(
+            123,
+            run_id="run-1",
+            state={"pr_authorship_mode": "user", "interaction_origin": "slack"},
+            actor_user=actor,
+            repository="posthog/posthog",
+        )
+
+        assert result == "ghu_actor"
+        mock_get_identity.assert_called_once_with(
+            actor,
+            github_user_integration_id=None,
+            repository="posthog/posthog",
+            allow_refresh=True,
+        )
+        mock_get_github_token.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.process_task.sandbox_credentials.resolve_coordinated_user_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token", return_value=None)
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
+    def test_slack_user_authorship_does_not_fall_back_to_team_token(
+        self,
+        mock_get_github_token: MagicMock,
+        mock_get_identity: MagicMock,
+        _mock_cached: MagicMock,
+        _mock_resolve: MagicMock,
+    ) -> None:
+        from posthog.models.user_integration import ReauthorizationRequired
+
+        mock_get_identity.return_value = None
+
+        with self.assertRaises(ReauthorizationRequired):
+            get_sandbox_github_token(
+                123,
+                run_id="run-1",
+                state={"pr_authorship_mode": "user", "interaction_origin": "slack"},
+                actor_user=MagicMock(name="actor"),
+            )
+
         mock_get_github_token.assert_not_called()
 
 
