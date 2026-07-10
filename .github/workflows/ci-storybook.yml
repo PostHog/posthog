@@ -1,10 +1,10 @@
 name: Storybook
 on:
     pull_request:
-        # Draft PRs run a narrowed visual-regression matrix (affected stories only);
-        # ready PRs run the full chromium matrix (the merge gate). ready_for_review
-        # re-triggers the full run on the current head when a PR leaves draft. To
-        # force the full matrix on a draft, add the `run-ci-frontend` label —
+        # PRs run a narrowed visual-regression matrix when the Storybook module graph
+        # can safely identify affected stories. Shared infrastructure and uncertain
+        # changes fall back to the full chromium matrix. To force the full matrix, add
+        # the `run-ci-frontend` label —
         # labeled/unlabeled re-trigger the run so it starts without needing a push.
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     merge_group:
@@ -338,10 +338,9 @@ jobs:
             fail-fast: false
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
             # are tuned for runner CPU — consult #team-devex before changing.
-            # On draft PRs, select-stories may narrow the matrix to a single chromium
-            # shard running just the affected story files. On ready PRs and master push
-            # it's skipped, so we fall back to changes.outputs.matrix (ready PRs:
-            # full chromium; master push: chromium + webkit).
+            # On PRs, select-stories may narrow the matrix to chromium shards running
+            # only affected story files. Shared or uncertain changes fall back to
+            # changes.outputs.matrix (full chromium). Master pushes run chromium + webkit.
             # Storybook CI is skipped entirely on merge_group (changes.if).
             matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
@@ -458,7 +457,7 @@ jobs:
               run: |
                   if [ "$MODE" = "selective" ]; then
                       # test-storybook is jest-based; positional path args filter the run to
-                      # only those story files. Single shard, so --shard 1/1 is a no-op.
+                      # only those story files before Jest distributes them across shards.
                       # shellcheck disable=SC2086
                       pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} -- $AFFECTED_FILES
                   else
@@ -728,15 +727,10 @@ jobs:
                   github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Visual regression tests pass'
 
-    # Shadow measurement: reports which stories could have rendered differently
-    # Pick the visual-regression matrix on draft PRs based on which stories the
-    # webpack module graph (emitted by ModuleGraphPlugin) says are affected
-    # by the diff. On ready PRs and master push this job is skipped and
-    # visual-regression falls back to needs.changes.outputs.matrix (the full
-    # suite). The ready-for-review full run is the merge gate — storybook
-    # already skips merge_group entirely (changes.if). The run-ci-frontend
-    # label forces the full matrix on a draft. When selection can't be trusted
-    # on a draft, visual-regression is skipped and deferred to the ready run.
+    # Pick the visual-regression matrix on PRs based on which stories the Vite
+    # module graph says are affected by the diff. Shared UI infrastructure,
+    # unresolved runtime files, selector failures, and the run-ci-frontend label
+    # fall back to the full chromium matrix. Master pushes run the full matrix.
     select-stories:
         name: Story selection
         runs-on: ubuntu-latest
@@ -745,7 +739,6 @@ jobs:
         if: |
             always() && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
-            && github.event.pull_request.draft == true
             && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
@@ -802,29 +795,22 @@ jobs:
               run: |
                   set -euo pipefail
 
-                  # Untrusted selection on a draft skips visual-regression entirely
-                  # (should_run=false gates vr-setup and the test matrix off); the
-                  # ready-for-review full run is the gate. A skipped draft can't
-                  # trade green-by-default for green-by-skipping: drafts can't
-                  # merge, and ready re-runs the full suite. The run-ci-frontend
-                  # label forces the full matrix on a draft.
-                  fall_back_to_skip() {
-                      echo "mode=skip" >> "$GITHUB_OUTPUT"
-                      echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
-                      echo "should_run=false" >> "$GITHUB_OUTPUT"
+                  fall_back_to_full() {
+                      echo "mode=full" >> "$GITHUB_OUTPUT"
+                      echo "should_run=true" >> "$GITHUB_OUTPUT"
                       echo "affected_files=" >> "$GITHUB_OUTPUT"
                   }
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection-result.json ]]; then
-                      echo "::warning::story selector did not produce output; draft skips visual-regression (full run happens on ready for review)"
-                      fall_back_to_skip
+                      echo "::warning::story selector did not produce output; running the full visual-regression matrix"
+                      fall_back_to_full
                       exit 0
                   fi
 
                   MODE=$(jq -r '.mode' /tmp/selection-result.json)
                   if [[ "$MODE" != "selective" ]]; then
-                      echo "Selector declined to narrow (mode=$MODE); draft skips visual-regression (full run happens on ready for review)"
-                      fall_back_to_skip
+                      echo "Selector declined to narrow (mode=$MODE); running the full visual-regression matrix"
+                      fall_back_to_full
                       exit 0
                   fi
 
@@ -839,13 +825,16 @@ jobs:
                       exit 0
                   fi
 
-                  # Selective with affected stories: collapse to one chromium shard.
+                  # Size the narrowed matrix from the estimated affected workload.
                   AFFECTED_FILES=$(jq -r '.affected_stories | join(" ")' /tmp/selection-result.json)
+                  SHARDS=$(jq -r '[.suggested_shards, 16] | min' /tmp/selection-result.json)
+                  MATRIX=$(jq -cn --argjson count "$SHARDS" \
+                      '{include: [range(1; $count + 1) | {browser: "chromium", shard_count: $count, shard: .}]}')
                   echo "mode=selective" >> "$GITHUB_OUTPUT"
-                  echo 'matrix={"include":[{"browser":"chromium","shard":1,"shard_count":1}]}' >> "$GITHUB_OUTPUT"
+                  echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
                   echo "should_run=true" >> "$GITHUB_OUTPUT"
                   echo "affected_files=$AFFECTED_FILES" >> "$GITHUB_OUTPUT"
-                  echo "Selective mode: $COUNT affected story files"
+                  echo "Selective mode: $COUNT affected story files across $SHARDS shard(s)"
 
             - name: Write summary
               if: steps.selection.outcome == 'success'
@@ -861,8 +850,7 @@ jobs:
                       COUNT=$(echo "$RESULT" | jq -r '.affected_story_count')
                       AFFECTED_DUR=$(echo "$RESULT" | jq -r '.affected_duration_seconds')
                       TOTAL_DUR=$(echo "$RESULT" | jq -r '.total_duration_seconds')
-                      # Selected mode collapses to a single chromium shard (see classify step).
-                      SHARDS=1
+                      SHARDS=$(echo "$RESULT" | jq -r '[.suggested_shards, 16] | min')
 
                       SAVED_STORIES=$((TOTAL - COUNT))
                       SAVED_SHARDS=$((CURRENT_SHARDS - SHARDS))
@@ -880,7 +868,7 @@ jobs:
                   | Est. CI minutes | ~${FULL_MINUTES} | ~${SELECTIVE_MINUTES} | **~${SAVED_MINUTES}** |
                   | Est. render time | ${TOTAL_DUR}s | ${AFFECTED_DUR}s | **$((TOTAL_DUR - AFFECTED_DUR))s** |
 
-                  > Predictor: webpack module graph from build-storybook. Master push runs the full suite.
+                  > Predictor: Vite module graph from build-storybook. Shared code and uncertain changes run the full suite.
                   EOF
                       echo "SELECTION_METRICS: $(echo "$RESULT" | jq -c '{mode, affected: .affected_story_count, total: .total_story_count, current_shards: '$CURRENT_SHARDS', affected_dur: .affected_duration_seconds, total_dur: .total_duration_seconds}')"
                   else
