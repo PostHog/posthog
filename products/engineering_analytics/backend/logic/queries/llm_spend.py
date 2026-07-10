@@ -137,6 +137,11 @@ def query_pr_llm_spend(
     # comes from parseDateTimeBestEffort, which yields NULL on a malformed value).
     if not head_branch or created_at is None:
         return None
+    # A PR whose head is its own base (a fork PR from default to default) can't be branch-attributed:
+    # the direct rule would sweep every default-branch generation in the window onto it. No
+    # attribution beats wrong attribution.
+    if head_branch == base_branch:
+        return None
 
     # Open PRs are still accruing spend, so cap at now(); a closed/merged PR caps at its close.
     window_end = merged_at or closed_at or timezone.now()

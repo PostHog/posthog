@@ -1495,6 +1495,14 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
         assert cost.llm_spend.input_tokens == 300
         assert cost.llm_spend.output_tokens == 130
 
+    def test_llm_spend_none_when_head_is_base(self) -> None:
+        self._seed_pr(84, "master", base_ref="master")
+        self._generation(branch="master", days_ago=4, cost=5.0)
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=84, repo="PostHog/posthog")
+        assert cost.llm_spend is None
+
     def test_llm_spend_none_when_no_generations(self) -> None:
         # Open PR whose branch no event carries — spend stays null so the UI hides the row.
         self._create_table(
