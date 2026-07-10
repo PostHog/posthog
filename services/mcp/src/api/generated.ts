@@ -12967,6 +12967,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `new` - new
+     * * `rate_shift` - rate_shift
+     * * `gone` - gone
+     * * `unchanged` - unchanged
+     */
+    export type ClassificationEnum = typeof ClassificationEnum[keyof typeof ClassificationEnum];
+
+
+    export const ClassificationEnum = {
+      New: 'new',
+      RateShift: 'rate_shift',
+      Gone: 'gone',
+      Unchanged: 'unchanged',
+    } as const;
+
+    /**
      * * `abandoned` - Abandoned
      * * `off-topic` - Off-topic
      */
@@ -58182,6 +58198,33 @@ export namespace Schemas {
       match_literal: string | null;
     }
 
+    export interface _LogPatternDiffEntry {
+      /** "new": appears only in the current window and clears the novelty floor (at least ~1% volume share, or any error/fatal occurrences). "rate_shift": present in both windows with the per-second rate changed by at least 2x either way, backed by enough samples on both sides to trust the estimates. "gone": cleared the floor in the baseline but absent from the current window. "unchanged" means "no confident claim", not "provably identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.
+       *
+       * * `new` - new
+       * * `rate_shift` - rate_shift
+       * * `gone` - gone
+       * * `unchanged` - unchanged */
+      classification: ClassificationEnum;
+      /**
+         * Current-window rate divided by baseline rate, both normalized per second so windows of different lengths compare fairly. 4.0 means 4x faster now; 0.25 means quartered. Null when the pattern is missing from either window.
+         * @nullable
+         */
+      rate_ratio: number | null;
+      /** The mined pattern with full stats. Taken from the current window, or from the baseline window for "gone" entries. When template wobble split one message across several near-identical templates, this is the highest-volume representative and the entry's classification reflects their combined counts. */
+      pattern: _LogPattern;
+      /**
+         * Estimated occurrences across the baseline window (extrapolated like `estimated_count`). Null when the pattern was not seen in the baseline sample.
+         * @nullable
+         */
+      baseline_estimated_count: number | null;
+      /**
+         * Share of the baseline sample this pattern represented (0-100). Null when absent from the baseline.
+         * @nullable
+         */
+      baseline_volume_share_pct: number | null;
+    }
+
     /**
      * * `log` - log
      * * `log_attribute` - log_attribute
@@ -58435,6 +58478,37 @@ export namespace Schemas {
       searchTerm?: string;
       /** Property filters applied before mining. Same shape as the query-logs endpoint. */
       filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsPatternsDiffRequest {
+      /** The patterns query for the current (foreground) window: date range plus any severity/service/search/property filters. The same filters are applied to the baseline window. */
+      query: _LogsPatternsBody;
+      /** Baseline window to compare against. Omit to default to the current window shifted back exactly one week, which absorbs daily and weekly log-volume cycles. Pass an explicit range to compare against a specific period, e.g. pre-deploy or pre-incident. */
+      baselineDateRange?: _DateRange;
+    }
+
+    export interface _LogsPatternsDiffWindow {
+      /** Log rows fed to the miner for this window (sample size). */
+      scanned_count: number;
+      /** Total log rows matching the filters in this window. */
+      total_count: number;
+      /** True when this window's counts are extrapolated from a sample rather than exact. */
+      sampled: boolean;
+      /** Share of this window's rows eligible for sampling (0-100); below 100 the scan was time-slice bounded. */
+      sample_coverage_pct: number;
+      /** Resolved window start (ISO 8601, inclusive). */
+      date_from: string;
+      /** Resolved window end (ISO 8601, exclusive). */
+      date_to: string;
+    }
+
+    export interface _LogsPatternsDiffResponse {
+      /** Classified diff entries, most interesting first: "new" (by estimated count), then "rate_shift" (by shift magnitude), then "gone", then "unchanged". A pattern in the baseline is matched to the current window by literal-content fingerprint, so a placeholder widening between runs does not read as one pattern vanishing and another appearing. */
+      entries: _LogPatternDiffEntry[];
+      /** Mining metadata for the current window. */
+      current: _LogsPatternsDiffWindow;
+      /** Mining metadata for the baseline window. Check `total_count` before trusting a wall of "new" entries: an empty or tiny baseline (e.g. logging only started this week) makes everything look new. */
+      baseline: _LogsPatternsDiffWindow;
     }
 
     export interface _LogsPatternsRequest {
