@@ -46268,6 +46268,7 @@
                 "resources",
                 "error_tracking_properties",
                 "activity_log_properties",
+                "mcp_properties",
                 "max_ai_context",
                 "workflow_variables",
                 "suggested_filters",
