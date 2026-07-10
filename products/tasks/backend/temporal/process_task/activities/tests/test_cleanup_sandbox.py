@@ -26,8 +26,9 @@ def test_cleanup_sandbox_skips_agent_server_shutdown_for_regular_cleanup(activit
 
 
 @pytest.mark.django_db
-def test_cleanup_sandbox_does_not_request_agent_server_shutdown_when_completing_stream(activity_environment, mocker):
+def test_cleanup_sandbox_requests_agent_server_shutdown_when_completing_stream(activity_environment, mocker):
     sandbox = mocker.Mock(id="sandbox-123")
+    sandbox.stop_agent_server.return_value.exit_code = 0
     get_by_id = mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
 
     async_to_sync(activity_environment.run)(
@@ -36,6 +37,7 @@ def test_cleanup_sandbox_does_not_request_agent_server_shutdown_when_completing_
     )
 
     get_by_id.assert_called_once_with("sandbox-123")
+    sandbox.stop_agent_server.assert_called_once_with()
     sandbox.execute.assert_not_called()
     sandbox.destroy.assert_called_once_with()
 
