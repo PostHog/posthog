@@ -1,4 +1,6 @@
-import { Attributes, Counter, Histogram, metrics as metricsApi } from '@opentelemetry/api'
+import { Attributes, Counter, Histogram, Meter, MetricOptions, metrics as metricsApi } from '@opentelemetry/api'
+
+import { counterWithExemplars, histogramWithExemplars } from '~/common/metrics/exemplars'
 
 /**
  * OTLP-pushed twins of the core logs-ingestion prom counters. The prom side keeps
@@ -30,38 +32,45 @@ const PROCESSING_DURATION_BOUNDARIES = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1]
 
 let instruments: LogsIngestionInstruments | null = null
 
+// The wrappers buffer an exemplar (active span context) per record, which the
+// OTLP JSON exporter attaches at export — the upstream SDK path can't do this.
+const createCounter = (meter: Meter, name: string, options?: MetricOptions): Counter =>
+    counterWithExemplars(name, meter.createCounter(name, options))
+const createHistogram = (meter: Meter, name: string, options?: MetricOptions): Histogram =>
+    histogramWithExemplars(name, meter.createHistogram(name, options))
+
 function getInstruments(): LogsIngestionInstruments {
     if (instruments === null) {
         const meter = metricsApi.getMeter('logs-ingestion')
         instruments = {
-            bytesReceived: meter.createCounter('logs_ingestion_bytes_received_total', {
+            bytesReceived: createCounter(meter, 'logs_ingestion_bytes_received_total', {
                 description: 'Total uncompressed bytes received for logs ingestion',
                 unit: 'By',
             }),
-            recordsReceived: meter.createCounter('logs_ingestion_records_received_total', {
+            recordsReceived: createCounter(meter, 'logs_ingestion_records_received_total', {
                 description: 'Total log records received',
             }),
-            bytesAllowed: meter.createCounter('logs_ingestion_bytes_allowed_total', {
+            bytesAllowed: createCounter(meter, 'logs_ingestion_bytes_allowed_total', {
                 description: 'Total uncompressed bytes allowed through quota and rate limiting',
                 unit: 'By',
             }),
-            recordsAllowed: meter.createCounter('logs_ingestion_records_allowed_total', {
+            recordsAllowed: createCounter(meter, 'logs_ingestion_records_allowed_total', {
                 description: 'Total log records allowed through quota and rate limiting',
             }),
-            bytesDropped: meter.createCounter('logs_ingestion_bytes_dropped_total', {
+            bytesDropped: createCounter(meter, 'logs_ingestion_bytes_dropped_total', {
                 description: 'Total uncompressed bytes dropped due to quota or rate limiting',
                 unit: 'By',
             }),
-            recordsDropped: meter.createCounter('logs_ingestion_records_dropped_total', {
+            recordsDropped: createCounter(meter, 'logs_ingestion_records_dropped_total', {
                 description: 'Total log records dropped due to quota or rate limiting',
             }),
-            messagesDropped: meter.createCounter('logs_ingestion_message_dropped_count', {
+            messagesDropped: createCounter(meter, 'logs_ingestion_message_dropped_count', {
                 description: 'The number of logs ingestion messages dropped',
             }),
-            messagesDlq: meter.createCounter('logs_ingestion_message_dlq_count', {
+            messagesDlq: createCounter(meter, 'logs_ingestion_message_dlq_count', {
                 description: 'The number of logs ingestion messages sent to DLQ',
             }),
-            processingDuration: meter.createHistogram('logs_ingestion_processing_duration_seconds', {
+            processingDuration: createHistogram(meter, 'logs_ingestion_processing_duration_seconds', {
                 description: 'Time spent processing log messages (AVRO decode/encode cycle)',
                 unit: 's',
                 advice: { explicitBucketBoundaries: PROCESSING_DURATION_BOUNDARIES },
