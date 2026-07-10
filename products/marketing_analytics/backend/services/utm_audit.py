@@ -38,11 +38,40 @@ from products.marketing_analytics.backend.services.types import (
 logger = structlog.get_logger(__name__)
 
 
+def _default_source_to_integration() -> dict[str, str]:
+    """Map each integration's default utm_source values to its primary source.
+
+    Mirrors the adapter defaults attribution uses: every adapter's
+    `get_source_identifier_mapping` returns `{INTEGRATION_PRIMARY_SOURCE:
+    INTEGRATION_DEFAULT_SOURCES}`, which `MarketingSourceFactory.
+    get_all_source_identifier_mappings` merges with custom mappings. The audit
+    must recognize the same utm_source values attribution does, or it reports
+    "source mismatch" for events attribution happily counts.
+    """
+    result: dict[str, str] = {}
+    for native_source, sources in INTEGRATION_DEFAULT_SOURCES.items():
+        primary = INTEGRATION_PRIMARY_SOURCE.get(native_source)
+        if not primary:
+            continue
+        primary_lower = str(primary).lower().strip()
+        for source in sources:
+            result[source.lower().strip()] = primary_lower
+    return result
+
+
+_DEFAULT_SOURCE_TO_INTEGRATION: dict[str, str] = _default_source_to_integration()
+
+
 def _load_team_mappings(team: Team) -> TeamMappings:
-    """Load custom source mappings and campaign name mappings from team config."""
+    """Load custom source mappings and campaign name mappings from team config.
+
+    `source_to_integration` is seeded with every integration's default utm_source
+    values; custom mappings are layered on top and win on conflict.
+    """
     config = team.marketing_analytics_config
+    source_to_integration: dict[str, str] = dict(_DEFAULT_SOURCE_TO_INTEGRATION)
     if config is None:
-        return TeamMappings(source_to_integration={}, campaign_aliases={}, field_preferences={})
+        return TeamMappings(source_to_integration=source_to_integration, campaign_aliases={}, field_preferences={})
 
     # Build source mapping: custom utm_source values -> the integration's primary source.
     # e.g. custom_source_mappings = {"GoogleAds": ["partner_blog", "affiliate"]} →
@@ -50,7 +79,6 @@ def _load_team_mappings(team: Team) -> TeamMappings:
     # uses "google" as `source_name`. The (target_key, raw_value) pairs come from
     # `iter_custom_source_mappings` so the enum-resolution rules stay shared with
     # `native_integrations.build_combined_alias_map`.
-    source_to_integration: dict[str, str] = {}
     for target_key, raw_value in iter_custom_source_mappings(config.custom_source_mappings):
         native = KEY_TO_NATIVE[target_key]
         primary = INTEGRATION_PRIMARY_SOURCE.get(native)
@@ -281,7 +309,7 @@ def _get_utm_events(team: Team, date_range: QueryDateRange, *, user: User | None
 
 
 def _resolve_source(utm_source: str, mappings: TeamMappings) -> str:
-    """Resolve a utm_source to its integration source using custom mappings."""
+    """Resolve a utm_source to its integration source using default + custom mappings."""
     return mappings.source_to_integration.get(utm_source, utm_source)
 
 
@@ -315,15 +343,17 @@ def _build_all_utm_events(
             if alias not in campaign_lookup:
                 campaign_lookup[alias] = (campaign.campaign_name, MatchType.MAPPED)
 
-    # Pre-compute source lookup: source_name -> match_type
+    # Pre-compute source lookup: source_name -> match_type. Default sources count as
+    # AUTO (recognized without user config); custom mappings count as MAPPED.
     source_lookup: dict[str, str] = {}
     for campaign in campaigns:
         source_name_lower = campaign.source_name.lower().strip()
         if source_name_lower not in source_lookup:
             source_lookup[source_name_lower] = MatchType.AUTO
-    for custom_source, primary_source in mappings.source_to_integration.items():
-        if primary_source in source_lookup and custom_source not in source_lookup:
-            source_lookup[custom_source] = MatchType.MAPPED
+    for source, primary_source in mappings.source_to_integration.items():
+        if primary_source in source_lookup and source not in source_lookup:
+            is_default = _DEFAULT_SOURCE_TO_INTEGRATION.get(source) == primary_source
+            source_lookup[source] = MatchType.AUTO if is_default else MatchType.MAPPED
 
     result: list[UtmEvent] = []
     for (utm_campaign, utm_source), count in utm_events.items():
@@ -332,10 +362,6 @@ def _build_all_utm_events(
         matched_campaign_name = campaign_entry[0] if campaign_entry else None
 
         source_match = source_lookup.get(utm_source, MatchType.NONE)
-        if source_match == MatchType.NONE:
-            resolved = _resolve_source(utm_source, mappings)
-            if resolved in source_lookup:
-                source_match = MatchType.MAPPED if utm_source in mappings.source_to_integration else MatchType.AUTO
 
         result.append(
             UtmEvent(

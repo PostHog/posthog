@@ -52,7 +52,7 @@ class TestCrossReference:
 
     def test_campaign_with_source_mismatch(self):
         campaigns = [Campaign("Brand Campaign", "789", "google", 200.0, 80, 2000)]
-        utm_events = {("brand campaign", "adwords"): 30}
+        utm_events = {("brand campaign", "partner_newsletter"): 30}
 
         results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
 
@@ -418,7 +418,7 @@ class TestBuildAllUtmEvents:
 
     def test_campaign_auto_source_none(self):
         campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]
-        utm_events = {("brand", "adwords"): 30}
+        utm_events = {("brand", "partner_newsletter"): 30}
 
         result = _build_all_utm_events(campaigns, utm_events, NO_MAPPINGS)
 
@@ -426,6 +426,27 @@ class TestBuildAllUtmEvents:
         assert result[0].campaign_match == "auto"
         assert result[0].source_match == "none"
         assert result[0].matched_campaign == "brand"
+
+    @pytest.mark.parametrize(
+        "utm_source,expected_source_match",
+        [
+            ("adwords", "auto"),  # default source of the google integration
+            ("partner_blog", "mapped"),  # custom team mapping
+        ],
+    )
+    def test_default_source_is_auto_and_custom_source_is_mapped(self, utm_source, expected_source_match):
+        campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]
+        utm_events = {("brand", utm_source): 30}
+        mappings = TeamMappings(
+            source_to_integration={"adwords": "google", "partner_blog": "google"},
+            campaign_aliases={},
+            field_preferences={},
+        )
+
+        result = _build_all_utm_events(campaigns, utm_events, mappings)
+
+        assert len(result) == 1
+        assert result[0].source_match == expected_source_match
 
     def test_source_auto_campaign_none(self):
         campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]
@@ -492,17 +513,20 @@ class TestBuildAllUtmEvents:
 
 
 class TestLoadTeamMappings(BaseTest):
-    def test_returns_empty_mappings_when_config_is_none(self):
+    def test_seeds_default_sources_when_config_is_none(self):
         team = MagicMock()
         team.marketing_analytics_config = None
 
         result = _load_team_mappings(team)
 
-        assert result.source_to_integration == {}
+        # Default utm_source values must resolve even without any custom config,
+        # mirroring the adapter defaults attribution uses.
+        assert result.source_to_integration["facebook"] == "meta"
+        assert result.source_to_integration["adwords"] == "google"
         assert result.campaign_aliases == {}
         assert result.field_preferences == {}
 
-    def test_returns_empty_mappings_when_all_config_dicts_are_empty(self):
+    def test_seeds_default_sources_when_all_config_dicts_are_empty(self):
         self.team.marketing_analytics_config.custom_source_mappings = {}
         self.team.marketing_analytics_config.campaign_name_mappings = {}
         self.team.marketing_analytics_config.campaign_field_preferences = {}
@@ -510,9 +534,21 @@ class TestLoadTeamMappings(BaseTest):
 
         result = _load_team_mappings(self.team)
 
-        assert result.source_to_integration == {}
+        assert result.source_to_integration["facebook"] == "meta"
+        assert result.source_to_integration["adwords"] == "google"
         assert result.campaign_aliases == {}
         assert result.field_preferences == {}
+
+    def test_custom_mapping_overrides_default_source(self):
+        # "facebook" is a Meta default, but the team explicitly maps it to GoogleAds.
+        self.team.marketing_analytics_config.custom_source_mappings = {
+            "GoogleAds": ["facebook"],
+        }
+        self.team.marketing_analytics_config.save()
+
+        result = _load_team_mappings(self.team)
+
+        assert result.source_to_integration["facebook"] == "google"
 
     def test_builds_source_to_integration_from_custom_source_mappings(self):
         self.team.marketing_analytics_config.custom_source_mappings = {
@@ -751,6 +787,20 @@ class TestRunUtmAudit(BaseTest):
 
         assert result.campaigns_with_issues == 0
         assert result.results[0].has_utm_events is True
+
+    @patch("products.marketing_analytics.backend.services.utm_audit._get_utm_events")
+    @patch("products.marketing_analytics.backend.services.utm_audit._get_campaigns_with_spend")
+    def test_default_source_counts_as_matched(self, mock_campaigns, mock_utm):
+        # utm_source=facebook is in Meta's default source list: the audit must count
+        # these events as matched (like attribution does), not report a source mismatch.
+        mock_campaigns.return_value = [self._make_campaign("spring sale", "123", "meta", spend=500.0)]
+        mock_utm.return_value = {("spring sale", "facebook"): 75}
+
+        result = run_utm_audit(self.team)
+
+        assert result.campaigns_with_issues == 0
+        assert result.results[0].has_utm_events is True
+        assert result.results[0].event_count == 75
 
     @patch("products.marketing_analytics.backend.services.utm_audit._get_utm_events")
     @patch("products.marketing_analytics.backend.services.utm_audit._get_campaigns_with_spend")
