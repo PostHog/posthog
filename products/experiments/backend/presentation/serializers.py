@@ -1033,10 +1033,6 @@ class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
         allow_null=True,
         help_text="URL of the pull request the task opened, when it opened one.",
     )
-    error_message = serializers.CharField(
-        allow_null=True,
-        help_text="Failure reason when the run failed.",
-    )
 
 
 class ArchiveExperimentSerializer(serializers.Serializer):

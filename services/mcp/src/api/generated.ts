@@ -23360,11 +23360,6 @@ export namespace Schemas {
          * @nullable
          */
       pr_url: string | null;
-      /**
-         * Failure reason when the run failed.
-         * @nullable
-         */
-      error_message: string | null;
     }
 
     /**

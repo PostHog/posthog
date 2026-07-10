@@ -5761,7 +5761,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             status="completed",
             is_terminal=True,
             pr_url="https://github.com/PostHog/posthog/pull/123",
-            error_message=None,
         )
         with patch(
             "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
@@ -5776,9 +5775,18 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "run_status": "completed",
                 "is_terminal": True,
                 "pr_url": "https://github.com/PostHog/posthog/pull/123",
-                "error_message": None,
             },
         )
+
+        # A PR URL that doesn't point at GitHub is dropped rather than rendered as a link.
+        run = SimpleNamespace(status="completed", is_terminal=True, pr_url="http://evil.example.com/pr/1")
+        with patch(
+            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            return_value={str(task_id): run},
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertIsNone(resp.json()["pr_url"])
 
         # Task recorded but no run row yet: reported as queued, non-terminal.
         with patch(

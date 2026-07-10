@@ -588,13 +588,17 @@ class EnterpriseExperimentsViewSet(
         run = tasks_facade.get_latest_run_by_task([experiment.flag_cleanup_task_id]).get(
             str(experiment.flag_cleanup_task_id)
         )
+        # The PR URL comes from the task run's output blob — only pass it through when it
+        # actually points at GitHub, since the frontend renders it as a GitHub link.
+        pr_url = run.pr_url if run else None
+        if pr_url and not pr_url.startswith("https://github.com/"):
+            pr_url = None
         response_serializer = ExperimentFlagCleanupTaskSerializer(
             {
                 "task_id": experiment.flag_cleanup_task_id,
                 "run_status": run.status if run else "queued",
                 "is_terminal": run.is_terminal if run else False,
-                "pr_url": run.pr_url if run else None,
-                "error_message": run.error_message if run else None,
+                "pr_url": pr_url,
             }
         )
         return Response(response_serializer.data)

@@ -30,12 +30,18 @@ export const flagCleanupTaskLogic = kea<flagCleanupTaskLogicType>([
     })),
     listeners(({ cache }) => ({
         loadCleanupTaskSuccess: ({ cleanupTask }) => {
+            cache.pollFailures = 0
             if (cleanupTask?.is_terminal) {
                 cache.disposables.dispose('cleanupTaskPoll')
             }
         },
         loadCleanupTaskFailure: () => {
-            cache.disposables.dispose('cleanupTaskPoll')
+            // Tolerate transient errors — the task may still finish. Stop only when the
+            // endpoint fails persistently.
+            cache.pollFailures = (cache.pollFailures ?? 0) + 1
+            if (cache.pollFailures >= 3) {
+                cache.disposables.dispose('cleanupTaskPoll')
+            }
         },
     })),
     afterMount(({ actions, cache }) => {
