@@ -2375,6 +2375,8 @@ export namespace Schemas {
       date_to?: string | null;
       /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
       daysOfWeek?: DaysOfWeekEnum[] | null;
+      /** Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). */
+      excludeIncompletePeriods?: boolean | null;
       /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
       explicitDate?: boolean | null;
     }
