@@ -101,6 +101,79 @@ function assertNever(value: never): never {
     throw new Error(`Unexpected entity node: ${(value as { kind?: string } | undefined)?.kind ?? 'unknown'}`)
 }
 
+type OverrideSource = 'dashboard' | 'tile'
+
+// A tile override replaces the dashboard override wholesale (matches backend `apply_dashboard_filters`) —
+// never both at once.
+function getEffectiveFilterOverride(
+    filtersOverride: DashboardFilter | undefined,
+    tileFiltersOverride: TileFilters | null | undefined
+): { override: DashboardFilter | TileFilters; source: OverrideSource } | null {
+    if (tileFiltersOverride && Object.keys(tileFiltersOverride).length > 0) {
+        return { override: tileFiltersOverride, source: 'tile' }
+    }
+    if (filtersOverride && Object.keys(filtersOverride).length > 0) {
+        return { override: filtersOverride, source: 'dashboard' }
+    }
+    return null
+}
+
+function OverrideNote({ source, children }: { source: OverrideSource; children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="mt-1.5 flex items-center gap-1">
+            <LemonTag type="highlight" size="small">
+                {source === 'tile' ? 'Tile' : 'Dashboard'}
+            </LemonTag>
+            <span className="text-muted-alt">{children}</span>
+        </div>
+    )
+}
+
+// The override round-trips through the backend into the merged query and picks up normalized fields
+// the raw override lacks, so a deep-equal fails — compare on the fields that actually identify a filter.
+function isSamePropertyFilter(a: AnyPropertyFilter, b: AnyPropertyFilter): boolean {
+    const operatorOf = (f: AnyPropertyFilter): string | undefined => ('operator' in f ? f.operator : undefined)
+    return (
+        (a.type ?? 'event') === (b.type ?? 'event') &&
+        a.key === b.key &&
+        (operatorOf(a) ?? 'exact') === (operatorOf(b) ?? 'exact') &&
+        JSON.stringify(a.value ?? null) === JSON.stringify(b.value ?? null)
+    )
+}
+
+function samePropertyFilters(a: AnyPropertyFilter[], b: AnyPropertyFilter[]): boolean {
+    return a.length === b.length && a.every((f, i) => isSamePropertyFilter(f, b[i]))
+}
+
+// Matches the shape `convertPropertiesToPropertyGroup` accepts: a group, a flat list, or nothing.
+type PropertiesInput = PropertyGroupFilter | AnyPropertyFilter[] | null | undefined
+
+// The query returned for a dashboard tile already has the override's properties ANDed in (as the
+// trailing subgroup/tail), so pull that part out to attribute it rather than list it twice.
+function splitOutOverrideProperties(
+    properties: PropertiesInput,
+    overrideProperties: AnyPropertyFilter[]
+): { base: PropertiesInput; overrideFound: boolean } {
+    if (!properties || overrideProperties.length === 0) {
+        return { base: properties, overrideFound: false }
+    }
+    // Flat list: the backend concatenated the override onto the end.
+    if (Array.isArray(properties)) {
+        const tailStart = properties.length - overrideProperties.length
+        if (tailStart >= 0 && samePropertyFilters(properties.slice(tailStart), overrideProperties)) {
+            return { base: properties.slice(0, tailStart), overrideFound: true }
+        }
+        return { base: properties, overrideFound: false }
+    }
+    // Group: the backend AND-wrapped the insight's group with the override as the final subgroup.
+    const subgroups = properties.values ?? []
+    const last = subgroups[subgroups.length - 1]
+    if (last && samePropertyFilters(last.values as AnyPropertyFilter[], overrideProperties)) {
+        return { base: { ...properties, values: subgroups.slice(0, -1) }, overrideFound: true }
+    }
+    return { base: properties, overrideFound: false }
+}
+
 function EntityDisplay({ entity }: { entity: AnyEntityNode<AnyDataWarehouseNode> }): JSX.Element {
     let content: JSX.Element
 
@@ -370,14 +443,26 @@ export function FormulaSummary({ query }: { query: TrendsQuery }): JSX.Element |
 
 export function PropertiesSummary({
     properties,
+    override,
     dashboardFilterConflicts,
 }: {
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null
+    properties: PropertiesInput
+    override?: { properties: AnyPropertyFilter[]; source: OverrideSource } | null
     dashboardFilterConflicts?: DashboardFilterConflict[] | null
 }): JSX.Element {
+    const { base, overrideFound } = splitOutOverrideProperties(properties, override?.properties ?? [])
     return (
         <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
-            <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(properties)} />
+            <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(base)} />
+            {/* overrideFound means we removed the override from the list above, so show it once here. */}
+            {override && overrideFound && (
+                <>
+                    <OverrideNote source={override.source}>filters added on top:</OverrideNote>
+                    <CompactUniversalFiltersDisplay
+                        groupFilter={convertPropertiesToPropertyGroup(override.properties)}
+                    />
+                </>
+            )}
             {dashboardFilterConflicts?.length ? (
                 <DashboardFilterConflictsNotice conflicts={dashboardFilterConflicts} />
             ) : null}
@@ -481,8 +566,10 @@ export function InsightBreakdownSummary({ query }: { query: InsightQueryNode | H
 
 export function BreakdownSummary({
     breakdownFilter,
+    override,
 }: {
     breakdownFilter: BreakdownFilter | null | undefined
+    override?: { source: OverrideSource } | null
 }): JSX.Element | null {
     if (!hasBreakdownFilter(breakdownFilter)) {
         return null
@@ -515,7 +602,8 @@ export function BreakdownSummary({
 
     return (
         <InsightDetailSectionDisplay icon={<IconSort />} label="Breakdown by">
-            {content}
+            {override && <OverrideNote source={override.source}>breakdown replaced with:</OverrideNote>}
+            <div className="flex items-center gap-1 flex-wrap">{content}</div>
         </InsightDetailSectionDisplay>
     )
 }
@@ -548,7 +636,7 @@ interface InsightDetailsProps {
         last_refresh: string | null
     }
     variablesOverride?: Record<string, HogQLVariable>
-    filtersOverride?: DashboardFilter | null
+    filtersOverride?: DashboardFilter
     tileFiltersOverride?: TileFilters | null
     hasDataWarehouseSeries?: boolean
     dashboardFilterConflicts?: DashboardFilterConflict[] | null
@@ -567,12 +655,14 @@ export const InsightDetails = React.memo(
         },
         ref
     ): JSX.Element {
-        const hasPropertyOverrides = !!filtersOverride?.properties?.length || !!tileFiltersOverride?.properties?.length
+        const effectiveOverride = getEffectiveFilterOverride(filtersOverride, tileFiltersOverride)
+        const overrideProperties = effectiveOverride?.override.properties ?? []
+        const overrideBreakdownFilter = effectiveOverride?.override.breakdown_filter
+        const hasPropertyOverrides = overrideProperties.length > 0
         const hasIgnoredBreakdownOverrides =
             isInsightVizNode(query) &&
             isTrendsQuery(query.source) &&
-            (hasUnsupportedBreakdownForDataWarehouseTrends(filtersOverride) ||
-                hasUnsupportedBreakdownForDataWarehouseTrends(tileFiltersOverride))
+            hasUnsupportedBreakdownForDataWarehouseTrends(effectiveOverride?.override)
 
         return (
             <div className="InsightDetails space-y-2" ref={ref}>
@@ -594,11 +684,21 @@ export const InsightDetails = React.memo(
                                         ? query.source.filters?.properties
                                         : query.source.properties
                                 }
+                                override={
+                                    effectiveOverride && hasPropertyOverrides
+                                        ? { properties: overrideProperties, source: effectiveOverride.source }
+                                        : null
+                                }
                                 dashboardFilterConflicts={dashboardFilterConflicts}
                             />
                         )}
                         {hasDataWarehouseSeries && hasIgnoredBreakdownOverrides ? (
                             <BreakdownIgnoredWarning />
+                        ) : effectiveOverride && hasBreakdownFilter(overrideBreakdownFilter) ? (
+                            <BreakdownSummary
+                                breakdownFilter={overrideBreakdownFilter}
+                                override={{ source: effectiveOverride.source }}
+                            />
                         ) : (
                             <InsightBreakdownSummary query={query.source} />
                         )}
