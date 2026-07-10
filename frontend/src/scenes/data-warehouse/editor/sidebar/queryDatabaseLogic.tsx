@@ -214,6 +214,21 @@ const sortFieldsWithPrimary = (tableName: string, fields: DatabaseSchemaField[])
     })
 }
 
+// Saved views should render their columns in the order the author wrote them in the SELECT,
+// not alphabetically. We only push virtual ($-prefixed) columns (added via joins, not part of
+// the SELECT) to the end. Array.prototype.sort is stable, so the original order is preserved
+// among columns that compare equal.
+export const orderViewFields = (fields: DatabaseSchemaField[]): DatabaseSchemaField[] => {
+    return [...fields].sort((a, b) => {
+        const aIsVirtual = a.name.startsWith('$')
+        const bIsVirtual = b.name.startsWith('$')
+        if (aIsVirtual !== bIsVirtual) {
+            return aIsVirtual ? 1 : -1
+        }
+        return 0
+    })
+}
+
 const shouldHideField = (field: DatabaseSchemaField): boolean => {
     return field.name === 'team_id' && field.type === 'unknown'
 }
@@ -880,7 +895,7 @@ const createViewNode = (
     const viewFields =
         schemaTable && Object.keys(schemaTable.fields).length > 0 ? Object.values(schemaTable.fields) : view.columns
 
-    sortFieldsWithPrimary(view.name, viewFields)
+    orderViewFields(viewFields)
         .filter((column) => !shouldHideField(column))
         .forEach((column: DatabaseSchemaField) => {
             viewChildren.push(
@@ -2439,7 +2454,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 }
 
                 if ('columns' in table && table !== null) {
-                    return sortFieldsWithPrimary(table.name, Object.values(table.columns))
+                    return orderViewFields(Object.values(table.columns))
                         .filter((column) => !shouldHideField(column))
                         .map((column) => ({
                             name: column.name,

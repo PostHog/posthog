@@ -2,10 +2,31 @@ import {
     getDefaultExpandedRootIds,
     getInitialExpandedFolders,
     groupDirectConnectionTableNodesBySchema,
+    orderViewFields,
     shouldInitializeDirectConnectionExpandedFolders,
 } from './queryDatabaseLogic'
 
 describe('queryDatabaseLogic', () => {
+    it('renders saved-view columns in SELECT order, not alphabetically', () => {
+        const columns = [
+            { name: 'name', type: 'string' },
+            { name: 'created_at', type: 'datetime' },
+            { name: 'id', type: 'string' },
+        ] as any
+
+        expect(orderViewFields(columns).map((column) => column.name)).toEqual(['name', 'created_at', 'id'])
+    })
+
+    it('keeps virtual ($-prefixed) view columns last while preserving SELECT order', () => {
+        const columns = [
+            { name: 'name', type: 'string' },
+            { name: '$virt', type: 'string' },
+            { name: 'created_at', type: 'datetime' },
+        ] as any
+
+        expect(orderViewFields(columns).map((column) => column.name)).toEqual(['name', 'created_at', '$virt'])
+    })
+
     it('groups direct connection tables into schema folders', () => {
         const grouped = groupDirectConnectionTableNodesBySchema(
             [
