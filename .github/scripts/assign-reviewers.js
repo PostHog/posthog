@@ -49,13 +49,17 @@ function resolveOwners(filenames) {
         return {}
     }
     const python = process.env.OWNERS_RESOLVER_PYTHON || 'python3'
-    const pythonPath = process.env.PYTHONPATH
-        ? `tools/hogli-commands:${process.env.PYTHONPATH}`
-        : 'tools/hogli-commands'
-    const result = spawnSync(python, ['-m', 'hogli_commands.owners'], {
+    // Insert the package dir on sys.path *after* interpreter startup instead of
+    // via PYTHONPATH: a PYTHONPATH entry is scanned by the `site` module at
+    // startup, so an unprotected sitecustomize.py/usercustomize.py added there
+    // later would execute in this pull_request_target context. Post-startup
+    // insertion never triggers those hooks; stdlib-shadow modules in that dir
+    // are blocked by the CODEOWNERS entry on tools/hogli-commands/*.py.
+    const launcher =
+        "import sys, runpy; sys.path.insert(0, 'tools/hogli-commands'); runpy.run_module('hogli_commands.owners', run_name='__main__')"
+    const result = spawnSync(python, ['-c', launcher], {
         input: filenames.join('\n'),
         encoding: 'utf8',
-        env: { ...process.env, PYTHONPATH: pythonPath },
         maxBuffer: 64 * 1024 * 1024,
     })
     if (result.error) {

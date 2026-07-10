@@ -39,6 +39,9 @@ tools/hogli-commands/hogli_commands/owners/** @PostHog/team-security
 # The package initializer executes before the owners package on `python -m`,
 # so it is part of the same privileged import path.
 tools/hogli-commands/hogli_commands/__init__.py @PostHog/team-security
+# Top-level modules in the resolver's sys.path root could shadow stdlib/pyyaml
+# imports (yaml.py, json.py) for that privileged process, so gate those too.
+tools/hogli-commands/*.py @PostHog/team-security
 
 # And of course modifying this file can bring us problems so let's have the security team own it.
 # This does not affect the distributed owners.yaml files, which drive non-required reviewer
