@@ -270,7 +270,7 @@ export class SessionRecordingIngester {
         // Run messages through the pipeline (handles restrictions, parsing, team filtering, and recording)
         // and track the highest offset reached per partition — the single place Kafka progress is tracked.
         const offsets = await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
-            runSessionReplayPipeline(this.sessionReplayPipeline, messages)
+            runSessionReplayPipeline(this.sessionReplayPipeline, messages, this.promiseScheduler)
         )
         this.sessionBatchManager.trackProcessedOffsets(offsets)
 

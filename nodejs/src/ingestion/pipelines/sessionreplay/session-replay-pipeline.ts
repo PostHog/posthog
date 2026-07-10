@@ -253,10 +253,16 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
  *
  * Relies on the pipeline draining the whole fed batch before it returns null, so every fed message
  * yields exactly one terminal result here.
+ *
+ * Element side effects (DLQ/overflow produces) are already scheduled inside the sub-pipeline, but
+ * side effects returned by the batching pipeline's before/afterBatch hooks ride on each BatchResult.
+ * They go onto the same scheduler here, so the consumer's pre-flush drain awaits them before any
+ * offset commits — the hooks are pure today, but a driver must not silently drop them.
  */
 export async function runSessionReplayPipeline(
     pipeline: SessionReplayPipeline,
-    messages: Message[]
+    messages: Message[],
+    promiseScheduler: PromiseScheduler
 ): Promise<Map<number, number>> {
     const maxOffsetByPartition = new Map<number, number>()
     if (messages.length === 0) {
@@ -273,6 +279,9 @@ export async function runSessionReplayPipeline(
 
     let batchResult = await pipeline.next()
     while (batchResult !== null) {
+        for (const sideEffect of batchResult.sideEffects ?? []) {
+            void promiseScheduler.schedule(sideEffect)
+        }
         for (const { context } of batchResult.elements) {
             const { partition, offset } = context.message
             const current = maxOffsetByPartition.get(partition)
