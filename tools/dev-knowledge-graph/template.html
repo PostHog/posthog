@@ -99,14 +99,26 @@ function tick() {
     const dx = e.t.x - e.s.x, dy = e.t.y - e.s.y;
     const d = Math.max(Math.hypot(dx, dy), 1);
     const rest = 40 + (RADII[e.s.kind] + RADII[e.t.kind]) * 2;
-    const f = ((d - rest) / d) * 0.02 * alpha * 10;
-    e.s.vx += dx * f; e.s.vy += dy * f;
-    e.t.vx -= dx * f; e.t.vy -= dy * f;
+    // Weight springs down by node degree: hub nodes (themes) otherwise sum
+    // ~100 edge forces per tick and the integrator diverges to NaN.
+    const f = ((d - rest) / d) * 0.05 * alpha;
+    const ws = f / Math.sqrt(degree.get(e.s.id) || 1);
+    const wt = f / Math.sqrt(degree.get(e.t.id) || 1);
+    e.s.vx += dx * ws; e.s.vy += dy * ws;
+    e.t.vx -= dx * wt; e.t.vy -= dy * wt;
   }
+  const MAX_V = 15;
   for (const n of vis) {
-    n.vx += (W / 2 - n.x) * 0.0004 * alpha * 10;
-    n.vy += (H / 2 - n.y) * 0.0004 * alpha * 10;
+    n.vx += (W / 2 - n.x) * 0.002 * alpha;
+    n.vy += (H / 2 - n.y) * 0.002 * alpha;
+    const speed = Math.hypot(n.vx, n.vy);
+    if (speed > MAX_V) { n.vx *= MAX_V / speed; n.vy *= MAX_V / speed; }
     if (n !== dragNode) { n.x += n.vx; n.y += n.vy; }
+    if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) {
+      n.x = W / 2 + (Math.random() - 0.5) * 200;
+      n.y = H / 2 + (Math.random() - 0.5) * 200;
+      n.vx = 0; n.vy = 0;
+    }
     n.vx *= 0.6; n.vy *= 0.6;
   }
   alpha = Math.max(alpha * 0.996, 0.02);
