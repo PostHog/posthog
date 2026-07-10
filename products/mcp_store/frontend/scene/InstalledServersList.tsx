@@ -58,7 +58,14 @@ export function InstalledServersList(): JSX.Element | null {
                                             {installation.description ? ` · ${installation.description}` : ''}
                                         </div>
                                     </div>
-                                    {statusTag}
+                                    <div className="flex items-center gap-1">
+                                        {installation.scope === 'shared' && (
+                                            <LemonTag type="highlight" size="small">
+                                                Shared
+                                            </LemonTag>
+                                        )}
+                                        {statusTag}
+                                    </div>
                                 </div>
                             </LemonCard>
                         )
