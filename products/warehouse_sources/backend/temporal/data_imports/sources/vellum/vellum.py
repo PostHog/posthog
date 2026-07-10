@@ -45,7 +45,8 @@ def check_credentials(api_key: str) -> tuple[bool, int | None]:
     """
     url = f"{VELLUM_BASE_URL}/document-indexes"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), params={"limit": 1}, timeout=10)
+        session = make_tracked_session(redact_values=(api_key,))
+        response = session.get(url, headers=_get_headers(api_key), params={"limit": 1}, timeout=10)
         return response.status_code == 200, response.status_code
     except Exception:
         return False, None
@@ -78,8 +79,10 @@ def _fetch_page(
 
     if not response.ok:
         # 404 is expected during the execution-events fan-out (a deployment deleted mid-sync).
+        # Never log the response body: Vellum error payloads can echo synced execution data
+        # (workflow inputs/outputs), which must not leak into operational logs.
         log = logger.warning if response.status_code == 404 else logger.error
-        log(f"Vellum API error: status={response.status_code}, body={response.text}, url={url}")
+        log(f"Vellum API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -161,6 +164,10 @@ def _get_execution_event_rows(
     verify Vellum's `filters`/`ordering` params for this endpoint without a live key, so we don't rely
     on them and merge dedupes across syncs.
     """
+    # Fan-out configs always set `parent_id_field`; assert it so the child-row injection is well-typed.
+    parent_id_field = config.parent_id_field
+    assert parent_id_field is not None, "fan-out endpoints must define parent_id_field"
+
     deployment_ids = list(_iter_workflow_deployment_ids(session, headers, logger))
 
     resume = manager.load_state() if manager.can_resume() else None
@@ -178,8 +185,10 @@ def _get_execution_event_rows(
         resume_offset = 0  # only the resumed-into deployment uses the saved offset
         url = f"{VELLUM_BASE_URL}{config.path.replace('{deployment_id}', deployment_id)}"
 
-        def _inject_parent_id(item: dict[str, Any], _dep_id: str = deployment_id) -> dict[str, Any]:
-            item[config.parent_id_field] = _dep_id  # type: ignore[index]
+        def _inject_parent_id(
+            item: dict[str, Any], _dep_id: str = deployment_id, _field: str = parent_id_field
+        ) -> dict[str, Any]:
+            item[_field] = _dep_id
             return item
 
         try:
@@ -217,7 +226,7 @@ def get_rows(
     config = VELLUM_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
 
     if config.fan_out_over_workflow_deployments:
         yield from _get_execution_event_rows(session, headers, logger, batcher, resumable_source_manager, config)
