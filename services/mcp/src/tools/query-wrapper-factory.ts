@@ -53,7 +53,9 @@ function withoutTestAccountFilterDefault<T extends ZodObjectAny>(schema: T): T {
         return schema
     }
     return schema.extend({
-        [TEST_ACCOUNT_FILTER_FIELD]: z.coerce
+        // Strict boolean, not `z.coerce.boolean()`: coercion turns the string
+        // `"false"` into `true`, which would silently flip query semantics.
+        [TEST_ACCOUNT_FILTER_FIELD]: z
             .boolean()
             .optional()
             .describe(

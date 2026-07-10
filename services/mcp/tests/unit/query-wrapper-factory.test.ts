@@ -366,6 +366,18 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
         expect(runQuery.mock.calls[0]![0].query.filterTestAccounts).toBe(expected)
     })
 
+    it.each(['false', 'true'])(
+        'rejects the string %j rather than coercing it to a boolean',
+        (stringValue) => {
+            const tool = createQueryWrapper({ name: 'test', schema: makeSchema(false), kind: 'TrendsQuery' })()
+
+            // The generated schemas use z.coerce.boolean(), which would turn "false"
+            // into true; the stripped replacement must be a strict boolean so a
+            // malformed value is rejected instead of silently flipping filtering.
+            expect(tool.schema.safeParse({ series, filterTestAccounts: stringValue }).success).toBe(false)
+        }
+    )
+
     it('does not inject the field into schemas that lack it', async () => {
         const runQuery = vi.fn().mockResolvedValue({ results: [] })
         const context = createMockContext(runQuery, true)
