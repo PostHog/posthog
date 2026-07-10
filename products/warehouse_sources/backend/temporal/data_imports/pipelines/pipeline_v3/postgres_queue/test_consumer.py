@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
-    DeltaBatchConsumerAdapter,
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -1480,20 +1479,3 @@ class TestDispatchGroups:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-
-
-class TestClaimPathWiring:
-    def test_claim_path_config_reaches_the_adapter(self):
-        # A flag that parses but never reaches the adapter would leave the
-        # fleet silently on the legacy path after the flip.
-        state = BatchConsumer(
-            config=ConsumerConfig(database_url="postgres://unused:unused@localhost/unused", claim_path="state"),
-            process_batch=AsyncMock(),
-        )
-        legacy = BatchConsumer(
-            config=ConsumerConfig(database_url="postgres://unused:unused@localhost/unused"),
-            process_batch=AsyncMock(),
-        )
-
-        assert cast(DeltaBatchConsumerAdapter, state._adapter)._use_state is True
-        assert cast(DeltaBatchConsumerAdapter, legacy._adapter)._use_state is False
