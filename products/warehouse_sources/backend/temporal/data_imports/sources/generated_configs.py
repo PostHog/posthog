@@ -1998,7 +1998,7 @@ class KnockSourceConfig(config.Config):
 
 @config.config
 class KoyebSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

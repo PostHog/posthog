@@ -215,6 +215,7 @@ the row lists both.
 | k6_cloud                | HTTP                        | requests                                                        | ✅                          |
 | katana                  | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                 | HTTP                        | requests                                                        | ✅                          |
+| koyeb                   | HTTP                        | requests                                                        | ✅                          |
 | lago                    | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly            | HTTP                        | requests                                                        | ✅                          |
 | kustomer                | HTTP                        | requests                                                        | ✅                          |
@@ -608,7 +609,6 @@ doesn't conflict with concurrent PRs.
 - klarna
 - klaus
 - knock
-- koyeb
 - kyve
 - lambda_labs
 - langfuse
