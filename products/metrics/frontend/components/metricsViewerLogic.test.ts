@@ -1,3 +1,4 @@
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     FilterLogicalOperator,
@@ -75,6 +76,37 @@ describe('metricsViewerLogic', () => {
         logic.actions.setMetricName('requests_total')
         logic.actions.setMetricName('mystery_metric')
         expect(logic.values.aggregation).toBe('increase')
+    })
+
+    // metricsQueryNode is what "Save as insight" persists: a wrong mapping here
+    // silently saves insights that re-run a different query than the viewer showed.
+    it('maps viewer state to a MetricsQuery node, translating p95 to quantile', () => {
+        logic.actions.setMetricName('request_duration')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setFilterGroup(
+            filterGroupWith([{ key: 'namespace', operator: PropertyOperator.Exact, value: ['posthog'] }])
+        )
+        logic.actions.setDateFrom('-24h')
+
+        expect(logic.values.aggregation).toBe('p95')
+        expect(logic.values.metricsQueryNode).toEqual({
+            kind: NodeKind.MetricsQuery,
+            clauses: [
+                {
+                    name: 'a',
+                    metricName: 'request_duration',
+                    aggregation: 'quantile',
+                    quantile: 0.95,
+                    filters: [{ key: 'namespace', op: 'eq', value: 'posthog' }],
+                    groupBy: [{ key: 'container' }],
+                },
+            ],
+            dateRange: { date_from: '-24h' },
+        })
+    })
+
+    it('produces no MetricsQuery node without a metric name', () => {
+        expect(logic.values.metricsQueryNode).toBeNull()
     })
 
     // A failed query (bad regex, 500) used to render the same "No data" empty state as a genuinely

@@ -2172,21 +2172,25 @@
                         "multivariate": {
                             "anyOf": [
                                 {
+                                    "description": "Multivariate config for the experiment's feature flag.",
                                     "properties": {
                                         "variants": {
-                                            "description": "Variant definitions for multivariate feature flags.",
+                                            "description": "Variant definitions. Exactly one variant key must be the literal string 'control'.",
                                             "items": {
+                                                "description": "A single multivariate variant. Extra per-variant keys are dropped.",
                                                 "properties": {
                                                     "key": {
-                                                        "description": "Unique key for this variant.",
+                                                        "description": "Unique variant key. Exactly one variant must use the key 'control' (the baseline).",
                                                         "type": "string"
                                                     },
                                                     "name": {
-                                                        "description": "Human-readable name for this variant.",
+                                                        "description": "Human-readable variant name.",
                                                         "type": "string"
                                                     },
                                                     "rollout_percentage": {
-                                                        "description": "Variant rollout percentage.",
+                                                        "description": "Variant rollout percentage (0-100). Across variants these must sum to 100.",
+                                                        "maximum": 100,
+                                                        "minimum": 0,
                                                         "type": "number"
                                                     }
                                                 },
@@ -2203,7 +2207,7 @@
                                     "type": "null"
                                 }
                             ],
-                            "description": "Multivariate configuration for variant-based rollouts."
+                            "description": "Multivariate variant configuration."
                         },
                         "payloads": {
                             "additionalProperties": {
