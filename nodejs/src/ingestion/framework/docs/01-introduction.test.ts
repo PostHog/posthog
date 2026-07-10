@@ -11,7 +11,7 @@
  * ## Key Concepts
  *
  * - **Single-item pipelines** process one item at a time using `newPipelineBuilder()`
- * - **Batch pipelines** process multiple items efficiently using `newBatchPipelineBuilder()`
+ * - **Batch pipelines** process multiple items efficiently using `newChunkPipelineBuilder()`
  * - **Steps** are functions that return a `Promise<PipelineResult<T>>`
  * - **Results** can be OK (success), DLQ (error), DROP (discard), or REDIRECT (route elsewhere)
  *
@@ -26,7 +26,7 @@
  * }
  * ```
  */
-import { newBatchPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResult, dlq, drop, isOkResult, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -366,17 +366,17 @@ describe('Pipeline Fundamentals', () => {
 
 describe('Batch Pipelines', () => {
     /**
-     * Batch pipelines are created using `newBatchPipelineBuilder()`. The builder
+     * Batch pipelines are created using `newChunkPipelineBuilder()`. The builder
      * provides methods for adding batch steps, concurrent processing, and more.
      */
-    it('batch pipelines are created using newBatchPipelineBuilder()', async () => {
+    it('batch pipelines are created using newChunkPipelineBuilder()', async () => {
         function createUppercaseBatchStep(): BatchProcessingStep<string, string> {
             return function uppercaseBatchStep(items) {
                 return Promise.resolve(items.map((s) => ok(s.toUpperCase())))
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<string>().pipeChunk(createUppercaseBatchStep()).build()
+        const pipeline = newChunkPipelineBuilder<string>().pipeChunk(createUppercaseBatchStep()).build()
 
         const batch = ['a', 'b', 'c'].map((s) => createOkContext(s, {}))
         pipeline.feed(batch)
@@ -402,7 +402,7 @@ describe('Batch Pipelines', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>().pipeChunk(createBatchEnrichStep()).build()
+        const pipeline = newChunkPipelineBuilder<number>().pipeChunk(createBatchEnrichStep()).build()
 
         const batch = [1, 2, 3, 4, 5].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
@@ -425,7 +425,7 @@ describe('Batch Pipelines', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<string>().pipeChunk(createPassthroughStep()).build()
+        const pipeline = newChunkPipelineBuilder<string>().pipeChunk(createPassthroughStep()).build()
 
         const batch = ['x', 'y'].map((s) => createOkContext(s, {}))
         pipeline.feed(batch)

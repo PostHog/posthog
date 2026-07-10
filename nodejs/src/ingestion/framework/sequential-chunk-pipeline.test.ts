@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { BaseChunkPipeline } from './base-chunk-pipeline'
-import { createBatch, createNewBatchPipeline, createNewPipeline } from './helpers'
+import { createBatch, createNewChunkPipeline, createNewPipeline } from './helpers'
 import { dlq, drop, ok } from './results'
 import { SequentialChunkPipeline } from './sequential-chunk-pipeline'
 
@@ -32,7 +32,7 @@ describe('SequentialChunkPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline().build()
+            const rootPipeline = createNewChunkPipeline().build()
 
             const mockProcessStep = jest.fn().mockImplementation(async (input: { message: Message }) => {
                 const value = input.message.value?.toString()
@@ -55,7 +55,7 @@ describe('SequentialChunkPipeline', () => {
         })
 
         it('should handle empty batch', async () => {
-            const rootPipeline = createNewBatchPipeline().build()
+            const rootPipeline = createNewChunkPipeline().build()
             const mockProcessStep = jest.fn().mockImplementation(async (input: { message: Message }) => {
                 await Promise.resolve() // Add await to satisfy linter
                 return ok(input)
@@ -107,7 +107,7 @@ describe('SequentialChunkPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline().build()
+            const rootPipeline = createNewChunkPipeline().build()
 
             const processOrder: number[] = []
             const mockProcessStep = jest.fn().mockImplementation(async (input: { message: Message }) => {
@@ -176,7 +176,7 @@ describe('SequentialChunkPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline().build()
+            const rootPipeline = createNewChunkPipeline().build()
 
             const firstPipeline = new BaseChunkPipeline((items: any[]) => {
                 return Promise.resolve(
@@ -234,7 +234,7 @@ describe('SequentialChunkPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline().build()
+            const rootPipeline = createNewChunkPipeline().build()
 
             const mockProcessStep = jest.fn().mockImplementation(async (_input: { message: Message }) => {
                 await Promise.resolve() // Add await to satisfy linter
@@ -283,7 +283,7 @@ describe('SequentialChunkPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline().build()
+            const rootPipeline = createNewChunkPipeline().build()
 
             const mockProcessStep = jest.fn().mockImplementation(async (input: { message: Message }) => {
                 const value = input.message.value?.toString()

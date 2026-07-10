@@ -18,7 +18,7 @@
  *
  * With gather(), all results are collected and returned in a single batch.
  */
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -60,7 +60,7 @@ describe('Gathering Results', () => {
         }
 
         // Without gather: items stream one at a time in input order
-        const streamingPipeline = newBatchPipelineBuilder<number>()
+        const streamingPipeline = newChunkPipelineBuilder<number>()
             .concurrently((builder) => builder.pipe(createVariableDelayStep()))
             .build()
 
@@ -73,7 +73,7 @@ describe('Gathering Results', () => {
         expect(streamingBatches).toEqual([[10], [20], [30]])
 
         // With gather: all items collected into one batch
-        const gatheringPipeline = newBatchPipelineBuilder<number>()
+        const gatheringPipeline = newChunkPipelineBuilder<number>()
             .concurrently((builder) => builder.pipe(createVariableDelayStep()))
             .gather()
             .build()
@@ -116,7 +116,7 @@ describe('Gathering Results', () => {
         ]
 
         // Without gather: groups stream one at a time in completion order
-        const streamingPipeline = newBatchPipelineBuilder<Event>()
+        const streamingPipeline = newChunkPipelineBuilder<Event>()
             .concurrentlyPerGroup(
                 (event) => event.userId,
                 (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createVariableDelayStep()))
@@ -143,7 +143,7 @@ describe('Gathering Results', () => {
         ])
 
         // With gather: all groups collected into one batch
-        const gatheringPipeline = newBatchPipelineBuilder<Event>()
+        const gatheringPipeline = newChunkPipelineBuilder<Event>()
             .concurrentlyPerGroup(
                 (event) => event.userId,
                 (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createVariableDelayStep()))

@@ -50,7 +50,7 @@
  */
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
@@ -91,7 +91,7 @@ describe('Warning Basics', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeChunk(createValidationStep()).build()
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>().pipeChunk(createValidationStep()).build()
 
         const batch = [createOkContext({ name: 'pageview' }, { team })]
         pipeline.feed(batch)
@@ -153,7 +153,7 @@ describe('Warning Basics', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>()
             .pipeChunk(createTimestampCheckStep())
             .pipeChunk(createPropertiesCheckStep())
             .build()
@@ -217,7 +217,7 @@ describe('Warning Basics', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>()
             .pipeChunk(createComprehensiveValidationStep())
             .build()
 
@@ -264,7 +264,7 @@ describe('Handling Ingestion Warnings', () => {
         }
 
         const team = createTestTeam({ id: 42 })
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>()
             .pipeChunk(createWarningStep())
             .teamAware((builder) => builder)
             .handleIngestionWarnings(mockOutputs)
@@ -310,7 +310,7 @@ describe('Handling Ingestion Warnings', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>()
             .pipeChunk(createStepWithBothSideEffectsAndWarnings())
             .teamAware((builder) => builder)
             .handleIngestionWarnings(mockOutputs)
@@ -361,7 +361,7 @@ describe('Warning Debouncing', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeChunk(createUserWarningStep()).build()
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>().pipeChunk(createUserWarningStep()).build()
 
         const batch = [createOkContext({ distinctId: 'user-123' }, { team })]
         pipeline.feed(batch)
@@ -406,7 +406,7 @@ describe('Warning Debouncing', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeChunk(createCriticalWarningStep()).build()
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>().pipeChunk(createCriticalWarningStep()).build()
 
         const batch = [createOkContext({ name: 'important_event' }, { team })]
         pipeline.feed(batch)

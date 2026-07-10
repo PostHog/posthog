@@ -33,7 +33,7 @@
  * handling needs access to the original message for DLQ entries.
  *
  * ```typescript
- * newBatchPipelineBuilder<T, { message: Message }>()
+ * newChunkPipelineBuilder<T, { message: Message }>()
  *   .messageAware((builder) =>
  *     builder
  *       .concurrently(...)
@@ -56,7 +56,7 @@
  * `build()` method is not available until `handleSideEffects()` is called.
  *
  * ```typescript
- * newBatchPipelineBuilder<T, { message: Message }>()
+ * newChunkPipelineBuilder<T, { message: Message }>()
  *   .pipeChunk(processStep())
  *   .messageAware((builder) => builder)
  *   .handleResults(config)
@@ -68,7 +68,7 @@ import { Message } from 'node-rdkafka'
 
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import {
     PipelineResult,
@@ -120,7 +120,7 @@ describe('Result Handling', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, { message: Message }>()
+        const pipeline = newChunkPipelineBuilder<Event, { message: Message }>()
             .pipeChunk(createValidationStep())
             .messageAware((builder) => builder)
             .handleResults(pipelineConfig)
@@ -185,7 +185,7 @@ describe('Result Handling', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, { message: Message }>()
+        const pipeline = newChunkPipelineBuilder<Event, { message: Message }>()
             .pipeChunk(createFilterStep())
             .messageAware((builder) => builder)
             .handleResults(pipelineConfig)
@@ -247,7 +247,7 @@ describe('Result Handling', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, { message: Message }>()
+        const pipeline = newChunkPipelineBuilder<Event, { message: Message }>()
             .pipeChunk(createRoutingStep())
             .messageAware((builder) => builder)
             .handleResults(pipelineConfig)
@@ -334,7 +334,7 @@ describe('Result Handling', () => {
         }
 
         // await: true so the redirect side effect (the produce) is awaited before next() resolves
-        const pipeline = newBatchPipelineBuilder<{ v: string }, { message: Message }>()
+        const pipeline = newChunkPipelineBuilder<{ v: string }, { message: Message }>()
             .pipeChunk(createRoutingStep())
             .messageAware((builder) => builder)
             .handleResults({ outputs: mockOutputs, promiseScheduler })
@@ -385,7 +385,7 @@ describe('Result Handling', () => {
 
         // Even with await: true, the redirect side effect resolves immediately because
         // awaitAck=false means it never waits on the produce ack.
-        const pipeline = newBatchPipelineBuilder<{ v: string }, { message: Message }>()
+        const pipeline = newChunkPipelineBuilder<{ v: string }, { message: Message }>()
             .pipeChunk(createRoutingStep())
             .messageAware((builder) => builder)
             .handleResults({ outputs: mockOutputs, promiseScheduler })

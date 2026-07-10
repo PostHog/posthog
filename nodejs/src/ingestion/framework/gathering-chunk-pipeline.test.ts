@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { GatheringChunkPipeline } from './gathering-chunk-pipeline'
-import { createContext, createNewBatchPipeline, createOkContext } from './helpers'
+import { createContext, createNewChunkPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok, redirect } from './results'
 
 const TEST_REDIRECT_OUTPUT = 'test_redirect' as const
@@ -72,7 +72,7 @@ describe('GatheringChunkPipeline', () => {
 
     describe('constructor', () => {
         it('should create instance with sub-pipeline', () => {
-            const subPipeline = createNewBatchPipeline<string>().build()
+            const subPipeline = createNewChunkPipeline<string>().build()
             const gatherPipeline = new GatheringChunkPipeline(subPipeline)
 
             expect(gatherPipeline).toBeInstanceOf(GatheringChunkPipeline)
@@ -81,7 +81,7 @@ describe('GatheringChunkPipeline', () => {
 
     describe('feed', () => {
         it('should delegate to sub-pipeline', () => {
-            const subPipeline = createNewBatchPipeline<string>().build()
+            const subPipeline = createNewChunkPipeline<string>().build()
             const spy = jest.spyOn(subPipeline, 'feed')
             const gatherPipeline = new GatheringChunkPipeline(subPipeline)
 
@@ -95,7 +95,7 @@ describe('GatheringChunkPipeline', () => {
 
     describe('next', () => {
         it('should return null when no results available', async () => {
-            const subPipeline = createNewBatchPipeline<string>().build()
+            const subPipeline = createNewChunkPipeline<string>().build()
             const gatherPipeline = new GatheringChunkPipeline(subPipeline)
 
             const result = await gatherPipeline.next()

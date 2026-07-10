@@ -35,7 +35,7 @@ import { createHogTransformEventStep } from '~/ingestion/common/steps/event-proc
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { IngestionOverflowMode } from '~/ingestion/config'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { ChunkPipelineUnwrapper } from '~/ingestion/framework/chunk-pipeline-unwrapper'
 import { TopHogRegistry, count, countOk, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
@@ -187,7 +187,7 @@ export function createErrorTrackingPipeline(
         promiseScheduler,
     }
 
-    const pipeline = newBatchPipelineBuilder<ErrorTrackingPipelineInput, { message: Message }>()
+    const pipeline = newChunkPipelineBuilder<ErrorTrackingPipelineInput, { message: Message }>()
         .messageAware((b) =>
             b
                 // Header-only steps: parse Kafka headers and apply token-level restrictions.

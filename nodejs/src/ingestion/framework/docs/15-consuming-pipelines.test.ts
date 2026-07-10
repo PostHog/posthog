@@ -46,7 +46,7 @@
  */
 import { logger } from '~/common/utils/logger'
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { ChunkPipelineUnwrapper } from '~/ingestion/framework/chunk-pipeline-unwrapper'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { drop, isOkResult, ok } from '~/ingestion/framework/results'
@@ -69,7 +69,7 @@ describe('Consuming a Pipeline', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, NoCtx>().pipeChunk(createDoubleStep()).build()
+        const pipeline = newChunkPipelineBuilder<Event, NoCtx>().pipeChunk(createDoubleStep()).build()
 
         pipeline.feed([{ id: 1 }, { id: 2 }, { id: 3 }].map((e) => createOkContext(e, {})))
 
@@ -101,7 +101,7 @@ describe('Consuming a Pipeline', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, NoCtx>().pipeChunk(createFilterStep()).build()
+        const pipeline = newChunkPipelineBuilder<Event, NoCtx>().pipeChunk(createFilterStep()).build()
         const unwrapper = new ChunkPipelineUnwrapper(pipeline)
 
         unwrapper.feed([{ id: 1 }, { id: 2 }, { id: 3 }].map((e) => createOkContext(e, {})))
@@ -132,7 +132,7 @@ describe('Consuming a Pipeline', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, NoCtx>().pipeChunk(createStepWithSideEffect()).build()
+        const pipeline = newChunkPipelineBuilder<Event, NoCtx>().pipeChunk(createStepWithSideEffect()).build()
         const unwrapper = new ChunkPipelineUnwrapper(pipeline)
 
         unwrapper.feed([{ id: 1 }].map((e) => createOkContext(e, {})))

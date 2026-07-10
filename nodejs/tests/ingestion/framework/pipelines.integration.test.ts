@@ -10,7 +10,7 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createBatch, createUnwrapper } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { PipelineResult, dlq, drop, ok, redirect } from '~/ingestion/framework/results'
@@ -272,7 +272,7 @@ describe('Pipeline Integration Tests', () => {
 
             // Create pipeline
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
                     builder
                         .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
@@ -354,7 +354,7 @@ describe('Pipeline Integration Tests', () => {
 
             // Create pipeline
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
                     builder
                         .concurrently((b) => b.pipe(step1))
@@ -423,7 +423,7 @@ describe('Pipeline Integration Tests', () => {
 
             // Create pipeline
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
                     builder
                         .concurrently((b) => b.pipe(step1))
@@ -501,7 +501,7 @@ describe('Pipeline Integration Tests', () => {
 
             // Create pipeline
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
                     builder
                         .concurrently((b) => b.pipe(step1))
@@ -689,7 +689,7 @@ describe('Pipeline Integration Tests', () => {
 
             // Create pipeline
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
                     builder
                         .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
@@ -858,7 +858,7 @@ describe('Pipeline Integration Tests', () => {
 
             // Create pipeline
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
                     builder
                         .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
@@ -1008,7 +1008,7 @@ describe('Pipeline Integration Tests', () => {
 
             // Create pipeline
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
                     builder
                         .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
@@ -1169,7 +1169,7 @@ describe('Pipeline Integration Tests', () => {
 
             // Create pipeline
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
                     builder
                         .concurrently((b) => b.pipe(step1))
@@ -1273,7 +1273,7 @@ describe('Pipeline Integration Tests', () => {
 
             // Create pipeline
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) => builder.concurrently((b) => b.pipe(step1).pipe(step2)).gather())
                 .handleResults({
                     outputs: mockOutputs,
@@ -1386,7 +1386,7 @@ describe('Pipeline Integration Tests', () => {
 
             // Create pipeline
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) => builder.concurrently((b) => b.pipe(step1).pipe(step2)).gather())
                 .handleResults({
                     outputs: mockOutputs,
@@ -1651,7 +1651,7 @@ describe('Pipeline Integration Tests', () => {
 
             // Create pipeline
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
                     builder
                         .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
@@ -1801,7 +1801,7 @@ describe('Pipeline Integration Tests', () => {
             )
 
             // Create pipeline using builder API
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
                     builder
                         .concurrently((b) => b.pipe(step1).pipe(step2))
@@ -1918,7 +1918,7 @@ describe('Pipeline Integration Tests', () => {
 
             // Create pipeline with single async step
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
                     builder
                         .concurrently((b) => b.pipe(step1))

@@ -42,7 +42,7 @@
  * - Team-scoped processing: Teams can be processed in parallel
  * - User event ordering: Events for the same user maintain order
  */
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -103,7 +103,7 @@ describe('Grouped Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event>()
+        const pipeline = newChunkPipelineBuilder<Event>()
             .concurrentlyPerGroup(
                 (event) => event.userId,
                 (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createProcessEventStep()))
@@ -140,7 +140,7 @@ describe('Grouped Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event>()
+        const pipeline = newChunkPipelineBuilder<Event>()
             .concurrentlyPerGroup(
                 (event) => event.userId,
                 (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createProcessEventStep()))
@@ -189,7 +189,7 @@ describe('Grouped Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event>()
+        const pipeline = newChunkPipelineBuilder<Event>()
             .concurrentlyPerGroup(
                 (event) => event.userId,
                 (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createVariableDelayStep()))
@@ -277,7 +277,7 @@ describe('Grouped Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<IngestionEvent>()
+        const pipeline = newChunkPipelineBuilder<IngestionEvent>()
             .concurrentlyPerGroup(
                 (event) => `${event.token}:${event.distinctId}`,
                 (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createProcessEventStep()))

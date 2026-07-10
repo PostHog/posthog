@@ -20,7 +20,7 @@
  * - **Resources**: Minimal concurrent connections
  * - **Batching**: Results returned together (not streamed)
  */
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -51,7 +51,7 @@ describe('Sequential Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>()
+        const pipeline = newChunkPipelineBuilder<number>()
             .sequentially((builder) => builder.pipe(createOrderTrackingStep()))
             .build()
 
@@ -79,7 +79,7 @@ describe('Sequential Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>()
+        const pipeline = newChunkPipelineBuilder<number>()
             .sequentially((builder) => builder.pipe(createSlowStep()))
             .build()
 
@@ -120,7 +120,7 @@ describe('Sequential Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>()
+        const pipeline = newChunkPipelineBuilder<number>()
             .sequentially((builder) => builder.pipe(createTrackingStep()))
             .build()
 

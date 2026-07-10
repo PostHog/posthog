@@ -1,7 +1,7 @@
 import { captureException } from '~/common/utils/posthog'
 
 import { ChunkProcessingStep } from './base-chunk-pipeline'
-import { newBatchPipelineBuilder, newPipelineBuilder } from './builders'
+import { newChunkPipelineBuilder, newPipelineBuilder } from './builders'
 import { createOkContext } from './helpers'
 import { pipelineRetryAttemptsHistogram } from './metrics'
 import { getRetryAttempts } from './metrics.test-utils'
@@ -83,7 +83,7 @@ const batchVariant: Variant = {
                   script()
                   return Promise.resolve(values.map((v) => ok(String(v))))
               }
-        const pipeline = newBatchPipelineBuilder<number>().pipeChunk(step, { retry }).gather().build()
+        const pipeline = newChunkPipelineBuilder<number>().pipeChunk(step, { retry }).gather().build()
         pipeline.feed(inputs.map((v) => createOkContext(v, {})))
         const results = await pipeline.next()
         return (results ?? []).map((r) => r.result)

@@ -6,7 +6,7 @@ import * as ingestionWarnings from '~/ingestion/common/ingestion-warnings'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { Team } from '~/types'
 
-import { createContext, createNewBatchPipeline, createOkContext } from './helpers'
+import { createContext, createNewChunkPipeline, createOkContext } from './helpers'
 import { IngestionWarningHandlingChunkPipeline } from './ingestion-warning-handling-chunk-pipeline'
 import { ok } from './results'
 
@@ -86,7 +86,7 @@ describe('IngestionWarningHandlingChunkPipeline', () => {
                 ),
             ]
 
-            const rootPipeline = createNewBatchPipeline<{ message: Message; team: Team }, { team: Team }>().build()
+            const rootPipeline = createNewChunkPipeline<{ message: Message; team: Team }, { team: Team }>().build()
             const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, rootPipeline)
 
             pipeline.feed(batch)
@@ -115,7 +115,7 @@ describe('IngestionWarningHandlingChunkPipeline', () => {
         })
 
         it('should handle empty batch', async () => {
-            const rootPipeline = createNewBatchPipeline<{ message: Message; team: Team }, { team: Team }>().build()
+            const rootPipeline = createNewChunkPipeline<{ message: Message; team: Team }, { team: Team }>().build()
             const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, rootPipeline)
 
             pipeline.feed([])
@@ -145,7 +145,7 @@ describe('IngestionWarningHandlingChunkPipeline', () => {
                 ),
             ]
 
-            const rootPipeline = createNewBatchPipeline<{ message: Message; team: Team }, { team: Team }>().build()
+            const rootPipeline = createNewChunkPipeline<{ message: Message; team: Team }, { team: Team }>().build()
             const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, rootPipeline)
 
             pipeline.feed(batch)
@@ -181,7 +181,7 @@ describe('IngestionWarningHandlingChunkPipeline', () => {
                 ),
             ]
 
-            const rootPipeline = createNewBatchPipeline<{ message: Message; team: Team }, { team: Team }>().build()
+            const rootPipeline = createNewChunkPipeline<{ message: Message; team: Team }, { team: Team }>().build()
             const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, rootPipeline)
 
             pipeline.feed(batch)
@@ -214,7 +214,7 @@ describe('IngestionWarningHandlingChunkPipeline', () => {
                 ),
             ]
 
-            const rootPipeline = createNewBatchPipeline<{ message: Message; team: Team }, { team: Team }>().build()
+            const rootPipeline = createNewChunkPipeline<{ message: Message; team: Team }, { team: Team }>().build()
             const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, rootPipeline)
 
             pipeline.feed(batch)
@@ -267,7 +267,7 @@ describe('IngestionWarningHandlingChunkPipeline', () => {
                 ),
             ]
 
-            const rootPipeline = createNewBatchPipeline<{ message: Message; team: Team }, { team: Team }>().build()
+            const rootPipeline = createNewChunkPipeline<{ message: Message; team: Team }, { team: Team }>().build()
             const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, rootPipeline)
 
             pipeline.feed(batch)
@@ -308,7 +308,7 @@ describe('IngestionWarningHandlingChunkPipeline', () => {
                 ),
             ]
 
-            const rootPipeline = createNewBatchPipeline<{ message: Message; team: Team }, { team: Team }>().build()
+            const rootPipeline = createNewChunkPipeline<{ message: Message; team: Team }, { team: Team }>().build()
             const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, rootPipeline)
 
             pipeline.feed(batch)

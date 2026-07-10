@@ -26,7 +26,7 @@
  * - **Batching**: Side effects can be batched for efficiency
  */
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { newBatchPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -229,7 +229,7 @@ describe('Handling Side Effects', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Item>()
+        const pipeline = newChunkPipelineBuilder<Item>()
             .pipeChunk(createBatchProcessStep())
             .handleSideEffects(promiseScheduler, { await: true })
             .build()
@@ -310,7 +310,7 @@ describe('Handling Side Effects', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Item>()
+        const pipeline = newChunkPipelineBuilder<Item>()
             .pipeChunk(createBatchProcessStep())
             .handleSideEffects(promiseScheduler, { await: false })
             .build()

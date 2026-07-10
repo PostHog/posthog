@@ -20,7 +20,7 @@ import { Message } from 'node-rdkafka'
 
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput, OVERFLOW_OUTPUT } from '~/common/outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, dlq, isOkResult, ok, redirect } from '~/ingestion/framework/results'
@@ -109,7 +109,7 @@ describe('Filter Map', () => {
 
         // filterMap() filters OK results, maps them, and processes through subpipeline.
         // Non-OK results pass through unchanged, so we only need handleResults once at the end.
-        const pipeline = newBatchPipelineBuilder<RawEvent, { message: Message }>()
+        const pipeline = newChunkPipelineBuilder<RawEvent, { message: Message }>()
             .pipeChunk(createTeamLookupStep())
             .gather()
             .filterMap(

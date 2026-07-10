@@ -17,7 +17,7 @@
  * - External API calls with batch endpoints
  * - Bulk writes (batch INSERT)
  */
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResult, dlq, isOkResult, ok } from '~/ingestion/framework/results'
 
@@ -42,7 +42,7 @@ describe('Batch Pipeline Basics', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>().pipeChunk(createBatchDoubleStep()).build()
+        const pipeline = newChunkPipelineBuilder<number>().pipeChunk(createBatchDoubleStep()).build()
 
         const batch = [1, 2, 3, 4, 5].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
@@ -66,7 +66,7 @@ describe('Batch Pipeline Basics', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<string>().pipeChunk(createUppercaseStep()).build()
+        const pipeline = newChunkPipelineBuilder<string>().pipeChunk(createUppercaseStep()).build()
 
         const batch = ['a', 'b', 'c'].map((s) => createOkContext(s, {}))
         pipeline.feed(batch)
@@ -92,7 +92,7 @@ describe('Cardinality Guarantee', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>().pipeChunk(createValidBatchStep()).build()
+        const pipeline = newChunkPipelineBuilder<number>().pipeChunk(createValidBatchStep()).build()
 
         const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
@@ -115,7 +115,7 @@ describe('Cardinality Guarantee', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>().pipeChunk(createBadBatchStep()).build()
+        const pipeline = newChunkPipelineBuilder<number>().pipeChunk(createBadBatchStep()).build()
 
         const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
@@ -152,7 +152,7 @@ describe('OK Filtering', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>()
+        const pipeline = newChunkPipelineBuilder<number>()
             .pipeChunk(createFilterStep())
             .pipeChunk(createProcessStep())
             .build()

@@ -12,7 +12,7 @@ import { BufferingChunkPipeline } from '~/ingestion/framework/buffering-chunk-pi
 import { ChunkPipelineBuilder } from './chunk-pipeline-builders'
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
 
-export function newBatchPipelineBuilder<T, C = Record<string, never>>(): ChunkPipelineBuilder<T, T, C> {
+export function newChunkPipelineBuilder<T, C = Record<string, never>>(): ChunkPipelineBuilder<T, T, C> {
     return new ChunkPipelineBuilder(new BufferingChunkPipeline<T, C>())
 }
 

@@ -32,7 +32,7 @@
  * keeps at most N items in flight, starting the next item only as a slot
  * frees up. Emission order stays FIFO regardless of the cap.
  */
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -63,7 +63,7 @@ describe('Concurrent Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>()
+        const pipeline = newChunkPipelineBuilder<number>()
             .concurrently((builder) => builder.pipe(createSlowStep()))
             .build()
 
@@ -88,7 +88,7 @@ describe('Concurrent Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>()
+        const pipeline = newChunkPipelineBuilder<number>()
             .concurrently((builder) => builder.pipe(createSlowStep()))
             .build()
 
@@ -132,7 +132,7 @@ describe('Concurrent Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>()
+        const pipeline = newChunkPipelineBuilder<number>()
             .concurrently((builder) => builder.pipe(createVariableDelayStep()))
             .build()
 
@@ -175,7 +175,7 @@ describe('Concurrent Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>()
+        const pipeline = newChunkPipelineBuilder<number>()
             .concurrently((builder) => builder.pipe(createTrackingStep()), { maxConcurrency: 2 })
             .build()
 

@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
 import { ConcurrentChunkProcessingPipeline } from './concurrent-chunk-pipeline'
-import { createContext, createNewBatchPipeline, createNewPipeline, createOkContext } from './helpers'
+import { createContext, createNewChunkPipeline, createNewPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok } from './results'
 
 describe('ConcurrentChunkProcessingPipeline', () => {
@@ -53,7 +53,7 @@ describe('ConcurrentChunkProcessingPipeline', () => {
             const processor = createNewPipeline<string>().pipe((input: string) =>
                 Promise.resolve(ok(input.toUpperCase()))
             )
-            const previousPipeline = createNewBatchPipeline<string>().build()
+            const previousPipeline = createNewChunkPipeline<string>().build()
 
             const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
@@ -64,7 +64,7 @@ describe('ConcurrentChunkProcessingPipeline', () => {
     describe('feed', () => {
         it('should delegate to previous pipeline', () => {
             const processor = createNewPipeline<string>().pipe((input: string) => Promise.resolve(ok(input)))
-            const previousPipeline = createNewBatchPipeline<string>().build()
+            const previousPipeline = createNewChunkPipeline<string>().build()
             const spy = jest.spyOn(previousPipeline, 'feed')
 
             const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
@@ -79,7 +79,7 @@ describe('ConcurrentChunkProcessingPipeline', () => {
     describe('next', () => {
         it('should return null when no results available', async () => {
             const processor = createNewPipeline<string>().pipe((input: string) => Promise.resolve(ok(input)))
-            const previousPipeline = createNewBatchPipeline<string>().build()
+            const previousPipeline = createNewChunkPipeline<string>().build()
 
             const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
@@ -91,7 +91,7 @@ describe('ConcurrentChunkProcessingPipeline', () => {
             const processor = createNewPipeline<string>().pipe((input: string) =>
                 Promise.resolve(ok(input.toUpperCase()))
             )
-            const previousPipeline = createNewBatchPipeline<string>().build()
+            const previousPipeline = createNewChunkPipeline<string>().build()
 
             // Feed some test data
             const testBatch = [createOkContext('hello', context1), createOkContext('world', context2)]
@@ -160,7 +160,7 @@ describe('ConcurrentChunkProcessingPipeline', () => {
                 return ok(input.toUpperCase())
             })
 
-            const previousPipeline = createNewBatchPipeline<string>().build()
+            const previousPipeline = createNewChunkPipeline<string>().build()
             const testBatch = [createOkContext('fast', context1), createOkContext('slow', context2)]
             previousPipeline.feed(testBatch)
 
@@ -182,7 +182,7 @@ describe('ConcurrentChunkProcessingPipeline', () => {
                 return Promise.reject(new Error('Processor error'))
             })
 
-            const previousPipeline = createNewBatchPipeline<string>().build()
+            const previousPipeline = createNewChunkPipeline<string>().build()
             const testBatch = [createOkContext('test', context1)]
             previousPipeline.feed(testBatch)
 
@@ -196,7 +196,7 @@ describe('ConcurrentChunkProcessingPipeline', () => {
                 Promise.resolve(ok(input.toUpperCase()))
             )
 
-            const previousPipeline = createNewBatchPipeline<string>().build()
+            const previousPipeline = createNewChunkPipeline<string>().build()
             const batch1 = [createOkContext('batch1', context1)]
             const batch2 = [createOkContext('batch2', context2)]
 
@@ -222,7 +222,7 @@ describe('ConcurrentChunkProcessingPipeline', () => {
                 Promise.resolve(ok(input.toUpperCase()))
             )
 
-            const previousPipeline = createNewBatchPipeline<string>().build()
+            const previousPipeline = createNewChunkPipeline<string>().build()
             const testBatch = [
                 createOkContext('item1', context1),
                 createOkContext('item2', context2),
@@ -262,7 +262,7 @@ describe('ConcurrentChunkProcessingPipeline', () => {
                 return ok(input.toUpperCase())
             })
 
-            const previousPipeline = createNewBatchPipeline<string>().build()
+            const previousPipeline = createNewChunkPipeline<string>().build()
             const testBatch = [
                 createOkContext('fast', context1),
                 createOkContext('slow', context2),
@@ -306,7 +306,7 @@ describe('ConcurrentChunkProcessingPipeline', () => {
                 active--
                 return ok(input.toUpperCase())
             })
-            const previousPipeline = createNewBatchPipeline<string>().build()
+            const previousPipeline = createNewChunkPipeline<string>().build()
             const testBatch = Array.from({ length: itemCount }, (_, i) => createOkContext(`item-${i}`, context1))
             previousPipeline.feed(testBatch)
 
@@ -335,7 +335,7 @@ describe('ConcurrentChunkProcessingPipeline', () => {
                 await new Promise((resolve) => setTimeout(resolve, delaysByIndex[index]))
                 return ok(input.toUpperCase())
             })
-            const previousPipeline = createNewBatchPipeline<string>().build()
+            const previousPipeline = createNewChunkPipeline<string>().build()
             const testBatch = delaysByIndex.map((_, i) => createOkContext(`item-${i}`, context1))
             previousPipeline.feed(testBatch)
 
@@ -369,7 +369,7 @@ describe('ConcurrentChunkProcessingPipeline', () => {
             const processor = createNewPipeline<{ value: string; fail?: boolean }>().pipe((input) =>
                 input.fail ? Promise.reject(new Error('item boom')) : Promise.resolve(ok(input))
             )
-            const previousPipeline = createNewBatchPipeline<{ value: string; fail?: boolean }>().build()
+            const previousPipeline = createNewChunkPipeline<{ value: string; fail?: boolean }>().build()
             const pipeline = new ConcurrentChunkProcessingPipeline(processor, previousPipeline)
 
             // FIFO: the failing head surfaces first, the already in-flight item

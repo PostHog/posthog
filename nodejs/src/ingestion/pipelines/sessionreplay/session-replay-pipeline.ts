@@ -6,7 +6,7 @@ import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { IngestionOverflowMode } from '~/ingestion/config'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { createBatch } from '~/ingestion/framework/helpers'
@@ -107,7 +107,7 @@ export function createSessionReplayPipeline(
 
     const topHogWrapper = createTopHogWrapper(topHog)
 
-    const pipeline = newBatchPipelineBuilder<SessionReplayPipelineInput, MessageContext>()
+    const pipeline = newChunkPipelineBuilder<SessionReplayPipelineInput, MessageContext>()
         .messageAware((b) =>
             b
                 .sequentially((b) =>

@@ -1,7 +1,7 @@
 /** The primary session replay pipeline plus an AI-training opt-in filter and an anonymize step. */
 import { OverflowOutput } from '~/common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 import { createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
@@ -49,7 +49,7 @@ export function createMlMirrorReplayPipeline(
     const pipelineConfig: PipelineConfig<OverflowOutput> = { outputs, promiseScheduler }
     const topHogWrapper = createTopHogWrapper(topHog)
 
-    const pipeline = newBatchPipelineBuilder<SessionReplayPipelineInput, MessageContext>()
+    const pipeline = newChunkPipelineBuilder<SessionReplayPipelineInput, MessageContext>()
         .messageAware((b) =>
             b
                 .sequentially((b) =>

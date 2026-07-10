@@ -34,7 +34,7 @@ import { Message } from 'node-rdkafka'
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput, OVERFLOW_OUTPUT } from '~/common/outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { newBatchPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
@@ -457,7 +457,7 @@ describe('Pipeline Phases', () => {
         //     → handleIngestionWarnings)
         // → handleResults → handleSideEffects
         function createPipeline() {
-            return newBatchPipelineBuilder<RawInput, { message: Message }>()
+            return newChunkPipelineBuilder<RawInput, { message: Message }>()
                 .messageAware((b) =>
                     b
                         // Pre-team preprocessing: parse and resolve team (concurrent)

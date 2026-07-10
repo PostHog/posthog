@@ -42,7 +42,7 @@
  * - Permanent failures (validation, permission) - should not retry
  */
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
-import { newBatchPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { isDlqResult, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -321,7 +321,7 @@ describe('Batch Retries', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event>()
+        const pipeline = newChunkPipelineBuilder<Event>()
             .pipeChunk(createFlakyBatchStep(), { retry: { tries: 5, sleepMs: 100 } })
             .build()
 
@@ -351,7 +351,7 @@ describe('Batch Retries', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event>()
+        const pipeline = newChunkPipelineBuilder<Event>()
             .pipeChunk(createFailingBatchStep(), { retry: { tries: 5, sleepMs: 100 } })
             .build()
 
