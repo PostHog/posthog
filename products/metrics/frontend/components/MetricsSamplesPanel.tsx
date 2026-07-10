@@ -1,0 +1,183 @@
+import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
+
+import { LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { getColorVar } from 'lib/colors'
+import { TZLabel } from 'lib/components/TZLabel'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+
+import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
+import { traceUrl } from 'products/tracing/frontend/traceLinks'
+
+import { type MetricsAggregateRow, type MetricsPanelTab, metricsSamplesLogic } from './metricsSamplesLogic'
+import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
+import { metricsViewerLogic } from './metricsViewerLogic'
+
+function SampleAttributes({ sample }: { sample: _MetricEventSampleApi }): JSX.Element {
+    const entries = [...Object.entries(sample.attributes), ...Object.entries(sample.resource_attributes)]
+    if (!entries.length) {
+        return <div className="text-secondary text-xs p-2">No attributes on this emission.</div>
+    }
+    return (
+        <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 p-2 text-xs">
+            {/* Index-keyed: the same attribute key can appear in both the datapoint and resource maps. */}
+            {entries.map(([key, value], index) => (
+                <Fragment key={index}>
+                    <span className="text-secondary font-mono">{key}</span>
+                    <span className="font-mono break-all">{value}</span>
+                </Fragment>
+            ))}
+        </div>
+    )
+}
+
+function SamplesTab(): JSX.Element {
+    const { samples, samplesLoading } = useValues(metricsSamplesLogic)
+    const { hasMetricName } = useValues(metricsViewerLogic)
+    const { sampleRowExpanded, tracePivotClicked } = useActions(metricsUsageTrackingLogic)
+
+    return (
+        <LemonTable
+            dataSource={samples}
+            loading={samplesLoading}
+            size="small"
+            rowKey={(sample, rowIndex) => `${rowIndex}-${sample.timestamp}-${sample.trace_id}`}
+            emptyState={
+                hasMetricName
+                    ? 'No emissions for this metric in the selected range.'
+                    : 'Pick a metric to see its raw emissions.'
+            }
+            expandable={{
+                expandedRowRender: (sample) => <SampleAttributes sample={sample} />,
+                onRowExpand: (sample) => sampleRowExpanded(sample),
+            }}
+            columns={[
+                {
+                    title: 'Timestamp',
+                    key: 'timestamp',
+                    render: (_, sample) => <TZLabel time={sample.timestamp} formatDate="MMM D" formatTime="HH:mm:ss" />,
+                },
+                {
+                    title: 'Value',
+                    key: 'value',
+                    align: 'right',
+                    render: (_, sample) => (
+                        <Tooltip
+                            title={
+                                sample.count > 1
+                                    ? `Distribution sum over ${sample.count} observations${sample.unit ? ` (${sample.unit})` : ''}`
+                                    : sample.unit || undefined
+                            }
+                        >
+                            <span className="font-mono">{humanFriendlyNumber(sample.value, 2)}</span>
+                        </Tooltip>
+                    ),
+                },
+                {
+                    title: 'Trace',
+                    key: 'trace',
+                    render: (_, sample) =>
+                        sample.trace_id ? (
+                            <Tooltip title="Open the trace this emission was recorded in">
+                                <Link
+                                    to={traceUrl({
+                                        traceId: sample.trace_id,
+                                        spanId: sample.span_id || null,
+                                        ts: sample.timestamp,
+                                    })}
+                                    className="font-mono"
+                                    onClick={() => tracePivotClicked(sample)}
+                                >
+                                    {/* Link doesn't take data-attr; the span gives autocapture a named element. */}
+                                    <span data-attr="metrics-trace-pivot">
+                                        {sample.trace_id.slice(0, 8).toLowerCase()}
+                                    </span>
+                                </Link>
+                            </Tooltip>
+                        ) : (
+                            <span className="text-secondary">—</span>
+                        ),
+                },
+            ]}
+        />
+    )
+}
+
+function AggregatesTab(): JSX.Element {
+    const { aggregateRows } = useValues(metricsSamplesLogic)
+    const { queryResultsLoading, hasMetricName } = useValues(metricsViewerLogic)
+
+    return (
+        <LemonTable
+            dataSource={aggregateRows}
+            loading={queryResultsLoading}
+            size="small"
+            rowKey={(row: MetricsAggregateRow) => row.name}
+            emptyState={
+                hasMetricName ? 'No series in the selected range.' : 'Pick a metric to see per-series aggregates.'
+            }
+            columns={[
+                {
+                    title: 'Series',
+                    key: 'series',
+                    render: (_, row) => (
+                        <span className="flex items-center gap-1.5">
+                            <span
+                                className="w-2 h-2 rounded-full shrink-0"
+                                // Dynamic per-series colour can't be a Tailwind class.
+                                style={{ backgroundColor: getColorVar(row.color) }}
+                            />
+                            <span className="truncate max-w-40" title={row.name}>
+                                {row.name}
+                            </span>
+                        </span>
+                    ),
+                },
+                {
+                    title: 'Latest',
+                    key: 'latest',
+                    align: 'right',
+                    render: (_, row) => <span className="font-mono">{humanFriendlyNumber(row.latest, 2)}</span>,
+                },
+                {
+                    title: 'Total',
+                    key: 'total',
+                    align: 'right',
+                    render: (_, row) => <span className="font-mono">{humanFriendlyNumber(row.total, 2)}</span>,
+                },
+            ]}
+        />
+    )
+}
+
+/** Side panel next to the chart: per-series aggregates, or the raw emissions
+ * behind the chart with a link to the trace each one was recorded in. */
+export function MetricsSamplesPanel(): JSX.Element {
+    const { activeTab } = useValues(metricsSamplesLogic)
+    const { setActiveTab } = useActions(metricsSamplesLogic)
+
+    return (
+        <div className="border rounded p-2 overflow-y-auto">
+            <LemonTabs<MetricsPanelTab>
+                size="small"
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                tabs={[
+                    {
+                        key: 'aggregates',
+                        label: 'Aggregates',
+                        content: <AggregatesTab />,
+                        'data-attr': 'metrics-samples-panel-tab-aggregates',
+                    },
+                    {
+                        key: 'samples',
+                        label: 'Samples',
+                        content: <SamplesTab />,
+                        'data-attr': 'metrics-samples-panel-tab-samples',
+                    },
+                ]}
+            />
+        </div>
+    )
+}

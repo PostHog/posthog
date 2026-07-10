@@ -257,7 +257,7 @@ describe('ToolExecutor', () => {
             expect(renderUiEntry.inputSchema.required).toEqual(['tool_name'])
         })
 
-        it('omits render-ui when the flag is off, even with a UI-app tool available', async () => {
+        it('omits render-ui when render-ui is disabled, even with a UI-app tool available', async () => {
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: false })
 
             const result = await executor.handleToolsList(state)
@@ -266,7 +266,7 @@ describe('ToolExecutor', () => {
     })
 
     describe('render-ui', () => {
-        it('dispatches to the render-ui payload when the flag is on', async () => {
+        it('dispatches to the render-ui payload when render-ui is enabled', async () => {
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
 
             const result = (await executor.handleToolCall(
@@ -279,7 +279,7 @@ describe('ToolExecutor', () => {
             expect(result.structuredContent.app_key).toBe('survey')
         })
 
-        it('rejects a render-ui call when the flag is off', async () => {
+        it('rejects a render-ui call when render-ui is disabled', async () => {
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: false })
 
             const result = (await executor.handleToolCall(

@@ -4,6 +4,9 @@ import pytest
 
 import psycopg
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
+    _has_inflight_replace_run,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
     DUCKGRES_APPLY_TABLE,
     DUCKGRES_LEASE_TABLE,
@@ -198,6 +201,27 @@ async def conn(_db_url: str):
 
 @pytest.mark.django_db(transaction=True)
 class TestDuckgresBatchQueueEligibility:
+    @pytest.mark.asyncio
+    async def test_failed_delta_replace_run_is_not_inflight(
+        self, conn: psycopg.AsyncConnection[Any], _db_url: str
+    ) -> None:
+        run_uuid = "failed-replace-run"
+        head_id = await _insert_batch(
+            conn,
+            run_uuid=run_uuid,
+            batch_index=0,
+            sync_type="full_refresh",
+            is_final_batch=False,
+            is_resume=False,
+        )
+        await BatchQueue.update_status(conn, batch_id=head_id, job_state="succeeded", attempt=1)
+
+        tail_id = await _insert_batch(conn, run_uuid=run_uuid, batch_index=1)
+        await BatchQueue.update_status(conn, batch_id=tail_id, job_state="failed", attempt=1)
+
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            assert not _has_inflight_replace_run(sync_conn, team_id=1, schema_id="schema-1")
+
     @pytest.mark.asyncio
     async def test_ignores_batches_until_delta_succeeds(self, conn):
         await _insert_batch(conn)
@@ -397,28 +421,44 @@ class TestDuckgresTeamFilterAndBacklog:
         batch_id = await _insert_batch(conn, sync_type="incremental")
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(conn)
-        assert (count, blocked) == (1, 0)
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(conn)
+        assert (count, blocked, failing) == (1, 0, 0)
         assert oldest_age is not None and oldest_age >= 0
         assert blocked_age is None
 
         # The same batch counts as blocked (not eligible) once its schema is gated.
-        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
             conn, blocked_schema_ids=["schema-1"]
         )
-        assert (count, blocked) == (0, 1)
+        assert (count, blocked, failing) == (0, 1, 0)
         assert oldest_age is None and blocked_age is not None
+
+        # A hard-blocked schema's batches leave the pageable blocked bucket
+        # (count AND oldest-age) for the failing one — a wedged schema must not
+        # be able to trigger or mask the blocked-backlog page.
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
+            conn, blocked_schema_ids=["schema-1"], failing_schema_ids=["schema-1"]
+        )
+        assert (count, blocked, failing) == (0, 0, 1)
+        assert blocked_age is None
+
+        # A failing schema whose batches are NOT blocked (still eligible) never
+        # counts in the failing bucket: failing splits the blocked set only.
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
+            conn, failing_schema_ids=["schema-1"]
+        )
+        assert (count, blocked, failing) == (1, 0, 0)
 
         # The v3 allow-list scopes the gauges too: a non-eligible schema drops
         # out of both the eligible and blocked counts.
-        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
             conn, eligible_schema_ids=["other-schema"]
         )
-        assert (count, blocked) == (0, 0)
+        assert (count, blocked, failing) == (0, 0, 0)
 
         await _mark_applied_raw(conn, batch_id=batch_id, run_uuid="run-1", batch_index=0)
-        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(conn)
-        assert (count, blocked) == (0, 0)
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(conn)
+        assert (count, blocked, failing) == (0, 0, 0)
         assert oldest_age is None and blocked_age is None
 
 
@@ -937,3 +977,126 @@ class TestDuckgresGroupLease:
         await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
         stale = await DuckgresBatchQueue.get_stale_executing(conn, grace_seconds=0)
         assert [str(b.id) for b in stale] == [batch_id]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestOrgConcurrencyBudget:
+    # (team_id, org_id, budget) rows: teams 1 and 2 belong to org-a, team 3 to org-b.
+    TWO_ORGS = [(1, "org-a", 2), (2, "org-a", 2), (3, "org-b", 4)]
+
+    async def _eligible_group(self, conn, *, team_id: int, schema_id: str) -> str:
+        batch_id = await _insert_batch(conn, team_id=team_id, schema_id=schema_id, run_uuid=f"run-{schema_id}")
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        return batch_id
+
+    @pytest.mark.asyncio
+    async def test_budget_caps_groups_within_one_fetch(self, conn):
+        # A single poll must not lease an org's whole schema backlog at once —
+        # each leased group is a potential connection to the org's duckgres.
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        await self._eligible_group(conn, team_id=1, schema_id="s2")
+        await self._eligible_group(conn, team_id=2, schema_id="s3")
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", team_org_budgets=self.TWO_ORGS
+        )
+
+        # Oldest two groups win org-a's budget of 2; the third is left unleased.
+        assert {(b.team_id, b.schema_id) for b in batches} == {(1, "s1"), (1, "s2")}
+
+    @pytest.mark.asyncio
+    async def test_other_pods_live_leases_count_toward_budget_until_expiry(self, conn):
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="other-pod", team_org_budgets=self.TWO_ORGS
+        )
+        assert len(claimed) == 1
+
+        await self._eligible_group(conn, team_id=1, schema_id="s2")
+        await self._eligible_group(conn, team_id=2, schema_id="s3")
+
+        # other-pod's live lease occupies 1 of org-a's 2 slots fleet-wide.
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", team_org_budgets=self.TWO_ORGS
+        )
+        assert {(b.team_id, b.schema_id) for b in batches} == {(1, "s2")}
+
+        # Expired leases return their slots: the two OLDEST org-a groups claim
+        # (s1's expired lease is reclaimable, s2 re-claims), and s3 - also
+        # org-a, via team 2 - is still budget-skipped as the third-ranked group.
+        await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", team_org_budgets=self.TWO_ORGS
+        )
+        assert {(b.team_id, b.schema_id) for b in batches} == {(1, "s1"), (1, "s2")}
+
+    @pytest.mark.asyncio
+    async def test_saturated_org_does_not_block_other_orgs_groups(self, conn):
+        # Work-conservation: a capped org's OLDER work must be skipped, not
+        # deferred, or it head-of-line blocks the pod's max_groups budget.
+        one_slot = [(1, "org-a", 1), (3, "org-b", 4)]
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="other-pod", team_org_budgets=one_slot
+        )
+        assert len(claimed) == 1  # org-a saturated
+
+        await self._eligible_group(conn, team_id=1, schema_id="s2")  # older than org-b's work
+        await self._eligible_group(conn, team_id=3, schema_id="s3")
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", max_groups=1, team_org_budgets=one_slot
+        )
+
+        assert {(b.team_id, b.schema_id) for b in batches} == {(3, "s3")}
+
+    @pytest.mark.asyncio
+    async def test_saturated_orgs_deep_backlog_cannot_fill_the_candidate_window(self, conn):
+        # The budget filter must apply BEFORE the candidate LIMIT, like the
+        # other-owner lease exclusion above it: a fully saturated org's deep
+        # backlog would otherwise fill the window with rows the group filter
+        # then drops, and the pod claims NOTHING while other orgs have work.
+        one_slot = [(1, "org-a", 1), (3, "org-b", 4)]
+        await self._eligible_group(conn, team_id=1, schema_id="s0")
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="other-pod", team_org_budgets=one_slot
+        )
+        assert len(claimed) == 1  # org-a saturated
+
+        for i in range(3):  # org-a backlog, all older than org-b's work
+            await self._eligible_group(conn, team_id=1, schema_id=f"s{i + 1}")
+        await self._eligible_group(conn, team_id=3, schema_id="sb")
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", limit=3, team_org_budgets=one_slot
+        )
+
+        assert {(b.team_id, b.schema_id) for b in batches} == {(3, "sb")}
+
+    @pytest.mark.asyncio
+    async def test_unmapped_team_is_uncapped(self, conn):
+        # The mapping caps; it must never act as an eligibility filter —
+        # team_ids/eligible_schema_ids own that. A team missing from the
+        # mapping (dev, or a mid-refresh race) claims freely.
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        await self._eligible_group(conn, team_id=1, schema_id="s2")
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", team_org_budgets=[(99, "org-x", 1)]
+        )
+
+        assert {(b.team_id, b.schema_id) for b in batches} == {(1, "s1"), (1, "s2")}
+
+    @pytest.mark.asyncio
+    async def test_count_orgs_at_budget(self, conn):
+        one_each = [(1, "org-a", 1), (3, "org-b", 2)]
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        await self._eligible_group(conn, team_id=3, schema_id="s2")
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="other-pod", team_org_budgets=one_each
+        )
+        assert len(claimed) == 2
+
+        # org-a: 1 live lease of budget 1 -> saturated; org-b: 1 of 2 -> not.
+        assert await DuckgresBatchQueue.count_orgs_at_budget(conn, team_org_budgets=one_each) == 1
+        assert await DuckgresBatchQueue.count_orgs_at_budget(conn, team_org_budgets=[]) == 0

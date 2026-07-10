@@ -21,6 +21,12 @@ declare global {
     // sibling files (currently just toolbar.css) from the same versioned URL.
     const __POSTHOG_TOOLBAR_PUBLIC_PATH__: string
 
+    // Build-time constant injected into the toolbar loader (frontend/src/toolbar/loader.ts):
+    // the basename of the toolbar app's ESM entry inside dist/toolbar/ — hashed in prod
+    // builds (e.g. `toolbar-app-ABC123.js`), plain `toolbar-app.js` in dev. See
+    // finalizeToolbarBuild in frontend/toolbar-config.mjs.
+    const __POSTHOG_TOOLBAR_APP_ENTRY__: string
+
     interface Window {
         JS_URL?: string
         JS_POSTHOG_API_KEY?: string

@@ -183,12 +183,6 @@ export const interpolateHeatmapColor = (value: number, stops: HeatmapGradientSto
     return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
 
-export const getHeatmapTextClassName = (color: string): string => {
-    const { r, g, b } = hexToRGB(color)
-    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    return luminance < 140 ? 'text-white' : 'text-primary'
-}
-
 const isNullishHeatmapValue = (value: unknown): boolean => {
     if (value === null || value === undefined || value === '') {
         return true
