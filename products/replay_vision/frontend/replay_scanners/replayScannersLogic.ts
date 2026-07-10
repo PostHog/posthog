@@ -309,7 +309,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             actions.setScannerDeleting(id, true)
             // Deleting an enabled scanner removes its known contribution from the fleet sum — exact, so apply it now.
             const scanner = values.scanners.find((s) => s.id === id)
-            const delta = scanner?.enabled ? -(scanner.estimated_monthly_observations ?? 0) : 0
+            const delta = scanner?.enabled ? -(scanner.estimated_monthly_credits ?? 0) : 0
             visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(delta)
             try {
                 await visionScannersDestroy(String(teamId), id)
@@ -347,7 +347,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 return
             }
             // The stored estimate is kept ≤24h fresh even while disabled, so the projection shift is known up front.
-            const estimate = scanner.estimated_monthly_observations ?? 0
+            const estimate = scanner.estimated_monthly_credits ?? 0
             const delta = scanner.enabled ? estimate : -estimate
             visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(delta)
             try {

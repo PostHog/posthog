@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
@@ -118,6 +118,18 @@ impl RemoteStaging {
         if let Err(e) = self.backend.cleanup_job().await {
             warn!("Failed to clean up remote staging after job: {e:#}");
         }
+    }
+
+    /// `DataSource::cleanup_after_data_error` delegation: move staged objects to
+    /// quarantine for post-mortem instead of deleting them. The evidence copy is
+    /// best-effort, but a canonical object that could not be deleted is an error:
+    /// it stays attachable, so a resume could read stale staged bytes instead of
+    /// re-downloading the fixed source data.
+    pub(crate) async fn quarantine_job(&self) -> Result<(), Error> {
+        self.backend
+            .quarantine_job()
+            .await
+            .context("Failed to quarantine remote staging after data error")
     }
 
     /// Ingest a downloaded part into the backend and return its decompressed size.
@@ -289,11 +301,20 @@ pub trait DataSource: Sync + Send {
     }
 
     /// Terminal cleanup: reclaim everything, including durable remote staging.
-    /// Called when the job completes, and on source-side pauses — a human may fix
-    /// the source file in place before resuming, so the resume must re-download a
-    /// clean copy rather than attach to a stale staged one.
+    /// Called when the job completes.
     async fn cleanup_after_job(&self) -> Result<(), Error> {
         Ok(())
+    }
+
+    /// Data-error-pause cleanup: a human may fix the source data in place before
+    /// resuming, so the resume must re-download a clean copy rather than attach
+    /// to a stale staged one — but the staged bytes are the exact stream the
+    /// failing offset was committed against, so staged sources move them to
+    /// quarantine for post-mortem instead of deleting them. Defaults to
+    /// [`cleanup_after_job`](Self::cleanup_after_job) for sources with nothing
+    /// staged remotely.
+    async fn cleanup_after_data_error(&self) -> Result<(), Error> {
+        self.cleanup_after_job().await
     }
 
     /// Transient-interruption cleanup: release per-process resources (local temp
