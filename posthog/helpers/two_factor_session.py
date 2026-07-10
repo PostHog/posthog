@@ -420,7 +420,13 @@ class CodeBasedVerifier:
             email.send_code_based_verification(user.pk, code)
             request.session["code_based_verification_pending_user_id"] = user.pk
             request.session["code_based_verification_issued_at"] = issued_at
-            request.session["code_based_verification_attempts"] = 0
+            # Resends must not reset the failed-attempt counter, otherwise the attempt cap could be
+            # sidestepped by guessing up to the limit, resending, and repeating - letting the 6-digit
+            # code be brute-forced in batches. The attempt budget is per pending login, not per code.
+            if is_resend:
+                request.session.setdefault("code_based_verification_attempts", 0)
+            else:
+                request.session["code_based_verification_attempts"] = 0
             LOGIN_CODE_VERIFICATION_COUNTER.labels(result="resent" if is_resend else "sent").inc()
             mfa_logger.info(
                 "Code-based verification email sent",

@@ -133,3 +133,24 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
                 self.client.post(VERIFY_URL, {"code": first_code}).status_code, status.HTTP_400_BAD_REQUEST
             )
             self.assertEqual(self.client.post(VERIFY_URL, {"code": second_code}).status_code, status.HTTP_200_OK)
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_resend_does_not_reset_the_failed_attempt_cap(self):
+        with freeze_time("2024-01-01T10:00:00") as frozen, enable_code_sending() as mock_send:
+            code = self._trigger(mock_send)
+            wrong = "000000" if code != "000000" else "111111"
+
+            # Use up all but one of the attempt budget, then resend to try to reset the counter.
+            for _ in range(CODE_MAX_ATTEMPTS - 1):
+                self.assertEqual(self.client.post(VERIFY_URL, {"code": wrong}).status_code, status.HTTP_400_BAD_REQUEST)
+
+            frozen.move_to("2024-01-01T10:01:01")  # past the 1/min resend throttle
+            self.assertEqual(self.client.post(RESEND_URL).status_code, status.HTTP_200_OK)
+            fresh_code = mock_send.call_args[0][1]
+
+            # The resend must not have reset the budget: one more wrong guess hits the cap, and even
+            # the freshly-issued correct code is then refused - so the cap can't be replayed in batches.
+            self.assertEqual(self.client.post(VERIFY_URL, {"code": wrong}).status_code, status.HTTP_400_BAD_REQUEST)
+            response = self.client.post(VERIFY_URL, {"code": fresh_code})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["code"], "too_many_attempts")
