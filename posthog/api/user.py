@@ -1812,6 +1812,7 @@ def redirect_to_website(request):
                 "lastName": request.user.last_name,
             },
             headers={"Content-Type": "application/json"},
+            timeout=10,
         )
 
         if response.status_code == 200:

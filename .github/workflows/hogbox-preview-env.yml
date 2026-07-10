@@ -440,10 +440,21 @@ jobs:
                   tags: tag:hogland-ci
 
             - name: Mint hogland OIDC token
+              # Retry the mint across transient GitHub OIDC hiccups (a ~12-min
+              # outage on 2026-07-09 leaked two preview pens). curl -sf makes an
+              # HTTP error a non-zero exit, but a `curl | jq` pipe takes jq's exit
+              # — and jq succeeds on empty input — so the empty-token guard is the
+              # load-bearing backstop AFTER the retries, never dropped.
               run: |
-                  token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-                    "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
-                  [ -n "$token" ] && [ "$token" != "null" ] || { echo "::error::OIDC mint failed"; exit 1; }
+                  token=""
+                  for attempt in 1 2 3; do
+                    token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                      "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value') || token=""
+                    [ -n "$token" ] && [ "$token" != "null" ] && break
+                    echo "::warning::OIDC mint attempt ${attempt} failed; retrying"
+                    [ "$attempt" -lt 3 ] && sleep 5
+                  done
+                  [ -n "$token" ] && [ "$token" != "null" ] || { echo "::error::OIDC mint failed after 3 attempts"; exit 1; }
                   echo "::add-mask::$token"
                   echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
 
@@ -658,10 +669,21 @@ jobs:
                   audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
                   tags: tag:hogland-ci
             - name: Mint hogland OIDC token
+              # Same retry + empty-token guard as the deploy job: a mint that
+              # silently yields an empty token here would make the destroy fail
+              # with "no API token provided" and leak the box + pen.
               run: |
-                  token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-                    "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
-                  echo "::add-mask::$token"; echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
+                  token=""
+                  for attempt in 1 2 3; do
+                    token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                      "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value') || token=""
+                    [ -n "$token" ] && [ "$token" != "null" ] && break
+                    echo "::warning::OIDC mint attempt ${attempt} failed; retrying"
+                    [ "$attempt" -lt 3 ] && sleep 5
+                  done
+                  [ -n "$token" ] && [ "$token" != "null" ] || { echo "::error::OIDC mint failed after 3 attempts"; exit 1; }
+                  echo "::add-mask::$token"
+                  echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
                   version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit

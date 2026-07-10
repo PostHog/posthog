@@ -6,8 +6,6 @@ import { IconCheck } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -24,6 +22,7 @@ export function HogFlowFunctionConfiguration({
     mappings,
     setMappings,
     errors,
+    warnings,
 }: {
     templateId: string
     inputs: Record<string, CyclotronJobInputType>
@@ -31,15 +30,14 @@ export function HogFlowFunctionConfiguration({
     setInputs: (inputs: Record<string, CyclotronJobInputType>) => void
     setMappings?: (mappings: HogFunctionMappingType[]) => void
     errors?: Record<string, string>
+    warnings?: Record<string, string>
 }): JSX.Element {
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const template = hogFunctionTemplatesById[templateId]
     const isEmailStep = templateId === 'template-email'
-    const engagementEventsAvailable = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_ENGAGEMENT_EVENTS]
     const engagementEventsEnabled = !!currentTeam?.workflows_config?.capture_workflows_engagement_events
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
@@ -129,6 +127,7 @@ export function HogFlowFunctionConfiguration({
         <>
             <CyclotronJobInputs
                 errors={errors}
+                warnings={warnings}
                 configuration={{
                     inputs: inputs as Record<string, CyclotronJobInputType>,
                     inputs_schema: template?.inputs_schema ?? [],
@@ -137,7 +136,7 @@ export function HogFlowFunctionConfiguration({
                 sampleGlobalsWithInputs={sampleGlobals}
                 onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
             />
-            {isEmailStep && engagementEventsAvailable ? (
+            {isEmailStep ? (
                 engagementEventsEnabled ? (
                     <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-alt">
                         <IconCheck className="text-success text-base" />

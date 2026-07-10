@@ -85,6 +85,29 @@ PostgresErrors = {
         "database project is paused or deleted, or the pooler username/host is wrong. Check that "
         "your database is active and the connection details are correct."
     ),
+    # Supabase/Supavisor's shared regional pooler (aws-0-<region>.pooler.supabase.com) can't
+    # identify the project from SNI, so the pooler username must embed the project ref (for example
+    # "postgres.<project-ref>"). A plain "postgres" username leaves it nothing to route on and it
+    # rejects the connection with "FATAL: (ENOIDENTIFIER) no tenant identifier provided".
+    # `get_non_retryable_errors` already handles this on the streaming path; map it here too so
+    # validation returns an actionable message instead of the generic fallback.
+    "no tenant identifier provided": (
+        'Your connection pooler couldn\'t identify your project ("no tenant identifier provided"). '
+        "On the shared pooler host the username must include your project ref (for example "
+        '"postgres.<project-ref>"). Update the username to the pooler username shown in your '
+        "Supabase dashboard and try again."
+    ),
+    # Some poolers (for example Supabase's transaction pooler on port 6543) reject bad credentials
+    # during the SASL/SCRAM exchange with "FATAL: SASL authentication failed" instead of libpq's
+    # "password authentication failed for user", so none of the password keys above substring-match
+    # it. `get_non_retryable_errors` already handles this on the streaming path; map it here too so
+    # validation returns an actionable message instead of the generic fallback.
+    "SASL authentication failed": (
+        'Your database rejected the credentials during authentication ("SASL authentication '
+        'failed"). This usually means the username or password is wrong. Some connection poolers '
+        "(for example Supabase's transaction pooler) also require a pooler-specific username such "
+        "as postgres.<project-ref>. Check your credentials and try again."
+    ),
     "could not translate host name": "Could not connect to the host",
     # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
     # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
@@ -470,6 +493,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 'exceeded its compute-time quota ("exceeded the compute time quota"). PostHog can\'t '
                 "connect until the database is available again. Upgrade your provider's plan or wait "
                 "for the quota to reset, then re-enable the sync."
+            ),
+            # The provider has put the cluster into read-only mode, so it rejects our read (the
+            # server-side cursor runs its SELECT inside a read/write transaction). PlanetScale's
+            # pg_readonly reports "invalid statement because cluster is read-only"; the cluster only
+            # leaves this state once the customer restores write access (free up storage, upgrade the
+            # plan), so a whole-activity retry re-reads into the same wall. Match the stable phrase and
+            # exclude the volatile leading "pg_readonly:" prefix and trailing docs URL.
+            "cluster is read-only": (
+                "Your database provider has put the database cluster into read-only mode, so it's "
+                'rejecting PostHog\'s queries ("cluster is read-only"). Providers such as PlanetScale '
+                "do this when a storage or usage limit is exceeded. Restore write access to the cluster "
+                "(for example free up storage or upgrade your plan), then re-enable the sync."
             ),
             # A physical standby / read replica started with `hot_standby = off` refuses every
             # connection while in recovery, raising SQLSTATE 57P03 "FATAL: the database system is not

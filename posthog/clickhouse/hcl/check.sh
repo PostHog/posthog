@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Fidelity + reference guard for the declarative OPS ClickHouse schema.
+# Fidelity + reference guard for the declarative ClickHouse schema.
 #
-# Reads the node composition manifest (./nodes) and, for each (env, role):
-#   1. `hclexp validate`s the composed layer stack (cross-object refs resolve),
-#      skipping refs that intentionally point outside the composed set (the
-#      `system` database, the main events cluster, and the OPS-only data table
-#      that the shared distributed tables read from).
-#   2. `hclexp diff`s the stack against golden/<env>-<role>.hcl, asserting zero drift.
-#      The golden is the resolved composition (run ops/gen-golden.sh to refresh it), so
-#      this catches a stale golden — a layer edited without regenerating. Reality-fidelity
-#      (HCL vs the real cluster) is the post-deploy introspection's job, not this guard.
+# Reads the node composition manifest (./nodes) and:
+#   1. `hclexp validate`s every role, once per env, via an HCL manifest rendered
+#      from ./nodes + ./clusters (`-manifest`/`-env`). Cross-cluster Distributed
+#      proxies resolve against their target cluster's composition, so the remote's
+#      existence AND its columns are checked (not blanket-skipped). `system.*`
+#      remotes are always resolvable; a short known_drift_skip covers real
+#      proxy/storage drift pending a fix.
+#   2. `hclexp diff`s each (env, role) stack against golden/<env>-<role>.hcl,
+#      asserting zero drift.
 #
 # Run from the repo root. Uses ./posthog/clickhouse/hcl/bin/hclexp. Exits non-zero
 # on any drift or unexpected validation error.
@@ -19,47 +19,91 @@ HCL=posthog/clickhouse/hcl
 HCLEXP="$HCL/bin/hclexp"
 GOLDEN="$HCL/golden"
 MANIFEST="$HCL/nodes"
+CLUSTERS="$HCL/clusters"
 
-# Per-role validate skips. A Distributed table whose remote lives on another cluster
-# can't be resolved from a role's own composition — skip validation for exactly those
-# objects, PER ROLE, so one role never masks a proxy that should resolve locally (a
-# global list would, and would grow unbounded). Each list is the minimal set `hclexp
-# validate` flags for that role across all its envs; add to a role only what that role
-# actually proxies cross-cluster. Building blocks:
-#   _shared : out-of-band objects roles/shared models — the custom_metrics_* views and
-#             ops_query_log_archive_mv, whose sources are system.* / the OPS cluster.
-#   _qla    : the query_log_archive read proxies over OPS's sharded_query_log_archive.
-_shared='custom_metrics_backups,custom_metrics_dictionaries,custom_metrics_part_counts,custom_metrics_replication_queue,custom_metrics_server_crash,custom_metrics_table_sizes,ops_query_log_archive_mv'
-_qla='query_log_archive,writable_query_log_archive'
-
-skip_for() {
+# Objects cross-cluster validation flags that we intentionally skip — NOT
+# resolution gaps (those resolve via ./clusters). Keyed by env (validate runs per
+# env). Keep shrinking; each entry needs a note explaining why it's here.
+#   query_log_archive_old_ops (prod-us): legacy proxy into ops.query_log_archive_old,
+#       a retired table already gone from the live prod-us cluster (per the
+#       PostHog/clickhouse-schema dump) and intentionally unmanaged on ops (see
+#       roles/ops/prod-eu/ops.hcl). The dead proxy still exists on the live node so
+#       it stays in the golden; skip until ops drops it from the cluster.
+known_drift_skip() {
   case "$1" in
-    ops)           echo "custom_metrics,${_shared},events_main,events_recent" ;;
-    logs)          echo "custom_metrics,${_shared},${_qla}" ;;
-    ai_events|aux|batch_exports) echo "${_shared},${_qla}" ;;
-    sessions)      echo "${_shared},${_qla},events,writable_events_recent" ;;
-    sessionsv3)    echo "${_shared},${_qla},events,query_log_archive_old_ops" ;;
-    # DATA is the hub: it hosts Distributed read proxies into every satellite cluster
-    # (aux web/marketing preaggregated, ai_events, sessions), none of whose sharded
-    # remotes live on the data node.
-    data)          echo "${_shared},${_qla},ai_events,conversion_goal_attributed_preaggregated,distributed_system_processes,error_tracking_fingerprint_issue_state,experiment_metric_events_preaggregated,hog_invocation_results,ingestion_warnings_v2_distributed,marketing_conversions_preaggregated,marketing_costs_preaggregated,marketing_touchpoints_preaggregated,message_assets,property_values_distributed,session_replay_features,usage_report_events_preagg,web_bot_definition,web_bounces_dimensional_preaggregated,web_goals_preaggregated,web_overview_preaggregated,web_stats_dimensional_preaggregated,web_stats_frustration_preaggregated,web_stats_paths_preaggregated,web_stats_paths_preaggregated_pathkey,web_stats_preaggregated,web_vitals_paths_preaggregated" ;;
-    *)             echo "" ;;
+    prod-us) echo "query_log_archive_old_ops" ;;
+    *)       echo "" ;;
   esac
 }
 
+# csv_items CSV -> the comma list as space-separated words (no spaces in values).
+csv_items() { printf '%s' "$1" | tr ',' ' '; }
+
+# emit_hcl_list CSV -> the values as an HCL string list body: "a", "b", "c".
+emit_hcl_list() {
+  local first=1 x
+  for x in $(csv_items "$1"); do
+    [ "$first" = 1 ] && first=0 || printf ', '
+    printf '"%s"' "$x"
+  done
+}
+
+# render_manifest FILE -> the HCL manifest `hclexp validate -manifest` consumes:
+# a role block per role (env -> layer stack, from ./nodes) plus a cluster block per
+# ./clusters cluster (roles it unions + its aliases). Env-independent — `validate
+# -env` selects each role's stack, and a cluster whose roles don't compose in the
+# selected env resolves @absent on its own (chschema #127). `nodes` stays the
+# single source of composition truth; nothing is duplicated in git.
+render_manifest() {
+  local out="$1" cname roles aliases
+  awk '
+    !/^#/ && NF>=3 {
+      role=$2; env=$1; layers="";
+      for (i=3;i<=NF;i++) layers = layers (layers==""?"":", ") "\"" $i "\"";
+      body[role] = body[role] "  env \"" env "\" { layers = [" layers "] }\n";
+      if (!(role in seen)) { order[++n]=role; seen[role]=1 }
+    }
+    END { for (i=1;i<=n;i++) printf "role \"%s\" {\n%s}\n", order[i], body[order[i]] }
+  ' "$MANIFEST" > "$out"
+  while read -r cname roles aliases; do
+    [ -n "${cname:-}" ] || continue
+    { printf 'cluster "%s" {\n  roles = [' "$cname"; emit_hcl_list "$roles"; printf ']\n'
+      [ -n "${aliases:-}" ] && { printf '  aliases = ['; emit_hcl_list "$aliases"; printf ']\n'; }
+      printf '}\n'
+    } >> "$out"
+  done < <(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$CLUSTERS")
+}
+
 rc=0
+# Write the rendered manifest UNDER the repo dir, not $TMPDIR: bin/hclexp runs
+# hclexp in a container that bind-mounts only $PWD (-> /work), so a /tmp path is
+# invisible inside it. A repo-relative path resolves under -w /work like the
+# golden/layer paths do. chmod it world-readable: the chschema image runs as
+# `nonroot`, but mktemp creates 0600, so the container user couldn't read it.
+manifest_hcl="$(mktemp "$HCL/.hcl-manifest.XXXXXX")"
+trap 'rm -f "$manifest_hcl"' EXIT
+render_manifest "$manifest_hcl"
+chmod 644 "$manifest_hcl"
+
+# 1. Cross-cluster reference + column validation, once per env (validates every
+#    role that composes in that env via the manifest). Cross-cluster proxies
+#    resolve against ./clusters; a cluster not composed in the env resolves @absent.
+for env in $(awk '!/^#/ && NF>=3 {print $1}' "$MANIFEST" | awk '!seen[$0]++'); do
+  echo "== $env: validate (all roles) =="
+  if ! "$HCLEXP" validate -manifest "$manifest_hcl" -env "$env" -layer-root "$HCL" \
+       -skip-validation "$(known_drift_skip "$env")" >/dev/null; then
+    echo "FAIL: validate $env"; rc=1
+  fi
+done
+
+# 2. Golden drift, per (env, role): the committed golden is the resolved
+#    composition; this catches a layer edited without regenerating.
 while read -r env role layers; do
   [ -z "${env:-}" ] && continue
   case "$env" in \#*) continue ;; esac
 
-  # Build comma-separated layer dirs rooted at the ops dir.
   stack=""
   for l in $layers; do stack="${stack:+$stack,}$HCL/$l"; done
-
-  echo "== $env/$role: validate =="
-  if ! "$HCLEXP" validate -layer "$stack" -skip-validation "$(skip_for "$role")" >/dev/null; then
-    echo "FAIL: validate $env/$role"; rc=1
-  fi
 
   golden="$GOLDEN/$env-$role.hcl"
   if [ -f "$golden" ]; then
