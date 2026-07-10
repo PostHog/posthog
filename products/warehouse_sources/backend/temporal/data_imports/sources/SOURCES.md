@@ -64,6 +64,7 @@ the row lists both.
 | attentive               | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | aviationstack           | HTTP                        | requests                                                        | ✅                          |
+| aviator                 | HTTP                        | requests                                                        | ✅                          |
 | awin                    | HTTP                        | requests                                                        | ✅                          |
 | azure_devops            | HTTP                        | requests                                                        | ✅                          |
 | bamboohr                | HTTP                        | requests                                                        | ✅                          |
@@ -453,7 +454,6 @@ doesn't conflict with concurrent PRs.
 - apptivo
 - appwrite
 - auth0
-- aviator
 - aws_cloudtrail
 - azure_blob
 - azure_table_storage

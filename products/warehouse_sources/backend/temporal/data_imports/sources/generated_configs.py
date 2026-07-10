@@ -388,7 +388,7 @@ class AviationstackSourceConfig(config.Config):
 
 @config.config
 class AviatorSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
