@@ -944,10 +944,13 @@ describe('dashboardLogic', () => {
             })
 
             // Returning via the breadcrumb keeps the logic mounted; the /dashboard/:id
-            // handler should re-attempt the load instead of leaving the error stuck.
+            // handler should re-attempt the load instead of leaving the error stuck. Wait for
+            // the retried load to settle so no async work leaks past the test.
             await expectLogic(logic, () => {
                 router.actions.push('/dashboard/7')
-            }).toDispatchActions(['loadDashboard'])
+            })
+                .toDispatchActions(['loadDashboard', 'loadDashboardFailure'])
+                .toFinishAllListeners()
         })
     })
 
