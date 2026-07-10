@@ -21,7 +21,8 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
     return (
         <div className="border rounded p-3 bg-surface-primary">
             <div className="text-xs text-muted mb-2">{title}</div>
-            <div className="h-48">{children}</div>
+            {/* Flex column: the chart root is `flex-1` and only gets height from a flex parent. */}
+            <div className="h-48 flex flex-col">{children}</div>
         </div>
     )
 }
