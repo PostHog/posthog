@@ -123,6 +123,14 @@ class TestVisionActionDelivery(APIBaseTest):
         self.assertEqual(self._inputs(fn)["channel"]["value"], "#general")
         self.assertEqual(self._inputs(fn)["text"]["value"], "{event.properties.slack_text}")
 
+    def test_channel_composite_is_stripped_to_bare_id_for_slack(self) -> None:
+        # The UI stores the `${id}|#${name}` picker composite; the Slack destination must receive the
+        # bare id, or the channel input is malformed and delivery fails.
+        action = self._create_action(
+            delivery_config=[{"type": "slack", "integration_id": self.integration.id, "channel": "C123|#general"}],
+        )
+        self.assertEqual(self._inputs(self._destinations(action)[0])["channel"]["value"], "C123")
+
     def test_create_two_targets_makes_two_destinations(self) -> None:
         action = self._create_action(
             delivery_config=[

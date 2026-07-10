@@ -49,6 +49,32 @@ describe('IntegrationChoice', () => {
         expect(screen.queryByText(/no longer available/)).not.toBeInTheDocument()
     })
 
+    it('auto-selects the first integration only once, even when the written value lags re-renders', async () => {
+        // The consumer's write can take a full state round-trip before it flows back into the
+        // `value` prop (e.g. the workflow editor rebuilds its graph first). Re-firing the
+        // auto-select on every render in that window dispatches an update per render, which can
+        // amplify into an infinite update loop (React #185).
+        const onChange = jest.fn()
+        const view = render(
+            <Provider>
+                <IntegrationChoice integration="github" onChange={onChange} />
+            </Provider>
+        )
+
+        await waitFor(() => {
+            expect(onChange).toHaveBeenCalledWith(1)
+        })
+
+        // Value prop still unset, as during the consumer's write round-trip. rerender flushes
+        // effects synchronously, so a repeat dispatch would have happened by the assertion.
+        view.rerender(
+            <Provider>
+                <IntegrationChoice integration="github" onChange={onChange} />
+            </Provider>
+        )
+        expect(onChange).toHaveBeenCalledTimes(1)
+    })
+
     it('still warns when the stored id matches no integration', async () => {
         // Regression guard: a genuinely dangling reference must keep surfacing the banner.
         render(

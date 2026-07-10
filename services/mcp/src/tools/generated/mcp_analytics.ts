@@ -7,8 +7,12 @@ import {
     McpAnalyticsMissingCapabilitiesCreateBody,
     McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsGenerateIntentQueryParams,
+    McpAnalyticsSessionsListQueryParams,
+    McpAnalyticsSessionsToolCallsParams,
+    McpAnalyticsSessionsToolCallsQueryParams,
 } from '@/generated/mcp_analytics/api'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const McpAnalyticsIntentClustersRecomputeSchema = z.object({})
@@ -69,6 +73,57 @@ const mcpAnalyticsSessionsGenerateIntent = (): ToolBase<
             },
         })
         return result
+    },
+})
+
+const McpAnalyticsSessionsListSchema = McpAnalyticsSessionsListQueryParams
+
+const mcpAnalyticsSessionsList = (): ToolBase<
+    typeof McpAnalyticsSessionsListSchema,
+    WithPostHogUrl<Schemas.PaginatedMCPSessionList>
+> => ({
+    name: 'mcp-analytics-sessions-list',
+    schema: McpAnalyticsSessionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof McpAnalyticsSessionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedMCPSessionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                offset: params.offset,
+                order_by: params.order_by,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/mcp-analytics')
+    },
+})
+
+const McpAnalyticsSessionsToolCallsSchema = McpAnalyticsSessionsToolCallsParams.omit({ project_id: true }).extend(
+    McpAnalyticsSessionsToolCallsQueryParams.shape
+)
+
+const mcpAnalyticsSessionsToolCalls = (): ToolBase<
+    typeof McpAnalyticsSessionsToolCallsSchema,
+    WithPostHogUrl<Schemas.PaginatedMCPToolCallList>
+> => ({
+    name: 'mcp-analytics-sessions-tool-calls',
+    schema: McpAnalyticsSessionsToolCallsSchema,
+    handler: async (context: Context, params: z.infer<typeof McpAnalyticsSessionsToolCallsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedMCPToolCallList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/${encodeURIComponent(String(params.id))}/tool_calls/`,
+            query: {
+                date_from: params.date_from,
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/mcp-analytics')
     },
 })
 
@@ -162,6 +217,33 @@ const DateRange = z.object({
         .nullable()
         .describe('End of the date range. Same format as date_from. Omit or null for "now".')
         .optional(),
+    daysOfWeek: z
+        .union([
+            z.array(
+                z.union([
+                    z.literal(1),
+                    z.literal(2),
+                    z.literal(3),
+                    z.literal(4),
+                    z.literal(5),
+                    z.literal(6),
+                    z.literal(7),
+                ])
+            ),
+            z.null(),
+        ])
+        .describe(
+            'Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.'
+        )
+        .optional(),
+    excludeIncompletePeriods: z.coerce
+        .boolean()
+        .nullable()
+        .describe(
+            'Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.'
+        )
+        .default(false)
+        .optional(),
     explicitDate: z.coerce
         .boolean()
         .nullable()
@@ -229,6 +311,17 @@ const PersonPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const PersonMetadataPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z
+        .literal('person_metadata')
+        .describe('Top-level columns on the persons table (e.g. created_at), not properties JSON')
+        .default('person_metadata'),
+    value: PropertyFilterValue.optional(),
+})
+
 const ElementPropertyFilter = z.object({
     key: z.enum(['tag_name', 'text', 'href', 'selector']),
     label: z.string().optional(),
@@ -265,7 +358,15 @@ const CohortPropertyFilter = z.object({
 const DurationType = z.enum(['duration', 'active_seconds', 'inactive_seconds'])
 
 const RecordingPropertyFilter = z.object({
-    key: z.union([DurationType, z.literal('snapshot_source'), z.literal('visited_page'), z.literal('comment_text')]),
+    key: z.union([
+        DurationType,
+        z.literal('snapshot_source'),
+        z.literal('visited_page'),
+        z.literal('comment_text'),
+        z.literal('click_count'),
+        z.literal('keypress_count'),
+        z.literal('mouse_activity_count'),
+    ]),
     label: z.string().optional(),
     operator: PropertyOperator,
     type: z.literal('recording').default('recording'),
@@ -354,6 +455,14 @@ const LogPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const MetricPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('metric_attribute').default('metric_attribute'),
+    value: PropertyFilterValue.optional(),
+})
+
 const SpanPropertyFilterType = z.enum(['span', 'span_attribute', 'span_resource_attribute'])
 
 const SpanPropertyFilter = z.object({
@@ -383,6 +492,7 @@ const WorkflowVariablePropertyFilter = z.object({
 const AnyPropertyFilter = z.union([
     EventPropertyFilter,
     PersonPropertyFilter,
+    PersonMetadataPropertyFilter,
     ElementPropertyFilter,
     EventMetadataPropertyFilter,
     SessionPropertyFilter,
@@ -398,6 +508,7 @@ const AnyPropertyFilter = z.union([
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
     SpanPropertyFilter,
     RevenueAnalyticsPropertyFilter,
     WorkflowVariablePropertyFilter,
@@ -475,6 +586,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'mcp-analytics-intent-clusters-recompute': mcpAnalyticsIntentClustersRecompute,
     'mcp-analytics-intent-clusters-retrieve': mcpAnalyticsIntentClustersRetrieve,
     'mcp-analytics-sessions-generate-intent': mcpAnalyticsSessionsGenerateIntent,
+    'mcp-analytics-sessions-list': mcpAnalyticsSessionsList,
+    'mcp-analytics-sessions-tool-calls': mcpAnalyticsSessionsToolCalls,
     'mcp-feedback-submit': mcpFeedbackSubmit,
     'mcp-missing-capability-report': mcpMissingCapabilityReport,
     'query-mcp-harness-breakdown': createQueryWrapper({

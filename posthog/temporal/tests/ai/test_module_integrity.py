@@ -25,6 +25,7 @@ class TestAITemporalModuleIntegrity:
             "ResearchAgentWorkflow",
             "SummarizeLLMTracesWorkflow",
             "AnomalyInvestigationWorkflow",
+            "CheckpointCompactionWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -51,6 +52,8 @@ class TestAITemporalModuleIntegrity:
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
             "investigate_anomaly_activity",
+            "select_checkpoint_compaction_batch",
+            "compact_checkpoint_conversations",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
@@ -334,7 +337,8 @@ class TestAIObservabilityModuleIntegrity:
             "compute_cluster_aggregates_activity",
             "emit_cluster_events_activity",
             "fetch_due_eval_reports_activity",
-            "fetch_count_triggered_eval_reports_activity",
+            "fetch_count_triggered_eval_report_candidates_activity",
+            "check_count_triggered_eval_report_activity",
             "prepare_report_context_activity",
             "run_eval_report_agent_activity",
             "store_report_run_activity",

@@ -8,11 +8,12 @@ import {
     DEFAULT_CLIENT_CAPABILITIES,
     MCPClientProfile,
     POSTHOG_CODE_CONSUMER,
-    VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS,
+    TOOLS_MODE_CLIENT_NAME_FRAGMENTS,
+    TOOLS_MODE_USER_AGENT_FRAGMENTS,
     isClaudeUiHostClient,
     isCliModeEnabledClient,
     isPostHogCodeConsumer,
-    isVibeCodingClient,
+    isToolsModeClient,
     resolveEffectiveClientName,
 } from '@/lib/client-detection'
 
@@ -36,6 +37,8 @@ describe('isCliModeEnabledClient', () => {
             ['opencode'],
             ['amp-mcp-client'],
             ['poke'],
+            ['grok'],
+            ['ando-mcp-gateway'],
         ])('returns true for %s', (clientName) => {
             expect(isCliModeEnabledClient(clientName)).toBe(true)
         })
@@ -63,6 +66,9 @@ describe('isCliModeEnabledClient', () => {
             ['opencode/1.2.3'],
             ['Amp MCP Client'],
             ['Poke'],
+            ['Grok'],
+            ['grok-build'],
+            ['Grok/1.2.3'],
         ])('returns true for variant %s (case-insensitive substring match)', (clientName) => {
             expect(isCliModeEnabledClient(clientName)).toBe(true)
         })
@@ -84,7 +90,8 @@ describe('isCliModeEnabledClient', () => {
 
     describe('explicitly excluded clients', () => {
         // Cursor sends content[].text to the model and displays structuredContent in UI,
-        // so the workaround isn't needed. Guard against someone adding it back.
+        // so the formatted-results suppression isn't needed. Guard against someone
+        // adding it to the coding-agent list.
         it('returns false for cursor (intentionally excluded)', () => {
             expect(isCliModeEnabledClient('cursor')).toBe(false)
             expect(isCliModeEnabledClient('Cursor')).toBe(false)
@@ -163,8 +170,8 @@ describe('isPostHogCodeConsumer', () => {
         expect(isPostHogCodeConsumer('posthog-code')).toBe(true)
     })
 
-    it.each([['posthog_code'], ['PostHog-Code'], ['posthog-code-v2'], ['posthog'], ['slack'], ['']])(
-        'returns false for %s (must be exact match)',
+    it.each([['posthog_code'], ['PostHog-Code'], ['posthog-code-v2'], ['posthog'], ['slack'], ['posthog_ai'], ['']])(
+        'returns false for %s (must be exact match — posthog_ai is not a UI-apps host)',
         (consumer) => {
             expect(isPostHogCodeConsumer(consumer)).toBe(false)
         }
@@ -175,39 +182,44 @@ describe('isPostHogCodeConsumer', () => {
     })
 })
 
-describe('isVibeCodingClient', () => {
-    it.each([
-        ['Lovable'],
-        ['lovable'],
-        ['LOVABLE'],
-        ['Lovable.dev'],
-        ['lovable-app'],
-        ['Replit'],
-        ['replit'],
-        ['Replit Agent'],
-        ['replit-ai'],
-        ['Notion'],
-        ['notion'],
-    ])('returns true for OAuth client name %s', (oauthClientName) => {
-        expect(isVibeCodingClient(oauthClientName)).toBe(true)
-    })
-
-    it.each([['Claude Code (posthog)'], ['Cursor'], ['some-random-app'], ['']])(
-        'returns false for OAuth client name %s',
-        (oauthClientName) => {
-            expect(isVibeCodingClient(oauthClientName)).toBe(false)
+describe('isToolsModeClient', () => {
+    it.each([['cursor'], ['Cursor'], ['cursor-vscode'], ['cursor/1.2.3'], ['cursor-editor']])(
+        'returns true for client name %s',
+        (clientName) => {
+            expect(isToolsModeClient(clientName)).toBe(true)
         }
     )
 
-    it('returns false for undefined', () => {
-        expect(isVibeCodingClient(undefined)).toBe(false)
+    it.each([
+        // ChatGPT never self-reports a client name; the surface is UA-only.
+        ['openai-mcp/1.0.0 (ChatGPT)'],
+        // Older Cursor builds omit clientInfo.name and identify only via UA.
+        ['Cursor/3.1.15 (darwin arm64)'],
+    ])('returns true for the name-less user-agent %s', (userAgent) => {
+        expect(isToolsModeClient(undefined, userAgent)).toBe(true)
     })
 
-    it('keeps the fragment list non-empty and lowercased', () => {
-        expect(VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS.length).toBeGreaterThan(0)
-        for (const fragment of VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS) {
-            expect(fragment).toBe(fragment.toLowerCase())
-            expect(fragment.length).toBeGreaterThan(0)
+    it.each([['openai-mcp/1.0.0'], ['openai-mcp/1.0.0 (Codex)'], ['openai-mcp/1.0.0 (Agent Builder)']])(
+        'returns false for the non-ChatGPT openai-mcp surface %s',
+        (userAgent) => {
+            expect(isToolsModeClient(undefined, userAgent)).toBe(false)
+        }
+    )
+
+    it.each([['claude-code'], ['mcp-inspector'], ['some-random-tool'], [''], [undefined]])(
+        'returns false for client name %s',
+        (clientName) => {
+            expect(isToolsModeClient(clientName)).toBe(false)
+        }
+    )
+
+    it('keeps the fragment lists non-empty and lowercased', () => {
+        for (const fragments of [TOOLS_MODE_CLIENT_NAME_FRAGMENTS, TOOLS_MODE_USER_AGENT_FRAGMENTS]) {
+            expect(fragments.length).toBeGreaterThan(0)
+            for (const fragment of fragments) {
+                expect(fragment).toBe(fragment.toLowerCase())
+                expect(fragment.length).toBeGreaterThan(0)
+            }
         }
     })
 })
@@ -351,44 +363,26 @@ describe('MCPClientProfile', () => {
             expect(new MCPClientProfile({ consumer: POSTHOG_CODE_CONSUMER }).isPostHogCodeConsumer()).toBe(true)
         })
 
-        it.each([['slack'], ['posthog'], ['PostHog-Code'], ['']])('returns false for %s', (consumer) => {
-            expect(new MCPClientProfile({ consumer }).isPostHogCodeConsumer()).toBe(false)
-        })
+        it.each([['slack'], ['posthog'], ['PostHog-Code'], ['posthog_ai'], ['']])(
+            'returns false for %s',
+            (consumer) => {
+                expect(new MCPClientProfile({ consumer }).isPostHogCodeConsumer()).toBe(false)
+            }
+        )
 
         it('returns false when consumer is undefined', () => {
             expect(new MCPClientProfile({}).isPostHogCodeConsumer()).toBe(false)
         })
     })
 
-    describe('isVibeCodingClient()', () => {
-        it.each([['Lovable'], ['lovable.dev'], ['Replit'], ['Replit Agent'], ['Notion']])(
-            'returns true for OAuth client name %s',
-            (oauthClientName) => {
-                expect(new MCPClientProfile({ oauthClientName }).isVibeCodingClient()).toBe(true)
-            }
-        )
-
-        it.each([['Claude Code (posthog)'], ['Cursor'], [''], ['   ']])(
-            'returns false for OAuth client name %s',
-            (oauthClientName) => {
-                expect(new MCPClientProfile({ oauthClientName }).isVibeCodingClient()).toBe(false)
-            }
-        )
-
-        it('returns false when oauthClientName is undefined', () => {
-            expect(new MCPClientProfile({}).isVibeCodingClient()).toBe(false)
-        })
-
-        it('uses oauthClientName, not the MCP clientName', () => {
-            // A generic MCP client name should not trigger a match — only the
-            // OAuth application name does, since vibe-coding platforms typically
-            // wrap a generic MCP client.
-            expect(
-                new MCPClientProfile({ clientName: 'lovable', oauthClientName: 'Cursor' }).isVibeCodingClient()
-            ).toBe(false)
-            expect(
-                new MCPClientProfile({ clientName: 'mcp-inspector', oauthClientName: 'Lovable' }).isVibeCodingClient()
-            ).toBe(true)
+    describe('isToolsModeClient()', () => {
+        it('does not match the vendor header — Anthropic pooled transports stay in cli mode', () => {
+            // Only the self-reported name and the user-agent participate; a vendor
+            // value that happened to contain a tools-mode fragment must not match.
+            expect(new MCPClientProfile({ vendorClient: 'cursor' }).isToolsModeClient()).toBe(false)
+            expect(new MCPClientProfile({ vendorClient: 'ClaudeCode', clientName: 'cursor' }).isToolsModeClient()).toBe(
+                true
+            )
         })
     })
 
@@ -405,16 +399,13 @@ describe('MCPClientProfile', () => {
             expect(new MCPClientProfile({ vendorClient: 'ClaudeCode' }).isClaudeUiHost()).toBe(false)
         })
 
-        it('returns false for Cowork (vendorClient: Cowork)', () => {
-            expect(new MCPClientProfile({ vendorClient: 'Cowork' }).isClaudeUiHost()).toBe(false)
+        it('returns true for Cowork (vendorClient: Cowork)', () => {
+            expect(new MCPClientProfile({ vendorClient: 'Cowork' }).isClaudeUiHost()).toBe(true)
         })
 
         it('vendor client wins over a shared Claude-User user-agent', () => {
-            // Cowork and Claude Code can share the `Claude-User` user-agent with
-            // web/desktop, but their vendor client is authoritative and excludes them.
-            expect(new MCPClientProfile({ vendorClient: 'Cowork', userAgent: 'Claude-User' }).isClaudeUiHost()).toBe(
-                false
-            )
+            // Claude Code can share the `Claude-User` user-agent with web/desktop,
+            // but its vendor client is authoritative and excludes it.
             expect(
                 new MCPClientProfile({ vendorClient: 'ClaudeCode', userAgent: 'Claude-User' }).isClaudeUiHost()
             ).toBe(false)
@@ -440,11 +431,58 @@ describe('MCPClientProfile', () => {
         })
     })
 
+    describe('isInlineExecUiHost()', () => {
+        it.each([['ClaudeCode'], ['Cowork']])('is true for the %s vendor client', (vendorClient) => {
+            expect(new MCPClientProfile({ vendorClient }).isInlineExecUiHost()).toBe(true)
+        })
+
+        // Claude.ai renders via the separate render-ui tool, not the inline exec payload.
+        it.each([['ClaudeAI'], ['ClaudeDesign'], ['some-random-tool'], ['']])(
+            'is false for the %s vendor client',
+            (vendorClient) => {
+                expect(new MCPClientProfile({ vendorClient }).isInlineExecUiHost()).toBe(false)
+            }
+        )
+
+        it('is false when no vendor client is set (the user-agent is not a fallback here)', () => {
+            expect(new MCPClientProfile({ userAgent: 'Claude-User' }).isInlineExecUiHost()).toBe(false)
+        })
+    })
+
+    describe('isClaudeChatHost()', () => {
+        it.each([
+            // Claude web/desktop ignore the `instructions` payload → keep env-context.
+            [{ vendorClient: 'ClaudeAI' }, true],
+            // Vendor header absent → predominantly chat sessions, keep the UA fallback.
+            [{ userAgent: 'Claude-User' }, true],
+            // Cowork surfaces instructions normally → a UI host but not a chat host.
+            [{ vendorClient: 'Cowork' }, false],
+            [{ vendorClient: 'Cowork', userAgent: 'Claude-User' }, false],
+            [{ vendorClient: 'ClaudeCode', userAgent: 'Claude-User' }, false],
+            [{}, false],
+        ])('resolves %j to %s', (input, expected) => {
+            expect(new MCPClientProfile(input).isClaudeChatHost()).toBe(expected)
+        })
+    })
+
     describe('capabilities.supportsInstructions', () => {
         it.each([['codex'], ['Codex'], ['CODEX'], ['codex-cli'], ['Codex CLI'], ['codex/1.2.3'], ['openai-codex']])(
             'is false for Codex variant %s',
             (clientName) => {
                 expect(new MCPClientProfile({ clientName }).capabilities.supportsInstructions).toBe(false)
+            }
+        )
+
+        it('is false for the name-less Codex surface of openai-mcp (User-Agent only)', () => {
+            expect(
+                new MCPClientProfile({ userAgent: 'openai-mcp/1.0.0 (Codex)' }).capabilities.supportsInstructions
+            ).toBe(false)
+        })
+
+        it.each([['openai-mcp/1.0.0'], ['openai-mcp/1.0.0 (ChatGPT)']])(
+            'stays true for the non-Codex openai-mcp user-agent %s',
+            (userAgent) => {
+                expect(new MCPClientProfile({ userAgent }).capabilities.supportsInstructions).toBe(true)
             }
         )
 

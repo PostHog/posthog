@@ -2,14 +2,17 @@ import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import * as judgePng from '@posthog/brand/hoggies/png/judge'
 import { IconArrowLeft, IconCode, IconEye, IconPlus, IconTarget, IconThumbsUp, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { JudgeHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { EvaluationTemplate, defaultEvaluationTemplates } from './templates'
+
+const HedgehogJudge = pngHoggie(judgePng)
 
 export const scene: SceneExport = {
     component: EvaluationTemplatesScene,
@@ -128,7 +131,7 @@ function TemplateGrid({
                 <div className="space-y-8">
                     <div className="text-center space-y-3">
                         <div className="flex justify-center mb-4">
-                            <JudgeHog className="w-32 h-32" />
+                            <HedgehogJudge className="w-32 h-32" />
                         </div>
                         <h1 className="text-3xl font-bold">{title}</h1>
                         <p className="text-base text-secondary max-w-2xl mx-auto">

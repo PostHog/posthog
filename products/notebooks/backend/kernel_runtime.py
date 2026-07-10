@@ -552,7 +552,9 @@ class KernelRuntimeService:
         else:
             try:
                 placeholders = self._parse_hogql_placeholders_payload(placeholders_payload)
-                response = execute_hogql_query(query=query, team=team, placeholders=placeholders)
+                response = execute_hogql_query(
+                    query=query, team=team, placeholders=placeholders, user=handle.runtime.user
+                )
                 if hasattr(response, "model_dump"):
                     response_payload = response.model_dump(exclude_none=True)
                 else:
@@ -771,7 +773,12 @@ class KernelRuntimeService:
         kernel_id = f"kernel-{runtime.id}"
         sandbox_config = build_notebook_sandbox_config(notebook)
         sandbox_class = self._get_sandbox_class(backend)
-        sandbox = sandbox_class.create(sandbox_config)
+        try:
+            sandbox = sandbox_class.create(sandbox_config)
+        except Exception as err:
+            detail = getattr(err, "context", None) or str(err)
+            self._mark_runtime_error(runtime, f"Failed to provision sandbox: {detail}")
+            raise
 
         try:
             kernel_pid = self._start_kernel_process(sandbox, connection_file)

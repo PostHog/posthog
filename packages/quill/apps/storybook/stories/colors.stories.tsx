@@ -138,8 +138,14 @@ export const AllColors: Story = {
                                 tailwindClass: 'text-muted-foreground',
                                 value: semanticColors['muted-foreground'][0],
                             },
+                            {
+                                className: 'text-subtle-foreground',
+                                name: 'subtle-foreground',
+                                tailwindClass: 'text-subtle-foreground',
+                                value: semanticColors['subtle-foreground'][0],
+                            },
                         ]}
-                        usages={['Muted background of the app']}
+                        usages={['Muted background of the app', 'Subtle: tertiary meta text, one step below muted']}
                     />
 
                     <ColorSwatch
@@ -216,6 +222,25 @@ export const AllColors: Story = {
                             },
                         ]}
                         usages={['Info (used for info actions, infos, etc.)`']}
+                    />
+
+                    <ColorSwatch
+                        name="Completed"
+                        items={[
+                            {
+                                className: 'bg-completed',
+                                name: 'completed',
+                                tailwindClass: 'bg-completed',
+                                value: semanticColors.completed[0],
+                            },
+                            {
+                                className: 'text-completed-foreground',
+                                name: 'completed-foreground',
+                                tailwindClass: 'text-completed-foreground',
+                                value: semanticColors['completed-foreground'][0],
+                            },
+                        ]}
+                        usages={['Completed (terminal done state, e.g. merged PR states)']}
                     />
 
                     <div className="p-2 font-mono bg-border text-foreground">

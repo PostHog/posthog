@@ -235,9 +235,10 @@ export function SQLEditor({
                                                     )}
                                                     <div
                                                         data-attr="editor-scene"
-                                                        className="EditorScene flex min-h-0 grow flex-row overflow-hidden"
+                                                        className="EditorScene relative flex min-h-0 grow flex-row overflow-hidden"
                                                         ref={ref}
                                                     >
+                                                        <ViewLoadingOverlay />
                                                         <QueryWindow
                                                             mode={mode}
                                                             tabId={tabId || ''}
@@ -274,6 +275,18 @@ export function SQLEditor({
                 </BindLogic>
             </BindLogic>
         </BindLogic>
+    )
+}
+
+function ViewLoadingOverlay(): JSX.Element | null {
+    const { viewQueryLoading } = useValues(sqlEditorLogic)
+    if (!viewQueryLoading) {
+        return null
+    }
+    return (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-primary/70">
+            <Spinner className="text-2xl" />
+        </div>
     )
 }
 
@@ -408,6 +421,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             return
         }
 
+        if (saveAsMenuItems.primary.action === 'view') {
+            saveAsView()
+            return
+        }
+
         saveAsInsight()
     }
 
@@ -440,16 +458,34 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             return ['Views must be a single query — remove extra statements to update', IconDownload]
         }
 
-        if (!response) {
-            return ['Run query to update', IconDownload]
-        }
-
         if (!changesToSave) {
             return ['No changes to save', IconDownload]
         }
 
+        // Require the current (edited) query to have been run successfully before updating — a stale
+        // response from a previous run must not enable the button after further edits.
+        if (!isSourceQueryLastRun) {
+            return ['Run the latest query before updating the view', IconDownload]
+        }
+
+        if (responseLoading) {
+            return ['Running query...', Spinner]
+        }
+
+        if (responseError || !response) {
+            return ['Run the query successfully before updating the view', IconDownload]
+        }
+
         return [undefined, IconDownload]
-    }, [updatingDataWarehouseSavedQuery, changesToSave, response, isMultiQuery])
+    }, [
+        updatingDataWarehouseSavedQuery,
+        changesToSave,
+        isSourceQueryLastRun,
+        responseLoading,
+        responseError,
+        response,
+        isMultiQuery,
+    ])
 
     const isMaterializedView = editingView?.is_materialized === true
     const closeObjectTooltip = editingInsight
@@ -649,7 +685,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     saveAsDisabledReason ??
                                     (saveAsMenuItems.primary.action === 'endpoint'
                                         ? saveAsEndpointAccessDisabledReason
-                                        : undefined)
+                                        : saveAsMenuItems.primary.action === 'view'
+                                          ? saveAsViewAccessDisabledReason
+                                          : undefined)
                                 }
                                 sideAction={{
                                     icon: <IconChevronDown />,

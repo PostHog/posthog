@@ -5,7 +5,6 @@ import { useMemo } from 'react'
 import { IconPlusSmall } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -29,6 +28,8 @@ import {
     isInsightQueryNode,
 } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
+
+import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/insightAlertsLogic'
 
 import { InsightSceneMenuBar } from './SidePanel/InsightSceneMenuBar'
 import { InsightSidePanelContent } from './SidePanel/InsightSidePanelContent'
@@ -56,9 +57,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightLogic(insightLogicProps)
     )
     const { openAddToDashboardModal, saveAndAddToDashboard } = useActions(insightModalsLogic(insightLogicProps))
-
-    // B branch of the add-to-dashboard A/A/B test (control + control_2 keep current behavior).
-    const isAddToDashboardTest = useFeatureFlag('INSIGHT_ADD_TO_DASHBOARD_AAB', 'test')
 
     // A saved insight with its own short_id — the precondition for every view-mode action in this header.
     const isPersistedInsight = !!isSavedInsight && !!insight.short_id
@@ -170,7 +168,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </LemonButton>
                         )}
 
-                        {insightMode !== ItemMode.Edit && isAddToDashboardTest && isPersistedInsight && (
+                        {insightMode !== ItemMode.Edit && isPersistedInsight && (
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -235,11 +233,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 // insight id, so saving a brand-new insight navigates to its real id and re-keys the
                                 // modal logic, dropping the open state. New insights use the view-mode button instead.
                                 // `saveAndAddToDashboard` owns the save-then-open ordering (see insightModalsLogic).
-                                onSaveAndAddToDashboard={
-                                    isAddToDashboardTest && isPersistedInsight
-                                        ? () => saveAndAddToDashboard()
-                                        : undefined
-                                }
+                                onSaveAndAddToDashboard={isPersistedInsight ? () => saveAndAddToDashboard() : undefined}
                             />
                         )}
                     </>

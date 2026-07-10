@@ -37,6 +37,12 @@ const counterBatchHogFlowResolverPagesProcessed = new Counter({
     labelNames: ['outcome'], // success | fetch_failure | terminal_write_failure | invalid_state
 })
 
+const counterBatchHogFlowResolverJobs = new Counter({
+    name: 'cdp_batch_hog_flow_resolver_jobs',
+    help: 'Batch hog flow resolver jobs by lifecycle outcome',
+    labelNames: ['outcome'], // started | completed | failed
+})
+
 /**
  * State machine carried in `cyclotron_jobs.state` per resolver job:
  *   cursor=null, pendingTerminal=undefined → fetch first page
@@ -93,6 +99,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             // older deploy. None should happen in steady state — alert on
             // the counter so we notice fast.
             counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'invalid_state' }).inc()
+            counterBatchHogFlowResolverJobs.labels({ outcome: 'failed' }).inc()
             logger.error('🔴', `${this.name} - invalid resolver state, failing job`, {
                 jobId: job.id,
                 teamId: job.teamId,
@@ -105,6 +112,16 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             })
             await job.fail()
             return
+        }
+
+        // First-dequeue detection: the initial cyclotron invocation of a batch
+        // resolver job arrives with cursor=null, no pending terminal, zero
+        // pages processed, and zero attempts. `attempts` is required in the
+        // guard because a first-page fetch failure reschedules with the same
+        // cursor/pagesProcessed/pendingTerminal but bumps attempts — without
+        // it, `started` would fire again on every retry of the first page.
+        if (!state.pendingTerminal && state.cursor === null && state.pagesProcessed === 0 && state.attempts === 0) {
+            counterBatchHogFlowResolverJobs.labels({ outcome: 'started' }).inc()
         }
 
         try {
@@ -177,7 +194,8 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                     team,
                     state.filters,
                     state.groupTypeIndex,
-                    state.cursor
+                    state.cursor,
+                    state.dedupeKey
                 )
             )
         } catch (err) {
@@ -340,6 +358,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'terminal_write_failure' }).inc()
             const nextAttempts = state.attempts + 1
             if (nextAttempts >= MAX_RESOLVER_ATTEMPTS) {
+                counterBatchHogFlowResolverJobs.labels({ outcome: 'failed' }).inc()
                 logger.error(
                     '🔴',
                     `${this.name} - terminal status write failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts; failing job`,
@@ -365,6 +384,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             })
             return
         }
+
+        counterBatchHogFlowResolverJobs
+            .labels({ outcome: state.pendingTerminal === 'completed' ? 'completed' : 'failed' })
+            .inc()
 
         // Monitoring flush happens in processResolverJob's finally block so every
         // dequeue clears its own queued logs/metrics, not just terminal writes.

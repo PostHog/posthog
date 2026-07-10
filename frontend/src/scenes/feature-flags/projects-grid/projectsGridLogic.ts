@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { OrganizationFeatureFlag, OrganizationFeatureFlagRow, OrganizationType } from '~/types'
 
+import { flagToggleKey, updateFlagActiveInProject } from '../updateFlagActiveInProject'
 import type { projectsGridLogicType } from './projectsGridLogicType'
 
 export const PAGE_SIZE = 25
@@ -38,6 +39,19 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
         siblingsFailed: (flagKey: string) => ({ flagKey }),
         setPickedTeamIds: (teamIds: number[]) => ({ teamIds }),
         resetPickedTeamIds: true,
+        toggleFlagActive: (flagKey: string, teamId: number, flagId: number, active: boolean) => ({
+            flagKey,
+            teamId,
+            flagId,
+            active,
+        }),
+        flagActiveUpdated: (flagKey: string, teamId: number, flagId: number, active: boolean) => ({
+            flagKey,
+            teamId,
+            flagId,
+            active,
+        }),
+        flagActiveUpdateFailed: (teamId: number, flagId: number) => ({ teamId, flagId }),
     }),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
@@ -49,6 +63,9 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
                 setSearch: () => [],
                 setPickedTeamIds: () => [],
                 resetPickedTeamIds: () => [],
+                // Keep the representative row in sync, since it renders the current team's cell before siblings load.
+                flagActiveUpdated: (state, { teamId, flagId, active }) =>
+                    state.map((f) => (f.id === flagId && f.team_id === teamId ? { ...f, active } : f)),
             },
         ],
         flagsOffset: [
@@ -74,6 +91,18 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
             {} as Record<string, OrganizationFeatureFlag[]>,
             {
                 siblingsLoaded: (state, { flagKey, siblings }) => ({ ...state, [flagKey]: siblings }),
+                flagActiveUpdated: (state, { flagKey, teamId, flagId, active }) => {
+                    const siblings = state[flagKey]
+                    if (!siblings) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        [flagKey]: siblings.map((s) =>
+                            s.team_id === teamId && s.flag_id === flagId ? { ...s, active } : s
+                        ),
+                    }
+                },
             },
         ],
         siblingsLoadingKeys: [
@@ -101,6 +130,20 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
             {
                 setPickedTeamIds: (_, { teamIds }) => teamIds,
                 resetPickedTeamIds: () => [],
+            },
+        ],
+        togglingFlagIds: [
+            {} as Record<string, boolean>,
+            {
+                toggleFlagActive: (state, { teamId, flagId }) => ({ ...state, [flagToggleKey(teamId, flagId)]: true }),
+                flagActiveUpdated: (state, { teamId, flagId }) => {
+                    const { [flagToggleKey(teamId, flagId)]: _, ...rest } = state
+                    return rest
+                },
+                flagActiveUpdateFailed: (state, { teamId, flagId }) => {
+                    const { [flagToggleKey(teamId, flagId)]: _, ...rest } = state
+                    return rest
+                },
             },
         ],
     }),
@@ -171,6 +214,14 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
             localStorage.removeItem(storageKey(getCurrentTeamId()))
             actions.loadFlagsPage({ offset: 0, search: values.search })
         },
+        toggleFlagActive: async ({ flagKey, teamId, flagId, active }) => {
+            const updatedFlag = await updateFlagActiveInProject({ teamId, flagId, active })
+            if (updatedFlag) {
+                actions.flagActiveUpdated(flagKey, teamId, flagId, updatedFlag.active ?? active)
+            } else {
+                actions.flagActiveUpdateFailed(teamId, flagId)
+            }
+        },
     })),
     afterMount(({ actions }) => {
         const raw = localStorage.getItem(storageKey(getCurrentTeamId()))
@@ -210,12 +261,7 @@ async function drainQueue(
             actions.siblingsFailed(nextKey)
             return
         }
-        // The wrapper is typed as `OrganizationFeatureFlags` (a legacy name), but the
-        // endpoint actually returns a list of `OrganizationFeatureFlag`. Narrow once here.
-        const siblings = (await api.organizationFeatureFlags.get(
-            orgId,
-            nextKey
-        )) as unknown as OrganizationFeatureFlag[]
+        const siblings = await api.organizationFeatureFlags.get(orgId, nextKey)
         actions.siblingsLoaded(nextKey, siblings)
     } catch {
         actions.siblingsFailed(nextKey)

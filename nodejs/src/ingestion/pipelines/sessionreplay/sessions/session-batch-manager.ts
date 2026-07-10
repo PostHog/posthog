@@ -1,14 +1,12 @@
 import { logger } from '~/common/utils/logger'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
+import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+import { RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
-import { SessionFilter } from './session-filter'
-import { SessionTracker } from './session-tracker'
 
 export interface SessionBatchManagerConfig {
     /** Maximum raw size (before compression) of a batch in bytes before it should be flushed */
@@ -24,17 +22,11 @@ export interface SessionBatchManagerConfig {
     /** Handles writing session batch files to storage */
     fileStorage: SessionBatchFileStorage
     /** Manages storing session metadata */
-    metadataStore: SessionMetadataStore
+    metadataStore: SessionMetadataSink
     /** Manages storing console logs */
     consoleLogStore: SessionConsoleLogStore
     /** Manages storing session features for ML scoring */
     featureStore: SessionFeatureStore
-    /** Session tracker for new session detection */
-    sessionTracker: SessionTracker
-    /** Session filter for blocking and rate-limiting sessions */
-    sessionFilter: SessionFilter
-    /** Key store for session encryption keys */
-    keyStore: KeyStore
     /** Encryptor for session recording data */
     encryptor: RecordingEncryptor
 }
@@ -81,13 +73,10 @@ export class SessionBatchManager {
     private readonly featuresRolloutPercentage: number
     private readonly offsetManager: KafkaOffsetManager
     private readonly fileStorage: SessionBatchFileStorage
-    private readonly metadataStore: SessionMetadataStore
+    private readonly metadataStore: SessionMetadataSink
     private readonly consoleLogStore: SessionConsoleLogStore
     private readonly featureStore: SessionFeatureStore
     private lastFlushTime: number
-    private readonly sessionTracker: SessionTracker
-    private readonly sessionFilter: SessionFilter
-    private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
 
     constructor(config: SessionBatchManagerConfig) {
@@ -100,9 +89,6 @@ export class SessionBatchManager {
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
         this.featureStore = config.featureStore
-        this.sessionTracker = config.sessionTracker
-        this.sessionFilter = config.sessionFilter
-        this.keyStore = config.keyStore
         this.encryptor = config.encryptor
 
         this.currentBatch = new SessionBatchRecorder(
@@ -111,9 +97,6 @@ export class SessionBatchManager {
             this.metadataStore,
             this.consoleLogStore,
             this.featureStore,
-            this.sessionTracker,
-            this.sessionFilter,
-            this.keyStore,
             this.encryptor,
             this.maxEventsPerSessionPerBatch,
             this.featuresRolloutPercentage
@@ -129,6 +112,20 @@ export class SessionBatchManager {
     }
 
     /**
+     * Track the highest Kafka offset reached per partition for a processed batch, so those offsets get
+     * committed on the next flush. This is the single place offset progress is recorded — the caller
+     * derives the offsets from every message's terminal pipeline result (record / drop / dlq / redirect),
+     * so no disposition is missed and the phases can't race.
+     *
+     * @param offsets - Highest offset seen per partition (raw offset, not the next-to-process offset).
+     */
+    public trackProcessedOffsets(offsets: Map<number, number>): void {
+        for (const [partition, offset] of offsets) {
+            this.offsetManager.trackOffset({ partition, offset })
+        }
+    }
+
+    /**
      * Flushes the current batch and replaces it with a new one
      */
     public async flush(): Promise<void> {
@@ -140,9 +137,6 @@ export class SessionBatchManager {
             this.metadataStore,
             this.consoleLogStore,
             this.featureStore,
-            this.sessionTracker,
-            this.sessionFilter,
-            this.keyStore,
             this.encryptor,
             this.maxEventsPerSessionPerBatch,
             this.featuresRolloutPercentage

@@ -1,3 +1,5 @@
+from zoneinfo import ZoneInfo
+
 from posthog.schema import LogsSparklineBreakdownBy
 
 from posthog.hogql import ast
@@ -53,7 +55,9 @@ class SparklineQueryRunner(LogsQueryRunner):
             breakdown_value = result[1] if result[1] not in (None, "") else "(no value)"
             results.append(
                 {
-                    "time": result[0],
+                    # Tag the bucket time as UTC so it serializes with an offset, matching the log
+                    # row timestamp and the live_logs_checkpoint the frontend compares it against.
+                    "time": result[0].replace(tzinfo=ZoneInfo("UTC")) if result[0] else result[0],
                     result_key: breakdown_value,
                     "count": result[2],
                     "bytes_uncompressed": result[3],

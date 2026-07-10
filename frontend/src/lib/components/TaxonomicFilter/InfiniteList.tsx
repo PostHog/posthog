@@ -139,10 +139,10 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                             <>
                                 the event{eventNames.length > 1 ? 's' : ''}{' '}
                                 {eventNames.map((e, index) => (
-                                    <>
+                                    <span key={e}>
                                         {index === 0 ? '' : index === eventNames.length - 1 ? ' and ' : ', '}
                                         <strong>"{e}"</strong>
-                                    </>
+                                    </span>
                                 ))}
                             </>
                         ) : (
@@ -248,6 +248,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.SessionProperties ||
         listGroupType === TaxonomicFilterGroupType.MaxAIContext ||
         listGroupType === TaxonomicFilterGroupType.ErrorTrackingProperties ||
+        listGroupType === TaxonomicFilterGroupType.MCPProperties ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
@@ -464,7 +465,10 @@ export const InfiniteListRow = ({
 
     const normalizedValue = typeof itemValue === 'number' && typeof value === 'string' ? Number(value) : value
 
-    const isSelected = listGroupType === groupType && itemValue === normalizedValue
+    // On the aggregated Suggested filters tab, a row's own group (via `itemGroup`) is the
+    // source group it was promoted from, not `listGroupType` — compare against that so a
+    // cross-group promoted row still gets the selected treatment.
+    const isSelected = (itemGroup?.type ?? listGroupType) === groupType && itemValue === normalizedValue
 
     const isHighlighted = rowIndex === highlightedIndex && isActiveTab
 
@@ -653,9 +657,21 @@ export const InfiniteListRow = ({
     )
 }
 
+// Cap on the number of "found in X" jump buttons rendered in the empty state, to keep it tidy
+// when a search matches across many categories.
+const MAX_OTHER_GROUP_SWITCHES = 3
+
 function InfiniteListEmptyState(): JSX.Element {
-    const { searchQuery, taxonomicGroupTypes, includeStaleEvents, infiniteListCounts, eventNames } =
-        useValues(taxonomicFilterLogic)
+    const {
+        searchQuery,
+        taxonomicGroups,
+        taxonomicGroupTypes,
+        metaGroupTypes,
+        includeStaleEvents,
+        infiniteListCounts,
+        infiniteListResultCounts,
+        eventNames,
+    } = useValues(taxonomicFilterLogic)
     const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
@@ -677,6 +693,21 @@ function InfiniteListEmptyState(): JSX.Element {
         !isSuggestedFilters &&
         taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
         allSectionHasResults
+
+    // Without the aggregated "all" tab (e.g. the control variant, which doesn't inject SuggestedFilters),
+    // there's no single place to jump to — so surface the specific categories that do have matches.
+    // Keyed off result counts (not `infiniteListCounts`/`totalListCount`) so render-backed groups like
+    // the SQL expression editor, whose affordance row makes `totalListCount` non-zero for any query,
+    // don't produce a misleading "See results in …" jump.
+    const otherGroupTypesWithResults =
+        !emptySearchQuery && !isSuggestedFilters && !canOfferAllSwitch
+            ? taxonomicGroupTypes.filter(
+                  (groupType) =>
+                      groupType !== listGroupType &&
+                      !metaGroupTypes.has(groupType) &&
+                      (infiniteListResultCounts[groupType] ?? 0) > 0
+              )
+            : []
     return (
         <div className="no-infinite-results flex flex-col gap-y-1 items-center">
             {suggestedFiltersBeforeSearching ? (
@@ -734,6 +765,23 @@ function InfiniteListEmptyState(): JSX.Element {
                             See results from other categories
                         </LemonButton>
                     )}
+                    {otherGroupTypesWithResults.slice(0, MAX_OTHER_GROUP_SWITCHES).map((groupType) => {
+                        const groupName = taxonomicGroups.find((g) => g.type === groupType)?.name ?? groupType
+                        return (
+                            <LemonButton
+                                key={groupType}
+                                type="secondary"
+                                size="xsmall"
+                                data-attr={`taxonomic-switch-to-${groupType}`}
+                                onClick={() => {
+                                    reportTaxonomicFilterCategorySelected(groupType, eventNames?.[0])
+                                    setActiveTab(groupType)
+                                }}
+                            >
+                                See results in {groupName}
+                            </LemonButton>
+                        )
+                    })}
                 </>
             )}
         </div>

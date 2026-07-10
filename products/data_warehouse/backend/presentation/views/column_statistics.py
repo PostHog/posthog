@@ -7,8 +7,7 @@ from rest_framework import serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, WarehouseColumnStatistics
 
 
 class WarehouseColumnStatisticsSerializer(serializers.ModelSerializer):

@@ -31,6 +31,7 @@ from posthog.helpers.trigram_search import (
     MAX_SEARCH_LENGTH,
     TrigramSearchField,
     apply_trigram_search,
+    drop_similar_when_exact_exists,
     normalize_search_term,
 )
 from posthog.models import OrganizationMembership
@@ -130,6 +131,16 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
         return updated_membership
 
 
+class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
+    github_login = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The member's GitHub username (login), resolved from their linked GitHub integration or OAuth "
+            "identity. Null when the member has no GitHub identity linked."
+        ),
+    )
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 @extend_schema_view(
     list=extend_schema(
@@ -145,7 +156,7 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
             OpenApiParameter(
                 name="search",
                 type=OpenApiTypes.STR,
-                description="Match against member `first_name`, `last_name`, and `email`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, prefix-as-you-type) together, ordered exact-first; each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.",
+                description="Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.",
             ),
         ],
     ),
@@ -239,6 +250,9 @@ class OrganizationMemberViewSet(
 
         return queryset
 
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        return drop_similar_when_exact_exists(super().filter_queryset(queryset))
+
     def perform_destroy(self, instance: Model):
         instance = cast(OrganizationMembership, instance)
         requesting_user = cast(User, self.request.user)
@@ -262,6 +276,12 @@ class OrganizationMemberViewSet(
         )
 
         instance.user.leave(organization=instance.organization)
+
+    @extend_schema(responses=OrganizationMemberGithubLoginSerializer)
+    @action(detail=True, methods=["get"], url_path="github_login", required_scopes=["organization_member:read"])
+    def github_login(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = cast(OrganizationMembership, self.get_object())
+        return Response({"github_login": instance.user.get_github_login()})
 
     @action(detail=True, methods=["get"])
     def scoped_api_keys(self, request, *args, **kwargs):

@@ -95,39 +95,6 @@ class TestMetaConceptsCommand:
         assert "Infrastructure" in result.output or "service" in result.output.lower()
 
 
-class TestDynamicCommandRegistration:
-    """Test that commands are dynamically registered from manifest."""
-
-    def test_start_command_exists(self) -> None:
-        """Verify start command is registered from manifest."""
-        result = runner.invoke(cli, ["start", "--help"])
-        # Should either work or show a proper Click error
-        assert "Error: No such command" not in result.output or result.exit_code == 2
-
-    def test_migrations_command_exists(self) -> None:
-        """Verify migrations commands are registered from manifest."""
-        result = runner.invoke(cli, ["migrations:run", "--help"])
-        # Should either work or show proper error
-        assert "Error: No such command" not in result.output or result.exit_code == 2
-
-    @patch("hogli.command_types._run")
-    def test_command_with_bin_script_executes(self, mock_run: MagicMock) -> None:
-        """Verify bin_script commands can execute."""
-        mock_run.return_value = None
-        # Try a command that should have a bin_script
-        result = runner.invoke(cli, ["check:postgres", "--help"])
-        # Should return help or execute
-        assert result.exit_code in (0, 2)
-
-    @patch("hogli.command_types._run")
-    def test_direct_command_execution(self, mock_run: MagicMock) -> None:
-        """Verify direct cmd commands execute properly."""
-        mock_run.return_value = None
-        # build:schema-json uses direct cmd field
-        result = runner.invoke(cli, ["build:schema-json", "--help"])
-        assert result.exit_code in (0, 2)
-
-
 class TestLazyClickCommands:
     @pytest.mark.parametrize("command_name", _manifest_click_commands())
     def test_lazy_click_command_help_loads(self, command_name: str) -> None:
@@ -162,36 +129,8 @@ class TestLazyClickCommands:
             assert isinstance(cli.get_command(ctx, hidden_command), click.Command)
 
 
-class TestCommandInjectionPrevention:
-    """Test that command argument handling is secure."""
-
-    @patch("hogli.command_types._run")
-    def test_arguments_are_properly_escaped(self, mock_run: MagicMock) -> None:
-        """Verify arguments passed to commands are properly escaped."""
-        mock_run.return_value = None
-        # Invoke a command with special characters
-        result = runner.invoke(cli, ["migrations:run", "--help"])
-        # The key test is that no exception is raised during argument parsing
-        assert result.exit_code in (0, 1, 2)  # Any of these is acceptable
-
-    @patch("hogli.command_types._run")
-    def test_shell_operators_are_handled_safely(self, mock_run: MagicMock) -> None:
-        """Verify commands with shell operators are executed safely."""
-        mock_run.return_value = None
-        # Invoke a composite command
-        result = runner.invoke(cli, ["dev:reset", "--help"])
-        # Should not raise an exception
-        assert result.exit_code in (0, 1, 2)
-
-
 class TestHelpText:
     """Test command help text generation."""
-
-    def test_command_help_includes_description(self) -> None:
-        """Verify command help includes description from manifest."""
-        result = runner.invoke(cli, ["start", "--help"])
-        # Should contain help text
-        assert "Usage:" in result.output or result.exit_code == 2
 
     def test_category_grouping_in_help(self) -> None:
         """Verify help output groups commands by category."""

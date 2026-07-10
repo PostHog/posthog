@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.test import override_settings
 
@@ -59,6 +59,91 @@ class TestHogFlowAPI(APIBaseTest):
         }
 
         return hog_flow, action
+
+    @patch("products.workflows.backend.api.hog_flow.publish_resource_edited")
+    def test_emits_resource_edited_on_create_and_update(self, mock_emit):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        assert mock_emit.call_count == 1
+        create_kwargs = mock_emit.call_args.kwargs
+        assert create_kwargs["resource_type"] == "HogFlow"
+        assert create_kwargs["resource_id"] == str(flow_id)
+        assert create_kwargs["updated_at"]
+
+        mock_emit.reset_mock()
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed"},
+        )
+        assert update_response.status_code == 200, update_response.json()
+
+        assert mock_emit.call_count == 1
+        assert mock_emit.call_args.kwargs["resource_id"] == str(flow_id)
+
+    def _create_simple_flow(self) -> str:
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        return response.json()["id"]
+
+    def test_stale_update_is_rejected_with_409(self):
+        flow_id = self._create_simple_flow()
+        flow = HogFlow.objects.get(pk=flow_id)
+        current = flow.updated_at.isoformat()
+        stale = (flow.updated_at - timedelta(seconds=1)).isoformat()
+
+        # A client that based its edit on an older copy is rejected rather than clobbering the newer one.
+        stale_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Stale edit", "base_updated_at": stale},
+        )
+        assert stale_response.status_code == 409, stale_response.json()
+        assert HogFlow.objects.get(pk=flow_id).name != "Stale edit"
+
+        # A client whose base matches the current server copy proceeds.
+        fresh_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Fresh edit", "base_updated_at": current},
+        )
+        assert fresh_response.status_code == 200, fresh_response.json()
+        assert HogFlow.objects.get(pk=flow_id).name == "Fresh edit"
+
+    def test_update_without_base_updated_at_is_not_gated(self):
+        # Backwards compatible: callers that don't opt in to the base timestamp keep last-writer-wins.
+        flow_id = self._create_simple_flow()
+        flow = HogFlow.objects.get(pk=flow_id)
+        stale = (flow.updated_at - timedelta(seconds=10)).isoformat()
+        assert stale  # we hold a stale view but send no base
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Ungated edit"},
+        )
+        assert response.status_code == 200, response.json()
+        assert HogFlow.objects.get(pk=flow_id).name == "Ungated edit"
+
+    def test_timezone_naive_base_updated_at_is_handled(self):
+        # A base_updated_at with no timezone designator parses naive; it must be coerced to aware
+        # (assumed UTC) rather than raising TypeError when compared to the tz-aware stored updated_at.
+        flow_id = self._create_simple_flow()
+        flow = HogFlow.objects.get(pk=flow_id)
+        naive = flow.updated_at.replace(tzinfo=None).isoformat()
+        assert "+" not in naive and not naive.endswith("Z")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Naive base edit", "base_updated_at": naive},
+        )
+        assert response.status_code == 200, response.json()
+        assert HogFlow.objects.get(pk=flow_id).name == "Naive base edit"
 
     def test_hog_flow_function_trigger_check(self):
         hog_flow = {
@@ -224,6 +309,27 @@ class TestHogFlowAPI(APIBaseTest):
             "detail": "This field is required.",
             "type": "validation_error",
         }
+
+    def test_activating_draft_with_invalid_template_names_offending_step(self):
+        hog_flow, action = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                # Liquid-style syntax in a Hog-templated input: web drafts store it leniently,
+                # so the compile error only surfaces on activation.
+                "inputs": {"url": {"value": "{{ person.properties.email | upcase }}"}},
+            }
+        )
+        action["name"] = "Send webhook"
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Status-only activation (the workflows list toggle) re-validates the stored actions
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert response.status_code == 400, response.json()
+        detail = response.json()["detail"]
+        assert "Send webhook" in detail, response.json()
+        assert "Invalid template" in detail, response.json()
 
     def test_hog_flow_bytecode_compilation(self):
         hog_flow, action = self._create_hog_flow_with_action(
@@ -1169,6 +1275,23 @@ class TestHogFlowAPI(APIBaseTest):
         assert actions["trigger_node"]["type"] == "trigger"
         assert "exit_1" in actions
 
+    @patch("products.workflows.backend.api.hog_flow.publish_resource_edited")
+    def test_graph_update_emits_resource_edited(self, mock_emit):
+        # The surgical /graph path is the primary MCP edit route, so it must emit the same
+        # "edited elsewhere" signal as the full update path — otherwise an open builder never
+        # learns about MCP graph edits and the cross-channel awareness has a hole.
+        flow_id = self._create_draft_flow_with_graph()
+        mock_emit.reset_mock()
+
+        response = self._patch_graph(flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}])
+        assert response.status_code == 200, response.json()
+
+        assert mock_emit.call_count == 1
+        kwargs = mock_emit.call_args.kwargs
+        assert kwargs["resource_type"] == "HogFlow"
+        assert kwargs["resource_id"] == str(flow_id)
+        assert kwargs["updated_at"]
+
     def test_graph_response_echoes_full_graph(self):
         flow_id = self._create_draft_flow_with_graph()
         response = self._patch_graph(flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}])
@@ -1886,7 +2009,7 @@ class TestHogFlowAPI(APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {})
 
         assert response.status_code == 400, response.json()
-        assert "Missing filters" in response.json().get("detail", "")
+        assert response.json().get("attr") == "filters"
         mock_get_user_blast_radius.assert_not_called()
 
     def test_hog_flow_user_blast_radius_returns_counts(self):
@@ -2037,6 +2160,107 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
         mock_get_user_blast_radius_persons.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("flag_on_uses_workflows_query", True),
+            ("flag_off_uses_legacy_query", False),
+        ]
+    )
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_user_blast_radius_persons_query_selection(self, _name, flag_enabled):
+        with (
+            patch(
+                "products.workflows.backend.api.hog_flow.use_workflows_batch_audience_query",
+                return_value=flag_enabled,
+            ),
+            patch(
+                "products.workflows.backend.api.hog_flow.get_batch_audience_person_ids", return_value=["id-1"]
+            ) as mock_workflows_query,
+            patch(
+                "products.workflows.backend.api.hog_flow.get_user_blast_radius_persons", return_value=["id-1"]
+            ) as mock_legacy_query,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
+                {"filters": {"properties": []}, "dedupe_key": "email"},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["users_affected"] == ["id-1"]
+        if flag_enabled:
+            mock_workflows_query.assert_called_once_with(self.team, {"properties": []}, None, None, dedupe_key="email")
+            mock_legacy_query.assert_not_called()
+        else:
+            mock_legacy_query.assert_called_once_with(self.team, {"properties": []}, None, None)
+            mock_workflows_query.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("flag_on_uses_deduped_count", True, 3),
+            ("flag_off_keeps_person_count", False, 5),
+        ]
+    )
+    def test_user_blast_radius_dedupe_key_affects_count(self, _name, flag_enabled, expected_affected):
+        from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+        with (
+            patch(
+                "products.workflows.backend.api.hog_flow.use_workflows_batch_audience_query",
+                return_value=flag_enabled,
+            ),
+            patch(
+                "products.workflows.backend.api.hog_flow.get_user_blast_radius",
+                return_value=BlastRadiusResult(affected=5, total=10),
+            ) as mock_legacy_count,
+            patch(
+                "products.workflows.backend.api.hog_flow.get_batch_audience_count", return_value=3
+            ) as mock_deduped_count,
+            patch(
+                "posthog.models.team.team.Team.persons_seen_so_far",
+                new_callable=PropertyMock,
+                return_value=10,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "dedupe_key": "email"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["affected"] == expected_affected
+        assert response.json()["total"] == 10
+        # The applied key is echoed so the frontend can label the count correctly
+        assert response.json()["dedupe_key"] == ("email" if flag_enabled else None)
+        if flag_enabled:
+            # The legacy person-count query is skipped — only the deduped count runs
+            mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email")
+            mock_legacy_count.assert_not_called()
+        else:
+            mock_deduped_count.assert_not_called()
+            mock_legacy_count.assert_called_once()
+
+    def test_user_blast_radius_rejects_unsupported_dedupe_key(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": {"properties": []}, "dedupe_key": "phone"},
+        )
+
+        assert response.status_code == 400, response.json()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_user_blast_radius_persons_rejects_unsupported_dedupe_key(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
+            {"filters": {"properties": []}, "dedupe_key": "phone"},
+            format="json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "Unsupported dedupe_key" in response.json().get("error", "")
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     @patch(
@@ -2898,6 +3122,34 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["deleted"] == 0
         assert HogFlow.objects.filter(id=flow_id).exists()
+
+    @parameterized.expand(
+        [
+            ("single_delete",),
+            ("bulk_delete",),
+        ]
+    )
+    def test_delete_publishes_reload_to_workers(self, delete_mode):
+        flow_id = self._create_flow(name="Delete reload")
+        self._archive_flow(flow_id)
+
+        with (
+            patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers") as mock_reload,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if delete_mode == "single_delete":
+                response = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+                assert response.status_code == 204, response.content
+            else:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+                    {"ids": [flow_id]},
+                )
+                assert response.status_code == 200, response.json()
+                assert response.json()["deleted"] == 1
+
+        assert not HogFlow.objects.filter(id=flow_id).exists()
+        mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[flow_id])
 
     def _base_hog_flow_with_variables(self, variables):
         trigger_action = {

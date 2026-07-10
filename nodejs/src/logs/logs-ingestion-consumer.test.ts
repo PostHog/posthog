@@ -1775,9 +1775,11 @@ describe('LogsIngestionConsumer', () => {
 
                 const uncompressed = parseInt(outputHeaders()!.bytes_uncompressed, 10)
                 const compressed = parseInt(outputHeaders()!.bytes_compressed, 10)
+                const recordCount = parseInt(outputHeaders()!.record_count, 10)
                 if (!enabled) {
                     expect(uncompressed).toBe(1000)
                     expect(compressed).toBe(500)
+                    expect(recordCount).toBe(2)
                     return
                 }
                 expect(uncompressed).toBeGreaterThan(0)
@@ -1785,6 +1787,8 @@ describe('LogsIngestionConsumer', () => {
                 expect(compressed).toBeGreaterThan(0)
                 expect(compressed).toBeLessThan(500)
                 expect(compressed / uncompressed).toBeCloseTo(0.5, 5)
+                // The dropped info row is removed from the count exactly; only the error row survives.
+                expect(recordCount).toBe(1)
             })
         })
     })

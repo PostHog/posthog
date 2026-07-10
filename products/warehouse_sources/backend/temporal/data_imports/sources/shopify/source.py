@@ -30,6 +30,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
     SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
     ShopifyPermissionError,
     ShopifyResumeConfig,
+    check_endpoint_permissions as check_shopify_endpoint_permissions,
+    missing_permissions_message,
     shopify_source,
     validate_credentials as validate_shopify_credentials,
 )
@@ -115,17 +117,26 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     def validate_credentials(
         self, config: ShopifySourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
+        # No schema_name → just probe the token, so connecting isn't blocked by a table the user
+        # may not sync. With schema_name → also check that one resource's read scope.
+        resources = [schema_name] if schema_name is not None else None
         try:
             if validate_shopify_credentials(
-                config.shopify_store_id, config.shopify_client_id, config.shopify_client_secret
+                config.shopify_store_id, config.shopify_client_id, config.shopify_client_secret, resources
             ):
                 return True, None
             return False, "Invalid Shopify credentials"
         except ShopifyPermissionError as e:
-            missing_resources = ", ".join(e.missing_permissions.keys())
-            return False, f"Shopify access token lacks permissions for {missing_resources}"
+            return False, missing_permissions_message(e.missing_permissions)
         except Exception as e:
             return False, str(e)
+
+    def get_endpoint_permissions(
+        self, config: ShopifySourceConfig, team_id: int, endpoints: list[str]
+    ) -> dict[str, str | None]:
+        return check_shopify_endpoint_permissions(
+            config.shopify_store_id, config.shopify_client_id, config.shopify_client_secret, endpoints
+        )
 
     def get_schemas(
         self,

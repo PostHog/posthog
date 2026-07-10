@@ -39,10 +39,12 @@ depends_on = [
     "products.actions",
     "products.alerts",
     "products.cdp",
+    "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
     "products.data_tools",
+    "products.demo",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -81,8 +83,10 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.data_warehouse",
+    "products.demo",
     "products.early_access_features",
     "products.endpoints",
+    "products.engineering_analytics",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -94,6 +98,7 @@ depends_on = [
     "products.logs",
     "products.marketing_analytics",
     "products.messaging",
+    "products.metrics",
     "products.notebooks",
     "products.notifications",
     "products.posthog_ai",
@@ -111,7 +116,6 @@ depends_on = [
     "products.tracing",
     "products.user_interviews",
     "products.mcp_analytics",
-    "products.warehouse_sources_queue",
     "products.web_analytics",
     "products.workflows",
     "products.actions",
@@ -203,8 +207,7 @@ layer = "modules"
 path = "products.conversations"
 depends_on = [
     "ee",
-    "posthog",
-    "products.posthog_ai", "products.tasks", "products.business_knowledge",
+    "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -221,6 +224,7 @@ depends_on = [
     "products.logs",
     "products.mcp_analytics",
     "products.product_analytics",
+    "products.surveys",
 ]
 layer = "modules"
 
@@ -262,9 +266,26 @@ depends_on = [
     "ee",
     "posthog",
     "products.cdp",
-    "products.dashboards",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.demo"
+depends_on = [
+    "posthog",
+    "products.actions",
+    "products.cohorts",
+    "products.dashboards",
+    "products.data_tools",
+    "products.endpoints",
+    "products.error_tracking",
+    "products.event_definitions",
+    "products.experiments",
+    "products.feature_flags",
+    "products.product_analytics",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -272,6 +293,7 @@ layer = "modules"
 path = "products.early_access_features"
 depends_on = [
     "posthog",
+    "ee",
     "products.feature_flags",
 ]
 layer = "modules"
@@ -317,12 +339,13 @@ depends_on = [
     "products.ai_observability",
     "products.analytics_platform",
     "products.data_tools",
-    "products.data_warehouse",
     "products.event_definitions",
     "products.feature_flags",
     "products.notifications",
     "products.product_tours",
     "products.surveys",
+    "products.tasks",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -345,6 +368,7 @@ layer = "modules"
 [[modules]]
 path = "products.growth"
 depends_on = [
+    "ee",
     "posthog",
 ]
 layer = "modules"
@@ -495,9 +519,9 @@ depends_on = [
     "products.actions",
     "products.alerts",
     "products.dashboards",
-    "products.data_warehouse",
     "products.event_definitions",
     "products.annotations",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -541,7 +565,6 @@ depends_on = [
     "products.cdp",
     "products.exports",
     "products.signals",
-    "products.workflows",
 ]
 layer = "modules"
 
@@ -549,8 +572,7 @@ layer = "modules"
 path = "products.revenue_analytics"
 depends_on = [
     "ee",
-    "posthog",
-    "products.data_warehouse", "products.warehouse_sources", "products.data_modeling", "products.data_tools",
+    "posthog", "products.warehouse_sources", "products.data_modeling", "products.data_tools",
 ]
 layer = "modules"
 
@@ -594,9 +616,11 @@ layer = "modules"
 path = "products.slack_app"
 depends_on = [
     "posthog",
+    "products.conversations",
     "products.dashboards",
     "products.product_analytics",
     "products.signals",
+    "products.tasks",
 ]
 layer = "modules"
 
@@ -618,10 +642,11 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
-    "products.data_warehouse",
     "products.notebooks",
     "products.notifications",
     "products.product_analytics",
+    "products.warehouse_sources",
+    "products.workflows",
 ]
 layer = "modules"
 
@@ -632,8 +657,7 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.actions",
-    "products.analytics_platform",
-    "products.data_warehouse", "products.warehouse_sources",
+    "products.analytics_platform", "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -692,6 +716,7 @@ depends_on = [
     "products.actions",
     "products.analytics_platform",
     "products.notifications",
+    "products.replay_vision",
 ]
 layer = "modules"
 
@@ -704,6 +729,7 @@ depends_on = [
     "products.actions",
     "products.cdp",
     "products.feature_flags",
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -716,7 +742,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|data_warehouse|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -738,6 +764,8 @@ from = [
 [[interfaces]]
 expose = [
     "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.EXPERIMENT_CANARY_ACTIVITIES",
+    "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
     "backend\\.temporal\\.WORKFLOWS",
     "backend\\.temporal\\.recalculation_metrics.*",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
@@ -754,6 +782,16 @@ expose = [
 ]
 from = [
     "products.user_interviews",
+]
+
+# streamlit_apps exposes the HogQL bridge view, routed directly from posthog/urls.py.
+
+[[interfaces]]
+expose = [
+    "backend\\.presentation\\.bridge_views.*",
+]
+from = [
+    "products.streamlit_apps",
 ]
 
 # Legacy leaks — core (posthog/ee) imports these internals directly.
@@ -787,34 +825,29 @@ from = [
     "products.mcp_store",
 ]
 
-# warehouse_sources — facade landed (Phase 1 merge base); core (posthog/ee), sibling
-# products, and data_warehouse still import its models, shared types, and temporal
-# internals directly. Shrinks as the team-sliced read sweeps land and the deferred
-# temporal couplings (HogQL direct-SQL, Google Search Console, the salesforce migration)
-# move behind the facade; data_warehouse's usage clears in Phase 2. Keeps
-# backend:contract-check off package.json until empty.
+# isolation:permanent-interface
+# warehouse_sources' HogQL direct-SQL adapters and its system-table definitions depend on a
+# handful of source internals + models that the facade re-exports lazily — facade.source_management
+# is a thin PEP 562 re-export, so a change to the underlying source flows through to core. That
+# coupling can't be sealed by watching backend.facade alone, so these modules are declared
+# permanent and turbo.json keeps them in the contract-check inputs — any change to them still
+# re-runs the Django suite (IsolationChainCheck enforces that). The vendor set is exactly the
+# sources core reaches through the facade, guarded by test_ci_core_coupled_sources.py. All other
+# core coupling goes through backend.facade.
 [[interfaces]]
 expose = [
     "backend\\.models.*",
-    "backend\\.types.*",
-    "backend\\.temporal.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.common.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.generated_configs.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.google_search_console.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.mysql.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.postgres.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.salesforce.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.snowflake.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.stripe.*",
 ]
 from = [
     "products.warehouse_sources",
-]
-
-# data_warehouse — facade landed (Phase 2) + presentation wave complete; now enforced via
-# the canonical interface above. This legacy-leak exposes the test helpers core tests still
-# import directly. Shrinks to zero when those fixtures relocate; backend:contract-check stays
-# off until then AND until the cross-product presentation allowances to not-yet-isolated
-# products (data_modeling, data_tools, cdp, batch_exports, revenue_analytics) clear.
-[[interfaces]]
-expose = [
-    "backend\\.test.*",
-    "backend\\.tests.*",
-]
-from = [
-    "products.data_warehouse",
 ]
 
 # legal_documents has a non-standard public surface — posthog/urls registers its pandadoc
@@ -830,18 +863,20 @@ from = [
     "products.legal_documents",
 ]
 
-# error_tracking exposes its ClickHouse DDL (sql / embedding / indexed_embedding) to
-# core's ClickHouse schema + frozen migrations, and its models / remote_config to core
-# model-class consumers (product_intent, remote_config, team deletion) and test fixtures.
-# The frozen-migration coupling cannot be rerouted, so this block is permanent rather than
-# shrinking to zero — which is why backend:contract-check stays off for this product.
+# isolation:permanent-interface
+# error_tracking exposes its ClickHouse DDL (sql / embedding / indexed_embedding) to core's
+# ClickHouse schema registry, conftest, the embedding worker, the hogql document_embeddings
+# system table, and frozen ClickHouse migrations. That coupling is outside the import-reroute
+# path — frozen migrations hardcode these import paths and the schema registry owns table DDL —
+# so it can never route through the facade. The marker above declares it permanent rather than a
+# legacy leak, so it does not hold the external seal open. turbo.json keeps these three modules
+# in the contract-check inputs so any change to them still re-runs the Django suite
+# (IsolationChainCheck enforces that). All other core coupling now goes through backend.facade.
 
 [[interfaces]]
 expose = [
     "backend\\.embedding.*",
     "backend\\.indexed_embedding.*",
-    "backend\\.models.*",
-    "backend\\.remote_config.*",
     "backend\\.sql.*",
 ]
 from = [
@@ -965,7 +1000,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog", "products.warehouse_sources", "products.data_warehouse"]
+depends_on = ["posthog", "products.warehouse_sources"]
 layer = "modules"
 
 [[interfaces]]

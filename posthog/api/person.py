@@ -1,6 +1,7 @@
 import json
 import uuid
 import builtins
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
@@ -69,11 +70,22 @@ from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
 from posthog.tasks.split_person import split_person
-from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
+from posthog.utils import (
+    format_query_params_absolute_url,
+    is_anonymous_id,
+    refresh_requested_by_client,
+    relative_date_parse_with_delta_mapping,
+)
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
 from products.product_analytics.backend.api.insight import capture_legacy_api_call
+from products.workflows.backend.api.message_assets import (
+    MessageAssetSerializer,
+    PersonMessageAssetsRequestSerializer,
+    fetch_message_assets_for_person,
+)
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -1448,6 +1460,45 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response(data=properties_timeline)
 
+    @extend_schema(
+        parameters=[PersonMessageAssetsRequestSerializer],
+        responses=MessageAssetSerializer(many=True),
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["person:read"], pagination_class=None, filter_backends=[])
+    def emails(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        person = self.get_object()
+        param_serializer = PersonMessageAssetsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
+
+        after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        before_date = None
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
+
+        data = fetch_message_assets_for_person(
+            team_id=self.team_id,
+            person_id=str(person.uuid),
+            limit=params["limit"],
+            offset=params["offset"],
+            after=after_date,
+            before=before_date,
+        )
+        # Single lookup for every workflow referenced by this page of rows so the tab shows
+        # human-readable names instead of raw UUIDs. Deleted workflows drop out of the map
+        # and the row's `function_name` stays empty — the frontend falls back to `function_id`.
+        # HogFlow.id is a UUID column; ClickHouse function_id is a plain string, so coerce
+        # both sides to string when building the lookup dict.
+        function_ids = {row.function_id for row in data}
+        name_by_id = {
+            str(pk): (name or "")
+            for pk, name in HogFlow.objects.filter(team_id=self.team_id, id__in=function_ids).values_list("id", "name")
+        }
+        enriched = [dataclasses.replace(row, function_name=name_by_id.get(row.function_id, "")) for row in data]
+        return response.Response(MessageAssetSerializer(enriched, many=True).data)
+
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:
         team = cast(User, request.user).team
@@ -1546,7 +1597,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response(status=202)
 
-    @action(methods=["POST"], detail=False, url_path="batch_by_distinct_ids")
+    @action(methods=["POST"], detail=False, url_path="batch_by_distinct_ids", required_scopes=["person:read"])
     def batch_by_distinct_ids(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         distinct_ids = request.data.get("distinct_ids", [])
 
@@ -1577,13 +1628,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     for person in persons:
                         person._distinct_ids = ids
 
+        serializer_context = {**self.get_serializer_context(), "get_team": lambda: self.team}
         results: dict[str, Any] = {
-            distinct_id: MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
+            distinct_id: MinimalPersonSerializer(person, context=serializer_context).data
             for distinct_id, person in persons_by_distinct_id.items()
         }
         return response.Response({"results": results})
 
-    @action(methods=["POST"], detail=False, url_path="batch_by_uuids")
+    @action(methods=["POST"], detail=False, url_path="batch_by_uuids", required_scopes=["person:read"])
     def batch_by_uuids(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         uuids = request.data.get("uuids", [])
 
@@ -1602,9 +1654,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         with personhog_caller_tag("persons/batch-by-uuids"):
             persons = get_persons_by_uuids(self.team_id, uuids, distinct_id_limit=10)
 
+        serializer_context = {**self.get_serializer_context(), "get_team": lambda: self.team}
         results: dict[str, Any] = {}
         for person in persons:
-            results[str(person.uuid)] = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
+            results[str(person.uuid)] = MinimalPersonSerializer(person, context=serializer_context).data
 
         return response.Response({"results": results})
 

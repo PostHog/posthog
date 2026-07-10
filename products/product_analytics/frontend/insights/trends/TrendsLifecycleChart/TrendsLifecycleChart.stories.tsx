@@ -215,6 +215,7 @@ export const UnstackedWithValuesOnSeries: Story = {
     ),
 }
 
+// Stacked only from here on — percentage formatting and legend don't depend on stacking
 export const StackedWithPercentagesOnSeries: Story = {
     render: () => (
         <LifecycleStory
@@ -223,21 +224,6 @@ export const StackedWithPercentagesOnSeries: Story = {
                 id: 304,
                 shortId: 'lifecycleStackedPercentages',
                 name: 'Lifecycle stacked (values + percentages on series)',
-                showValuesOnSeries: true,
-                showPercentagesOnSeries: true,
-            })}
-        />
-    ),
-}
-
-export const UnstackedWithPercentagesOnSeries: Story = {
-    render: () => (
-        <LifecycleStory
-            insightFixture={lifecycleInsight({
-                stacked: false,
-                id: 305,
-                shortId: 'lifecycleUnstackedPercentages',
-                name: 'Lifecycle unstacked (values + percentages on series)',
                 showValuesOnSeries: true,
                 showPercentagesOnSeries: true,
             })}
@@ -268,20 +254,6 @@ export const StackedWithLegend: Story = {
                 id: 307,
                 shortId: 'lifecycleStackedLegend',
                 name: 'Lifecycle stacked (with legend)',
-                showLegend: true,
-            })}
-        />
-    ),
-}
-
-export const UnstackedWithLegend: Story = {
-    render: () => (
-        <LifecycleStory
-            insightFixture={lifecycleInsight({
-                stacked: false,
-                id: 308,
-                shortId: 'lifecycleUnstackedLegend',
-                name: 'Lifecycle unstacked (with legend)',
                 showLegend: true,
             })}
         />

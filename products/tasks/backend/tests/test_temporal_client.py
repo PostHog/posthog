@@ -4,6 +4,8 @@ from django.test import TestCase, override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
@@ -12,6 +14,7 @@ from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import (
     execute_task_processing_workflow,
     execute_task_processing_workflow_async,
+    redispatch_orphaned_task_run,
     resume_task_in_cloud_workflow,
 )
 
@@ -72,10 +75,14 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
         with (
             patch(connect_target, connect_mock),
             patch("products.tasks.backend.temporal.client.posthoganalytics.feature_enabled", return_value=False),
+            patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture,
         ):
             self._execute_workflow(executor, run, self.user.id)
 
         self._assert_run_failed(run, "Failed to start task workflow: temporal unavailable")
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0].kwargs["properties"]["error_type"], "workflow_start_failed")
 
     @parameterized.expand([("sync",), ("async",)])
     def test_does_not_overwrite_run_that_already_started(self, executor: str) -> None:
@@ -173,3 +180,160 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.state["pending_user_message_ids"], ["message-1"])
         self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
+
+
+@override_settings(DEBUG=False)
+class TestRedispatchOrphanedTaskRun(TestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create(email="test@example.com")
+        self.task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+    def _orphaned_run(
+        self,
+        pending_dispatch: dict | None = None,
+        run_source: str | None = None,
+        prewarmed: bool = False,
+        environment: str = TaskRun.Environment.CLOUD,
+    ) -> TaskRun:
+        state: dict = {}
+        if pending_dispatch is not None:
+            state["pending_dispatch"] = pending_dispatch
+        if run_source is not None:
+            state["run_source"] = run_source
+        if prewarmed:
+            state["prewarmed"] = True
+        return TaskRun.objects.create(
+            task=self.task, team=self.team, status=TaskRun.Status.QUEUED, state=state, environment=environment
+        )
+
+    def _run_reconcile(self, run: TaskRun, start_workflow: Mock) -> str:
+        client = Mock()
+        client.start_workflow = start_workflow
+        with (
+            patch("products.tasks.backend.temporal.client.sync_connect", return_value=client),
+            patch("products.tasks.backend.temporal.client.posthoganalytics.feature_enabled", return_value=False),
+        ):
+            return redispatch_orphaned_task_run(str(run.id))
+
+    def test_recovers_orphaned_run_with_persisted_dispatch_params(self) -> None:
+        run = self._orphaned_run(pending_dispatch={"create_pr": False, "posthog_mcp_scopes": "full"})
+        start_workflow = AsyncMock()
+
+        outcome = self._run_reconcile(run, start_workflow)
+
+        self.assertEqual(outcome, "recovered")
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        self.assertIsNone(run.error_message)
+        # Re-dispatch must be faithful to how the run was created and idempotent (start-if-none).
+        _, workflow_input = start_workflow.call_args.args
+        self.assertEqual(workflow_input.run_id, str(run.id))
+        self.assertEqual(workflow_input.create_pr, False)
+        self.assertEqual(workflow_input.posthog_mcp_scopes, "full")
+        self.assertEqual(
+            start_workflow.call_args.kwargs["id_reuse_policy"],
+            WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+        )
+
+    @parameterized.expand([(None, "full"), ("manual", "full"), ("signal_report", "full")])
+    def test_falls_back_to_run_source_scopes_when_dispatch_params_absent(
+        self, run_source: str | None, expected_scopes: str
+    ) -> None:
+        # The app's bootstrap/start path never persists pending_dispatch, so the reconciler must
+        # derive mcp scopes from run_source exactly as the original dispatch does — not default to read_only.
+        run = self._orphaned_run(run_source=run_source)
+        start_workflow = AsyncMock()
+
+        outcome = self._run_reconcile(run, start_workflow)
+
+        self.assertEqual(outcome, "recovered")
+        _, workflow_input = start_workflow.call_args.args
+        self.assertEqual(workflow_input.posthog_mcp_scopes, expected_scopes)
+
+    def test_falls_back_to_scout_scopes_for_signals_scout_run(self) -> None:
+        # A scout run reconciled without a persisted scope must keep its scout posture — falling back
+        # to "full"/"read_only" strips every signal_scout_* scope, so the scout can't emit a report,
+        # write scratchpad, or build its profile, and every signals-scout-* tool reads as "Unknown tool".
+        scout_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Scout Task",
+            description="Scout Description",
+            origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+        )
+        run = TaskRun.objects.create(task=scout_task, team=self.team, status=TaskRun.Status.QUEUED, state={})
+        start_workflow = AsyncMock()
+
+        outcome = self._run_reconcile(run, start_workflow)
+
+        self.assertEqual(outcome, "recovered")
+        _, workflow_input = start_workflow.call_args.args
+        self.assertEqual(workflow_input.posthog_mcp_scopes, "signals_scout_reports")
+
+    def test_does_not_fail_run_when_workflow_already_started(self) -> None:
+        run = self._orphaned_run()
+        start_workflow = AsyncMock(side_effect=WorkflowAlreadyStartedError(run.workflow_id, "process-task"))
+
+        outcome = self._run_reconcile(run, start_workflow)
+
+        self.assertEqual(outcome, "already_running")
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        self.assertIsNone(run.error_message)
+
+    def test_does_not_fail_run_on_transient_error(self) -> None:
+        run = self._orphaned_run()
+        start_workflow = AsyncMock(side_effect=RuntimeError("temporal unavailable"))
+
+        outcome = self._run_reconcile(run, start_workflow)
+
+        self.assertEqual(outcome, "error")
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        self.assertIsNone(run.error_message)
+        self.assertIsNone(run.completed_at)
+
+    def test_skips_run_that_left_queue(self) -> None:
+        run = self._orphaned_run()
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=["status"])
+        start_workflow = AsyncMock()
+
+        outcome = self._run_reconcile(run, start_workflow)
+
+        self.assertEqual(outcome, "left_queue")
+        start_workflow.assert_not_called()
+
+    def test_skips_local_environment_run(self) -> None:
+        # A local run sits in QUEUED while the user's desktop agent drives it; cloud-dispatching
+        # it would hijack the live session (no repo in the sandbox) and later mark the run failed.
+        run = self._orphaned_run(environment=TaskRun.Environment.LOCAL)
+        start_workflow = AsyncMock()
+
+        outcome = self._run_reconcile(run, start_workflow)
+
+        self.assertEqual(outcome, "skipped_local")
+        start_workflow.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+
+    def test_skips_prewarmed_run(self) -> None:
+        # Prewarmed runs are owned by the prewarmed reaper (it kills them); re-dispatching one would
+        # boot an agent with no user prompt and drop the prewarmed flag, changing boot behaviour.
+        run = self._orphaned_run(prewarmed=True)
+        start_workflow = AsyncMock()
+
+        outcome = self._run_reconcile(run, start_workflow)
+
+        self.assertEqual(outcome, "skipped_prewarmed")
+        start_workflow.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)

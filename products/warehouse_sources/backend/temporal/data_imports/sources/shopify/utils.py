@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
@@ -9,6 +10,7 @@ class ShopifyGraphQLObject:
         query: str,
         display_name: str | None = None,
         permissions_query: str | None = None,
+        protected_query_builder: Callable[[set[str]], str] | None = None,
     ):
         # shopify graphql responses typically look like this:
         # {
@@ -31,6 +33,9 @@ class ShopifyGraphQLObject:
         # optional display name for cases where the shopify name makes less sense to users
         self.display_name: str | None = display_name
         self.permissions_query: str | None = permissions_query
+        # optional: rebuilds `query` from the token's granted scopes so a partially scoped token
+        # degrades gracefully instead of hard-failing on a field it can't read (see queries/orders.py)
+        self.protected_query_builder: Callable[[set[str]], str] | None = protected_query_builder
 
 
 def unwrap(payload: Any, path: str):

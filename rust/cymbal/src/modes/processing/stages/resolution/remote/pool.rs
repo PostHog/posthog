@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use rand::{seq::SliceRandom, Rng};
+use rand::Rng;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::sync::{Mutex, Notify};
@@ -77,6 +77,10 @@ struct EndpointState {
     channel: Channel,
     mux: ResolveMux,
     in_flight: Arc<AtomicUsize>,
+    /// Pre-formatted address used as the `endpoint` metric label. Built once
+    /// when the endpoint is added so the routing path clones an `Arc` instead
+    /// of allocating a fresh `String` per selection (see `rust/CLAUDE.md`).
+    endpoint_label: Arc<str>,
     // Endpoints that DNS no longer reports are marked draining. The mux is
     // closed so in-flight waiters reroute, and the endpoint is evicted once
     // local handles have observed the break and dropped.
@@ -128,16 +132,24 @@ pub struct EndpointPoolHandle {
     pub channel: Channel,
     pub mux: ResolveMux,
     counter: Arc<AtomicUsize>,
+    endpoint_label: Arc<str>,
 }
 
 impl EndpointPoolHandle {
-    fn new(addr: SocketAddr, channel: Channel, mux: ResolveMux, counter: Arc<AtomicUsize>) -> Self {
+    fn new(
+        addr: SocketAddr,
+        channel: Channel,
+        mux: ResolveMux,
+        counter: Arc<AtomicUsize>,
+        endpoint_label: Arc<str>,
+    ) -> Self {
         counter.fetch_add(1, Ordering::AcqRel);
         Self {
             addr,
             channel,
             mux,
             counter,
+            endpoint_label,
         }
     }
 }
@@ -147,7 +159,7 @@ impl Drop for EndpointPoolHandle {
         self.counter.fetch_sub(1, Ordering::AcqRel);
         metrics::gauge!(
             REMOTE_RESOLUTION_ENDPOINT_IN_FLIGHT,
-            "endpoint" => self.addr.to_string(),
+            "endpoint" => self.endpoint_label.clone(),
         )
         .decrement(1.0);
     }
@@ -469,11 +481,18 @@ impl EndpointPool {
             if snapshot.draining {
                 continue;
             }
+            let local_in_flight = state
+                .in_flight
+                .load(Ordering::Acquire)
+                .min(u32::MAX as usize) as u32;
+            let estimated_in_flight = snapshot.in_flight.max(local_in_flight);
             candidates.push(Candidate {
                 addr: *addr,
                 channel: state.channel.clone(),
                 mux: state.mux.clone(),
                 counter: state.in_flight.clone(),
+                endpoint_label: state.endpoint_label.clone(),
+                load_weight: available_capacity_weight(estimated_in_flight, snapshot.max_in_flight),
             });
         }
 
@@ -500,8 +519,8 @@ impl EndpointPool {
         }
 
         let chosen = match strategy {
-            SelectionStrategy::Random => match candidates.choose(&mut rand::thread_rng()) {
-                Some(candidate) => candidate.clone(),
+            SelectionStrategy::Random => match choose_load_weighted_candidate(candidates) {
+                Some(candidate) => candidate,
                 None => {
                     return Err(EndpointPoolError::Empty(classify_empty_reason(
                         active_endpoint_count,
@@ -511,12 +530,18 @@ impl EndpointPool {
                 }
             },
             SelectionStrategy::ByKey { routing_key } => {
-                candidates.sort_by(|a, b| {
-                    rendezvous_score(routing_key, b.addr)
-                        .cmp(&rendezvous_score(routing_key, a.addr))
-                        .then(a.addr.cmp(&b.addr))
+                // Score each candidate once (O(n)) rather than re-hashing inside
+                // the comparator (O(n log n) hashes). Rank by score desc with a
+                // deterministic addr-asc tie-break, then discard the scores.
+                let mut scored: Vec<(f64, Candidate)> = candidates
+                    .into_iter()
+                    .map(|c| (load_adjusted_rendezvous_score(routing_key, &c), c))
+                    .collect();
+                scored.sort_by(|(a_score, a), (b_score, b)| {
+                    b_score.total_cmp(a_score).then(a.addr.cmp(&b.addr))
                 });
-                match choose_ranked_candidate(candidates, self.config.routing_jitter) {
+                let ranked: Vec<Candidate> = scored.into_iter().map(|(_, c)| c).collect();
+                match choose_ranked_candidate(ranked, self.config.routing_jitter) {
                     Some(candidate) => candidate,
                     None => {
                         return Err(EndpointPoolError::Empty(classify_empty_reason(
@@ -530,10 +555,11 @@ impl EndpointPool {
         };
 
         // Per-endpoint in-flight gauge; emitted only for the chosen endpoint
-        // (not every candidate) to keep the per-selection allocation bounded.
+        // (not every candidate). The label is the endpoint's pre-built
+        // `Arc<str>`, so this clone is a refcount bump rather than an alloc.
         metrics::gauge!(
             REMOTE_RESOLUTION_ENDPOINT_IN_FLIGHT,
-            "endpoint" => chosen.addr.to_string(),
+            "endpoint" => chosen.endpoint_label.clone(),
         )
         .increment(1.0);
 
@@ -542,6 +568,7 @@ impl EndpointPool {
             chosen.channel,
             chosen.mux,
             chosen.counter,
+            chosen.endpoint_label,
         ))
     }
 
@@ -670,6 +697,8 @@ struct Candidate {
     channel: Channel,
     mux: ResolveMux,
     counter: Arc<AtomicUsize>,
+    endpoint_label: Arc<str>,
+    load_weight: f64,
 }
 
 enum SelectionStrategy<'a> {
@@ -693,13 +722,30 @@ fn classify_empty_reason(
     }
 }
 
-fn rendezvous_score(routing_key: &str, addr: SocketAddr) -> u64 {
+fn rendezvous_score(routing_key: &str, addr_label: &str) -> u64 {
+    // SHA-256 (no per-process seed) keeps the key->endpoint mapping identical
+    // across every client pod. `addr_label` is the endpoint's pre-formatted
+    // address string, so the hashed input matches the historical
+    // `SocketAddr::to_string()` bytes exactly — the mapping is stable across a
+    // rolling deploy — while the caller avoids re-allocating it per selection.
     let mut hasher = Sha256::new();
     hasher.update(routing_key.as_bytes());
     hasher.update(b"\0");
-    hasher.update(addr.to_string().as_bytes());
+    hasher.update(addr_label.as_bytes());
     let digest = hasher.finalize();
     u64::from_be_bytes(digest[0..8].try_into().expect("sha256 digest has 8 bytes"))
+}
+
+fn load_adjusted_rendezvous_score(routing_key: &str, candidate: &Candidate) -> f64 {
+    rendezvous_score(routing_key, &candidate.endpoint_label) as f64 * candidate.load_weight
+}
+
+fn available_capacity_weight(in_flight: u32, max_in_flight: u32) -> f64 {
+    const MIN_WEIGHT: f64 = 0.01;
+
+    let capacity = max_in_flight.max(1) as f64;
+    let saturation = (in_flight as f64 / capacity).clamp(0.0, 1.0);
+    (1.0 - saturation).max(MIN_WEIGHT).powi(2)
 }
 
 #[derive(Clone, Copy)]
@@ -783,24 +829,59 @@ fn choose_ranked_candidate(candidates: Vec<Candidate>, routing_jitter: f64) -> O
     if routing_jitter <= 0.0 || candidates.len() == 1 {
         return Some(top_ranked);
     }
-    if routing_jitter >= 1.0 {
-        return candidates.choose(&mut rand::thread_rng()).cloned();
+
+    let weights = candidates
+        .iter()
+        .enumerate()
+        .map(|(rank, candidate)| rank_weight(rank, routing_jitter) * candidate.load_weight)
+        .collect::<Vec<_>>();
+
+    choose_weighted_candidate(candidates, &weights)
+}
+
+fn choose_load_weighted_candidate(candidates: Vec<Candidate>) -> Option<Candidate> {
+    let weights = candidates
+        .iter()
+        .map(|candidate| candidate.load_weight)
+        .collect::<Vec<_>>();
+    choose_weighted_candidate(candidates, &weights)
+}
+
+fn choose_weighted_candidate(candidates: Vec<Candidate>, weights: &[f64]) -> Option<Candidate> {
+    if candidates.is_empty() || candidates.len() != weights.len() {
+        return None;
     }
 
-    let weights = (0..candidates.len())
-        .map(|rank| routing_jitter.powi(rank as i32))
-        .collect::<Vec<_>>();
-    let total_weight = weights.iter().sum::<f64>();
+    let fallback = candidates.first().cloned();
+    let total_weight = weights
+        .iter()
+        .copied()
+        .filter(|weight| *weight > 0.0)
+        .sum::<f64>();
+    if total_weight <= 0.0 || !total_weight.is_finite() {
+        return fallback;
+    }
+
     let mut draw = rand::thread_rng().gen_range(0.0..total_weight);
 
-    for (candidate, weight) in candidates.into_iter().zip(weights) {
+    for (candidate, weight) in candidates.into_iter().zip(weights.iter().copied()) {
+        if weight <= 0.0 {
+            continue;
+        }
         if draw < weight {
             return Some(candidate);
         }
         draw -= weight;
     }
 
-    Some(top_ranked)
+    fallback
+}
+
+fn rank_weight(rank: usize, routing_jitter: f64) -> f64 {
+    if routing_jitter >= 1.0 {
+        return 1.0;
+    }
+    routing_jitter.powi(rank as i32)
 }
 
 #[cfg(test)]
@@ -863,6 +944,7 @@ fn build_endpoint_state(
         channel,
         mux,
         in_flight: Arc::new(AtomicUsize::new(0)),
+        endpoint_label: Arc::from(addr.to_string()),
         draining: false,
         load: Arc::new(StdMutex::new(None)),
         overload_ejected_until: None,
@@ -924,8 +1006,18 @@ mod test {
     fn fresh_snapshot() -> LoadSnapshot {
         LoadSnapshot {
             draining: false,
+            in_flight: 0,
+            max_in_flight: 64,
             observed_at: Instant::now(),
             sequence: 1,
+        }
+    }
+
+    fn loaded_snapshot(in_flight: u32, max_in_flight: u32) -> LoadSnapshot {
+        LoadSnapshot {
+            in_flight,
+            max_in_flight,
+            ..fresh_snapshot()
         }
     }
 
@@ -1049,6 +1141,8 @@ mod test {
         .unwrap();
         let stale = LoadSnapshot {
             draining: false,
+            in_flight: 0,
+            max_in_flight: 64,
             observed_at: Instant::now() - Duration::from_secs(10),
             sequence: 1,
         };
@@ -1113,6 +1207,84 @@ mod test {
     }
 
     #[tokio::test]
+    async fn select_for_key_penalizes_saturated_preferred_endpoint() {
+        let addrs = [
+            addr("10.0.0.1:50061"),
+            addr("10.0.0.2:50061"),
+            addr("10.0.0.3:50061"),
+        ];
+        let pool = EndpointPool::from_addrs_without_subscriptions(mock_config(), &addrs).unwrap();
+        inject_uniform_fresh_snapshots(&pool, &addrs).await;
+
+        let key = "team:1:symbol:bundle-a";
+        let preferred = pool.select_for_key(key, &[]).await.unwrap().addr;
+        assert!(
+            pool.inject_load_snapshot_for_test(preferred, loaded_snapshot(64, 64))
+                .await
+        );
+
+        let next = pool.select_for_key(key, &[]).await.unwrap().addr;
+        assert_ne!(next, preferred);
+    }
+
+    #[tokio::test]
+    async fn select_for_key_top_choice_is_independent_of_insertion_order() {
+        // Rendezvous ranking must depend only on (routing_key, addr), not on
+        // the order endpoints were added — otherwise different pods, which see
+        // DNS in arbitrary order, would disagree on the sticky endpoint and
+        // shred cache locality. Two orderings of the same set must agree.
+        let forward = [
+            addr("10.0.0.1:50061"),
+            addr("10.0.0.2:50061"),
+            addr("10.0.0.3:50061"),
+        ];
+        let reverse = [
+            addr("10.0.0.3:50061"),
+            addr("10.0.0.2:50061"),
+            addr("10.0.0.1:50061"),
+        ];
+        let key = "team:1:symbol:bundle-order";
+
+        let pool_forward =
+            EndpointPool::from_addrs_without_subscriptions(mock_config(), &forward).unwrap();
+        inject_uniform_fresh_snapshots(&pool_forward, &forward).await;
+        let pool_reverse =
+            EndpointPool::from_addrs_without_subscriptions(mock_config(), &reverse).unwrap();
+        inject_uniform_fresh_snapshots(&pool_reverse, &reverse).await;
+
+        let chosen_forward = pool_forward.select_for_key(key, &[]).await.unwrap().addr;
+        let chosen_reverse = pool_reverse.select_for_key(key, &[]).await.unwrap().addr;
+        assert_eq!(chosen_forward, chosen_reverse);
+    }
+
+    #[test]
+    fn rendezvous_score_is_deterministic_and_stable() {
+        let key = "team:1:symbol:bundle-a";
+        // Stable across calls (no per-process seed) and distinct per endpoint.
+        assert_eq!(
+            rendezvous_score(key, "10.0.0.1:50061"),
+            rendezvous_score(key, "10.0.0.1:50061")
+        );
+        assert_ne!(
+            rendezvous_score(key, "10.0.0.1:50061"),
+            rendezvous_score(key, "10.0.0.2:50061")
+        );
+        // Port is part of the label, so two ports on one host differ.
+        assert_ne!(
+            rendezvous_score(key, "10.0.0.1:50061"),
+            rendezvous_score(key, "10.0.0.1:50062")
+        );
+        // The hashed input is the SocketAddr's Display form, so scoring the
+        // label matches scoring `addr.to_string()` byte-for-byte. This pins the
+        // key->endpoint mapping so it survives a rolling deploy.
+        let socket = addr("10.0.0.1:50061");
+        assert_eq!(
+            rendezvous_score(key, &socket.to_string()),
+            rendezvous_score(key, "10.0.0.1:50061")
+        );
+    }
+
+    #[tokio::test]
     async fn select_for_key_uses_random_routing_when_jitter_is_full() {
         let addrs = [
             addr("10.0.0.1:50061"),
@@ -1154,6 +1326,17 @@ mod test {
         assert!((ranked_selection_probability(1, 4, 0.5) - (0.5 / total_weight)).abs() < 1e-12);
         assert!((ranked_selection_probability(2, 4, 0.5) - (0.25 / total_weight)).abs() < 1e-12);
         assert!((ranked_selection_probability(3, 4, 0.5) - (0.125 / total_weight)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn available_capacity_weight_drops_as_endpoint_saturates() {
+        let empty = available_capacity_weight(0, 64);
+        let half = available_capacity_weight(32, 64);
+        let full = available_capacity_weight(64, 64);
+
+        assert!(empty > half);
+        assert!(half > full);
+        assert!(full > 0.0);
     }
 
     #[tokio::test]

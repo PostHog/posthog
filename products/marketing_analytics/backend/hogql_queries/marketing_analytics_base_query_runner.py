@@ -55,6 +55,12 @@ COMPARE_PERIOD_FIELD = "_period"
 COMPARE_PERIOD_CURRENT = "current"
 COMPARE_PERIOD_PREVIOUS = "previous"
 
+# TTL schedule for the native cost materialization: recent windows carry a short TTL so an hourly
+# refresh keeps them fresh; older windows are computed once. Kept as a module constant so the Dagster
+# warmer (products/marketing_analytics/dags/marketing_precompute.py) drives ensure_precomputed with the
+# SAME freshness the read path expects — a mismatch would warm jobs the read then treats as stale.
+COSTS_PRECOMPUTE_TTL_SECONDS = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
+
 
 class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]):
     """Base class for marketing analytics query runners with shared functionality."""
@@ -147,7 +153,17 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         filtering). Built with the runner's user+modifiers so it's valid for resolving the final
         query, not just the factory's warehouse-name lookup."""
         modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
-        return Database.create_for(team=self.team, user=self.user, modifiers=modifiers)
+        # Pass the runner's timings so create_for's internal spans (data_warehouse_tables,
+        # filter_system_tables_for_user, saved queries, revenue views, …) surface in the query's
+        # timings instead of a discarded HogQLTimings — otherwise this whole build shows as an
+        # opaque flat span.
+        return Database.create_for(
+            team=self.team,
+            user=self.user,
+            modifiers=modifiers,
+            timings=self.timings,
+            build_postgres_foreign_keys=False,
+        )
 
     @cached_property
     def _shared_hogql_context(self) -> HogQLContext:
@@ -170,8 +186,10 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         """Get marketing source adapters using the new adapter architecture"""
         try:
             factory: MarketingSourceFactory = self._factory(date_range=date_range)
-            adapters = factory.create_adapters()
-            valid_adapters = factory.get_valid_adapters(adapters)
+            with self.timings.measure("ma_adapters_create"):
+                adapters = factory.create_adapters()
+            with self.timings.measure("ma_adapters_validate"):
+                valid_adapters = factory.get_valid_adapters(adapters)
 
             # Apply integration filter if present (getattr: some query kinds lack the field)
             integration_filter = getattr(self.query, "integrationFilter", None)
@@ -194,7 +212,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             return level
         return MarketingAnalyticsDrillDownLevel.CAMPAIGN
 
-    def _build_costs_from_precompute(self, date_range: QueryDateRange) -> Optional[ast.SelectQuery]:
+    def _build_costs_from_precompute(
+        self, date_range: QueryDateRange
+    ) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
         """Native-table cost source: ensure each source's cost rows are materialized at the grain
         matching the current drill-down (one lazy job per source), then read them with the SAME column
         contract `build_union_query_ast` produces — so `_build_campaign_cost_select` is unchanged.
@@ -210,7 +230,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             database=self._shared_hogql_database,
         )
         mat_factory = MarketingSourceFactory(context=mat_context)
-        mat_adapters = mat_factory.get_valid_adapters(mat_factory.create_adapters())
+        with self.timings.measure("ma_precompute_adapters"):
+            mat_adapters = mat_factory.get_valid_adapters(mat_factory.create_adapters())
         # NonIntegratedConversionsTableQuery has no integrationFilter field — getattr keeps the
         # precompute path working for it instead of raising AttributeError and falling back to S3.
         integration_filter = getattr(self.query, "integrationFilter", None)
@@ -229,38 +250,49 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
             return None
 
-        ttl_seconds = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
-        job_ids: list = []
+        ttl_seconds = COSTS_PRECOMPUTE_TTL_SECONDS
+        # Per source: read the native table when it materializes, otherwise keep that one source on the
+        # live S3 union. A single unmaterializable/syncing source must not force every source back to S3.
+        materialized_source_ids: list = []
+        s3_fallback_adapters: list[MarketingSourceAdapter] = []
         for adapter in mat_adapters:
-            insert_query = adapter.build_materialization_query(adapter.get_source_id())
+            with self.timings.measure("ma_precompute_build_mat_query"):
+                insert_query = adapter.build_materialization_query(adapter.get_source_id())
             if insert_query is None:
                 logger.info(
                     "marketing_costs_precompute",
-                    outcome="fallback_unmaterializable_source",
+                    outcome="source_fallback_unmaterializable",
                     team_id=self.team.pk,
                     grain=grain_value,
                     source_id=adapter.get_source_id(),
                 )
-                return None
-            result = ensure_precomputed(
-                team=self.team,
-                insert_query=insert_query,
-                time_range_start=date_range.date_from(),
-                time_range_end=date_range.date_to(),
-                ttl_seconds=ttl_seconds,
-                table=LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
-            )
+                s3_fallback_adapters.append(adapter)
+                continue
+            with self.timings.measure("ma_precompute_ensure"):
+                result = ensure_precomputed(
+                    team=self.team,
+                    insert_query=insert_query,
+                    time_range_start=date_range.date_from(),
+                    time_range_end=date_range.date_to(),
+                    ttl_seconds=ttl_seconds,
+                    table=LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
+                )
             if not result.ready:
                 logger.info(
                     "marketing_costs_precompute",
-                    outcome="fallback_jobs_not_ready",
+                    outcome="source_fallback_jobs_not_ready",
                     team_id=self.team.pk,
                     grain=grain_value,
                     source_id=adapter.get_source_id(),
                 )
-                return None
-            job_ids.extend(result.job_ids)
-        if not job_ids:
+                s3_fallback_adapters.append(adapter)
+                continue
+            # The ensure_precomputed call above materialized this source. We read by source, not by
+            # result.job_ids, because the `marketing_costs_precomputed` view already collapses each cell to its latest job.
+            materialized_source_ids.append(adapter.get_source_id())
+
+        if not materialized_source_ids:
+            # Nothing materialized — let the caller read every source live, as before.
             logger.info(
                 "marketing_costs_precompute",
                 outcome="fallback_no_jobs",
@@ -270,8 +302,15 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
             return None
 
+        cost_sources: list[ast.SelectQuery | ast.SelectSetQuery] = [
+            self._costs_native_read_query(materialized_source_ids, grain, date_range)
+        ]
+        # Sources that couldn't materialize stay on the live S3 union so the dashboard stays complete.
+        if s3_fallback_adapters:
+            cost_sources.append(mat_factory.build_union_query_ast(s3_fallback_adapters))
+
         self._costs_precompute_used = True
-        self._costs_sources_materialized = len(mat_adapters)
+        self._costs_sources_materialized = len(mat_adapters) - len(s3_fallback_adapters)
         self._costs_grain = grain_value
         logger.info(
             "marketing_costs_precompute",
@@ -279,40 +318,33 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             team_id=self.team.pk,
             grain=grain_value,
             source_count=len(mat_adapters),
-            job_count=len(job_ids),
+            precompute_sources=len(mat_adapters) - len(s3_fallback_adapters),
+            s3_fallback_sources=len(s3_fallback_adapters),
+            materialized_source_count=len(materialized_source_ids),
         )
-        return self._costs_native_read_query(job_ids, grain, date_range)
+        if len(cost_sources) == 1:
+            return cost_sources[0]
+        return ast.SelectSetQuery.create_from_queries(cost_sources, set_operator="UNION ALL")
 
     def _costs_native_read_query(
-        self, job_ids: list, grain: MarketingAnalyticsDrillDownLevel, date_range: QueryDateRange
+        self, source_ids: list, grain: MarketingAnalyticsDrillDownLevel, date_range: QueryDateRange
     ) -> ast.SelectQuery:
-        """Read materialized cost rows for the given source jobs + grain, re-aliased to the adapter
-        column contract so the campaign_costs CTE GROUP BY works identically to the live union.
+        """Read deduplicated cost rows for the given materialized sources + grain, re-aliased to the
+        adapter column contract so the campaign_costs CTE GROUP BY works identically to the live union.
 
-        `cost_date` is bounded to the request's `date_range` with the same inclusive `toDateTime`
-        comparison the live adapters use (`_get_where_conditions`). The `job_id` filter alone is not
-        enough: the lazy framework reuses a job whose materialized window can be wider than the
-        request (e.g. one period of a compare query reusing the other's window), so without the date
-        bound the read over-counts boundary/overlap days.
-
-        The same cost cell (source/campaign/ad/day) can also be materialized under several job_ids — a
-        re-materialization once the day matures (the source revises the figure), an exact duplicate from
-        a double-triggered job, or a compare period reusing the other's wider window. job_id is in the
-        ReplacingMergeTree sort key, so those survive as distinct rows and a bare SUM downstream would
-        double-count. We collapse each cell to its latest job via argMax(metric, computed_at)
-        (computed_at is the ReplacingMergeTree version), so a matured value supersedes the stale one and
-        exact duplicates fold together — mirroring the conversion/touchpoint read dedup."""
+        Reads the `marketing_costs_precomputed` view, not the raw `marketing_costs_preaggregated` table. The raw
+        table is a ReplacingMergeTree whose sort key includes `job_id`, so the same cost cell can survive
+        under several job_ids (a re-materialized matured day, a double-triggered job, a compare period
+        reusing a wider window). The view collapses each cell to its latest job via argMax(computed_at),
+        so we filter by source (not job_id) and let the view own the dedup — one definition shared with
+        every other reader. `cost_date` is bounded to the request window with the same inclusive
+        `toDateTime` comparison the live adapters use. team_id scoping is enforced inside the view (its
+        inner raw-table reference carries the mandatory team_id guard), so no explicit filter here."""
         adapter = MarketingSourceAdapter
 
         def field(name: str) -> ast.Expr:
             return ast.Field(chain=[name])
 
-        def latest(name: str) -> ast.Expr:
-            # Metric from the cell's most recently computed job (ReplacingMergeTree version).
-            return ast.Call(name="argMax", args=[field(name), field("computed_at")])
-
-        # Cost-cell identity (everything that isn't a metric). The query groups by these plus cost_date
-        # so each cell folds to one latest-job row; with no duplicate jobs it is one row per cell, as before.
         dimension_columns: list[tuple[str, str]] = [
             (adapter.match_key_field, "match_key"),
             (adapter.campaign_name_field, "campaign_name"),
@@ -333,36 +365,29 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
 
         select_columns: list[ast.Expr] = [ast.Alias(alias=alias, expr=field(name)) for alias, name in dimension_columns]
+        # Metrics come pre-deduplicated from the view, so a bare read is correct — the downstream
+        # campaign_costs CTE still sums across days per campaign.
         select_columns.extend(
             [
-                ast.Alias(alias=adapter.impressions_field, expr=latest("impressions")),
-                ast.Alias(alias=adapter.clicks_field, expr=latest("clicks")),
-                ast.Alias(alias=adapter.cost_field, expr=latest("cost")),
-                ast.Alias(alias=adapter.reported_conversion_field, expr=latest("reported_conversions")),
-                ast.Alias(alias=adapter.reported_conversion_value_field, expr=latest("reported_conversion_value")),
+                ast.Alias(alias=adapter.impressions_field, expr=field("impressions")),
+                ast.Alias(alias=adapter.clicks_field, expr=field("clicks")),
+                ast.Alias(alias=adapter.cost_field, expr=field("cost")),
+                ast.Alias(alias=adapter.reported_conversion_field, expr=field("reported_conversions")),
+                ast.Alias(alias=adapter.reported_conversion_value_field, expr=field("reported_conversion_value")),
             ]
         )
 
-        # cost_date stays out of the SELECT (the downstream campaign_costs CTE sums across days per
-        # campaign) but anchors the grouping so each per-day cell collapses independently.
-        group_by_exprs: list[ast.Expr] = [field(name) for _, name in dimension_columns]
-        group_by_exprs.append(field("cost_date"))
-
         return ast.SelectQuery(
             select=select_columns,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "marketing_costs_preaggregated"])),
-            group_by=group_by_exprs,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["marketing_costs_precomputed"])),
             where=ast.And(
                 exprs=[
                     ast.Call(
                         name="in",
                         args=[
-                            field("job_id"),
-                            ast.Tuple(exprs=[ast.Constant(value=str(jid)) for jid in job_ids]),
+                            field("source_id"),
+                            ast.Tuple(exprs=[ast.Constant(value=str(sid)) for sid in source_ids]),
                         ],
-                    ),
-                    ast.CompareOperation(
-                        left=field("team_id"), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=self.team.pk)
                     ),
                     ast.CompareOperation(
                         left=field("grain"),
@@ -877,21 +902,30 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Apply drill-down level from query to config
             self._apply_drill_down_level()
 
-            # Get marketing source adapters
-            adapters = self._get_marketing_source_adapters(date_range=self.query_date_range)
+            # Force the shared warehouse Database build here, in its own span, so its cost is isolated
+            # from adapter construction (both otherwise collapse into ma_get_adapters via the cached
+            # property's first access).
+            with self.timings.measure("ma_build_database"):
+                _ = self._shared_hogql_database
 
             # Build the cost source. When cost precompute is enabled, read the native materialized table
             # (no S3); fall back to the live S3 adapter union if not enabled or jobs aren't ready.
             union_subquery: ast.SelectQuery | ast.SelectSetQuery | None = None
             if self.config.costs_precomputation_enabled:
-                try:
-                    union_subquery = self._build_costs_from_precompute(self.query_date_range)
-                except Exception:
-                    logger.exception("cost_precompute_failed", team_id=self.team.pk)
-                    union_subquery = None
+                with self.timings.measure("ma_build_costs_precompute"):
+                    try:
+                        union_subquery = self._build_costs_from_precompute(self.query_date_range)
+                    except Exception:
+                        logger.exception("cost_precompute_failed", team_id=self.team.pk)
+                        union_subquery = None
             if union_subquery is None:
-                # AST form to skip parse_select.
-                union_subquery = self._factory(date_range=self.query_date_range).build_union_query_ast(adapters)
+                # Only the S3 fallback consumes the live adapters. When precompute serves the query
+                # they'd be built and thrown away, so defer construction into this branch.
+                with self.timings.measure("ma_get_adapters"):
+                    adapters = self._get_marketing_source_adapters(date_range=self.query_date_range)
+                with self.timings.measure("ma_build_union_s3"):
+                    # AST form to skip parse_select.
+                    union_subquery = self._factory(date_range=self.query_date_range).build_union_query_ast(adapters)
 
             # Get conversion goals and filter out invalid ones
             conversion_goals = self._get_team_conversion_goals()

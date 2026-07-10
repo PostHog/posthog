@@ -2,10 +2,9 @@ import { kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import api from 'lib/api'
 
-import api, { ApiError } from 'lib/api'
-
+import { isApiNotFound, loadErrorMessage } from '../lib/load-error'
 import { phDebugQueryParams } from '../lib/ph-debug'
 import { Task, type TaskUpsertProps } from '../types/taskTypes'
 import type { taskLogicType } from './taskLogicType'
@@ -13,23 +12,6 @@ import { tasksLogic } from './tasksLogic'
 
 export interface TaskLogicProps {
     taskId: string
-}
-
-function isApiNotFound(errorObject: unknown): boolean {
-    return errorObject instanceof ApiError && errorObject.status === 404
-}
-
-function loadErrorMessage(error: string, errorObject: unknown): string {
-    if (error) {
-        return error
-    }
-    if (errorObject instanceof ApiError && (errorObject.detail || errorObject.statusText)) {
-        return errorObject.detail || errorObject.statusText || 'Something went wrong.'
-    }
-    if (errorObject instanceof Error && errorObject.message) {
-        return errorObject.message
-    }
-    return 'Something went wrong.'
 }
 
 export const taskLogic = kea<taskLogicType>([
@@ -49,20 +31,16 @@ export const taskLogic = kea<taskLogicType>([
                     }
                 },
                 runTask: async () => {
-                    const response = await api.tasks.run(props.taskId)
-                    lemonToast.success('Task run started')
-                    return response
+                    return await api.tasks.run(props.taskId)
                 },
                 deleteTask: async () => {
                     await api.tasks.delete(props.taskId)
-                    lemonToast.success('Task archived')
                     tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks())
                     router.actions.push('/tasks')
                     return null
                 },
                 updateTask: async ({ data }: { data: TaskUpsertProps }) => {
                     const updatedTask = await api.tasks.update(props.taskId, data)
-                    lemonToast.success('Task updated')
                     tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks())
                     return updatedTask
                 },

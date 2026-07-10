@@ -4,7 +4,6 @@ import { instanceSettingActivityDescriber } from 'lib/components/ActivityLog/act
 import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
 import { ActivityLogItem, Describer, defaultDescriber } from 'lib/components/ActivityLog/humanizeActivity'
 import { actionActivityDescriber } from 'scenes/actions/actionActivityDescriber'
-import { alertConfigurationActivityDescriber } from 'scenes/alerts/activityDescriptions'
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
 import { userActivityDescriber } from 'scenes/authentication/shared/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
@@ -38,6 +37,7 @@ import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescribe
 
 import { ActivityScope } from '~/types'
 
+import { alertConfigurationActivityDescriber } from 'products/alerts/frontend/components/activityDescriptions'
 import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
 import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'

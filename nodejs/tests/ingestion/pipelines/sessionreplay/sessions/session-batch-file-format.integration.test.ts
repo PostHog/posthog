@@ -35,13 +35,11 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-file-storage'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
-import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
-import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { createMockEncryptor, createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
-import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
+import { createMockEncryptor, createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
+import { RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 jest.mock('~/ingestion/pipelines/sessionreplay/sessions/session-feature-recorder', () => ({
@@ -105,9 +103,6 @@ describe('session recording integration', () => {
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockFeatureStore: jest.Mocked<SessionFeatureStore>
-    let mockSessionTracker: jest.Mocked<SessionTracker>
-    let mockSessionFilter: jest.Mocked<SessionFilter>
-    let mockKeyStore: jest.Mocked<KeyStore>
     let mockEncryptor: jest.Mocked<RecordingEncryptor>
     let batchBuffer: Uint8Array
     let currentOffset: number
@@ -158,16 +153,6 @@ describe('session recording integration', () => {
             storeSessionFeatures: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionFeatureStore>
 
-        mockSessionTracker = {
-            trackSession: jest.fn().mockResolvedValue(false),
-        } as unknown as jest.Mocked<SessionTracker>
-
-        mockSessionFilter = {
-            isBlocked: jest.fn().mockResolvedValue(false),
-            handleNewSession: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<SessionFilter>
-
-        mockKeyStore = createMockKeyStore()
         mockEncryptor = createMockEncryptor()
 
         recorder = new SessionBatchRecorder(
@@ -176,9 +161,6 @@ describe('session recording integration', () => {
             mockMetadataStore,
             mockConsoleLogStore,
             mockFeatureStore,
-            mockSessionTracker,
-            mockSessionFilter,
-            mockKeyStore,
             mockEncryptor
         )
     })
@@ -191,6 +173,8 @@ describe('session recording integration', () => {
         team: {
             teamId,
             consoleLogIngestionEnabled: false,
+            aiTrainingOptedIn: true,
+            firstPartyHosts: [],
         },
         message: {
             distinct_id: 'distinct_id',
@@ -259,7 +243,7 @@ describe('session recording integration', () => {
 
         // Record all messages
         for (const message of messages) {
-            await recorder.record(message)
+            await recorder.record(message, '30d', createMockSessionKey())
         }
 
         // Flush and get metadata

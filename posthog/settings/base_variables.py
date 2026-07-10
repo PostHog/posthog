@@ -1,5 +1,6 @@
 import os
 import sys
+from datetime import datetime
 
 import structlog
 
@@ -26,6 +27,9 @@ TEST = get_from_env(
 # `dbshell` there is no Python REPL (it execs the DB client), so nothing to restore.
 IS_INTERACTIVE_SHELL: bool = len(sys.argv) > 1 and sys.argv[1] in ("shell", "dbshell")
 COMMAND_EXEC_AUDIT_ENABLED: bool = get_from_env("COMMAND_EXEC_AUDIT_ENABLED", not TEST, type_cast=str_to_bool)
+# Kill-switch for routing JSONField (jsonb) decode through orjson (see posthog/helpers/orjson_jsonfield.py).
+# Process-wide once applied in ready(), so keep it disable-able via env without a code revert.
+JSONFIELD_ORJSON_DECODE: bool = get_from_env("JSONFIELD_ORJSON_DECODE", True, type_cast=str_to_bool)
 STATIC_COLLECTION = get_from_env("STATIC_COLLECTION", False, type_cast=str_to_bool)
 DEMO: bool = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
 CLOUD_DEPLOYMENT: str | None = get_from_env(
@@ -63,6 +67,18 @@ GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RE
 # background agents, etc). Used by /api/llm_analytics/personal_spend/.
 # Override in tests via @override_settings to point at a per-test team.
 LLM_ANALYTICS_INTERNAL_TEAM_ID: int = 2
+
+# Shared secret for EU→US personal-spend proxy calls (products/ai_observability).
+# Must hold the same value in both regions; unset disables the proxy.
+PERSONAL_SPEND_CROSS_REGION_SECRET: str = get_from_env("PERSONAL_SPEND_CROSS_REGION_SECRET", "")
+
+# Override for the AI observability trial-eval deprecation cutoff
+AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE: str | None = get_from_env(
+    "AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE", optional=True
+)
+if AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE:
+    # Fail at boot on a malformed value rather than 500ing requests and temporal runs later.
+    datetime.fromisoformat(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE)
 
 # Duckgres - URL, internal secret, and PG endpoint for the managed warehouse service
 DUCKGRES_API_URL: str | None = get_from_env("DUCKGRES_API_URL", optional=True)

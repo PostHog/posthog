@@ -33,8 +33,17 @@ export const MembersListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Match against member `first_name`, `last_name`, and `email`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, prefix-as-you-type) together, ordered exact-first; each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters."
+            "Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters."
         ),
+})
+
+export const MembersGithubLoginRetrieveParams = /* @__PURE__ */ zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
+    user__uuid: zod.string(),
 })
 
 export const RolesListParams = /* @__PURE__ */ zod.object({
@@ -71,183 +80,6 @@ export const RolesRoleMembershipsListParams = /* @__PURE__ */ zod.object({
 export const RolesRoleMembershipsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
-export const ActivityLogListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const activityLogListQueryPageSizeDefault = 100
-export const activityLogListQueryPageSizeMax = 1000
-
-export const ActivityLogListQueryParams = /* @__PURE__ */ zod.object({
-    item_id: zod.string().min(1).optional().describe('Filter by the ID of the affected resource.'),
-    page: zod
-        .number()
-        .min(1)
-        .optional()
-        .describe(
-            'Page number for pagination. When provided, uses page-based pagination ordered by most recent first.'
-        ),
-    page_size: zod
-        .number()
-        .min(1)
-        .max(activityLogListQueryPageSizeMax)
-        .default(activityLogListQueryPageSizeDefault)
-        .describe('Number of results per page (default: 100, max: 1000). Only used with page-based pagination.'),
-    scope: zod
-        .enum([
-            'Cohort',
-            'FeatureFlag',
-            'Person',
-            'Group',
-            'Insight',
-            'Plugin',
-            'PluginConfig',
-            'HogFunction',
-            'HogFlow',
-            'DataManagement',
-            'EventDefinition',
-            'PropertyDefinition',
-            'Notebook',
-            'Endpoint',
-            'EndpointVersion',
-            'Dashboard',
-            'Replay',
-            'Experiment',
-            'ExperimentHoldout',
-            'ExperimentSavedMetric',
-            'Survey',
-            'EarlyAccessFeature',
-            'SessionRecordingPlaylist',
-            'Comment',
-            'Team',
-            'Project',
-            'ErrorTrackingIssue',
-            'DataWarehouseSavedQuery',
-            'LegalDocument',
-            'Organization',
-            'OrganizationDomain',
-            'OrganizationMembership',
-            'Role',
-            'UserGroup',
-            'BatchExport',
-            'BatchImport',
-            'ExportedAsset',
-            'Integration',
-            'Annotation',
-            'Tag',
-            'TaggedItem',
-            'Subscription',
-            'PersonalAPIKey',
-            'ProjectSecretAPIKey',
-            'OAuthApplication',
-            'User',
-            'Action',
-            'AlertConfiguration',
-            'Threshold',
-            'AlertSubscription',
-            'ExternalDataSource',
-            'ExternalDataSchema',
-            'Evaluation',
-            'LLMTrace',
-            'WebAnalyticsFilterPreset',
-            'CustomerProfileConfig',
-            'Log',
-            'LogsAlertConfiguration',
-            'LogsExclusionRule',
-            'DashboardWidget',
-            'ProductTour',
-            'Ticket',
-            'InstanceSetting',
-            'SignalScoutConfig',
-        ])
-        .optional()
-        .describe(
-            'Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".\n\n* `Cohort` - Cohort\n* `FeatureFlag` - FeatureFlag\n* `Person` - Person\n* `Group` - Group\n* `Insight` - Insight\n* `Plugin` - Plugin\n* `PluginConfig` - PluginConfig\n* `HogFunction` - HogFunction\n* `HogFlow` - HogFlow\n* `DataManagement` - DataManagement\n* `EventDefinition` - EventDefinition\n* `PropertyDefinition` - PropertyDefinition\n* `Notebook` - Notebook\n* `Endpoint` - Endpoint\n* `EndpointVersion` - EndpointVersion\n* `Dashboard` - Dashboard\n* `Replay` - Replay\n* `Experiment` - Experiment\n* `ExperimentHoldout` - ExperimentHoldout\n* `ExperimentSavedMetric` - ExperimentSavedMetric\n* `Survey` - Survey\n* `EarlyAccessFeature` - EarlyAccessFeature\n* `SessionRecordingPlaylist` - SessionRecordingPlaylist\n* `Comment` - Comment\n* `Team` - Team\n* `Project` - Project\n* `ErrorTrackingIssue` - ErrorTrackingIssue\n* `DataWarehouseSavedQuery` - DataWarehouseSavedQuery\n* `LegalDocument` - LegalDocument\n* `Organization` - Organization\n* `OrganizationDomain` - OrganizationDomain\n* `OrganizationMembership` - OrganizationMembership\n* `Role` - Role\n* `UserGroup` - UserGroup\n* `BatchExport` - BatchExport\n* `BatchImport` - BatchImport\n* `ExportedAsset` - ExportedAsset\n* `Integration` - Integration\n* `Annotation` - Annotation\n* `Tag` - Tag\n* `TaggedItem` - TaggedItem\n* `Subscription` - Subscription\n* `PersonalAPIKey` - PersonalAPIKey\n* `ProjectSecretAPIKey` - ProjectSecretAPIKey\n* `OAuthApplication` - OAuthApplication\n* `User` - User\n* `Action` - Action\n* `AlertConfiguration` - AlertConfiguration\n* `Threshold` - Threshold\n* `AlertSubscription` - AlertSubscription\n* `ExternalDataSource` - ExternalDataSource\n* `ExternalDataSchema` - ExternalDataSchema\n* `Evaluation` - Evaluation\n* `LLMTrace` - LLMTrace\n* `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset\n* `CustomerProfileConfig` - CustomerProfileConfig\n* `Log` - Log\n* `LogsAlertConfiguration` - LogsAlertConfiguration\n* `LogsExclusionRule` - LogsExclusionRule\n* `DashboardWidget` - DashboardWidget\n* `ProductTour` - ProductTour\n* `Ticket` - Ticket\n* `InstanceSetting` - InstanceSetting\n* `SignalScoutConfig` - SignalScoutConfig'
-        ),
-    scopes: zod
-        .array(
-            zod
-                .enum([
-                    'Cohort',
-                    'FeatureFlag',
-                    'Person',
-                    'Group',
-                    'Insight',
-                    'Plugin',
-                    'PluginConfig',
-                    'HogFunction',
-                    'HogFlow',
-                    'DataManagement',
-                    'EventDefinition',
-                    'PropertyDefinition',
-                    'Notebook',
-                    'Endpoint',
-                    'EndpointVersion',
-                    'Dashboard',
-                    'Replay',
-                    'Experiment',
-                    'ExperimentHoldout',
-                    'ExperimentSavedMetric',
-                    'Survey',
-                    'EarlyAccessFeature',
-                    'SessionRecordingPlaylist',
-                    'Comment',
-                    'Team',
-                    'Project',
-                    'ErrorTrackingIssue',
-                    'DataWarehouseSavedQuery',
-                    'LegalDocument',
-                    'Organization',
-                    'OrganizationDomain',
-                    'OrganizationMembership',
-                    'Role',
-                    'UserGroup',
-                    'BatchExport',
-                    'BatchImport',
-                    'ExportedAsset',
-                    'Integration',
-                    'Annotation',
-                    'Tag',
-                    'TaggedItem',
-                    'Subscription',
-                    'PersonalAPIKey',
-                    'ProjectSecretAPIKey',
-                    'OAuthApplication',
-                    'User',
-                    'Action',
-                    'AlertConfiguration',
-                    'Threshold',
-                    'AlertSubscription',
-                    'ExternalDataSource',
-                    'ExternalDataSchema',
-                    'Evaluation',
-                    'LLMTrace',
-                    'WebAnalyticsFilterPreset',
-                    'CustomerProfileConfig',
-                    'Log',
-                    'LogsAlertConfiguration',
-                    'LogsExclusionRule',
-                    'DashboardWidget',
-                    'ProductTour',
-                    'Ticket',
-                    'InstanceSetting',
-                    'SignalScoutConfig',
-                ])
-                .describe(
-                    '* `Cohort` - Cohort\n* `FeatureFlag` - FeatureFlag\n* `Person` - Person\n* `Group` - Group\n* `Insight` - Insight\n* `Plugin` - Plugin\n* `PluginConfig` - PluginConfig\n* `HogFunction` - HogFunction\n* `HogFlow` - HogFlow\n* `DataManagement` - DataManagement\n* `EventDefinition` - EventDefinition\n* `PropertyDefinition` - PropertyDefinition\n* `Notebook` - Notebook\n* `Endpoint` - Endpoint\n* `EndpointVersion` - EndpointVersion\n* `Dashboard` - Dashboard\n* `Replay` - Replay\n* `Experiment` - Experiment\n* `ExperimentHoldout` - ExperimentHoldout\n* `ExperimentSavedMetric` - ExperimentSavedMetric\n* `Survey` - Survey\n* `EarlyAccessFeature` - EarlyAccessFeature\n* `SessionRecordingPlaylist` - SessionRecordingPlaylist\n* `Comment` - Comment\n* `Team` - Team\n* `Project` - Project\n* `ErrorTrackingIssue` - ErrorTrackingIssue\n* `DataWarehouseSavedQuery` - DataWarehouseSavedQuery\n* `LegalDocument` - LegalDocument\n* `Organization` - Organization\n* `OrganizationDomain` - OrganizationDomain\n* `OrganizationMembership` - OrganizationMembership\n* `Role` - Role\n* `UserGroup` - UserGroup\n* `BatchExport` - BatchExport\n* `BatchImport` - BatchImport\n* `ExportedAsset` - ExportedAsset\n* `Integration` - Integration\n* `Annotation` - Annotation\n* `Tag` - Tag\n* `TaggedItem` - TaggedItem\n* `Subscription` - Subscription\n* `PersonalAPIKey` - PersonalAPIKey\n* `ProjectSecretAPIKey` - ProjectSecretAPIKey\n* `OAuthApplication` - OAuthApplication\n* `User` - User\n* `Action` - Action\n* `AlertConfiguration` - AlertConfiguration\n* `Threshold` - Threshold\n* `AlertSubscription` - AlertSubscription\n* `ExternalDataSource` - ExternalDataSource\n* `ExternalDataSchema` - ExternalDataSchema\n* `Evaluation` - Evaluation\n* `LLMTrace` - LLMTrace\n* `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset\n* `CustomerProfileConfig` - CustomerProfileConfig\n* `Log` - Log\n* `LogsAlertConfiguration` - LogsAlertConfiguration\n* `LogsExclusionRule` - LogsExclusionRule\n* `DashboardWidget` - DashboardWidget\n* `ProductTour` - ProductTour\n* `Ticket` - Ticket\n* `InstanceSetting` - InstanceSetting\n* `SignalScoutConfig` - SignalScoutConfig'
-                )
-        )
-        .optional()
-        .describe(
-            'Filter by multiple activity scopes, comma-separated. Values must be valid ActivityScope enum values. E.g. "FeatureFlag,Insight".'
-        ),
-    user: zod.string().optional().describe('Filter by user UUID who performed the action.'),
 })
 
 export const AdvancedActivityLogsListParams = /* @__PURE__ */ zod.object({

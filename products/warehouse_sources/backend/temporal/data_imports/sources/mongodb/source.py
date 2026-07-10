@@ -68,6 +68,16 @@ _MONGO_CONNECT_FAILED_MESSAGE = (
     "Could not connect to your MongoDB database. Check your connection string and credentials, then try again."
 )
 
+# Connection succeeded but nothing importable came back. This is usually a wrong-database or
+# permission problem rather than a genuinely empty database: a connection string ending in /admin
+# or /test lands on an empty system database, and a user without read access sees no collections.
+_MONGO_NO_COLLECTIONS_MESSAGE = (
+    "PostHog connected to MongoDB but found no collections in the selected database. Check that "
+    "your connection string points at the database that holds your data (a string ending in /admin "
+    "or /test connects to an empty system database) or set the Database name field, and make sure "
+    "your user has read access to that database's collections."
+)
+
 # Substrings pymongo embeds in ServerSelectionTimeoutError when the OS can't resolve the host.
 _DNS_RESOLUTION_FAILURE_MARKERS = (
     "No address associated with hostname",
@@ -209,33 +219,45 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         try:
             collection_names = get_collection_names(config, team_id=team_id)
             if len(collection_names) == 0:
-                return False, "No collections found in database"
+                return False, _MONGO_NO_COLLECTIONS_MESSAGE
         except OperationFailure as e:
             # pymongo's OperationFailure stringifies the full server response — clusterTime,
             # signature hashes, BSON ids — so str(e) must never be surfaced. Map the stable error
             # markers to a clean message; an authorization failure ("not authorized") means the
             # credentials are valid but lack read access, which is distinct from a bad password.
-            capture_exception(e)
-            if "not authorized" in str(e):
+            # Both are user-side credential/permission problems we already surface an actionable
+            # message for and classify as non-retryable — never a PostHog bug — so don't report
+            # them to error tracking as non-actionable noise.
+            message = str(e)
+            if "not authorized" in message:
                 return False, _MONGO_NOT_AUTHORIZED_MESSAGE
-            return False, _MONGO_AUTHENTICATION_FAILED_MESSAGE
+            if any(marker in message for marker in ("AuthenticationFailed", "Authentication failed", "bad auth")):
+                return False, _MONGO_AUTHENTICATION_FAILED_MESSAGE
+            # Any other OperationFailure on listCollections is unexpected (server bug, unsupported
+            # option, ...) — capture it so the signal isn't lost, and surface a generic message
+            # rather than mislabelling it as an authentication problem.
+            capture_exception(e)
+            return False, _MONGO_CONNECT_FAILED_MESSAGE
         except ServerSelectionTimeoutError as e:
             # pymongo dumps a verbose topology description into str(e); surface a concise,
             # actionable message instead. A DNS failure means the host doesn't resolve at all,
-            # which is distinct from an allowlist/reachability problem.
-            capture_exception(e)
+            # which is distinct from an allowlist/reachability problem. Server selection only times
+            # out on an upstream connectivity problem the user must fix (cluster paused, IP not
+            # allowlisted, host unresolved, TLS handshake rejected) — never our bug — and we already
+            # return an actionable message for it, so don't report it as error-tracking noise.
             message = str(e)
             if any(marker in message for marker in _DNS_RESOLUTION_FAILURE_MARKERS):
                 return False, _MONGO_HOST_UNRESOLVED_MESSAGE
             return False, _MONGO_UNREACHABLE_MESSAGE
         except Exception as e:
-            capture_exception(e)
             # pymongo raises InvalidURI with the RFC-3986 hint before any network call when the
-            # credentials contain unescaped reserved characters; surface the actionable message
-            # rather than the raw driver string. Any other exception falls back to a generic message
-            # so internal exception text never reaches the user.
+            # credentials contain unescaped reserved characters. This is a malformed connection
+            # string the user must fix — already surfaced with an actionable message — so don't
+            # report it to error tracking as a bug. Any other exception is unexpected: capture it
+            # and fall back to a generic message so internal exception text never reaches the user.
             if "must be escaped according to RFC 3986" in str(e):
                 return False, _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
+            capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
 
         return True, None

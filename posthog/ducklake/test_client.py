@@ -39,9 +39,8 @@ class TestDuckLakeModelRedirect:
     def test_materialized_model_resolves_to_ducklake_table_not_s3(self):
         from posthog.models import Organization, Team
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
         org = Organization.objects.create(name="ducklake-redirect")
         team = Team.objects.create(organization=org)
@@ -76,11 +75,13 @@ class TestDuckLakeModelRedirect:
         from posthog.ducklake.common import duckgres_data_imports_schema, duckgres_data_imports_table_name
         from posthog.models import Organization, Team
 
-        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-        from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
-        from products.warehouse_sources.backend.types import ExternalDataSourceType
+        from products.warehouse_sources.backend.facade.models import (
+            DataWarehouseCredential,
+            DataWarehouseTable,
+            ExternalDataSchema,
+            ExternalDataSource,
+        )
+        from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
         org = Organization.objects.create(name="ducklake-source-redirect")
         team = Team.objects.create(organization=org)

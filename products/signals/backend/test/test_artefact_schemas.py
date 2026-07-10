@@ -11,7 +11,9 @@ from products.signals.backend.artefact_schemas import (
     CodeReference,
     Commit,
     NoteArtefact,
+    SummaryChange,
     TaskRunArtefact,
+    TitleChange,
     artefact_type_for,
     parse_artefact_content,
 )
@@ -88,6 +90,20 @@ class TestArtefactSchemas(SimpleTestCase):
         with self.assertRaises(ValidationError):
             NoteArtefact(note="   ")
 
+    def test_title_change_allows_null_old_title(self):
+        # A report with no prior title (null) is a valid before-state for the first edit.
+        change = TitleChange(new_title="A title")
+        assert change.old_title is None
+        assert change.new_title == "A title"
+
+    def test_title_change_rejects_blank_new_title(self):
+        with self.assertRaises(ValidationError):
+            TitleChange(old_title="old", new_title="   ")
+
+    def test_summary_change_rejects_blank_new_summary(self):
+        with self.assertRaises(ValidationError):
+            SummaryChange(old_summary="old", new_summary="   ")
+
 
 class TestValidateArtefactContent(SimpleTestCase):
     @parameterized.expand(
@@ -112,6 +128,8 @@ class TestValidateArtefactContent(SimpleTestCase):
                 {"repository": "PostHog/posthog", "branch": "b", "commit_sha": "abc123f", "message": "fix: x"},
             ),
             ("task_run", {"task_id": "t1", "run_id": None, "product": "signals", "type": "implementation"}),
+            ("title_change", {"old_title": "before", "new_title": "after"}),
+            ("summary_change", {"old_summary": None, "new_summary": "after"}),
         ]
     )
     def test_accepts_valid_content_for_type(self, artefact_type, content):
