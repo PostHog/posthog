@@ -12,6 +12,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
+import type { TrendsFilter } from '~/queries/schema/schema-general'
 import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -50,6 +51,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         isNonTimeSeriesDisplay,
         interval,
         usesInChartLegend,
+        insightFilter,
     } = useValues(insightVizDataLogic(insightProps))
     const { isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
     const {
@@ -62,6 +64,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const { featureFlags } = useValues(featureFlagLogic)
     const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
     const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
+    const styleRefreshEnabled = !!featureFlags[FEATURE_FLAGS.QUILL_CHART_STYLE_REFRESH]
 
     // The slope graph shows the first vs last interval, so it drops the options that need the points
     // between them (smoothing, multiple axes, alert/annotation overlays, statistical analysis).
@@ -97,6 +100,13 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const showDisplaySection =
         (isTrends && !isCalendarHeatmap) || isRetention || isTrendsFunnel || isStickiness || isLifecycle
     const showYAxisScale = !hideContinuousChartOptions && isTrends && !isCalendarHeatmap
+    // Only the quill line charts (trends/stickiness line and area, retention and funnel-trends
+    // graphs) draw curves, and only the style-refresh flag curves lines by default — without it
+    // there's no curvature to straighten. Retention and funnel trends default to their line graph
+    // when display is unset.
+    const isLineChartInsight = isLineDisplay || ((isRetention || isTrendsFunnel) && !display)
+    const showLineStyleConfig =
+        (isTrends || isStickiness || isRetention || isTrendsFunnel) && isLineChartInsight && styleRefreshEnabled
 
     // The box plot and slope graph only show a couple of options each; everything else falls
     // through to the full shared list.
@@ -203,6 +213,10 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         items.push({ title: 'Y-axis scale', items: [DisplayOptions.Scale] })
     }
 
+    if (showLineStyleConfig) {
+        items.push({ title: 'Line style', items: [DisplayOptions.LineStyle] })
+    }
+
     if (showYAxisScale && !isBoxPlot) {
         const statisticalItems: LemonMenuItem[] = [DisplayOptions.ConfidenceInterval]
         if (showConfidenceIntervals) {
@@ -248,6 +262,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
             : 0) +
         ((hasLegend || showFunnelLegendConfig) && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
+        (showLineStyleConfig && (insightFilter as TrendsFilter | undefined)?.chartStyle?.curve === 'linear' ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +

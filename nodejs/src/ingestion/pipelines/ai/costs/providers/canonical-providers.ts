@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-09 11:00:05 UTC
+// Generated at: 2026-07-09 20:31:42 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -57,11 +57,16 @@ export type CanonicalProvider =
     | 'gmicloud-bf16'
     | 'gmicloud-fp8'
     | 'google-ai-studio'
+    | 'google-ai-studio-flex'
     | 'google-ai-studio-global'
+    | 'google-ai-studio-global-flex'
+    | 'google-ai-studio-priority'
     | 'google-vertex'
     | 'google-vertex-eu'
     | 'google-vertex-europe'
     | 'google-vertex-global'
+    | 'google-vertex-global-flex'
+    | 'google-vertex-global-priority'
     | 'google-vertex-us'
     | 'google-vertex-us-central1'
     | 'google-vertex-us-east5'
@@ -108,6 +113,10 @@ export type CanonicalProvider =
     | 'open-inference-int8'
     | 'openai'
     | 'openai-default'
+    | 'openai-default-flex'
+    | 'openai-default-priority'
+    | 'openai-flex'
+    | 'openai-priority'
     | 'parasail-bf16'
     | 'parasail-fp4'
     | 'parasail-fp8'
@@ -154,7 +163,9 @@ export type CanonicalProvider =
     | 'wandb-fp8'
     | 'wandb-int4'
     | 'xai'
+    | 'xai-priority'
     | 'xai-zdr'
+    | 'xai-zdr-priority'
     | 'xiaomi-fp8'
     | 'z-ai'
     | 'z-ai-fp4'

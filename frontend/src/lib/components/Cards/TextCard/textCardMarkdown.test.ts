@@ -1,16 +1,14 @@
 import { JSONContent } from '@tiptap/core'
 
 import {
-    isTextCardMarkdownRoundTripSafe,
-    markdownToTextCardDoc,
-    textCardDocToMarkdown,
     TEXT_CARD_MARKDOWN_EXTENSIONS,
     TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS,
+    textCardConverter,
 } from './textCardMarkdown'
 
 describe('textCardMarkdown', () => {
     it.each([undefined, null, '', '   \n\t '])('returns an empty doc for blank markdown: %p', (markdown) => {
-        expect(markdownToTextCardDoc(markdown)).toEqual({
+        expect(textCardConverter.markdownToDoc(markdown)).toEqual({
             type: 'doc',
             content: [{ type: 'paragraph' }],
         })
@@ -18,7 +16,7 @@ describe('textCardMarkdown', () => {
 
     it('serializes an empty tiptap doc to an empty markdown string', () => {
         expect(
-            textCardDocToMarkdown({
+            textCardConverter.docToMarkdown({
                 type: 'doc',
                 content: [{ type: 'paragraph' }],
             })
@@ -26,15 +24,15 @@ describe('textCardMarkdown', () => {
     })
 
     it('parses legacy markdown into tiptap content', () => {
-        const doc = markdownToTextCardDoc('# Heading\n\n- Item 1\n- Item 2')
+        const doc = textCardConverter.markdownToDoc('# Heading\n\n- Item 1\n- Item 2')
         expect(doc.type).toBe('doc')
         expect(doc.content?.[0]).toMatchObject({ type: 'heading', attrs: { level: 1 } })
         expect(doc.content?.[1]).toMatchObject({ type: 'bulletList' })
     })
 
     it('serializes tiptap content back to markdown', () => {
-        const markdown = textCardDocToMarkdown(
-            markdownToTextCardDoc('**bold**\n\n1. first\n2. second\n\n![img](https://example.com/image.png)')
+        const markdown = textCardConverter.docToMarkdown(
+            textCardConverter.markdownToDoc('**bold**\n\n1. first\n2. second\n\n![img](https://example.com/image.png)')
         )
 
         expect(markdown).toContain('**bold**')
@@ -45,14 +43,14 @@ describe('textCardMarkdown', () => {
 
     it('parses and serializes strikethrough markdown', () => {
         const input = '~~crossed~~ and **bold**'
-        const doc = markdownToTextCardDoc(input)
+        const doc = textCardConverter.markdownToDoc(input)
         const paragraph = doc.content?.[0]
         expect(paragraph?.type).toBe('paragraph')
         const strikeText = paragraph?.content?.find(
             (n) => n.type === 'text' && n.marks?.some((m) => m.type === 'strike')
         )
         expect(strikeText).toMatchObject({ type: 'text', text: 'crossed' })
-        expect(textCardDocToMarkdown(doc)).toContain('~~crossed~~')
+        expect(textCardConverter.docToMarkdown(doc)).toContain('~~crossed~~')
     })
 
     it('preserves resized image dimensions when serializing markdown', () => {
@@ -71,8 +69,8 @@ describe('textCardMarkdown', () => {
             ],
         }
 
-        const markdown = textCardDocToMarkdown(doc)
-        const roundTripDoc = markdownToTextCardDoc(markdown)
+        const markdown = textCardConverter.docToMarkdown(doc)
+        const roundTripDoc = textCardConverter.markdownToDoc(markdown)
         const imageNode = roundTripDoc.content?.[0]
 
         expect(markdown).toContain('<img ')
@@ -90,7 +88,7 @@ describe('textCardMarkdown', () => {
         '- [x] done\n- [ ] pending',
         '![img](https://example.com/test.png)',
     ])('identifies round-trip safe markdown: %p', (markdown) => {
-        expect(isTextCardMarkdownRoundTripSafe(markdown)).toBe(true)
+        expect(textCardConverter.isRoundTripSafe(markdown)).toBe(true)
     })
 
     it('does not append storage metadata markers to markdown output', () => {
@@ -114,8 +112,8 @@ describe('textCardMarkdown', () => {
             ],
         }
 
-        const markdown = textCardDocToMarkdown(richDoc)
-        const roundTripDoc = markdownToTextCardDoc(markdown)
+        const markdown = textCardConverter.docToMarkdown(richDoc)
+        const roundTripDoc = textCardConverter.markdownToDoc(markdown)
 
         expect(markdown).toContain('++underlined++')
         expect(markdown).toContain('`inline code`')
@@ -124,10 +122,37 @@ describe('textCardMarkdown', () => {
         expect(roundTripDoc).not.toEqual(richDoc)
     })
 
+    it.each([['bold'], ['italic'], ['strike']])('keeps inline code innermost when a text node is also %s', (mark) => {
+        // A styled span ending on an inline code snippet used to serialize with the
+        // closing markers in the wrong order (e.g. **start `snippet**`), corrupting the card
+        const doc: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'paragraph',
+                    content: [
+                        { type: 'text', text: 'start ', marks: [{ type: mark }] },
+                        { type: 'text', text: 'snippet', marks: [{ type: mark }, { type: 'code' }] },
+                    ],
+                },
+            ],
+        }
+
+        const markdown = textCardDocToMarkdown(doc)
+        const reparsedSnippet = markdownToTextCardDoc(markdown).content?.[0]?.content?.find((node) =>
+            node.marks?.some((m) => m.type === 'code')
+        )
+
+        expect(markdown).toContain('`snippet`')
+        expect(reparsedSnippet?.text).toBe('snippet')
+        expect(reparsedSnippet?.marks?.map((m) => m.type).sort()).toEqual(['code', mark].sort())
+        expect(isTextCardMarkdownRoundTripSafe(markdown)).toBe(true)
+    })
+
     it('supports underline markdown round-trip', () => {
         const markdown = '++underlined++'
-        const doc = markdownToTextCardDoc(markdown)
-        const serialized = textCardDocToMarkdown(doc)
+        const doc = textCardConverter.markdownToDoc(markdown)
+        const serialized = textCardConverter.docToMarkdown(doc)
 
         expect(serialized).toContain('++underlined++')
     })
@@ -153,8 +178,8 @@ describe('textCardMarkdown', () => {
             ],
         }
 
-        const markdown = textCardDocToMarkdown(doc)
-        const roundTripDoc = markdownToTextCardDoc(markdown)
+        const markdown = textCardConverter.docToMarkdown(doc)
+        const roundTripDoc = textCardConverter.markdownToDoc(markdown)
         const wordArtNode = roundTripDoc.content?.[0]?.content?.find((node) => node.type === 'wordArt')
 
         expect(markdown).toContain(`<span data-word-art="${expectedStyle}"`)
@@ -164,7 +189,7 @@ describe('textCardMarkdown', () => {
             expect(markdown).toContain(`data-word-art-size="${expectedSize}"`)
         }
         expect(wordArtNode?.attrs).toEqual({ text, style: expectedStyle, size: expectedSize })
-        expect(isTextCardMarkdownRoundTripSafe(markdown)).toBe(true)
+        expect(textCardConverter.isRoundTripSafe(markdown)).toBe(true)
     })
 
     it('uses non-clickable links while editing and clickable links in readonly', () => {
