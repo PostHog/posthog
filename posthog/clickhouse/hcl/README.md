@@ -29,6 +29,7 @@ hcl/
   roles/ops/<env>/         # per-env OPS overlay (sharded_tophog zoo_path, prod-us ProfileEvents2, dev prom_metrics); env ∈ local/dev/prod-us/prod-eu
   roles/logs/shared/       # LOGS objects on every LOGS env
   roles/logs/<env>/        # per-env LOGS overlay (kafka/zoo_path/distributed variants; traces on prod only); env ∈ dev/prod-us/prod-eu
+  roles/single/local/      # the whole single-node `bin/start` dev schema, self-contained (env local-single, role `all`)
   <layer>/sql/<object>.sql # view/MV query bodies extracted from a layer, referenced as query = file("sql/<object>.sql")
   golden/<env>-<role>.hcl  # resolved composition per node (the desired schema); check.sh diffs against it
   sql/<env>-<role>.sql     # generated build-from-scratch CREATE schema per node (apply to a fresh ClickHouse)
@@ -36,6 +37,7 @@ hcl/
   dump-live.sh             # CI gate step 1 (live): introspect the migrated OPS/LOGS nodes into HCL dumps
   check-live.sh            # CI gate step 2 (offline): diff those dumps vs golden — catches migrations that desync from the HCL
   exclude.hcl              # objects the gate drops (transient + cross-cluster proxies + out-of-band-managed, not in the managed set)
+  exclude-<env>.hcl        # per-env override of the above, when that env's node owns what others only proxy (local-single)
   diff.sh                  # preview the DDL your uncommitted edits produce, per node
   gen-golden.sh            # (re)generate golden/  — hclexp load per node
   gen-sql.sh               # (re)generate sql/
@@ -72,6 +74,10 @@ versa). Fix the migration to match the HCL, or — if the change is intended —
 `gen-golden.sh`/`gen-sql.sh`, and add the migration (the normal change flow below). Step 2 is
 **enforced** (drift fails the smoke); export `VERIFY_LIVE_WARN=1` to make it informational while
 reconciling a new role.
+
+`VERIFY_LIVE_ENV=local-single` runs the same two steps against the single-node `bin/start` stack
+(role `all`, `:9000`, `exclude-local-single.hcl`). No CI job runs it — the single node's golden/sql
+freshness is covered offline by `check.sh`; wiring a live gate for it is a follow-up.
 
 Each managed role is compared against its `golden/local-<role>.hcl`. The local LOGS node runs a
 partial/newer schema than the cloud logs nodes, so `local logs` composes a self-contained

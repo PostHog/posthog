@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
-# Convergence gate, step 1 of 2: introspect the live OPS/LOGS nodes on a booted
-# multinode stack (see tools/infra-scripts/clickhouse-multinode/) into one HCL
-# dump per <env>-<role>. Step 2 (check-live.sh) diffs those dumps against the
-# committed golden — offline. Splitting keeps the cluster/network-dependent
-# capture separate from the deterministic comparison.
+# Convergence gate, step 1 of 2: introspect the live nodes of a booted dev stack into
+# one HCL dump per <env>-<role>. Step 2 (check-live.sh) diffs those dumps against the
+# committed golden — offline. Splitting keeps the cluster/network-dependent capture
+# separate from the deterministic comparison.
 #
-# Transient / unmanaged objects are dropped at introspect time via exclude.hcl.
+# Two dev stacks, selected by VERIFY_LIVE_ENV:
+#   local         the multinode stack (tools/infra-scripts/clickhouse-multinode/) —
+#                 one server per role, on the published ports below.
+#   local-single  the ordinary `bin/start` stack — ONE server, role `all`, on :9000.
+#
+# Transient / unmanaged objects are dropped at introspect time via exclude.hcl, or
+# exclude-<env>.hcl when that env needs a different set (local-single does: its
+# one node legitimately owns objects the satellite nodes only proxy).
 #
 # Usage: dump-live.sh [outdir]
 #   outdir defaults to $LIVE_DUMP_DIR, else a fresh temp dir. The dir is printed
@@ -13,7 +19,7 @@
 #   Keep it under $TMPDIR or the repo so the containerized hclexp can see it.
 #
 # Env knobs:
-#   VERIFY_LIVE_ENV=<env>  names the dump files (default: local).
+#   VERIFY_LIVE_ENV=<env>  which stack to dump + how the files are named (default: local).
 #   HCLEXP_BIN=<path>      local hclexp binary (host network); otherwise a
 #                          `--network host` container reaches the published ports.
 #   <ROLE>_HOST/_PORT/_DB  override a role's connection (e.g. OPS_PORT=9300).
@@ -21,8 +27,9 @@
 set -euo pipefail
 
 HCL=posthog/clickhouse/hcl
-EXCLUDE="$HCL/exclude.hcl"
 ENV="${VERIFY_LIVE_ENV:-local}"
+EXCLUDE="$HCL/exclude.hcl"
+[ -f "$HCL/exclude-$ENV.hcl" ] && EXCLUDE="$HCL/exclude-$ENV.hcl"
 CH_USER="${CLICKHOUSE_USER:-default}"
 CH_PASSWORD="${CLICKHOUSE_PASSWORD:-}"
 OUTDIR="${1:-${LIVE_DUMP_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/ch-live-dump.XXXXXX")}}"
@@ -32,16 +39,24 @@ mkdir -p "$OUTDIR"
 # Make it world-traversable so the container can read what the host wrote.
 chmod 0755 "$OUTDIR" 2>/dev/null || true
 
-# Match the published ports in docker-compose.multinode-clickhouse.yml.
+# Where each role's node listens.
 #   role  default-host  default-port  default-db
-ROLES=(
-  "data      localhost 9000 posthog"
-  "ops       localhost 9300 posthog"
-  "logs      localhost 9500 posthog"
-  "ai_events localhost 9100 posthog"
-  "aux       localhost 9200 posthog"
-  "sessions  localhost 9400 posthog"
-)
+if [ "$ENV" = "local-single" ]; then
+  # docker-compose.dev.yml: one server, every role's objects on it.
+  ROLES=(
+    "all       localhost 9000 posthog"
+  )
+else
+  # Match the published ports in docker-compose.multinode-clickhouse.yml.
+  ROLES=(
+    "data      localhost 9000 posthog"
+    "ops       localhost 9300 posthog"
+    "logs      localhost 9500 posthog"
+    "ai_events localhost 9100 posthog"
+    "aux       localhost 9200 posthog"
+    "sessions  localhost 9400 posthog"
+  )
+fi
 
 # Same pin as bin/hclexp; override for a single run via $HCLEXP_IMAGE.
 HCLEXP_IMAGE="${HCLEXP_IMAGE:-$(cat "$HCL/bin/image.txt")}"

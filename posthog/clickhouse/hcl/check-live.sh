@@ -21,8 +21,11 @@ set -euo pipefail
 HCL=posthog/clickhouse/hcl
 HCLEXP="$HCL/bin/hclexp"      # offline wrapper (no cluster network needed)
 GOLDEN="$HCL/golden"
-EXCLUDE="$HCL/exclude.hcl"
 ENV="${VERIFY_LIVE_ENV:-local}"
+# Same exclude dump-live.sh introspected with, so the gate ignores exactly what the
+# dump dropped (see exclude-local-single.hcl for why that env needs its own).
+EXCLUDE="$HCL/exclude.hcl"
+[ -f "$HCL/exclude-$ENV.hcl" ] && EXCLUDE="$HCL/exclude-$ENV.hcl"
 WARN="${VERIFY_LIVE_WARN:-0}"
 DUMPDIR="${1:-${LIVE_DUMP_DIR:?dump dir required (pass as arg1 or set LIVE_DUMP_DIR); run dump-live.sh first}}"
 

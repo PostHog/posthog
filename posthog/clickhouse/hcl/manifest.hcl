@@ -109,6 +109,22 @@ role "data" {
 #   env "prod-us" { layers = ["roles/shared"] }
 # }
 
+# The `bin/start` dev stack: ONE ClickHouse server hosting every role's objects,
+# because migration_tools routes every migration to NodeRole.ALL when DEBUG and not
+# MULTINODE_CLICKHOUSE. (`local` above is the other dev stack — docker-compose.multinode-
+# clickhouse.yml, one server per role.) Own env so the two never compose together.
+#
+# Self-contained, like roles/logs/local, rather than composed from the local layers of
+# the roles it hosts. It cannot be composed from them: where two roles both define a
+# name, the winner on this node is whichever migration ran first under CREATE ... IF NOT
+# EXISTS, and it does not go the same way for every object — `person` is data's storage
+# table, while `ai_events`, `message_assets` and `query_log_archive` are the satellite
+# roles' Distributed proxies. No ordering of the layers reproduces that mix, and the
+# loader rejects a redeclaration outright. Regenerate with codegen/README's extraction.
+role "all" {
+  env "local-single" { layers = ["roles/single/local"] }
+}
+
 # ---------------------------------------------------------------------------
 # Cluster mapping — cross-cluster Distributed proxies resolve against their
 # target cluster's composition (remote existence + column agreement) instead of

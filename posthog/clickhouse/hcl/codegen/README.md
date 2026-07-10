@@ -65,3 +65,32 @@ and bump `max_migration.txt`.
 Placement is the manifest + which layer a file lives in. Put cross-role objects in
 `roles/shared/`, OPS-only in `roles/ops/<shared|prod|env>/`, and add the (env, role) line
 to `../manifest.hcl`. `check.sh` verifies every composition against its golden.
+
+## Extracting a golden or a self-contained layer from a live node
+
+Most nodes compose from shared layers, but some cannot: a node whose live schema is a
+partial/newer variant (`roles/logs/local`) or one whose objects collide across layers and
+resolve inconsistently (`roles/single/local` — `person` is DATA's storage table while
+`ai_events`/`message_assets`/`query_log_archive` are satellite proxies, and no layer order
+reproduces that mix). For those, and to bring a new role under management (`../manifest.hcl`
+notes this next to each such role), extract the desired state straight from a migrated node:
+
+1. **Boot the node and migrate it.** For the single-node dev stack, free `:9000` from the
+   multinode containers first, then bring up `docker-compose.dev.yml`'s clickhouse and run
+   `DEBUG=1 python manage.py migrate_clickhouse`. For a cloud role, point at a host of that
+   role. (Prod DATA goldens live in `posthog-cloud-infra`, not here.)
+2. **Introspect into HCL**, dropping transient/unmanaged objects with the matching exclude
+   file (`exclude-<env>.hcl` when the env has one, else `exclude.hcl`):
+
+   ```bash
+   hclexp introspect -host localhost -port 9000 -database posthog -node all \
+     -exclude posthog/clickhouse/hcl/exclude-local-single.hcl \
+     -out posthog/clickhouse/hcl/roles/single/local/tables.hcl
+   ```
+
+3. **Strip the leading `node { … }` block.** `introspect` emits one; layer files carry none
+   (`roles/**` has zero `^node "`). Query bodies stay inline — the self-contained layers do
+   not use a `sql/` subdir.
+4. **Regenerate and verify:** `bash gen-golden.sh <env> && bash gen-sql.sh`, then
+   `bash check.sh` (offline: composition vs golden) and, for a self-sufficient node,
+   `hclexp validate -manifest manifest.hcl -env <env> -layer-root . -strict-clusters`.
