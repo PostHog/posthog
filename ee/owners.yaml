@@ -1,0 +1,17 @@
+version: 1
+owners: []
+rules:
+    - match: '/billing/'
+      owners: [team-billing]
+    - match: '/clickhouse/materialized_columns/'
+      owners: [team-analytics-platform]
+    - match: '/hogai/'
+      owners: [team-self-driving]
+    - match: '/session_recordings/'
+      owners: [team-replay]
+    - match: '/support_sidebar_max/'
+      owners: [team-self-driving]
+    - match: '/surveys/'
+      owners: [team-surveys]
+    - match: '/tasks/subscriptions/'
+      owners: [team-analytics-platform]

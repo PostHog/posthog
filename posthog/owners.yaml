@@ -1,7 +1,27 @@
 version: 1
 owners: []
 rules:
+    - match: '/caching/'
+      owners: [team-analytics-platform]
+    - match: '/cdp/'
+      owners: [team-workflows]
     - match: '/email.py'
       owners: [team-platform-features]
+    - match: '/heatmaps/'
+      owners: [team-web-analytics]
+    - match: '/hogql/'
+      owners: [team-data-tools]
+    - match: '/management/migration_analysis/'
+      owners: [team-devex]
+    - match: '/queries/'
+      owners: [team-analytics-platform]
+    - match: '/rbac/'
+      owners: [team-platform-features]
+    - match: '/taxonomy/'
+      owners: [team-product-analytics]
+    - match: '/templates/surveys/'
+      owners: [team-surveys]
+    - match: '/warehouse/'
+      owners: [team-data-stack]
     - match: '*llm_prompt*.py'
       owners: [team-ai-observability, team-experiments]

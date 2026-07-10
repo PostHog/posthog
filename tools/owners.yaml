@@ -1,0 +1,13 @@
+version: 1
+owners: []
+rules:
+    - match: '/hogli-commands/'
+      owners: [team-devex]
+    - match: '/hogli/'
+      owners: [team-devex]
+    - match: '/phrocs/'
+      owners: [team-devex]
+    - match: '/pr-approval-agent/'
+      owners: [team-devex]
+    - match: '/query-performance-ai/'
+      owners: [team-analytics-platform]

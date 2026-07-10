@@ -1,0 +1,15 @@
+version: 1
+owners: []
+rules:
+    - match: '/ai_observability/frontend/playground/'
+      owners: [team-ai-gateway]
+    - match: '/error_tracking/backend/'
+      owners: [team-error-tracking]
+    - match: '/error_tracking/frontend/'
+      owners: [team-error-tracking]
+    - match: '/error_tracking/skills/'
+      owners: [team-error-tracking]
+    - match: '/llm_analytics/backend/migrations/'
+      owners: [team-ai-observability]
+    - match: '/warehouse_sources/backend/temporal/data_imports/'
+      owners: [team-warehouse-sources]
