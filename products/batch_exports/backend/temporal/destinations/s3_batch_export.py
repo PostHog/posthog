@@ -449,7 +449,7 @@ async def get_credentials_using_user_aws_role(
                         DurationSeconds=duration,
                         ExternalId=secrets.token_hex(67),
                     )
-                except:
+                except Exception:
                     pass
                 else:
                     raise InvalidCredentialsError(
