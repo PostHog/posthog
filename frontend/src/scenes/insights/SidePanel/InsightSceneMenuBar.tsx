@@ -24,7 +24,6 @@ import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAdd
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { urlForSubscriptions } from 'lib/components/Subscriptions/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -62,6 +61,7 @@ import {
 } from '~/types'
 
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
+import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import { insightModalsLogic } from '../insightModalsLogic'
 import { openSaveAsCohortDialog } from './insightSidePanelDialogs'

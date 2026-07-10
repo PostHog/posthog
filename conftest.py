@@ -8,8 +8,10 @@ import pytest
 # phase only adds pauses (seconds on a full-tree CI shard collection). Run the boot
 # with GC off, then freeze the survivors into the permanent generation so the
 # collector never rescans them during the test phase. Tests themselves run with GC
-# enabled as usual. (django.setup() runs in pytest-django's load_initial_conftests,
-# before conftest files load, so it stays outside the window.)
+# enabled as usual. The window normally opens even earlier, in the pytest_boot_gc
+# plugin (`-p pytest_boot_gc` in pytest.ini), so that django.setup() (which
+# pytest-django runs before conftest files load) sits inside it too; the disable
+# here is the fallback for runs that don't load that plugin (e.g. ee/pytest.ini).
 gc.disable()
 
 
@@ -22,6 +24,11 @@ def _end_gc_boot_window() -> None:
     # reclaims only ~1MB, so the garbage gets frozen along with the survivors.
     gc.freeze()
     gc.enable()
+    # Collect far less often than the default (700, 10, 10): test runs allocate heavily and
+    # cyclic garbage is reclaimed fine at these thresholds, while frequent young-gen sweeps
+    # over a large frozen heap cost real wall time (~10% of a unit-heavy suite; measured on
+    # products/warehouse_sources with peak RSS within 1% of the default thresholds).
+    gc.set_threshold(50_000, 20, 20)
     # gc.get_referrers() cannot see referrers in the frozen permanent generation,
     # which turns hypothesis's register_random() liveness check into a false positive
     # for Randoms registered after the freeze (e.g. trio's module-level instance,
@@ -173,11 +180,38 @@ def _cache_url_resolution() -> None:
     resolvers.URLResolver.resolve = resolve  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
+def _cheapen_freezegun_module_hash() -> None:
+    # Every freeze_time().start() revalidates freezegun's per-module patch cache by
+    # hashing each loaded module's attribute list: hash(frozenset(dir(module))) across
+    # every module in sys.modules, per freeze. dir() sorts and materializes a list per
+    # module, so freeze-heavy suites pay seconds per run for it (2.25M hash calls in a
+    # profiled replay-listing run). tuple(module.__dict__) carries the same invalidation
+    # signal ~6x cheaper: every module attribute add/delete mutates __dict__ (dir() has
+    # no extra visibility for cache purposes — PEP 562 lazy attrs only materialize into
+    # __dict__ anyway), and both keys share the same blind spot (rebinding an existing
+    # name), so semantics are unchanged. Installed before any freeze so the cache never
+    # mixes hash schemes.
+    import types  # noqa: PLC0415 — deferred until pytest_configure
+
+    from freezegun import api  # noqa: PLC0415 — deferred until pytest_configure
+
+    def _fast_module_attributes_hash(module: types.ModuleType) -> str:
+        try:
+            keys_hash = hash(tuple(module.__dict__))
+        except (ImportError, TypeError, AttributeError):
+            keys_hash = 0
+        return f"{id(module)}-{keys_hash}"
+
+    _fast_module_attributes_hash.__wrapped__ = api._get_module_attributes_hash  # type: ignore[attr-defined]
+    api._get_module_attributes_hash = _fast_module_attributes_hash  # ty: ignore[invalid-assignment]
+
+
 def pytest_configure(config) -> None:
     _cache_reverse_rel_identity()
     _cache_select_masks()
     _cache_drf_field_info()
     _cache_url_resolution()
+    _cheapen_freezegun_module_hash()
 
 
 def pytest_collection_finish() -> None:

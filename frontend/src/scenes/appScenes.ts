@@ -1,7 +1,7 @@
 import { preloadedScenes } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
-import { productScenes } from '~/products'
+import { productScenes } from '~/productScenes'
 
 export const appScenes: Record<Scene | string, () => any> = {
     ...productScenes,
@@ -110,8 +110,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.PipelineStatus]: () => import('./health/pipelineStatus/PipelineStatusScene'),
     [Scene.SdkHealth]: () => import('./onboarding/shared/sdkHealth/SdkHealthScene'),
     [Scene.Exports]: () => import('./exports/ExportsScene'),
-    [Scene.Subscriptions]: () => import('./subscriptions/SubscriptionsScene'),
-    [Scene.Subscription]: () => import('./subscriptions/SubscriptionScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),

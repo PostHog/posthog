@@ -1,0 +1,176 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
+import { Meta, StoryObj } from '@storybook/react'
+import { useRef, useState } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { uuid } from 'lib/utils/dom'
+
+import { useStorybookMocks } from '~/mocks/browser'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/test/mocks'
+import { DashboardType, InsightShortId, Realm } from '~/types'
+
+import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
+
+type StoryArgs = SubscriptionsModalProps & {
+    noIntegrations?: boolean
+    aiSummaryAtLimit?: boolean
+    // Team-wide subscription count for the free-tier create gate (under the limit → form, at/over → upsell).
+    freeTierSubscriptionCount?: number
+}
+
+const meta: Meta<StoryArgs> = {
+    title: 'Components/Subscriptions',
+    component: SubscriptionsModal,
+    parameters: {
+        layout: 'fullscreen',
+        viewMode: 'story',
+        mockDate: '2023-01-31 12:00:00',
+    },
+    render: (args) => {
+        const { noIntegrations = false, aiSummaryAtLimit = false, freeTierSubscriptionCount, ...props } = args
+        const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
+        // Dashboard-context stories must not also pass an insight, or the modal renders the insight flow.
+        const insightShortId = props.dashboard ? undefined : insightShortIdRef.current
+        const [modalOpen, setModalOpen] = useState(false)
+
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    realm: Realm.Cloud,
+                    email_service_available: noIntegrations ? false : true,
+                    slack_service: noIntegrations
+                        ? { available: false }
+                        : { available: true, client_id: 'test-client-id' },
+                    site_url: noIntegrations ? 'bad-value' : window.location.origin,
+                },
+                ...(aiSummaryAtLimit
+                    ? {
+                          '/api/organizations/@current/': {
+                              ...MOCK_DEFAULT_ORGANIZATION,
+                              is_ai_data_processing_approved: true,
+                          },
+                      }
+                    : {}),
+                '/api/environments/:id/subscriptions': {
+                    results:
+                        insightShortIdRef.current === 'empty'
+                            ? []
+                            : [
+                                  createMockSubscription(),
+                                  createMockSubscription({
+                                      title: 'Weekly C-level report',
+                                      target_value: 'james@posthog.com',
+                                      frequency: 'weekly',
+                                      interval: 1,
+                                  }),
+                                  createMockSubscription({
+                                      title: 'Daily Slack report',
+                                      target_type: 'slack',
+                                      target_value: 'C123|#general',
+                                      frequency: 'weekly',
+                                      interval: 1,
+                                  }),
+                              ],
+                },
+                '/api/environments/:id/subscriptions/:subId': createMockSubscription(),
+                ...(freeTierSubscriptionCount !== undefined
+                    ? { '/api/projects/:id/subscriptions/': { count: freeTierSubscriptionCount, results: [] } }
+                    : {}),
+                '/api/projects/:id/subscriptions/summary_quota': aiSummaryAtLimit
+                    ? { active_count: 10, limit: 10, at_limit: true }
+                    : { active_count: 0, limit: 10, at_limit: false },
+                '/api/projects/:id/integrations': { results: !noIntegrations ? [mockIntegration] : [] },
+                '/api/projects/:id/integrations/:intId/channels': { channels: mockSlackChannels },
+            },
+        })
+
+        return (
+            <div>
+                <div className="p-4 bg-border">
+                    <SubscriptionsModal
+                        {...(props as SubscriptionsModalProps)}
+                        closeModal={() => {
+                            // eslint-disable-next-line no-console
+                            console.log('close')
+                        }}
+                        insightShortId={insightShortId}
+                        isOpen={true}
+                        inline
+                    />
+                </div>
+
+                <div className="flex justify-center mt-4">
+                    <LemonButton onClick={() => setModalOpen(true)} type="primary">
+                        Open as Modal
+                    </LemonButton>
+                </div>
+
+                <SubscriptionsModal
+                    {...(props as SubscriptionsModalProps)}
+                    closeModal={() => setModalOpen(false)}
+                    insightShortId={insightShortId}
+                    isOpen={modalOpen}
+                />
+            </div>
+        )
+    },
+}
+export default meta
+
+type Story = StoryObj<StoryArgs>
+
+export const Subscriptions_: Story = {}
+
+export const SubscriptionsEmpty: Story = {
+    args: { insightShortId: 'empty' as InsightShortId },
+}
+
+export const SubscriptionsNew: Story = {
+    args: { subscriptionId: 'new' },
+}
+
+export const SubscriptionNoIntegrations: Story = {
+    args: { subscriptionId: 'new', noIntegrations: true },
+}
+
+export const SubscriptionsEdit: Story = {
+    args: { subscriptionId: 1 },
+}
+
+export const SubscriptionAtAISummaryLimit: Story = {
+    args: { subscriptionId: 'new', aiSummaryAtLimit: true },
+}
+
+// Freemium gate: a free org under the 5-subscription limit sees the normal create form.
+export const SubscriptionsNewFreeUnderLimit: Story = {
+    args: { subscriptionId: 'new', freeTierSubscriptionCount: 2 },
+}
+
+// Freemium gate: a free org at the limit sees the upgrade paywall instead of the create form.
+export const SubscriptionsNewFreeAtLimit: Story = {
+    args: { subscriptionId: 'new', freeTierSubscriptionCount: 5 },
+}
+
+// Tabbed overview (feature flag on), dashboard context: This dashboard / Insights / AI prompt reports tabs.
+export const SubscriptionsTabbed: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.SUBSCRIPTION_TABBED_OVERVIEW]: 'test',
+            [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
+        },
+    },
+    args: {
+        dashboard: {
+            id: 1,
+            name: 'Weekly metrics',
+            tiles: [
+                { id: 1, insight: { id: 11, short_id: 'ins11' as InsightShortId } },
+                { id: 2, insight: { id: 12, short_id: 'ins12' as InsightShortId } },
+            ],
+        } as unknown as DashboardType,
+    },
+}

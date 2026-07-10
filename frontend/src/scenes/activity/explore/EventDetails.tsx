@@ -132,6 +132,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     properties={properties}
                                     sortProperties
                                     tableProps={tableProps}
+                                    collapsible
                                 />
                             </div>
                         )
@@ -151,6 +152,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     useDetectedPropertyType={true}
                                     tableProps={tableProps}
                                     searchable
+                                    collapsible
                                 />
                             </div>
                         )
@@ -170,6 +172,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     useDetectedPropertyType={true}
                                     tableProps={tableProps}
                                     searchable
+                                    collapsible
                                 />
                             </div>
                         )
@@ -207,6 +210,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                             ? (event.event as KNOWN_PROMOTED_PROPERTY_PARENTS)
                                             : undefined
                                     }
+                                    collapsible
                                 />
                             </div>
                         )

@@ -11,6 +11,7 @@ from posthog.schema import (
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigConverter,
@@ -105,6 +106,10 @@ class SourceConfigGenerator:
 
         elif isinstance(field, SourceFieldOauthConfig):
             field_def = self._process_oauth_field(field)
+            return [field_def] if field_def else [], []
+
+        elif isinstance(field, SourceFieldOauthAccountSelectConfig):
+            field_def = self._process_oauth_account_select_field(field)
             return [field_def] if field_def else [], []
 
         elif isinstance(field, SourceFieldFileUploadConfig):
@@ -283,6 +288,20 @@ class SourceConfigGenerator:
                 return f'    {python_field_name}: int | None = config.value(alias="{field.name}", converter=config.str_to_optional_int, default_factory=lambda: None)'
             else:
                 return f"    {python_field_name}: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)"
+
+    def _process_oauth_account_select_field(self, field: SourceFieldOauthAccountSelectConfig) -> str:
+        # The selected account/property is persisted as a plain string on the config (e.g. Bing Ads
+        # account_id, GSC site_url); the OAuth integration it's scoped to lives in its own field.
+        python_field_name, should_alias = self._make_python_identifier(field.name)
+
+        if field.required:
+            if should_alias:
+                return f'    {python_field_name}: str = config.value(alias="{field.name}")'
+            return f"    {python_field_name}: str"
+
+        if should_alias:
+            return f'    {python_field_name}: str | None = config.value(alias="{field.name}", default_factory=lambda: None)'
+        return f"    {python_field_name}: str | None = None"
 
     def _process_file_upload_field(self, field: SourceFieldFileUploadConfig, parent_class: str) -> tuple[str, str]:
         python_field_name, should_alias = self._make_python_identifier(field.name)
