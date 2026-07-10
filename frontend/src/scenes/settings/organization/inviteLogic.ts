@@ -213,7 +213,7 @@ export const inviteLogic = kea<inviteLogicType>([
         availableProjects: [
             () => [organizationLogic.selectors.currentOrganization],
             (currentOrganization: any) => {
-                return currentOrganization?.teams || []
+                return [...(currentOrganization?.teams || [])].sort((a, b) => a.name.localeCompare(b.name))
             },
         ],
         isInviting: [
