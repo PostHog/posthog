@@ -120,6 +120,23 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
     })
 
+    // The picker's items are live search results: typing a new search after picking
+    // a metric replaces them. The picked type must be latched, not derived, or a
+    // save at that moment silently persists an untyped (blendable) query.
+    it('keeps the picked metric type when the picker search results change', () => {
+        logic.actions.setMetricName('queue_depth')
+        metricNamePickerLogic.actions.loadItemsSuccess([{ name: 'http_requests', metric_type: 'sum' }] as any)
+        expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+    })
+
+    it('backfills the metric type when the picker loads after the metric was set', () => {
+        metricNamePickerLogic.actions.loadItemsSuccess([])
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
+        metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
+        expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+    })
+
     // A failed query (bad regex, 500) used to render the same "No data" empty state as a genuinely
     // empty result. The failure records the message so the viewer can show a real error instead.
     // kea-loaders dispatches `<key>Failure(error.message, error)`, so the reducer reads the message.

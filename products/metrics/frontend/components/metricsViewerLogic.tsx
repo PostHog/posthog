@@ -142,13 +142,21 @@ export const resolveDate = (value: string | null | undefined): string | null => 
     return dj.isValid() ? dj.toISOString() : null
 }
 
+// The picker reports raw ingest strings; only enum members may reach the API.
+const toKnownMetricType = (metricType: string | undefined): OtelMetricTypeEnumApi | null => {
+    const known = Object.values(OtelMetricTypeEnumApi) as string[]
+    return metricType && known.includes(metricType) ? (metricType as OtelMetricTypeEnumApi) : null
+}
+
 export const metricsViewerLogic = kea<metricsViewerLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'metricsViewerLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], metricNamePickerLogic, ['items']],
+        actions: [metricNamePickerLogic, ['loadItemsSuccess']],
     })),
     actions({
         setMetricName: (metricName: string) => ({ metricName }),
+        setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => ({ metricType }),
         setAggregation: (aggregation: MetricAggregation) => ({ aggregation }),
         // Auto-applied on metric switch — a separate action so usage tracking can
         // tell it apart from the user picking an aggregation themselves.
@@ -168,6 +176,16 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     }),
     reducers({
         metricName: ['' as string, { setMetricName: (_, { metricName }) => metricName }],
+        // The picked metric's type, latched at pick time (and backfilled if the
+        // picker list arrives later). Not derived from the picker's `items` —
+        // those are live search results, so typing a new search would wipe a
+        // derived value and queries/saves would silently go untyped. Sent with
+        // queries so a name that exists as several types (e.g. a counter and a
+        // gauge) charts only the picked one instead of blending them.
+        selectedMetricType: [
+            null as OtelMetricTypeEnumApi | null,
+            { setSelectedMetricType: (_, { metricType }) => metricType },
+        ],
         aggregation: [
             DEFAULT_AGGREGATION as MetricAggregation,
             {
@@ -206,12 +224,25 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         setMetricName: ({ metricName }) => {
+            const metricType = values.items.find((item) => item.name === metricName.trim())?.metric_type
+            actions.setSelectedMetricType(toKnownMetricType(metricType))
             // Each metric type has one sensible default; a manual aggregation pick
             // holds only until the next metric switch.
-            const metricType = values.items.find((item) => item.name === metricName)?.metric_type
             const recommended = metricType ? RECOMMENDED_AGGREGATION_BY_TYPE[metricType] : undefined
             if (recommended && recommended !== values.aggregation) {
                 actions.setRecommendedAggregation(recommended)
+            }
+        },
+        // Recovers the type when the metric name was set before the picker's list
+        // arrived (initial load); an already-latched type is left alone.
+        loadItemsSuccess: () => {
+            if (values.selectedMetricType !== null || !values.hasMetricName) {
+                return
+            }
+            const metricType = values.items.find((item) => item.name === values.metricName.trim())?.metric_type
+            const known = toKnownMetricType(metricType)
+            if (known) {
+                actions.setSelectedMetricType(known)
             }
         },
         saveAsInsightFailure: ({ error }) => {
@@ -365,17 +396,6 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     })),
     selectors({
         hasMetricName: [(s) => [s.metricName], (metricName) => metricName.trim().length > 0],
-        // The picked metric's type (from the names list). Sent with the query so
-        // a name that exists as several types (e.g. a counter and a gauge)
-        // charts only the picked one instead of blending them.
-        selectedMetricType: [
-            (s) => [s.metricName, s.items],
-            (metricName, items): OtelMetricTypeEnumApi | null => {
-                const metricType = items.find((item) => item.name === metricName.trim())?.metric_type
-                const known = Object.values(OtelMetricTypeEnumApi) as string[]
-                return metricType && known.includes(metricType) ? (metricType as OtelMetricTypeEnumApi) : null
-            },
-        ],
         // The viewer state as a `MetricsQuery` schema node — what "Save as insight"
         // persists, so the saved tile re-runs exactly what the viewer shows.
         // The REST viewer's 'p95' shorthand maps to the node's quantile aggregation.
