@@ -110,7 +110,7 @@ export interface _BucketBreakdownRowApi {
     bucket_start: string
     /** Number of $ai_generation + $ai_embedding events in this bucket for the scoped product. */
     event_count: number
-    /** Total cost in USD in this bucket (sum of `$ai_total_cost_usd`). Authoritative: the component columns below can sum to less than this when the cost breakdown was unavailable for some events — render any remainder as uncategorized rather than assuming the components reconcile. */
+    /** Total cost in USD in this bucket (sum of `$ai_total_cost_usd`). Authoritative: the component columns below can sum to less than this when the cost breakdown was unavailable for some events; render any remainder as uncategorized rather than assuming the components reconcile. */
     cost_usd: number
     /** Cost of uncached (full-price) input tokens in USD (sum of `$ai_input_cost_usd`). */
     input_cost_usd: number
@@ -131,9 +131,9 @@ export interface _BucketBreakdownRowApi {
 }
 
 export interface _BucketBreakdownApi {
-    /** One row per UTC time bucket that has events, ordered by bucket start ascending. Buckets with no events are omitted — zero-fill client-side when rendering a continuous series. */
+    /** One row per UTC time bucket that has events, ordered by bucket start ascending. Buckets with no events are omitted; zero-fill client-side when rendering a continuous series. */
     items: _BucketBreakdownRowApi[]
-    /** Bucket size in minutes the series was computed at — echoes the request `bucket_minutes`. */
+    /** Bucket size in minutes the series was computed at; echoes the request `bucket_minutes`. */
     bucket_minutes: number
     /** Effectively always false: `by_bucket` ignores `limit` because truncating a time series by cost would be meaningless, and the 600-bucket window cap already bounds the series length. */
     truncated: boolean
@@ -2430,13 +2430,12 @@ export interface TestHogTaggerResponseApi {
 
 export type LlmAnalyticsPersonalSpendListParams = {
     /**
-     * When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 48 hours at 5-minute buckets).
+     * When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).
      *
      * * `5` - 5
      * * `15` - 15
      * * `30` - 30
      * * `60` - 60
-     * @nullable
      */
     bucket_minutes?: LlmAnalyticsPersonalSpendListBucketMinutes
     /**
@@ -2470,8 +2469,7 @@ export type LlmAnalyticsPersonalSpendListParams = {
 }
 
 export type LlmAnalyticsPersonalSpendListBucketMinutes =
-    | (typeof LlmAnalyticsPersonalSpendListBucketMinutes)[keyof typeof LlmAnalyticsPersonalSpendListBucketMinutes]
-    | null
+    (typeof LlmAnalyticsPersonalSpendListBucketMinutes)[keyof typeof LlmAnalyticsPersonalSpendListBucketMinutes]
 
 export const LlmAnalyticsPersonalSpendListBucketMinutes = {
     Number5: 5,

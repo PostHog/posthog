@@ -25,10 +25,10 @@ export const llmAnalyticsPersonalSpendListQueryRefreshDefault = false
 
 export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.object({
     bucket_minutes: zod
-        .union([zod.literal(5), zod.literal(15), zod.literal(30), zod.literal(60), zod.literal(null)])
-        .nullish()
+        .union([zod.literal(5), zod.literal(15), zod.literal(30), zod.literal(60)])
+        .optional()
         .describe(
-            'When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 48 hours at 5-minute buckets).\n\n* `5` - 5\n* `15` - 15\n* `30` - 30\n* `60` - 60'
+            'When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).\n\n* `5` - 5\n* `15` - 15\n* `30` - 30\n* `60` - 60'
         ),
     date_from: zod
         .string()
