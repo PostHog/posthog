@@ -177,6 +177,7 @@ from posthog.schema_enums import (
     MetricsAggregation as MetricsAggregation,
     MetricsAttributeScope as MetricsAttributeScope,
     MetricsFilterOp as MetricsFilterOp,
+    MetricsOtelType as MetricsOtelType,
     MetricSummary as MetricSummary,
     MrrOrGross as MrrOrGross,
     MultipleBreakdownType as MultipleBreakdownType,
@@ -5454,6 +5455,14 @@ class MetricsQueryClause(BaseModel):
     filters: list[MetricsQueryFilter] | None = None
     groupBy: list[MetricsQueryGroupBy] | None = None
     metricName: str
+    metricType: MetricsOtelType | None = Field(
+        default=None,
+        description=(
+            "Series identity includes the OTel type — one name can exist as e.g. both a"
+            " counter and a gauge — so a clause pins it to avoid blending distinct"
+            " series."
+        ),
+    )
     name: str = Field(
         ...,
         description=('Alias a formula refers to (e.g. "a"); must be unique within the query'),

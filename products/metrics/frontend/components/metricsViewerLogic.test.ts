@@ -99,6 +99,7 @@ describe('metricsViewerLogic', () => {
                     name: 'a',
                     metricName: 'request_duration',
                     aggregation: 'quantile',
+                    metricType: 'histogram',
                     quantile: 0.95,
                     filters: [{ key: 'namespace', op: 'eq', value: 'posthog' }],
                     groupBy: [{ key: 'container' }],
@@ -110,6 +111,13 @@ describe('metricsViewerLogic', () => {
 
     it('produces no MetricsQuery node without a metric name', () => {
         expect(logic.values.metricsQueryNode).toBeNull()
+    })
+
+    // A type outside the API enum (or a metric missing from the picker list) must be
+    // omitted, not persisted — the backend rejects unknown metric types.
+    it('omits metricType from the node when the picked type is unknown', () => {
+        logic.actions.setMetricName('mystery_metric')
+        expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
     })
 
     // A failed query (bad regex, 500) used to render the same "No data" empty state as a genuinely

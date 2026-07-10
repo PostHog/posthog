@@ -380,8 +380,24 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // persists, so the saved tile re-runs exactly what the viewer shows.
         // The REST viewer's 'p95' shorthand maps to the node's quantile aggregation.
         metricsQueryNode: [
-            (s) => [s.metricName, s.aggregation, s.dateFrom, s.dateTo, s.groupByKeys, s.queryFilters],
-            (metricName, aggregation, dateFrom, dateTo, groupByKeys, queryFilters): MetricsQuery | null => {
+            (s) => [
+                s.metricName,
+                s.aggregation,
+                s.selectedMetricType,
+                s.dateFrom,
+                s.dateTo,
+                s.groupByKeys,
+                s.queryFilters,
+            ],
+            (
+                metricName,
+                aggregation,
+                selectedMetricType,
+                dateFrom,
+                dateTo,
+                groupByKeys,
+                queryFilters
+            ): MetricsQuery | null => {
                 const trimmedName = metricName.trim()
                 if (!trimmedName) {
                     return null
@@ -390,6 +406,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     name: 'a',
                     metricName: trimmedName,
                     aggregation: aggregation === 'p95' ? 'quantile' : aggregation,
+                    // Pins the OTel type so the saved tile can't blend same-named
+                    // series of different types (mirrors the live viewer's query).
+                    ...(selectedMetricType ? { metricType: selectedMetricType } : {}),
                     ...(aggregation === 'p95' ? { quantile: 0.95 } : {}),
                     ...(queryFilters.length
                         ? {
