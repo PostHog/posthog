@@ -1,6 +1,6 @@
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 
-export class BufferingBatchPipeline<TInput, CInput, R extends string = never>
+export class BufferingChunkPipeline<TInput, CInput, R extends string = never>
     implements ChunkPipeline<TInput, TInput, CInput, CInput, R>
 {
     private buffer: ChunkPipelineResultWithContext<TInput, CInput, R> = []

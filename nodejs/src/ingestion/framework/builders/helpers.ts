@@ -7,13 +7,13 @@ import {
     BeforeBatchInput,
     BeforeBatchOutput,
 } from '~/ingestion/framework/batching-pipeline'
-import { BufferingBatchPipeline } from '~/ingestion/framework/buffering-batch-pipeline'
+import { BufferingChunkPipeline } from '~/ingestion/framework/buffering-chunk-pipeline'
 
 import { BatchPipelineBuilder } from './batch-pipeline-builders'
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
 
 export function newBatchPipelineBuilder<T, C = Record<string, never>>(): BatchPipelineBuilder<T, T, C> {
-    return new BatchPipelineBuilder(new BufferingBatchPipeline<T, C>())
+    return new BatchPipelineBuilder(new BufferingChunkPipeline<T, C>())
 }
 
 export function newPipelineBuilder<T, C = Record<string, never>>(): StartPipelineBuilder<T, C> {
@@ -56,7 +56,7 @@ export function newBatchingPipeline<
     options?: Partial<BatchingPipelineOptions>
 ): BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput & BatchingContext, R> {
     const startBuilder = new BatchPipelineBuilder(
-        new BufferingBatchPipeline<TInput & CBatch, CInput & BatchingContext>()
+        new BufferingChunkPipeline<TInput & CBatch, CInput & BatchingContext>()
     )
     const subPipeline = callback(startBuilder).build()
 

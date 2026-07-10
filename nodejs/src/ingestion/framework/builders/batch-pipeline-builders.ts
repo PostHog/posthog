@@ -4,7 +4,7 @@ import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { BaseChunkPipeline, ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
-import { BufferingBatchPipeline } from '~/ingestion/framework/buffering-batch-pipeline'
+import { BufferingChunkPipeline } from '~/ingestion/framework/buffering-chunk-pipeline'
 import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 import { ConcurrentBatchProcessingPipeline } from '~/ingestion/framework/concurrent-batch-pipeline'
 import {
@@ -117,7 +117,7 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
         ) => BatchPipelineBuilder<TMapped, TSubOutput, CMapped, CSubOutput, ROut>
     ): BatchPipelineBuilder<TInput, TSubOutput, CInput, CSubOutput | COutput, R | ROut> {
         const startBuilder = new BatchPipelineBuilder<TMapped, TMapped, CMapped, CMapped>(
-            new BufferingBatchPipeline<TMapped, CMapped>()
+            new BufferingChunkPipeline<TMapped, CMapped>()
         )
         const subpipelineBuilder = subpipelineCallback(startBuilder)
         const subPipeline = subpipelineBuilder.build()

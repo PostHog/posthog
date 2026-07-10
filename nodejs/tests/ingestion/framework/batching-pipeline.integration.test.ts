@@ -23,7 +23,7 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
  * ## Principle
  *
  * Every piece of orchestration machinery under test is REAL production code:
- * BatchingPipeline, BufferingBatchPipeline, SequentialBatchPipeline,
+ * BatchingPipeline, BufferingChunkPipeline, SequentialBatchPipeline,
  * ConcurrentlyGroupingBatchPipeline, ResultHandlingPipeline,
  * SideEffectHandlingPipeline, the builder chain, PromiseScheduler, and the
  * production createFlushBatchStoresStep. Only the leaves are fakes: the
