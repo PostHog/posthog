@@ -338,7 +338,9 @@ class TestRelationshipFacade(BaseTest):
 class TestWritePathSync(BaseTest):
     def setUp(self):
         super().setUp()
-        AccountRelationshipDefinition.objects.for_team(self.team.id).create(team_id=self.team.id, name="CSM")
+        self.csm_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="CSM"
+        )
 
     def _active_rows(self, account):
         return AccountRelationship.objects.for_team(self.team.id).filter(account=account, ended_at__isnull=True)
@@ -384,7 +386,11 @@ class TestWritePathSync(BaseTest):
     def test_update_external_account_syncs_roles(self):
         account = Account.objects.create_account(team=self.team, name="Acme", external_id="acme-1")
         result = facade.update_external_account(
-            self.team.id, "acme-1", relationship_assignments={"CSM": self.user.id}, tags=None, tags_mode="add"
+            self.team.id,
+            "acme-1",
+            relationship_assignments={str(self.csm_definition.id): self.user.id},
+            tags=None,
+            tags_mode="add",
         )
         assert result.error is None
         rows = self._active_rows(account)

@@ -43,6 +43,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.printer.access_control import build_access_control_warning
 from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
@@ -708,7 +709,12 @@ class HogQLQueryExecutor:
             if self.context and self.context.data_warehouse_sync_warnings:
                 record_warnings(self.context.data_warehouse_sync_warnings.values())
 
-        warnings = list(self.context.data_warehouse_sync_warnings.values()) if self.context else []
+        warnings: list = []
+        if self.context:
+            warnings = list(self.context.data_warehouse_sync_warnings.values())
+            access_control_warning = build_access_control_warning(self.context.access_control_restricted_resources)
+            if access_control_warning:
+                warnings.append(access_control_warning)
         return HogQLQueryResponse(
             query=self.query,
             hogql=self.hogql,

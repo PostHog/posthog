@@ -51,6 +51,7 @@ from posthog.schema import (
     MCPToolSampleIntentsQuery,
     MCPToolStatsQuery,
     MCPToolTopUsersQuery,
+    MetricsQuery,
     NodeKind,
     PathsQuery,
     PropertyGroupFilter,
@@ -320,6 +321,7 @@ RunnableQueryNode = Union[
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
+    MetricsQuery,
     MCPHarnessBreakdownQuery,
     MCPToolTopUsersQuery,
     MCPToolFailuresQuery,
@@ -1204,6 +1206,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "MetricsQuery":
+        from products.metrics.backend.facade.queries import MetricsQueryRunner
+
+        return MetricsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     # Registered here for server-side CSV export only (ExportedAsset + Celery).
     # Direct queries are blocked by LogsQueryRunner.validate_query_runner_access.
     if kind == "LogsQuery":
@@ -1889,7 +1903,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # pydantic validation on the extra key (and poison the cache, which set_cache_data has
             # already written by the time CachedResponse(**dict) raises).
             if warnings_accumulator and "warnings" in CachedResponse.model_fields:
-                fresh_response_dict["warnings"] = [w.model_dump() for w in warnings_accumulator.values()]
+                # The accumulator is authoritative for sync warnings (it collects across every inner
+                # execution), but the shared warnings field also carries other kinds — e.g. access
+                # control warnings attached by HogQLQueryExecutor — which must survive the replace.
+                other_warnings = [
+                    w
+                    for w in (fresh_response_dict.get("warnings") or [])
+                    if (w.get("type") if isinstance(w, dict) else getattr(w, "type", None)) != "warehouse_sync"
+                ]
+                fresh_response_dict["warnings"] = [
+                    w.model_dump() for w in warnings_accumulator.values()
+                ] + other_warnings
 
             # Don't cache debug queries with errors and export queries
             errors: Optional[list[Any]] = fresh_response_dict.get("error", None)
