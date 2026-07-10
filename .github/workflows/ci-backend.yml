@@ -789,6 +789,12 @@ jobs:
                       --junitxml=junit-product.xml
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations' || '' }}
+                      ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=xml:coverage.xml' || '' }}
+                  # turbo runs each product's backend:test with the product dir as CWD, so --cov=backend
+                  # scopes coverage to that product and writes products/<name>/coverage.xml — works for
+                  # bin-packed buckets (each product writes its own file) and split products (unioned later).
+                  # sysmon: Python 3.12's low-overhead coverage backend, ~a few % vs ~20% for the C tracer.
+                  COVERAGE_CORE: sysmon
               run: |
                   set +e
                   pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
@@ -820,6 +826,29 @@ jobs:
                   name: timing_data-Products-${{ strategy.job-index }}
                   path: .test_durations
                   include-hidden-files: true
+                  retention-days: 2
+
+            - name: Stage product coverage
+              # Rename each products/<name>/coverage.xml to <name>.xml so the product name
+              # survives upload-artifact's least-common-ancestor path collapse.
+              if: ${{ always() && github.event_name == 'pull_request' }}
+              shell: bash
+              run: |
+                  mkdir -p cov-staging
+                  for f in products/*/coverage.xml; do
+                      [ -f "$f" ] || continue
+                      product=$(basename "$(dirname "$f")")
+                      cp "$f" "cov-staging/${product}.xml"
+                  done
+
+            - name: Upload product coverage
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              # always(): a failing test shard still has partial coverage worth reporting.
+              if: ${{ always() && github.event_name == 'pull_request' }}
+              with:
+                  name: coverage-xml-${{ strategy.job-index }}
+                  path: cov-staging/*.xml
+                  if-no-files-found: ignore
                   retention-days: 2
 
             - name: Verify new snapshots for flakiness
@@ -3117,3 +3146,47 @@ jobs:
                   uv run --script .github/scripts/report_test_timings.py \
                       --min-duration-seconds=0.5 \
                       ./junit-artifacts
+
+    backend-coverage-report:
+        name: Backend coverage report
+        needs: [turbo-tests]
+        runs-on: ubuntu-latest
+        continue-on-error: true # report-only, never block a PR
+        timeout-minutes: 10
+        # In-repo PRs only — fork PRs get a read-only token that can't comment, and turbo-tests
+        # skips drafts so there's nothing to report there either.
+        if: >-
+            always() &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
+            needs.turbo-tests.result != 'skipped'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  filter: blob:none
+            - name: Check for coverage reporter
+              id: reporter
+              shell: bash
+              run: |
+                  if [[ -f scripts/coverage_report.py ]]; then
+                      echo "available=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "available=false" >> "$GITHUB_OUTPUT"
+                      echo "Coverage reporter not present on this ref; skipping (branch may predate the check)."
+                  fi
+            - name: Download coverage artifacts
+              if: steps.reporter.outputs.available == 'true'
+              continue-on-error: true # a run where no shard emitted coverage.xml is not a failure
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              with:
+                  path: ./cov-artifacts
+                  pattern: coverage-xml-*
+            - name: Build and post coverage report
+              if: steps.reporter.outputs.available == 'true'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  mkdir -p cov-artifacts
+                  python3 scripts/coverage_report.py --artifacts cov-artifacts --out coverage-comment.md
