@@ -4268,6 +4268,7 @@ export const TaxonomicFilterGroupTypeApi = {
     Resources: 'resources',
     ErrorTrackingProperties: 'error_tracking_properties',
     ActivityLogProperties: 'activity_log_properties',
+    McpProperties: 'mcp_properties',
     MaxAiContext: 'max_ai_context',
     WorkflowVariables: 'workflow_variables',
     SuggestedFilters: 'suggested_filters',
