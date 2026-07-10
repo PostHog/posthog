@@ -811,8 +811,14 @@ def _build_authorize_url(confirmation_secret: str, scopes: list[str], region: st
 
 
 def _authenticate_provisioning_partner(request: Request) -> tuple[Response | None, OAuthApplication | None]:
-    """Identify a provisioning partner, requiring one (unlike account_requests'
-    legacy Stripe fallback). Returns (error_response, partner)."""
+    """Identify a provisioning partner, requiring proof-bearing auth (unlike
+    account_requests' legacy Stripe fallback). Returns (error_response, partner).
+
+    Only HMAC and Bearer partners carry proof that the caller controls the partner.
+    PKCE partners are identified solely by a public ``client_id`` anyone can send, so
+    they never qualify for these endpoints — they exchange GitHub OAuth codes and read
+    back GitHub account metadata, which must sit behind a real partner trust boundary.
+    """
     auth = ProvisioningAuthentication()
     try:
         result = auth.authenticate(request)
@@ -824,6 +830,17 @@ def _authenticate_provisioning_partner(request: Request) -> tuple[Response | Non
             Response(
                 {"type": "error", "error": {"code": "unauthorized", "message": "Authentication required"}},
                 status=401,
+            ),
+            None,
+        )
+    if partner.provisioning_auth_method not in ("hmac", "bearer"):
+        return (
+            Response(
+                {
+                    "type": "error",
+                    "error": {"code": "forbidden", "message": "This endpoint requires a confidential partner"},
+                },
+                status=403,
             ),
             None,
         )
@@ -862,7 +879,16 @@ def github_grants_create(request: Request) -> Response:
             {"type": "error", "error": {"code": "invalid_request", "message": "code is required"}}, status=400
         )
 
-    authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=redirect_uri)
+    try:
+        authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=redirect_uri)
+    except requests.RequestException:
+        # Network failure or a non-JSON GitHub error body raising through .json() — retryable,
+        # distinct from a clean "bad code" exchange failure (which returns None below).
+        _capture_provisioning_event("github_grant", "error", partner=partner, error_code="github_unavailable")
+        return Response(
+            {"type": "error", "error": {"code": "github_unavailable", "message": "GitHub request failed"}},
+            status=502,
+        )
     if authorization is None:
         _capture_provisioning_event("github_grant", "error", partner=partner, error_code="github_exchange_failed")
         return Response(

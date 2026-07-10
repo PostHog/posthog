@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+import requests
 from parameterized import parameterized
 
 from posthog.models.integration import GitHubUserAuthorization
@@ -137,6 +138,39 @@ class TestGitHubGrants(ProvisioningTestBase):
             response = self._post_signed("/api/agentic/provisioning/github/grants", {"code": "bad_code"})
         assert response.status_code == 502
         assert response.json()["error"]["code"] == "github_exchange_failed"
+
+    def test_create_grant_github_request_failure_returns_502(self):
+        with patch(
+            "ee.api.agentic_provisioning.views.GitHubIntegration.github_user_from_code",
+            side_effect=requests.RequestException("boom"),
+        ):
+            response = self._post_signed("/api/agentic/provisioning/github/grants", {"code": "gh_code"})
+        assert response.status_code == 502
+        assert response.json()["error"]["code"] == "github_unavailable"
+
+    def test_create_grant_rejects_pkce_partner(self):
+        # PKCE partners are identified only by a public client_id, so they carry no proof
+        # of controlling the partner and must not reach the GitHub code exchange.
+        pkce_partner = OAuthApplication.objects.create(
+            name="PKCE Partner",
+            client_id="pkce_partner_client_id",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://pkce.example.com",
+            algorithm="RS256",
+            provisioning_auth_method="pkce",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+        )
+        response = self.client.post(
+            "/api/agentic/provisioning/github/grants",
+            data={"client_id": pkce_partner.client_id, "code": "gh_code"},
+            format="json",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "forbidden"
 
     def test_create_grant_without_verified_email_returns_null_email(self):
         no_verified = _github_response(200, [{"email": "a@example.com", "primary": True, "verified": False}])
