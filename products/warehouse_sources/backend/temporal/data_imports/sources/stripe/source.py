@@ -485,5 +485,5 @@ If automatic creation failed due to a permissions error and you're using a restr
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             webhook_source_manager=webhook_source_manager,
-            api_version=inputs.api_version,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

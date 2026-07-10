@@ -25,7 +25,7 @@ Use this skill when a vendor has released a new API version and an existing sour
 1. **Read the vendor's changelog** (the source's `api_docs_url`) and list what changed between the currently supported version(s) and the new one: renamed/removed fields, changed pagination, new required headers, changed webhook payloads.
 2. **Declare the version**: add the new label to `supported_versions`. Flip `default_version` to it only if new sources should start there (usually yes for stable versions). Existing pinned rows are unaffected by a default flip — that is the point of pinning.
 3. **Dispatch on `SourceInputs.api_version`** at the request layer:
-   - Keep it minimal. If the version is just a header/URL segment and response shapes are compatible, thread the version string down to where the client/URL is built (see Stripe: `StripeSource.source_for_pipeline` passes `inputs.api_version` → `stripe_source(...)` → `StripeClient(stripe_version=...)`, falling back to its default constant).
+   - Keep it minimal. If the version is just a header/URL segment and response shapes are compatible, thread the version string down to where the client/URL is built (see Stripe: `StripeSource.source_for_pipeline` passes `self.resolve_api_version(inputs.api_version)` → `stripe_source(...)` → `StripeClient(stripe_version=...)`). Resolve through `resolve_api_version` at the source class — never hardcode a fallback version in the request layer.
    - Only introduce per-version modules/branches where behavior genuinely diverges (different pagination, different field mapping). Keep all version branching inside the source's own directory — never in shared layers.
    - Watch for version-dependent column hints/schemas: e.g. Stripe's `external_table_definitions` were built for specific versions; newer versions may need hints skipped so schemas auto-infer (grep `STRIPE_VERSIONS_WITH_EXTERNAL_TABLE_DEFINITIONS` on the open Stripe version PR for the pattern).
 4. **Keep old versions working**: do not delete or alter the request path for previously supported versions. Removing a version is an explicit future decision, not part of a version-add PR.
@@ -43,7 +43,7 @@ Use this skill when a vendor has released a new API version and an existing sour
 
 - `resolve_api_version(pinned, default)` honors a present pin verbatim — even one no longer declared — because silently moving a customer to another version is the failure mode this framework prevents. Empty string / NULL fall back to the default.
 - New sources are stamped with `default_version` at creation (`_create_external_data_source` in `products/data_warehouse/backend/presentation/views/external_data_source.py`).
-- Repinning a customer = updating `ExternalDataSource.api_version` (support runbook: `products/warehouse_sources/backend/docs/runbook-source-api-versions.md`).
+- Repinning a customer = updating `ExternalDataSource.api_version` (support runbook: "Updating a warehouse source to a new vendor API version" in the PostHog/runbooks repo).
 
 ## Common pitfalls
 
