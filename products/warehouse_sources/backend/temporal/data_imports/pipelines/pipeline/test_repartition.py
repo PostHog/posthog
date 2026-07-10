@@ -618,6 +618,7 @@ class TestClaimFencing:
 
         assert result["outcome"] == "completed"
         valid.assert_awaited_once_with("s3://bucket/live__repartitioned", {})
+        assert swap.await_args is not None
         assert swap.await_args.kwargs["temp_uri"] == "s3://bucket/live__repartitioned"
 
 
