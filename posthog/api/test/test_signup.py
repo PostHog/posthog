@@ -147,7 +147,10 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(enrichment.data, {"company_type_deterministic": "yc"})
 
         me = self.client.get("/api/users/@me/")
-        self.assertEqual(me.json()["organization"]["enrichment"], {"company_type_deterministic": "yc"})
+        self.assertEqual(
+            me.json()["organization"]["enrichment"],
+            {"company_type_deterministic": "yc", "company_type_resolved": "yc"},
+        )
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")

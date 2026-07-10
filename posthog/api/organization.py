@@ -52,6 +52,8 @@ from posthog.tasks.email import send_posthog_ai_access_request
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_safe_cache, safe_cache_set
 
+from products.growth.backend.enrichment.routing import resolve_company_type
+
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
@@ -354,7 +356,10 @@ class OrganizationSerializer(
     @extend_schema_field(serializers.DictField())
     def get_enrichment(self, organization: Organization) -> dict:
         record = getattr(organization, "enrichment_record", None)
-        return record.data if record else {}
+        data = dict(record.data) if record else {}
+        # Single value for onboarding to route on: deterministic unless unknown, then enrichment.
+        data["company_type_resolved"] = resolve_company_type(data)
+        return data
 
     @tracer.start_as_current_span("organization_serializer.to_representation")
     def to_representation(self, instance):
