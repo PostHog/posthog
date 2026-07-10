@@ -703,7 +703,8 @@ class _LogPatternExampleSerializer(serializers.Serializer):
     body = serializers.CharField(
         help_text=(
             "Log body as the miner saw it: whitespace-collapsed and truncated to the mining "
-            "length cap, not the raw stored line."
+            "length cap, with the message field extracted from JSON bodies — not the raw "
+            "stored line."
         ),
     )
     severity_text = serializers.CharField(help_text='Severity of the sampled line, e.g. "info", "error".')
@@ -774,9 +775,10 @@ class _LogPatternSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from "
-            "the template and validated against the pattern's own examples before being offered. "
-            "Null when the template lacks literal content or validation failed — never trust an "
-            "unvalidated predicate. Use with the message/regex log property filter."
+            "the template and validated against the raw bodies of the pattern's own sampled rows "
+            "before being offered. Null when the template lacks literal content or validation "
+            "failed — never trust an unvalidated predicate. Use with the message/regex log "
+            "property filter."
         ),
     )
     match_literal = serializers.CharField(

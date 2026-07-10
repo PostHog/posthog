@@ -147,16 +147,17 @@ class TestMinePatterns(TestCase):
 
     def test_mined_patterns_carry_a_regex_that_matches_their_own_examples(self) -> None:
         # End-to-end self-consistency: whatever mining produced, the compiled predicate must
-        # match the rows it came from — the invariant the whole "view matching logs" flow
-        # rests on.
-        samples = [_sample(f"User {name} not found in {i} ms") for i, name in enumerate(("alice", "bob", "carol"))]
+        # match the RAW rows it came from — raw lines are what the predicate executes against
+        # in ClickHouse, and a regex that only matches prepared bodies is exactly the broken
+        # predicate this invariant exists to prevent.
+        bodies = [f"User {name} not found in {i} ms" for i, name in enumerate(("alice", "bob", "carol"))]
 
-        patterns = mine_patterns(samples)
+        patterns = mine_patterns([_sample(body) for body in bodies])
 
         assert patterns[0].match_regex is not None
         compiled = re.compile(patterns[0].match_regex)
-        for example in patterns[0].examples:
-            assert compiled.search(example.body)
+        for body in bodies:
+            assert compiled.search(body)
 
 
 def _compile_prose(template: str, bodies: list[str], truncate: int = 512) -> str | None:
@@ -221,6 +222,14 @@ class TestCompileMatchRegex(TestCase):
         # withheld instead.
         assert _compile_prose("User <*> not found", ["User dave not found", "something entirely different"]) is None
 
+    def test_prose_pattern_never_falls_back_to_an_unanchored_regex(self) -> None:
+        # The unanchored fallback exists solely for JSON-extracted messages (substrings of
+        # their raw rows). A prose raw line with surrounding context (e.g. a shipper-prepended
+        # syslog prefix) fails the anchored form and must be withheld — falling back would ship
+        # a predicate matching mid-line occurrences the anchoring guarantee exists to exclude.
+        raws = ["User dave not found", "<13>Jan 1 host app: User bob not found"]
+        assert _compile_prose("User <*> not found", raws) is None
+
     def test_no_examples_means_no_regex(self) -> None:
         assert compile_match_regex("User <*> not found", [], [], truncate=512) is None
 
@@ -247,6 +256,7 @@ class TestPrepareJsonBody(TestCase):
     @parameterized.expand(
         [
             ("message_key", '{"message": "User alice not found", "level": "error"}', "User alice not found"),
+            ("leading_whitespace_and_bom", ' ﻿ {"message": "still json"}', "still json"),
             ("msg_key", '{"msg": "connection reset", "attempt": 3}', "connection reset"),
             ("log_key", '{"log": "line from docker", "stream": "stdout"}', "line from docker"),
             ("event_key", '{"event": "payment failed", "order_id": 12}', "payment failed"),

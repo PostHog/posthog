@@ -80,8 +80,10 @@ class MinedPattern:
     bucket_counts: list[int]
     # Raw sample counts keyed by lowercased severity_text.
     severity_counts: dict[str, int]
-    # RE2-safe regex over raw bodies, self-validated against `examples`; None when the
-    # template lacks literal content or validation failed. See compile_match_regex.
+    # RE2-safe regex over raw bodies, self-validated against the raw bodies of the sampled
+    # example rows (not the prepared `examples` — raw lines are what the predicate executes
+    # against in ClickHouse); None when the template lacks literal content or validation
+    # failed. See compile_match_regex.
     match_regex: str | None
     # Longest literal run in the template — plain-text fallback when match_regex is None.
     match_literal: str | None
@@ -109,6 +111,23 @@ class _Accumulator:
 # preprocessing remaps the same core keys (message/msg/log) to the log body.
 _JSON_MESSAGE_KEYS = ("message", "msg", "log", "msg_", "_msg", "content", "event")
 
+# Raw example bodies (the predicate validation corpus) are kept at a multiple of the mining
+# truncation cap: long enough that predicates over truncated templates still validate against
+# realistic raw lines, bounded so a pathological row can't blow up memory.
+_RAW_EXAMPLE_CAP_MULTIPLIER = 4
+
+
+def _json_value_shape(value: object) -> str:
+    # "<val>" is deliberately not a mining placeholder (<*>, <num>, …): those must only ever
+    # mean "matches raw text here", and a shape token never should — compile_match_regex would
+    # otherwise emit predicates that can't match the raw JSON. Nested containers keep their
+    # own sorted-key structure one level down, then collapse to <val>.
+    if isinstance(value, dict):
+        return "{" + " ".join(f'"{key}": <val>' for key in sorted(value)) + "}"
+    if isinstance(value, list):
+        return "[<val>]"
+    return "<val>"
+
 
 def _prepare_json_body(body: str) -> str | None:
     """Reduce a JSON log body to something Drain can cluster, or None when the body isn't JSON.
@@ -122,6 +141,9 @@ def _prepare_json_body(body: str) -> str | None:
     so identical structures cluster into one stable template instead of being dropped (Loki
     skips these lines entirely; templating the shape is strictly more useful).
     """
+    # Shippers (Fluentd, Vector, Docker's json-file driver) sometimes deliver a BOM or
+    # leading whitespace before the object — that must not demote the body to prose mining.
+    body = body.lstrip("﻿ \t\r\n")
     if not body.startswith("{"):
         return None
     try:
@@ -136,18 +158,7 @@ def _prepare_json_body(body: str) -> str | None:
         if isinstance(value, str) and value.strip():
             return value
 
-    # "<val>" is deliberately not a mining placeholder (<*>, <num>, …): those must only ever
-    # mean "matches raw text here", and a shape token never should — compile_match_regex would
-    # otherwise emit predicates that can't match the raw JSON. Nested containers keep their
-    # own sorted-key structure one level down, then collapse to <val>.
-    def shape(value: object) -> str:
-        if isinstance(value, dict):
-            return "{" + " ".join(f'"{key}": <val>' for key in sorted(value)) + "}"
-        if isinstance(value, list):
-            return "[<val>]"
-        return "<val>"
-
-    return "{" + " ".join(f'"{key}": {shape(parsed[key])}' for key in sorted(parsed)) + "}"
+    return "{" + " ".join(f'"{key}": {_json_value_shape(parsed[key])}' for key in sorted(parsed)) + "}"
 
 
 def _prepare_body(body: str, truncate: int) -> str:
@@ -223,13 +234,14 @@ def compile_match_regex(template: str, examples: list[LogSample], raw_examples: 
     Returns None rather than an unvalidated predicate: Drain refines templates as rows merge,
     so an early-stored example can diverge from the final template — and a filter that
     silently matches the wrong logs is worse than no filter. Validation runs against *raw*
-    bodies because that is what the predicate executes against in ClickHouse. Two anchoring
-    variants are tried in order: the anchored form (start-anchored; end anchor dropped when
-    any prepared example hit the mining truncation cap) for prose bodies, then an unanchored
-    form for content mined out of a larger raw line — a message extracted from a JSON body is
-    a substring of its raw row, so only the unanchored form can match. A template whose
-    content never appears verbatim in the raw lines (canonicalized JSON shapes, messages with
-    JSON-escaped characters) fails both and is withheld.
+    bodies because that is what the predicate executes against in ClickHouse. The anchored
+    form is tried first (start-anchored; end anchor dropped when any prepared example hit the
+    mining truncation cap). An unanchored fallback applies only to JSON-derived patterns,
+    where the mined message is a substring of its raw row so only the unanchored form can
+    match — prose keeps the strict anchoring guarantee, since an unanchored prose predicate
+    would silently match mid-line occurrences the anchored form was designed to exclude.
+    A template whose content never appears verbatim in the raw lines (canonicalized JSON
+    shapes, messages with JSON-escaped characters) fails validation and is withheld.
     """
     if not examples or not raw_examples:
         return None
@@ -247,13 +259,17 @@ def compile_match_regex(template: str, examples: list[LogSample], raw_examples: 
     core = "".join(parts)
 
     truncated = any(len(example.body) >= truncate for example in examples)
-    for candidate in (r"^\s*" + core + ("" if truncated else r"\s*$"), core):
-        try:
-            compiled = re.compile(candidate)
-        except re.error:
-            return None
-        if all(compiled.search(raw) for raw in raw_examples):
-            return candidate
+    anchored = r"^\s*" + core + ("" if truncated else r"\s*$")
+    try:
+        anchored_re = re.compile(anchored)
+        core_re = re.compile(core)
+    except re.error:
+        return None
+    if all(anchored_re.search(raw) for raw in raw_examples):
+        return anchored
+    mined_from_json = any(_prepare_json_body(raw) is not None for raw in raw_examples)
+    if mined_from_json and all(core_re.search(raw) for raw in raw_examples):
+        return core
     return None
 
 
@@ -335,9 +351,9 @@ def mine_patterns(
                     timestamp=sample.timestamp,
                 )
             )
-            # Bounded so a pathological raw line can't blow up memory; a predicate needing
-            # content beyond the cap fails validation and is withheld, which is fail-safe.
-            acc.raw_examples.append(sample.body[: truncate * 4])
+            # A predicate needing content beyond the cap fails validation and is withheld,
+            # which is fail-safe.
+            acc.raw_examples.append(sample.body[: truncate * _RAW_EXAMPLE_CAP_MULTIPLIER])
         if sample.service_name not in acc.services and len(acc.services) < max_services:
             acc.services.append(sample.service_name)
         if buckets:
