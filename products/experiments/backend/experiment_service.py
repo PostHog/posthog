@@ -1386,62 +1386,77 @@ class ExperimentService:
             experiment.secondary_metrics_ordered_uuids = secondary_ordering
             experiment.save(update_fields=["primary_metrics_ordered_uuids", "secondary_metrics_ordered_uuids"])
 
+    @staticmethod
+    def _saved_metric_uuids_by_type(
+        query_metadata_pairs: Iterable[tuple[dict | None, dict | None]],
+    ) -> dict[str, set[str]]:
+        """Group saved-metric query uuids into ``{"primary": set, "secondary": set}``.
+
+        A link's metric type comes from its metadata (``metadata["type"]``), defaulting to
+        ``"primary"``; anything that isn't ``"primary"`` counts as secondary. Pairs with no query
+        or no uuid are skipped.
+        """
+        by_type: dict[str, set[str]] = {"primary": set(), "secondary": set()}
+        for query, metadata in query_metadata_pairs:
+            if not query:
+                continue
+            uuid = query.get("uuid")
+            if not uuid:
+                continue
+            metric_type = (metadata or {}).get("type", "primary")
+            by_type["primary" if metric_type == "primary" else "secondary"].add(uuid)
+        return by_type
+
+    def _assert_ordering_covers_metrics(
+        self,
+        *,
+        primary_metrics: list[dict],
+        secondary_metrics: list[dict],
+        saved_metric_links: list,
+        primary_ordering: list[str] | None,
+        secondary_ordering: list[str] | None,
+    ) -> None:
+        """Assert each ordering array contains every UUID of its metrics (inline + saved).
+
+        Shared by the create and update paths, which differ only in where the metrics and
+        ordering arrays are sourced from.
+        """
+        expected_primary = {uuid for m in primary_metrics if (uuid := m.get("uuid"))}
+        expected_secondary = {uuid for m in secondary_metrics if (uuid := m.get("uuid"))}
+
+        saved_by_type = self._saved_metric_uuids_by_type(
+            (link.saved_metric.query, link.metadata) for link in saved_metric_links
+        )
+        expected_primary |= saved_by_type["primary"]
+        expected_secondary |= saved_by_type["secondary"]
+
+        for field_name, metric_label, expected_uuids, ordering in (
+            ("primary_metrics_ordered_uuids", "primary", expected_primary, primary_ordering),
+            ("secondary_metrics_ordered_uuids", "secondary", expected_secondary, secondary_ordering),
+        ):
+            if not expected_uuids:
+                continue
+            if ordering is None:
+                raise ValidationError(
+                    f"{field_name} is null but {metric_label} metrics exist. "
+                    "This is likely a frontend bug - please refresh and try again."
+                )
+            missing = expected_uuids - set(ordering)
+            if missing:
+                raise ValidationError(
+                    f"{field_name} is missing UUIDs: {sorted(missing)}. "
+                    "This is likely a frontend bug - please refresh and try again."
+                )
+
     def _validate_metric_ordering_on_create(self, experiment: Experiment) -> None:
         """Validate that ordering arrays contain all metric UUIDs (create path)."""
-        primary_ordering = experiment.primary_metrics_ordered_uuids
-        secondary_ordering = experiment.secondary_metrics_ordered_uuids
-
-        primary_metrics = experiment.metrics or []
-        secondary_metrics = experiment.metrics_secondary or []
-
-        saved_metrics = list(experiment.experimenttosavedmetric_set.select_related("saved_metric").all())
-
-        expected_primary_uuids: set[str] = set()
-        expected_secondary_uuids: set[str] = set()
-
-        for metric in primary_metrics:
-            if uuid := metric.get("uuid"):
-                expected_primary_uuids.add(uuid)
-
-        for metric in secondary_metrics:
-            if uuid := metric.get("uuid"):
-                expected_secondary_uuids.add(uuid)
-
-        for link in saved_metrics:
-            saved_metric = link.saved_metric
-            uuid = saved_metric.query.get("uuid") if saved_metric.query else None
-            if uuid:
-                metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
-                if metric_type == "primary":
-                    expected_primary_uuids.add(uuid)
-                else:
-                    expected_secondary_uuids.add(uuid)
-
-        if expected_primary_uuids:
-            if primary_ordering is None:
-                raise ValidationError(
-                    "primary_metrics_ordered_uuids is null but primary metrics exist. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-            missing = expected_primary_uuids - set(primary_ordering)
-            if missing:
-                raise ValidationError(
-                    f"primary_metrics_ordered_uuids is missing UUIDs: {sorted(missing)}. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-
-        if expected_secondary_uuids:
-            if secondary_ordering is None:
-                raise ValidationError(
-                    "secondary_metrics_ordered_uuids is null but secondary metrics exist. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-            missing = expected_secondary_uuids - set(secondary_ordering)
-            if missing:
-                raise ValidationError(
-                    f"secondary_metrics_ordered_uuids is missing UUIDs: {sorted(missing)}. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
+        self._assert_ordering_covers_metrics(
+            primary_metrics=experiment.metrics or [],
+            secondary_metrics=experiment.metrics_secondary or [],
+            saved_metric_links=list(experiment.experimenttosavedmetric_set.select_related("saved_metric").all()),
+            primary_ordering=experiment.primary_metrics_ordered_uuids,
+            secondary_ordering=experiment.secondary_metrics_ordered_uuids,
+        )
 
     # ------------------------------------------------------------------
     # Launch
@@ -4101,62 +4116,15 @@ class ExperimentService:
 
     def _validate_metric_ordering_on_update(self, experiment: Experiment, update_data: dict) -> None:
         """Validate ordering arrays contain all metric UUIDs (update path)."""
-        primary_ordering = update_data.get("primary_metrics_ordered_uuids", experiment.primary_metrics_ordered_uuids)
-        secondary_ordering = update_data.get(
-            "secondary_metrics_ordered_uuids", experiment.secondary_metrics_ordered_uuids
+        self._assert_ordering_covers_metrics(
+            primary_metrics=update_data.get("metrics", experiment.metrics) or [],
+            secondary_metrics=update_data.get("metrics_secondary", experiment.metrics_secondary) or [],
+            saved_metric_links=list(experiment.experimenttosavedmetric_set.select_related("saved_metric").all()),
+            primary_ordering=update_data.get("primary_metrics_ordered_uuids", experiment.primary_metrics_ordered_uuids),
+            secondary_ordering=update_data.get(
+                "secondary_metrics_ordered_uuids", experiment.secondary_metrics_ordered_uuids
+            ),
         )
-
-        primary_metrics = update_data.get("metrics", experiment.metrics) or []
-        secondary_metrics = update_data.get("metrics_secondary", experiment.metrics_secondary) or []
-
-        saved_metrics = list(experiment.experimenttosavedmetric_set.select_related("saved_metric").all())
-
-        expected_primary_uuids: set[str] = set()
-        expected_secondary_uuids: set[str] = set()
-
-        for metric in primary_metrics:
-            if uuid := metric.get("uuid"):
-                expected_primary_uuids.add(uuid)
-
-        for metric in secondary_metrics:
-            if uuid := metric.get("uuid"):
-                expected_secondary_uuids.add(uuid)
-
-        for link in saved_metrics:
-            saved_metric = link.saved_metric
-            uuid = saved_metric.query.get("uuid") if saved_metric.query else None
-            if uuid:
-                metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
-                if metric_type == "primary":
-                    expected_primary_uuids.add(uuid)
-                else:
-                    expected_secondary_uuids.add(uuid)
-
-        if expected_primary_uuids:
-            if primary_ordering is None:
-                raise ValidationError(
-                    "primary_metrics_ordered_uuids is null but primary metrics exist. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-            missing = expected_primary_uuids - set(primary_ordering)
-            if missing:
-                raise ValidationError(
-                    f"primary_metrics_ordered_uuids is missing UUIDs: {sorted(missing)}. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-
-        if expected_secondary_uuids:
-            if secondary_ordering is None:
-                raise ValidationError(
-                    "secondary_metrics_ordered_uuids is null but secondary metrics exist. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-            missing = expected_secondary_uuids - set(secondary_ordering)
-            if missing:
-                raise ValidationError(
-                    f"secondary_metrics_ordered_uuids is missing UUIDs: {sorted(missing)}. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
 
     def _build_serializer_context(self) -> dict:
         """Build minimal DRF serializer context for internal service use."""
