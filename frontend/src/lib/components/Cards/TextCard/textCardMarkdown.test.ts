@@ -141,11 +141,13 @@ describe('textCardMarkdown', () => {
         const markdown = textCardConverter.docToMarkdown(doc)
         const reparsedSnippet = textCardConverter
             .markdownToDoc(markdown)
-            .content?.[0]?.content?.find((node) => node.marks?.some((m) => m.type === 'code'))
+            .content?.[0]?.content?.find((node: JSONContent) =>
+                node.marks?.some((m: { type: string }) => m.type === 'code')
+            )
 
         expect(markdown).toContain('`snippet`')
         expect(reparsedSnippet?.text).toBe('snippet')
-        expect(reparsedSnippet?.marks?.map((m) => m.type).sort()).toEqual(['code', mark].sort())
+        expect(reparsedSnippet?.marks?.map((m: { type: string }) => m.type).sort()).toEqual(['code', mark].sort())
         expect(textCardConverter.isRoundTripSafe(markdown)).toBe(true)
     })
 
