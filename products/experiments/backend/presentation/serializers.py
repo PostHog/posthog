@@ -262,7 +262,13 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         """
         if flag is None:
             return
-        parameters = dict(data.get("parameters") or {})
+        raw_parameters = data.get("parameters")
+        if raw_parameters is not None and not isinstance(raw_parameters, dict):
+            # A drifted pre-0026 row can hold a non-dict in this JSON column. There is no flag config
+            # to project onto a non-dict, and `dict(...)` on it would raise, so leave the value as-is
+            # rather than making the row unreadable (the write boundary rejects new non-dict input).
+            return
+        parameters = dict(raw_parameters or {})
 
         parameters["feature_flag_variants"] = _with_split_percent(flag.variants)
 
@@ -548,6 +554,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         return data
 
     def validate_parameters(self, value):
+        # `parameters` is a JSON object. Reject non-dict input at the write boundary so a list, str,
+        # or number can never persist; a stored non-dict would later crash the read projection
+        # (`dict(...)` in _project_feature_flag_config). The strip helper stays tolerant of already
+        # stored legacy drift, but request bodies must be well-formed.
+        if value is not None and not isinstance(value, dict):
+            raise serializers.ValidationError("parameters must be an object")
         # Flag config is no longer a persisted `parameters` key; it is sourced from the linked flag
         # (see ExperimentBaseSerializer._project_feature_flag_config). Strip any flag-config keys sent
         # through `parameters` so they never reach the stored column; a legacy caller sending them is
