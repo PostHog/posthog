@@ -453,6 +453,16 @@ If undocumented, keep parsing/merge logic conservative and add a short code comm
 - Bound and make deterministic (`stop_after_attempt`). Preserve clear terminal behavior.
 - Keep timeout/retry settings near the top of the module for easy tuning.
 
+The backoff above is the right control when the **customer owns the credential** — their own PAT / API key / OAuth token on their own third-party account, which is nearly every source.
+PostHog can't overspend a budget it doesn't own, so honoring `429` / `Retry-After` at the source is enough.
+
+**The exception is a credential PostHog owns and shares across processes** — today that's the PostHog GitHub App installation token (many PostHog subsystems draw from one per-installation budget at once).
+There, reactive backoff isn't enough: without coordination, concurrent PostHog callers collectively blow past the shared limit before any `429` comes back.
+Those calls must route through [`posthog/egress/`](../../../posthog/egress/README.md) — a Redis-backed shared budget plus telemetry, gated by construction — never hand-rolled `requests`.
+The GitHub source (`sources/github/github.py`) is the reference: it keys the limiter on the **GitHub App installation id** (the budget owner in GitHub's own id space, not a PostHog DB row), and the customer-PAT path skips the limiter token-blind.
+Raw calls to `api.github.com` are blocked by the `github-api-calls-go-through-egress` semgrep rule, so a GitHub-shaped source lands on the egress path by construction.
+Deciding question is never "is this a warehouse source?" — it's **"who owns the token, and could concurrent PostHog processes trample each other on it?"**
+
 ## Fan-out endpoints
 
 Fan-out = iterate a parent resource, then query child endpoints per parent.
