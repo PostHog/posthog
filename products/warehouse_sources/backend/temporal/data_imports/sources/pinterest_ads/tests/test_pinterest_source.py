@@ -1,7 +1,7 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldOauthConfig
+from posthog.schema import SourceFieldOauthAccountSelectConfig, SourceFieldOauthConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PinterestAdsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source import PinterestAdsSource
@@ -26,16 +26,19 @@ class TestPinterestAdsSource:
         assert config.featureFlag is None
         assert len(config.fields) == 2
 
-        account_field = config.fields[0]
-        assert isinstance(account_field, SourceFieldInputConfig)
-        assert account_field.name == "ad_account_id"
-        assert account_field.required is True
-
-        oauth_field = config.fields[1]
+        # OAuth field comes first — the account selector below reads from it
+        oauth_field = config.fields[0]
         assert isinstance(oauth_field, SourceFieldOauthConfig)
         assert oauth_field.name == "pinterest_ads_integration_id"
         assert oauth_field.kind == "pinterest-ads"
         assert oauth_field.required is True
+
+        account_field = config.fields[1]
+        assert isinstance(account_field, SourceFieldOauthAccountSelectConfig)
+        assert account_field.name == "ad_account_id"
+        assert account_field.required is True
+        assert account_field.integrationField == "pinterest_ads_integration_id"
+        assert account_field.integrationKind == "pinterest-ads"
 
     def test_validate_credentials_missing_account_id(self):
         invalid_config = PinterestAdsSourceConfig(pinterest_ads_integration_id=456, ad_account_id="")

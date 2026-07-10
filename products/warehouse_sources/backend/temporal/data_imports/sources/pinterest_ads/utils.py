@@ -104,14 +104,8 @@ def _make_request(session: requests.Session, url: str, params: Optional[dict] = 
     return response.json()
 
 
-def fetch_entities(
-    session: requests.Session,
-    ad_account_id: str,
-    endpoint_name: str,
-) -> list[dict[str, Any]]:
-    path = ENTITY_ENDPOINT_PATHS[endpoint_name].format(ad_account_id=ad_account_id)
-    url = f"{BASE_URL}{path}"
-
+def _paginate_items(session: requests.Session, url: str) -> list[dict[str, Any]]:
+    """Collect every item from a bookmark-paginated Pinterest list endpoint."""
     all_items: list[dict[str, Any]] = []
     bookmark: Optional[str] = None
 
@@ -123,14 +117,27 @@ def fetch_entities(
             params["bookmark"] = bookmark
 
         data = _make_request(session, url, params)
-        items = data.get("items", [])
-        all_items.extend(items)
+        all_items.extend(data.get("items", []))
 
         bookmark = data.get("bookmark")
         if not bookmark:
             break
 
     return all_items
+
+
+def list_ad_accounts(session: requests.Session) -> list[dict[str, Any]]:
+    """Every ad account the connected Pinterest user can access."""
+    return _paginate_items(session, f"{BASE_URL}/ad_accounts")
+
+
+def fetch_entities(
+    session: requests.Session,
+    ad_account_id: str,
+    endpoint_name: str,
+) -> list[dict[str, Any]]:
+    path = ENTITY_ENDPOINT_PATHS[endpoint_name].format(ad_account_id=ad_account_id)
+    return _paginate_items(session, f"{BASE_URL}{path}")
 
 
 def fetch_entity_ids(

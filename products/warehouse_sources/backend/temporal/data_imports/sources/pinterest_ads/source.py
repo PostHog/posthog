@@ -1,17 +1,19 @@
 from typing import Optional, cast
 
+import requests
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -25,6 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -35,7 +41,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_
     pinterest_ads_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.settings import PINTEREST_ADS_CONFIG
+from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.utils import (
+    build_session,
+    list_ad_accounts,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+def _format_permission(permission: str) -> str:
+    """Render Pinterest's screaming-snake permission enum as a badge label (``CAMPAIGN_MANAGER`` ->
+    ``Campaign manager``)."""
+    return permission.replace("_", " ").capitalize()
 
 
 @SourceRegistry.register
@@ -67,19 +83,20 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="ad_account_id",
-                        label="Pinterest Ads Ad Account ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="Your Pinterest Ads ad account ID",
-                        secret=False,
-                    ),
+                    # OAuth first: the account dropdown below is populated from this integration.
                     SourceFieldOauthConfig(
                         name="pinterest_ads_integration_id",
                         label="Pinterest Ads account",
                         required=True,
                         kind="pinterest-ads",
+                    ),
+                    SourceFieldOauthAccountSelectConfig(
+                        name="ad_account_id",
+                        label="Pinterest Ads Ad Account ID",
+                        integrationField="pinterest_ads_integration_id",
+                        integrationKind="pinterest-ads",
+                        required=True,
+                        placeholder="Your Pinterest Ads ad account ID",
                     ),
                 ],
             ),
@@ -94,6 +111,44 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
                 ),
             ],
         )
+
+    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+        try:
+            integration = self.get_oauth_integration(integration_id, team_id)
+        except ValueError as e:
+            raise IntegrationAccountListingError(
+                "The linked Pinterest Ads integration could not be found. "
+                "Please reconnect your Pinterest Ads integration."
+            ) from e
+
+        oauth = OauthIntegration(integration)
+        if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
+            oauth.refresh_access_token()
+        if integration.errors == ERROR_TOKEN_REFRESH_FAILED or not integration.access_token:
+            raise IntegrationAccountListingError(
+                "Could not refresh the Pinterest Ads credentials. Please reconnect your Pinterest Ads integration."
+            )
+
+        try:
+            accounts = list_ad_accounts(build_session(integration.access_token))
+        except requests.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else None
+            if status_code not in (401, 403):
+                # Any other status is a bug in the request we build, not something the user can fix.
+                raise
+            raise IntegrationAccountListingError(
+                "Pinterest rejected the credentials for this integration. Please reconnect your Pinterest Ads "
+                "integration and make sure the connected account can access your ad accounts."
+            ) from e
+
+        return [
+            IntegrationAccount(
+                value=account["id"],
+                display_name=account.get("name") or "Unnamed account",
+                badges=tuple(_format_permission(p) for p in account.get("permissions") or []),
+            )
+            for account in accounts
+        ]
 
     def validate_credentials(
         self, config: PinterestAdsSourceConfig, team_id: int, schema_name: Optional[str] = None

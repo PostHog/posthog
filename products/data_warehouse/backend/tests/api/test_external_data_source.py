@@ -10746,6 +10746,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
     _BING_LIST_ACCOUNTS = (
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
     )
+    _PINTEREST_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source"
 
     def setUp(self):
         super().setUp()
@@ -10814,6 +10815,47 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # raises NotImplementedError — it must surface as a 400, not an unhandled 500.
         response = self.client.get(self._url("Salesforce", 1))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_pinterest_ads_maps_accounts_with_permission_badges(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="pinterest-ads",
+            config={},
+            sensitive_config={"access_token": "token", "refresh_token": "refresh"},
+            integration_id="pinterest_test",
+            created_by=self.user,
+        )
+        listed = [
+            {"id": "549770029420", "name": "Posthog Inc", "permissions": ["OWNER"]},
+            {"id": "111", "name": "Client", "permissions": ["CAMPAIGN_MANAGER"]},
+        ]
+        with (
+            patch(f"{self._PINTEREST_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._PINTEREST_ADS_MODULE}.build_session"),
+            patch(f"{self._PINTEREST_ADS_MODULE}.list_ad_accounts", return_value=listed),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("PinterestAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "549770029420",
+                "display_name": "Posthog Inc",
+                "is_primary": False,
+                "badges": ["Owner"],
+                "group": None,
+                "secondary_text": None,
+            },
+            {
+                "value": "111",
+                "display_name": "Client",
+                "is_primary": False,
+                "badges": ["Campaign manager"],
+                "group": None,
+                "secondary_text": None,
+            },
+        ]
 
     def test_gsc_success_maps_sites_to_accounts(self):
         integration = self._gsc_integration()

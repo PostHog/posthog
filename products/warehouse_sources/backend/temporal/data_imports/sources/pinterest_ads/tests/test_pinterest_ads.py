@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_
     fetch_entities,
     fetch_entity_ids,
     get_date_range,
+    list_ad_accounts,
 )
 
 
@@ -161,6 +162,18 @@ class TestFetchEntities:
 
         result = fetch_entities(session, "acc123", "campaigns")
         assert result == []
+
+
+class TestListAdAccounts:
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.utils._make_request")
+    def test_requests_the_ad_accounts_endpoint(self, mock_request):
+        mock_request.return_value = {"items": [{"id": "549770029420"}], "bookmark": None}
+        session = mock.MagicMock()
+
+        result = list_ad_accounts(session)
+
+        assert [account["id"] for account in result] == ["549770029420"]
+        assert mock_request.call_args[0][1] == "https://api.pinterest.com/v5/ad_accounts"
 
 
 class TestFetchEntityIds:
