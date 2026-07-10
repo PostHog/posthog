@@ -18,6 +18,34 @@ export function validatePromptName(name: string | undefined): string | undefined
     return undefined
 }
 
+export function validatePromptConfig(config: string | undefined): string | undefined {
+    if (!config?.trim()) {
+        return undefined
+    }
+    try {
+        const parsed = JSON.parse(config)
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return 'Config must be a JSON object, e.g. {"model": "gpt-5", "temperature": 0.2}'
+        }
+    } catch {
+        return 'Config must be valid JSON'
+    }
+    return undefined
+}
+
+/** Parse the config editor's text into the API payload value. Empty text means "no config" (null). */
+export function parsePromptConfig(config: string | undefined): Record<string, any> | null {
+    if (!config?.trim()) {
+        return null
+    }
+    return JSON.parse(config)
+}
+
+/** Format a prompt's stored config for the JSON text editor. */
+export function formatPromptConfig(config: Record<string, any> | null | undefined): string {
+    return config ? JSON.stringify(config, null, 2) : ''
+}
+
 export function getApiErrorDetail(error: unknown): string | undefined {
     if (error !== null && typeof error === 'object' && 'detail' in error && typeof error.detail === 'string') {
         return error.detail

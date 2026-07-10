@@ -10,7 +10,14 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.llm_prompt import LLMPromptViewSet
-from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES, LLMPromptDuplicateSerializer
+from posthog.api.llm_prompt_serializers import (
+    MAX_PROMPT_CONFIG_BYTES,
+    MAX_PROMPT_PAYLOAD_BYTES,
+    MAX_PROMPT_TAGS,
+    LLMPromptDuplicateSerializer,
+    LLMPromptPublishSerializer,
+    LLMPromptUpdateTagsSerializer,
+)
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 
@@ -26,6 +33,8 @@ class TestLLMPromptAPI(APIBaseTest):
         version: int = 1,
         is_latest: bool = True,
         deleted: bool = False,
+        config: Any = None,
+        tags: list[str] | None = None,
     ) -> LLMPrompt:
         return LLMPrompt.objects.create(
             team=self.team,
@@ -34,6 +43,8 @@ class TestLLMPromptAPI(APIBaseTest):
             version=version,
             is_latest=is_latest,
             deleted=deleted,
+            config=config,
+            tags=tags or [],
             created_by=self.user,
         )
 
@@ -940,6 +951,197 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "archived-name"
         assert response.json()["version"] == 1
+
+    def test_create_prompt_with_config_and_tags(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={
+                "name": "configured-prompt",
+                "prompt": "Prompt content",
+                "config": {"model": "gpt-5", "temperature": 0.2},
+                "tags": ["  Prod ", "prod", "Chatbot"],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["config"] == {"model": "gpt-5", "temperature": 0.2}
+        assert response.json()["tags"] == ["prod", "chatbot"]
+        created_prompt = LLMPrompt.objects.get(team=self.team, name="configured-prompt", deleted=False)
+        assert created_prompt.config == {"model": "gpt-5", "temperature": 0.2}
+        assert created_prompt.tags == ["prod", "chatbot"]
+
+    def test_create_prompt_rejects_non_object_config(self):
+        # Wiring guard: the create endpoint validates config through validate_prompt_config_value.
+        # The full invalid-config matrix runs without a DB in TestLLMPromptPublishSerializerValidationNoDB.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "bad-config", "prompt": "Prompt content", "config": ["not", "an", "object"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "config"
+
+    def test_publish_config_semantics_across_versions(self):
+        self.create_prompt_version(name="configured-prompt", prompt="v1", config={"model": "gpt-4"}, tags=["chatbot"])
+
+        # Omitting config keeps the previous version's config; tags always carry over
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/configured-prompt/",
+            data={"prompt": "v2", "base_version": 1},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["config"] == {"model": "gpt-4"}
+        assert response.json()["tags"] == ["chatbot"]
+
+        # Providing config replaces it
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/configured-prompt/",
+            data={"prompt": "v3", "base_version": 2, "config": {"model": "gpt-5"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["config"] == {"model": "gpt-5"}
+
+        # Explicit null clears it
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/configured-prompt/",
+            data={"prompt": "v4", "base_version": 3, "config": None},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["config"] is None
+
+        # Historical versions keep their own config
+        assert LLMPrompt.objects.get(team=self.team, name="configured-prompt", version=3).config == {"model": "gpt-5"}
+
+    def test_publish_config_only_creates_new_version_with_same_prompt(self):
+        self.create_prompt_version(name="configured-prompt", prompt="stable content")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/configured-prompt/",
+            data={"base_version": 1, "config": {"temperature": 0.7}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version"] == 2
+        assert response.json()["prompt"] == "stable content"
+        assert response.json()["config"] == {"temperature": 0.7}
+
+    def test_update_tags_endpoint_updates_all_versions_without_publishing(self):
+        self.create_prompt_version(name="tagged-prompt", version=1, is_latest=False, prompt="v1", tags=["old"])
+        self.create_prompt_version(name="tagged-prompt", version=2, is_latest=True, prompt="v2", tags=["old"])
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/tagged-prompt/tags/",
+            data={"tags": ["Alpha", " beta ", "alpha"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == ["alpha", "beta"]
+        assert response.json()["version"] == 2
+        assert response.json()["version_count"] == 2
+        tags_by_version = {
+            prompt.version: prompt.tags
+            for prompt in LLMPrompt.objects.filter(team=self.team, name="tagged-prompt", deleted=False)
+        }
+        assert tags_by_version == {1: ["alpha", "beta"], 2: ["alpha", "beta"]}
+
+    def test_update_tags_endpoint_returns_404_for_unknown_prompt(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/nonexistent/tags/",
+            data={"tags": ["alpha"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_fetch_prompt_by_name_reflects_tag_updates_despite_cache(self):
+        self.create_prompt_version(name="tagged-prompt", config={"model": "gpt-5"}, tags=["old"])
+
+        first_fetch = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/tagged-prompt/")
+        assert first_fetch.status_code == status.HTTP_200_OK
+        assert first_fetch.json()["config"] == {"model": "gpt-5"}
+        assert first_fetch.json()["tags"] == ["old"]
+
+        update_response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/tagged-prompt/tags/",
+            data={"tags": ["fresh"]},
+            format="json",
+        )
+        assert update_response.status_code == status.HTTP_200_OK
+
+        second_fetch = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/tagged-prompt/")
+        assert second_fetch.status_code == status.HTTP_200_OK
+        assert second_fetch.json()["tags"] == ["fresh"]
+
+    def test_fetch_historical_version_returns_version_config_and_current_tags(self):
+        self.create_prompt_version(name="configured-prompt", prompt="v1", config={"model": "gpt-4"}, tags=["chatbot"])
+        publish_response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/configured-prompt/",
+            data={"prompt": "v2", "base_version": 1, "config": {"model": "gpt-5"}},
+            format="json",
+        )
+        assert publish_response.status_code == status.HTTP_200_OK
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/configured-prompt/?version=1")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["config"] == {"model": "gpt-4"}
+        assert response.json()["tags"] == ["chatbot"]
+
+    def test_duplicate_prompt_copies_config_and_tags(self):
+        self.create_prompt_version(name="original", config={"model": "gpt-5"}, tags=["chatbot"])
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/name/original/duplicate/",
+            data={"new_name": "copy-of-original"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["config"] == {"model": "gpt-5"}
+        assert response.json()["tags"] == ["chatbot"]
+
+
+class TestLLMPromptPublishSerializerValidationNoDB(SimpleTestCase):
+    # validate_prompt_config_value and normalize_prompt_tags_value are pure functions (no context,
+    # no DB). The endpoints' use of them is guarded by test_create_prompt_rejects_non_object_config
+    # and test_update_tags_endpoint_updates_all_versions_without_publishing.
+    @parameterized.expand(
+        [
+            ("list", ["not", "an", "object"]),
+            ("string", "model=gpt-5"),
+            ("number", 42),
+        ]
+    )
+    def test_rejects_non_object_config(self, _label: str, bad_config: Any) -> None:
+        serializer = LLMPromptPublishSerializer(data={"base_version": 1, "config": bad_config})
+        assert not serializer.is_valid()
+        assert "config" in serializer.errors
+
+    def test_rejects_oversized_config(self) -> None:
+        oversized_config = {"data": "x" * (MAX_PROMPT_CONFIG_BYTES + 1)}
+        serializer = LLMPromptPublishSerializer(data={"base_version": 1, "config": oversized_config})
+        assert not serializer.is_valid()
+        assert "config" in serializer.errors
+
+    def test_accepts_config_only_publish(self) -> None:
+        serializer = LLMPromptPublishSerializer(data={"base_version": 1, "config": {"model": "gpt-5"}})
+        assert serializer.is_valid(), serializer.errors
+
+    def test_rejects_publish_without_prompt_edits_or_config(self) -> None:
+        serializer = LLMPromptPublishSerializer(data={"base_version": 1})
+        assert not serializer.is_valid()
+
+    def test_rejects_too_many_tags(self) -> None:
+        serializer = LLMPromptUpdateTagsSerializer(data={"tags": [f"tag-{i}" for i in range(MAX_PROMPT_TAGS + 1)]})
+        assert not serializer.is_valid()
+        assert "tags" in serializer.errors
 
 
 class TestLLMPromptDuplicateSerializerValidationNoDB(SimpleTestCase):

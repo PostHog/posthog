@@ -148,6 +148,8 @@ def publish_prompt_version(
     edits: list[dict[str, str]] | None = None,
     base_version: int,
     version_description: str | None = None,
+    config: Any | None = None,
+    config_provided: bool = False,
 ) -> LLMPrompt:
     with transaction.atomic():
         current_latest = (
@@ -166,14 +168,21 @@ def publish_prompt_version(
 
         if edits is not None:
             resolved_payload = apply_prompt_edits(current_latest.prompt, edits)
-        else:
+        elif prompt_payload is not None:
             resolved_payload = prompt_payload
+        else:
+            # Config-only publish: keep the current prompt content
+            resolved_payload = current_latest.prompt
+
+        resolved_config = config if config_provided else current_latest.config
 
         LLMPrompt.objects.filter(pk=current_latest.pk).update(is_latest=False)
         published_prompt = LLMPrompt.objects.create(
             team=team,
             name=current_latest.name,
             prompt=resolved_payload,
+            config=resolved_config,
+            tags=list(current_latest.tags or []),
             version=current_latest.version + 1,
             is_latest=True,
             created_by=user,
@@ -226,6 +235,8 @@ def duplicate_prompt(
                 team=team,
                 name=new_name,
                 prompt=source_latest.prompt,
+                config=source_latest.config,
+                tags=list(source_latest.tags or []),
                 version=1,
                 is_latest=True,
                 created_by=user,
@@ -237,6 +248,35 @@ def duplicate_prompt(
 
     refreshed = get_active_prompt_queryset(team).filter(pk=new_prompt.pk).first()
     return refreshed if refreshed is not None else new_prompt
+
+
+def update_prompt_tags(team: Team, *, prompt_name: str, tags: list[str]) -> LLMPrompt:
+    """Set the prompt's tags without publishing a new version.
+
+    Tags are prompt-level: they are written to every non-deleted version row of the name
+    so that fetching any version returns the same tags.
+    """
+    with transaction.atomic():
+        current_latest = (
+            LLMPrompt.objects.select_for_update()
+            .filter(team=team, name=prompt_name, deleted=False, is_latest=True)
+            .order_by("-version", "-created_at", "-id")
+            .first()
+        )
+        if current_latest is None:
+            raise LLMPromptNotFoundError()
+
+        LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False).update(tags=tags)
+
+        # Bulk update() bypasses the post_save cache invalidation signal. Only the latest cache
+        # entry needs clearing: version-exact cache entries don't carry tags, they are merged
+        # in from the latest entry at read time.
+        transaction.on_commit(lambda: invalidate_prompt_latest_cache(team.id, prompt_name))
+
+    refreshed = get_active_prompt_queryset(team).filter(pk=current_latest.pk).first()
+    if refreshed is None:
+        raise LLMPromptNotFoundError()
+    return refreshed
 
 
 def archive_prompt(team: Team, prompt_name: str) -> list[int]:

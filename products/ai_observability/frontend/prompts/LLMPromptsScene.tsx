@@ -6,6 +6,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -57,12 +58,24 @@ export function LLMPromptsScene(): JSX.Element {
             title: 'Prompt',
             dataIndex: 'prompt',
             key: 'prompt',
-            width: '40%',
+            width: '30%',
             render: function renderPrompt(prompt) {
                 const displayValue = typeof prompt === 'string' ? prompt : JSON.stringify(prompt)
                 const truncated = displayValue.length > 100 ? displayValue.slice(0, 100) + '...' : displayValue
 
                 return <span className="text-muted font-mono text-sm">{truncated || <i>–</i>}</span>
+            },
+        },
+        {
+            title: 'Tags',
+            dataIndex: 'tags',
+            key: 'tags',
+            width: '10%',
+            render: function renderTags(_, prompt) {
+                if (!prompt.tags?.length) {
+                    return <span className="text-secondary">—</span>
+                }
+                return <ObjectTags tags={prompt.tags} staticOnly />
             },
         },
         {

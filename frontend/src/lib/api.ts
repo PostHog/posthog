@@ -2020,6 +2020,10 @@ export class ApiRequest {
         return this.llmPromptByName(name, teamId).addPathComponent('duplicate')
     }
 
+    public llmPromptTagsByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmPromptByName(name, teamId).addPathComponent('tags')
+    }
+
     public llmPromptResolveByName(name: string, teamId?: TeamType['id']): ApiRequest {
         return this.llmPrompts(teamId).addPathComponent('resolve').addPathComponent('name').addPathComponent(name)
     }
@@ -7104,16 +7108,30 @@ const api = {
 
         async update(
             promptName: string,
-            data: { prompt: LLMPrompt['prompt']; base_version: number; version_description?: string }
+            data: {
+                prompt: LLMPrompt['prompt']
+                base_version: number
+                version_description?: string
+                config?: LLMPrompt['config']
+            }
         ): Promise<LLMPrompt> {
             return await new ApiRequest().llmPromptByName(promptName).update({ data })
+        },
+
+        async updateTagsByName(promptName: string, tags: string[]): Promise<LLMPrompt> {
+            return await new ApiRequest().llmPromptTagsByName(promptName).update({ data: { tags } })
         },
 
         async archiveByName(promptName: string): Promise<void> {
             await new ApiRequest().llmPromptArchiveByName(promptName).create({ data: {} })
         },
 
-        async create(data: { name: LLMPrompt['name']; prompt: LLMPrompt['prompt'] }): Promise<LLMPrompt> {
+        async create(data: {
+            name: LLMPrompt['name']
+            prompt: LLMPrompt['prompt']
+            config?: LLMPrompt['config']
+            tags?: string[]
+        }): Promise<LLMPrompt> {
             return await new ApiRequest().llmPrompts().create({ data })
         },
 

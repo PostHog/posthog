@@ -54,6 +54,13 @@ class LLMPrompt(UUIDModel):
     # The prompt content as JSON (currently a string, may expand to array of objects)
     prompt = models.JSONField()
 
+    # Arbitrary JSON object attached to this version (e.g. model, temperature, max tokens);
+    # returned alongside the prompt at fetch time so it can drive runtime behavior
+    config = models.JSONField(null=True, blank=True)
+
+    # Prompt-level labels; kept identical across all versions of a name so any version fetch sees them
+    tags = models.JSONField(default=list, blank=True)
+
     version = models.PositiveIntegerField(default=1)
     is_latest = models.BooleanField(default=True)
 

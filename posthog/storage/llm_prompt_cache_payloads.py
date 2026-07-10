@@ -24,6 +24,8 @@ def serialize_prompt(prompt: LLMPrompt, *, include_internal: bool = False) -> di
         "id": str(prompt.id),
         "name": prompt.name,
         "prompt": normalize_prompt_to_string(prompt.prompt),
+        "config": prompt.config,
+        "tags": list(prompt.tags or []),
         "version": prompt.version,
         "created_at": _serialize_timestamp(prompt.created_at),
         "updated_at": _serialize_timestamp(prompt.updated_at),
@@ -43,6 +45,7 @@ def serialize_prompt_version(prompt: LLMPrompt, *, include_internal: bool = Fals
         "id": str(prompt.id),
         "name": prompt.name,
         "prompt": normalize_prompt_to_string(prompt.prompt),
+        "config": prompt.config,
         "version": prompt.version,
         "created_at": _serialize_timestamp(prompt.created_at),
         "updated_at": _serialize_timestamp(prompt.updated_at),
@@ -67,6 +70,8 @@ def merge_prompt_version_history_metadata(
         "latest_version": latest_prompt["latest_version"],
         "version_count": latest_prompt["version_count"],
         "first_version_created_at": latest_prompt["first_version_created_at"],
+        # Tags are prompt-level, so version entries don't carry them; take the latest entry's
+        "tags": latest_prompt.get("tags", []),
     }
     generation_marker = latest_prompt.get(INTERNAL_FIRST_VERSION_ID_KEY)
     if isinstance(generation_marker, str):

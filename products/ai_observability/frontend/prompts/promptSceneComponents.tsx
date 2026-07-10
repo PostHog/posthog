@@ -16,6 +16,7 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -69,9 +70,9 @@ function PromptOutline({
 }
 
 export function PromptViewDetails(): JSX.Element {
-    const { prompt, isRenderingMarkdown, isDiffVisible, canCompareVersions, compareVersionOptions } =
+    const { prompt, isRenderingMarkdown, isDiffVisible, canCompareVersions, compareVersionOptions, tagsSaving } =
         useValues(llmPromptLogic)
-    const { toggleMarkdownRendering, setCompareVersion } = useActions(llmPromptLogic)
+    const { toggleMarkdownRendering, setCompareVersion, saveTags } = useActions(llmPromptLogic)
     const markdownContainerRef = useRef<HTMLDivElement>(null)
 
     if (!prompt || !isPrompt(prompt)) {
@@ -113,6 +114,17 @@ export function PromptViewDetails(): JSX.Element {
             <div>
                 <label className="text-xs font-semibold uppercase text-secondary">Name</label>
                 <p className="font-mono">{prompt.name}</p>
+            </div>
+
+            <div>
+                <label className="text-xs font-semibold uppercase text-secondary">Tags</label>
+                <ObjectTags
+                    className="mt-1"
+                    tags={prompt.tags ?? []}
+                    onChange={(tags) => saveTags(tags)}
+                    saving={tagsSaving}
+                    data-attr="llma-prompt-tags"
+                />
             </div>
 
             <div>
@@ -168,6 +180,17 @@ export function PromptViewDetails(): JSX.Element {
                     </pre>
                 )}
             </div>
+
+            {prompt.config ? (
+                <div>
+                    <label className="text-xs font-semibold uppercase text-secondary">Config</label>
+                    <div className="mt-1 max-w-3xl" data-attr="llma-prompt-config">
+                        <CodeSnippet language={Language.JSON} compact>
+                            {JSON.stringify(prompt.config, null, 2)}
+                        </CodeSnippet>
+                    </div>
+                </div>
+            ) : null}
 
             <div className="grid max-w-3xl gap-3 text-sm text-secondary sm:grid-cols-2">
                 <div>Published {dayjs(prompt.created_at).format('MMM D, YYYY h:mm A')}</div>
@@ -759,6 +782,38 @@ export function PromptEditForm({
                     ))}
                 </div>
             )}
+
+            <LemonField
+                name="config"
+                label="Config"
+                help={
+                    'Optional JSON object stored with this version and returned when fetching the prompt, e.g. {"model": "gpt-5", "temperature": 0.2}. Use it to change model parameters at runtime without deploying.'
+                }
+            >
+                <LemonTextArea
+                    placeholder={'{"model": "gpt-5", "temperature": 0.2, "max_tokens": 1024}'}
+                    minRows={3}
+                    className="font-mono"
+                    data-attr="llma-prompt-config-input"
+                />
+            </LemonField>
+
+            {isNewPrompt ? (
+                <LemonField
+                    name="tags"
+                    label="Tags"
+                    help="Tags apply to the prompt as a whole, across all of its versions."
+                >
+                    {({ value, onChange }) => (
+                        <ObjectTags
+                            tags={value || []}
+                            onChange={(tags) => onChange(tags)}
+                            saving={false}
+                            data-attr="llma-prompt-tags-input"
+                        />
+                    )}
+                </LemonField>
+            ) : null}
         </div>
     )
 }

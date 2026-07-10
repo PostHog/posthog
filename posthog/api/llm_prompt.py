@@ -25,6 +25,7 @@ from posthog.api.llm_prompt_serializers import (
     LLMPromptResolveQuerySerializer,
     LLMPromptResolveResponseSerializer,
     LLMPromptSerializer,
+    LLMPromptUpdateTagsSerializer,
     LLMPromptVersionSummarySerializer,
 )
 from posthog.api.monitoring import monitor
@@ -42,6 +43,7 @@ from posthog.api.services.llm_prompt import (
     get_prompt_by_name_from_db,
     publish_prompt_version,
     resolve_versions_page,
+    update_prompt_tags,
 )
 from posthog.auth import (
     JwtAuthentication,
@@ -158,6 +160,9 @@ class LLMPromptViewSet(
     def _apply_content_mode(self, prompt: dict[str, Any], content_mode: str) -> dict[str, Any]:
         prompt = dict(prompt)
         prompt["outline"] = get_prompt_outline(prompt.get("prompt"))
+        # Cache entries written before config/tags existed don't carry the keys
+        prompt.setdefault("config", None)
+        prompt.setdefault("tags", [])
         if content_mode == "none":
             prompt.pop("prompt", None)
         elif content_mode == "preview":
@@ -291,6 +296,8 @@ class LLMPromptViewSet(
                 edits=payload.validated_data.get("edits"),
                 base_version=payload.validated_data["base_version"],
                 version_description=payload.validated_data.get("version_description"),
+                config=payload.validated_data.get("config"),
+                config_provided="config" in payload.validated_data,
             )
         except LLMPromptNotFoundError:
             return self._prompt_not_found_response(prompt_name)
@@ -408,6 +415,44 @@ class LLMPromptViewSet(
             request=request,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(request=LLMPromptUpdateTagsSerializer, responses={200: LLMPromptSerializer})
+    @action(
+        methods=["PATCH"],
+        detail=False,
+        url_path=r"name/(?P<prompt_name>[^/]+)/tags",
+        required_scopes=["llm_prompt:write"],
+    )
+    @llma_track_latency("llma_prompts_update_tags")
+    @monitor(feature=None, endpoint="llma_prompts_update_tags", method="PATCH")
+    def update_tags(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        payload = LLMPromptUpdateTagsSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        try:
+            updated_prompt = update_prompt_tags(
+                self.team,
+                prompt_name=prompt_name,
+                tags=payload.validated_data["tags"],
+            )
+        except LLMPromptNotFoundError:
+            return self._prompt_not_found_response(prompt_name)
+
+        report_user_action(
+            cast(User, request.user),
+            "llma prompt tags updated",
+            {
+                "prompt_name": prompt_name,
+                "tags_count": len(payload.validated_data["tags"]),
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_prompt(updated_prompt))
 
     @extend_schema(request=LLMPromptDuplicateSerializer, responses={201: LLMPromptSerializer})
     @action(

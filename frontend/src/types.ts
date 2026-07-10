@@ -7672,6 +7672,8 @@ export interface LLMPrompt {
     id: string
     name: string
     prompt: string
+    config?: Record<string, any> | null
+    tags?: string[]
     version: number
     version_description?: string | null
     created_by: UserBasicType
@@ -7688,6 +7690,8 @@ export interface LLMPromptPublic {
     id: string
     name: string
     prompt: string
+    config?: Record<string, any> | null
+    tags?: string[]
     version: number
     created_at: string
     updated_at: string

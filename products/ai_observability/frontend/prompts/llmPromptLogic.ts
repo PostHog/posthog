@@ -44,7 +44,14 @@ import {
 import type { llmPromptLogicType } from './llmPromptLogicType'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
-import { getApiErrorDetail, openDiscardChangesDialog, validatePromptName } from './utils'
+import {
+    formatPromptConfig,
+    getApiErrorDetail,
+    openDiscardChangesDialog,
+    parsePromptConfig,
+    validatePromptConfig,
+    validatePromptName,
+} from './utils'
 
 export enum PromptMode {
     View = 'view',
@@ -65,6 +72,9 @@ export interface PromptLogicProps {
 export interface PromptFormValues {
     name: string
     prompt: string
+    /** JSON object as text; empty string means no config */
+    config: string
+    tags: string[]
 }
 
 export interface ResolvedLLMPrompt extends LLMPrompt {
@@ -79,6 +89,8 @@ export function isPrompt(prompt: LLMPrompt | ResolvedLLMPrompt | PromptFormValue
 const DEFAULT_PROMPT_FORM_VALUES: PromptFormValues = {
     name: '',
     prompt: '',
+    config: '',
+    tags: [],
 }
 
 const PROMPT_FETCHED_EVENT = '$llm_prompt_fetched'
@@ -171,6 +183,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         closePublishReview: true,
         setVersionDescription: (versionDescription: string) => ({ versionDescription }),
         setSnippetLanguage: (snippetLanguage: PromptSnippetLanguage) => ({ snippetLanguage }),
+        saveTags: (tags: string[]) => ({ tags }),
+        setTagsSaving: (tagsSaving: boolean) => ({ tagsSaving }),
     }),
 
     reducers(({ props }) => ({
@@ -268,6 +282,13 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 setSnippetLanguage: (_, { snippetLanguage }) => snippetLanguage,
             },
         ],
+        tagsSaving: [
+            false,
+            {
+                saveTags: () => true,
+                setTagsSaving: (_, { tagsSaving }) => tagsSaving,
+            },
+        ],
     })),
 
     loaders(({ props }) => ({
@@ -292,9 +313,10 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             defaults: DEFAULT_PROMPT_FORM_VALUES,
             options: { showErrorsOnTouch: true },
 
-            errors: ({ name, prompt }) => ({
+            errors: ({ name, prompt, config }) => ({
                 name: validatePromptName(name),
                 prompt: !prompt?.trim() ? 'Prompt content is required' : undefined,
+                config: validatePromptConfig(config),
             }),
 
             submit: async (formValues) => {
@@ -307,6 +329,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                         savedPrompt = await api.llmPrompts.create({
                             name: formValues.name,
                             prompt: formValues.prompt,
+                            config: parsePromptConfig(formValues.config),
+                            tags: formValues.tags,
                         })
                         llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                         lemonToast.success('Prompt created successfully')
@@ -327,6 +351,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                         savedPrompt = await api.llmPrompts.update(props.promptName, {
                             prompt: formValues.prompt,
                             base_version: currentPrompt.latest_version,
+                            // Always sent so that clearing the config editor clears the config
+                            config: parsePromptConfig(formValues.config),
                             ...(versionDescription ? { version_description: versionDescription } : {}),
                         })
                         llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
@@ -410,9 +436,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             (s) => [s.promptForm, s.prompt, s.isNewPrompt],
             (promptForm, prompt, isNewPrompt): boolean => {
                 if (isNewPrompt) {
-                    return !!promptForm.name.trim() || !!promptForm.prompt.trim()
+                    return !!promptForm.name.trim() || !!promptForm.prompt.trim() || !!promptForm.config.trim()
                 }
-                return isPrompt(prompt) ? promptForm.prompt !== prompt.prompt : false
+                return isPrompt(prompt)
+                    ? promptForm.prompt !== prompt.prompt || promptForm.config !== formatPromptConfig(prompt.config)
+                    : false
             },
         ],
 
@@ -738,6 +766,25 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             }
         },
 
+        saveTags: async ({ tags }) => {
+            if (props.promptName === 'new' || !isPrompt(values.prompt)) {
+                actions.setTagsSaving(false)
+                return
+            }
+
+            try {
+                const updatedPrompt = await api.llmPrompts.updateTagsByName(props.promptName, tags)
+                if (isPrompt(values.prompt)) {
+                    actions.setPrompt({ ...values.prompt, tags: updatedPrompt.tags ?? [] })
+                }
+                llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
+            } catch (error) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to update tags')
+            } finally {
+                actions.setTagsSaving(false)
+            }
+        },
+
         deletePrompt: async () => {
             if (props.promptName !== 'new' && values.prompt && isPrompt(values.prompt)) {
                 try {
@@ -911,6 +958,8 @@ function getPromptFormDefaults(prompt: LLMPrompt): PromptFormValues {
     return {
         name: prompt.name,
         prompt: prompt.prompt,
+        config: formatPromptConfig(prompt.config),
+        tags: prompt.tags ?? [],
     }
 }
 

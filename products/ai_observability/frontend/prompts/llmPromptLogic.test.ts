@@ -372,12 +372,12 @@ describe('llmPromptLogic', () => {
         expect(updateSpy).not.toHaveBeenCalled()
 
         // Real edits open the review without hitting the API
-        logic.actions.setPromptFormValues({ prompt: 'My edited prompt.' })
+        logic.actions.setPromptFormValues({ prompt: 'My edited prompt.', config: '{"model": "gpt-5"}' })
         logic.actions.requestPublish()
         expect(logic.values.isPublishReviewOpen).toBe(true)
         expect(updateSpy).not.toHaveBeenCalled()
 
-        // Confirming from the review publishes with the typed description and closes it
+        // Confirming from the review publishes with the typed description and parsed config, then closes it
         logic.actions.setVersionDescription('Tightened the refusal criteria')
         logic.actions.submitPromptForm()
         await expectLogic(logic).toDispatchActions(['submitPromptFormSuccess'])
@@ -385,6 +385,7 @@ describe('llmPromptLogic', () => {
         expect(updateSpy).toHaveBeenCalledWith('my-test-prompt', {
             prompt: 'My edited prompt.',
             base_version: 2,
+            config: { model: 'gpt-5' },
             version_description: 'Tightened the refusal criteria',
         })
         expect(logic.values.isPublishReviewOpen).toBe(false)

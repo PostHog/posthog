@@ -22,6 +22,15 @@ class LLMPromptOutlineEntrySerializer(serializers.Serializer):
 RESERVED_PROMPT_NAMES = {"new"}
 DEFAULT_VERSION_PAGE_SIZE = 50
 MAX_PROMPT_PAYLOAD_BYTES = 1_000_000
+MAX_PROMPT_CONFIG_BYTES = 100_000
+MAX_PROMPT_TAGS = 50
+MAX_PROMPT_TAG_LENGTH = 255
+
+PROMPT_CONFIG_HELP = (
+    "Optional JSON object with arbitrary configuration for this prompt version "
+    "(e.g. model, temperature, max tokens). Returned alongside the prompt when it is fetched at runtime."
+)
+PROMPT_TAGS_HELP = "Tags attached to the prompt. Tags apply to the prompt as a whole, across all of its versions."
 
 
 def validate_prompt_name_value(value: str) -> str:
@@ -46,6 +55,46 @@ def validate_prompt_payload_size(prompt_payload: Any) -> Any:
             code="max_size",
         )
     return prompt_payload
+
+
+def validate_prompt_config_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise serializers.ValidationError(
+            "Config must be a JSON object or null.",
+            code="invalid_config",
+        )
+    config_bytes = len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    if config_bytes > MAX_PROMPT_CONFIG_BYTES:
+        raise serializers.ValidationError(
+            f"Config must be {MAX_PROMPT_CONFIG_BYTES} bytes or fewer.",
+            code="max_size",
+        )
+    return value
+
+
+def normalize_prompt_tags_value(tags: list[str]) -> list[str]:
+    """Trim, lowercase, and dedupe tags while preserving their order."""
+    normalized: list[str] = []
+    for tag in tags:
+        cleaned = tag.strip().lower()
+        if cleaned and cleaned not in normalized:
+            normalized.append(cleaned)
+    if len(normalized) > MAX_PROMPT_TAGS:
+        raise serializers.ValidationError(
+            f"A prompt can have at most {MAX_PROMPT_TAGS} tags.",
+            code="max_tags",
+        )
+    return normalized
+
+
+def build_prompt_tags_field() -> serializers.ListField:
+    return serializers.ListField(
+        child=serializers.CharField(max_length=MAX_PROMPT_TAG_LENGTH, allow_blank=True),
+        required=False,
+        help_text=PROMPT_TAGS_HELP,
+    )
 
 
 CONTENT_MODE_CHOICES = ["full", "preview", "none"]
@@ -143,6 +192,15 @@ class LLMPromptPublishSerializer(serializers.Serializer):
             "Mutually exclusive with prompt."
         ),
     )
+    config = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            f"{PROMPT_CONFIG_HELP} "
+            "If omitted, the new version keeps the config of the version it is published from. "
+            "Pass null to clear it."
+        ),
+    )
     base_version = serializers.IntegerField(
         min_value=1,
         help_text="Latest version you are editing from. Used for optimistic concurrency checks.",
@@ -156,6 +214,9 @@ class LLMPromptPublishSerializer(serializers.Serializer):
 
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
+
+    def validate_config(self, value: Any) -> Any:
+        return validate_prompt_config_value(value)
 
     def validate_version_description(self, value: str) -> str | None:
         return value.strip() or None
@@ -171,8 +232,8 @@ class LLMPromptPublishSerializer(serializers.Serializer):
 
         if has_prompt and has_edits:
             raise serializers.ValidationError("Provide either 'prompt' or 'edits', not both.")
-        if not has_prompt and not has_edits:
-            raise serializers.ValidationError("Either 'prompt' or 'edits' is required.")
+        if not has_prompt and not has_edits and "config" not in attrs:
+            raise serializers.ValidationError("Either 'prompt', 'edits', or 'config' is required.")
 
         return attrs
 
@@ -184,6 +245,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     version_count = serializers.SerializerMethodField()
     first_version_created_at = serializers.SerializerMethodField()
     outline = serializers.SerializerMethodField()
+    tags = build_prompt_tags_field()
 
     class Meta:
         model = LLMPrompt
@@ -191,6 +253,8 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "prompt",
+            "config",
+            "tags",
             "version",
             "version_description",
             "created_by",
@@ -219,6 +283,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "name": {"help_text": "Unique prompt name using letters, numbers, hyphens, and underscores only."},
             "prompt": {"help_text": "Prompt payload as JSON or string data."},
+            "config": {"help_text": PROMPT_CONFIG_HELP},
             "version_description": {
                 "help_text": "Optional note describing what changed in this version. Set when the version is published."
             },
@@ -257,6 +322,12 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
 
+    def validate_config(self, value: Any) -> Any:
+        return validate_prompt_config_value(value)
+
+    def validate_tags(self, value: list[str]) -> list[str]:
+        return normalize_prompt_tags_value(value)
+
     def validate_version_description(self, value: str | None) -> str | None:
         if value is None:
             return None
@@ -280,6 +351,12 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         if "prompt" in attrs:
             raise serializers.ValidationError(
                 {"prompt": "Prompt content is versioned and cannot be updated in place. Create a new version instead."},
+                code="immutable",
+            )
+
+        if "config" in attrs:
+            raise serializers.ValidationError(
+                {"config": "Config is versioned and cannot be updated in place. Create a new version instead."},
                 code="immutable",
             )
 
@@ -353,6 +430,12 @@ class LLMPromptPublicSerializer(serializers.Serializer):
         required=False,
         help_text="First 160 characters of the prompt. Only present when 'content=preview'.",
     )
+    config = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=PROMPT_CONFIG_HELP,
+    )
+    tags = build_prompt_tags_field()
     outline = LLMPromptOutlineEntrySerializer(
         many=True,
         help_text="Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents.",
@@ -365,6 +448,16 @@ class LLMPromptPublicSerializer(serializers.Serializer):
     latest_version = serializers.IntegerField()
     version_count = serializers.IntegerField()
     first_version_created_at = serializers.DateTimeField()
+
+
+class LLMPromptUpdateTagsSerializer(serializers.Serializer):
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_PROMPT_TAG_LENGTH, allow_blank=True),
+        help_text="Full list of tags to set on the prompt, replacing any existing tags. Applies to all versions.",
+    )
+
+    def validate_tags(self, value: list[str]) -> list[str]:
+        return normalize_prompt_tags_value(value)
 
 
 class LLMPromptDuplicateSerializer(serializers.Serializer):
