@@ -24,6 +24,7 @@ import {
 } from '~/scenes/experiments/ExperimentForm/VariantDistributionEditor'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { modalsLogic } from '~/scenes/experiments/modalsLogic'
+import { getExperimentVariants } from '~/scenes/experiments/utils'
 import { MultivariateFlagVariant } from '~/types'
 
 import { HoldoutSelector } from './HoldoutSelector'
@@ -41,18 +42,16 @@ export function DistributionModal(): JSX.Element {
     const [rolloutPercentage, setRolloutPercentage] = useState(100)
     const { areVariantRolloutsValid } = useVariantDistributionValidation(variants)
 
+    const flagVariants = getExperimentVariants(experiment)
+
     // Initialize local state only when the modal transitions from closed to open.
     // Intentionally omit experiment data from deps so auto-refresh doesn't clobber edits.
     useEffect(() => {
         if (isDistributionModalOpen) {
-            setVariants(experiment.feature_flag?.filters?.multivariate?.variants || [])
+            setVariants(flagVariants)
             setRolloutPercentage(experiment.feature_flag?.filters?.groups?.[0]?.rollout_percentage ?? 100)
         }
-    }, [
-        isDistributionModalOpen,
-        experiment.feature_flag?.filters?.multivariate?.variants,
-        experiment.feature_flag?.filters?.groups,
-    ])
+    }, [isDistributionModalOpen, flagVariants, experiment.feature_flag?.filters?.groups])
 
     const handleClose = (): void => {
         closeDistributionModal()
@@ -119,7 +118,7 @@ export function DistributionTable(): JSX.Element {
      * the baseline variant key to determine the baseline variant.
      */
     const baselineKey = experiment.stats_config?.baseline_variant_key || 'control'
-    const variants = experiment.feature_flag?.filters.multivariate?.variants || []
+    const variants = getExperimentVariants(experiment)
 
     /**
      * We use this check to disable the toggle if there's only one test variant left.
@@ -282,7 +281,7 @@ export function DistributionTable(): JSX.Element {
           ]
         : []
 
-    const variantData = (experiment.feature_flag?.filters.multivariate?.variants || []).map((variant) => ({
+    const variantData = getExperimentVariants(experiment).map((variant) => ({
         ...variant,
         rollout_percentage:
             variant.rollout_percentage * ((100 - (experiment.holdout?.filters[0].rollout_percentage || 0)) / 100),
