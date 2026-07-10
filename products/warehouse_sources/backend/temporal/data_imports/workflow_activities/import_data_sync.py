@@ -290,7 +290,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 def _get_models(
     job_id: str,
 ) -> tuple[ExternalDataJob, ExternalDataSchema, ExternalDataSource, DataWarehouseTable | None]:
-    job = ExternalDataJob.objects.select_related("schema", "schema__table").get(id=job_id)
+    job = ExternalDataJob.objects.select_related("schema", "schema__source", "schema__table").get(id=job_id)
     schema: ExternalDataSchema | None = job.schema
     source: ExternalDataSource | None = job.pipeline
     if schema is None:
