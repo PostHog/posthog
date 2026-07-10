@@ -90,15 +90,11 @@ jobs:
             - name: Post review
               if: always()
               env:
-                  # Approvals are posted twice, on purpose. The Stamphog app
-                  # (GH_TOKEN) posts the review body as an approval so the
-                  # human-facing feedback carries the bot's own identity;
-                  # github-actions[bot] (GH_TOKEN_APPROVE) posts a second,
-                  # bodyless approval. We keep both while we confirm which
-                  # identity's approval actually counts toward branch protection
-                  # — GitHub App bot approvals have shown author_association NONE.
-                  # If the github-actions[bot] one proves redundant, drop it.
-                  GH_TOKEN_APPROVE: ${{ github.token }}
+                  # Everything stamphog does — the approval, the sticky comment,
+                  # the label strip — posts as the Stamphog app (GH_TOKEN) so it
+                  # all carries the bot's own identity. The app approval was
+                  # confirmed to unblock PRs, so the earlier bodyless
+                  # github-actions[bot] fallback approval has been dropped.
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   # Derived from the token step so the sticky-comment author
                   # filter tracks an app rename instead of failing silent.
@@ -122,24 +118,15 @@ jobs:
                   fi
 
                   if [ "$VERDICT" = "APPROVED" ]; then
-                    # Stamphog app approval, carrying the review body. Best-effort:
-                    # the step runs under `set -e`, so a failure here (e.g. the App
-                    # install missing Pull-requests write, or a transient error)
-                    # would otherwise abort before the github-actions[bot] approval
-                    # below — the identity currently known to unblock PRs. Keep it
-                    # non-fatal and surface the failure as a warning instead.
+                    # Single Stamphog app approval, carrying the review body.
+                    # Fatal on failure (the step runs under `set -e`): this is
+                    # now the only approval, so if it doesn't post the PR stays
+                    # blocked and that must surface as a red run, not a warning.
                     gh api \
                       -X POST "repos/$REPO/pulls/$PR/reviews" \
                       "${SHA_ARGS[@]}" \
                       -f event=APPROVE \
-                      -f body="$REASONING" \
-                      || echo "::warning::stamphog app approval failed to post; continuing with the github-actions[bot] approval"
-                    # Bodyless github-actions[bot] approval — kept alongside the
-                    # app approval until we've confirmed which one unblocks PRs.
-                    GH_TOKEN="$GH_TOKEN_APPROVE" gh api \
-                      -X POST "repos/$REPO/pulls/$PR/reviews" \
-                      "${SHA_ARGS[@]}" \
-                      -f event=APPROVE
+                      -f body="$REASONING"
                   else
                     # Non-approve verdicts share ONE sticky comment, updated in
                     # place, instead of a fresh COMMENT review per run. Review
@@ -362,10 +349,20 @@ jobs:
         timeout-minutes: 5
 
         steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_PRIVATE_KEY }}
+
             - name: Dismiss stale bot approvals
               env:
-                  # github.token can dismiss both bot identities' approvals.
-                  GH_TOKEN: ${{ github.token }}
+                  # Act as the Stamphog app for consistency with every other
+                  # write. pull-requests:write can dismiss any review regardless
+                  # of its author, so the app dismisses both its own approvals
+                  # and any legacy github-actions[bot] ones.
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   PR: ${{ github.event.pull_request.number }}
                   REPO: ${{ github.repository }}
                   REASON: ${{ needs.decide-delta.outputs.reason || (needs.decide-delta.result == 'skipped' && 'label_absent') || 'decide_delta_failed' }}
