@@ -91,7 +91,7 @@
         "frontend/public/services/*.{png,jpg,jpeg,gif}": "node frontend/bin/check-service-icon-size.mjs",
         "products/**/manifest.tsx": [
             "bin/hogli format:js",
-            "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/products.json'"
+            "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/productScenes.tsx frontend/src/products.json'"
         ],
         "!(**/.sqlx/**)*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",

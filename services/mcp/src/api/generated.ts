@@ -29623,6 +29623,7 @@ export namespace Schemas {
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -29667,6 +29668,7 @@ export namespace Schemas {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Snapchat: 'snapchat',
+      Snowflake: 'snowflake',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
@@ -29711,6 +29713,7 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `slack-posthog-code` - Slack Posthog Code
        * * `snapchat` - Snapchat
+       * * `snowflake` - Snowflake
        * * `stripe` - Stripe
        * * `tiktok-ads` - Tiktok Ads
        * * `twilio` - Twilio
@@ -32819,6 +32822,16 @@ export namespace Schemas {
       Regex: 'regex',
       NotRegex: 'not_regex',
     } as const;
+
+    export interface OpenToMergeBucket {
+      /** Bucket start, aligned to open_to_merge_series_granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /**
+         * Median merged_at - created_at seconds over PRs merged in this bucket, bots and drafts excluded. Null when nothing merged in the bucket (a gap, not instant merges).
+         * @nullable
+         */
+      p50_seconds: number | null;
+    }
 
     /**
      * * `quarantine` - QUARANTINE
@@ -38336,6 +38349,16 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: WizardSessionDTO[];
+    }
+
+    export interface PassRateBucket {
+      /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /**
+         * Fraction (0-1) of completed runs started in this bucket that succeeded. Null when the bucket had no completed run (a gap, not a 0% pass rate).
+         * @nullable
+         */
+      success_rate: number | null;
     }
 
     /**
@@ -47408,6 +47431,22 @@ export namespace Schemas {
       max_proxy_records: number;
     }
 
+    export interface PushCISample {
+      /** Head commit SHA of this push (CI round). */
+      head_sha: string;
+      /** Earliest workflow-run start on this push. */
+      started_at: string;
+      /**
+         * Wall-clock CI seconds for this push: earliest run start to latest completed run end. Null while nothing has completed.
+         * @nullable
+         */
+      wall_seconds: number | null;
+      /** True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'. */
+      failed: boolean;
+      /** True when any latest-per-workflow run on this push hasn't completed yet. */
+      pending: boolean;
+    }
+
     export interface PullRequestListItem {
       /** The pull request author. */
       author: Author;
@@ -47415,6 +47454,8 @@ export namespace Schemas {
       repo: RepoRef;
       /** CI status from the latest workflow runs on the head SHA. */
       ci: CIStatusRollup;
+      /** This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per push for the push-history sparkline. `pushes` stays the uncapped count. */
+      push_history: PushCISample[];
       /** Pull request number within the repository. */
       number: number;
       /** Pull request title. */
@@ -50169,9 +50210,25 @@ export namespace Schemas {
       recording_active_seconds?: number | null;
     }
 
+    export interface TimeToGreenBucket {
+      /** Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /**
+         * Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. Null when the bucket had no successful PR run (a gap, not instant CI).
+         * @nullable
+         */
+      p50_seconds: number | null;
+    }
+
     export interface RepoOverview {
       /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced. */
       cost_series: CostPerMergeBucket[];
+      /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null. */
+      time_to_green_series: TimeToGreenBucket[];
+      /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null. */
+      success_rate_series: PassRateBucket[];
+      /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null. */
+      open_to_merge_series: OpenToMergeBucket[];
       /** Workflow runs started in the window, all branches and workflows. */
       run_count: number;
       /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -50226,6 +50283,12 @@ export namespace Schemas {
       default_branch: string;
       /** Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'. */
       cost_series_granularity: string;
+      /** Bucket width of the time_to_green_series trend: 'hour', 'day', or 'week'. */
+      time_to_green_series_granularity: string;
+      /** Bucket width of the success_rate_series trend: 'hour', 'day', or 'week'. */
+      success_rate_series_granularity: string;
+      /** Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'. */
+      open_to_merge_series_granularity: string;
     }
 
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
@@ -57885,6 +57948,8 @@ export namespace Schemas {
       head_branch: string;
       /** Attributed pull request number, or 0 when unattributed. */
       pr_number: number;
+      /** Head commit SHA of the run/commit, or '' when unknown. */
+      head_sha: string;
     }
 
     export interface WorkflowRunActivity {
@@ -62306,6 +62371,7 @@ export namespace Schemas {
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -62361,6 +62427,7 @@ export namespace Schemas {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Snapchat: 'snapchat',
+      Snowflake: 'snowflake',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
@@ -69543,6 +69610,7 @@ export namespace Schemas {
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -69598,6 +69666,7 @@ export namespace Schemas {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Snapchat: 'snapchat',
+      Snowflake: 'snowflake',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',

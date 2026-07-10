@@ -4,7 +4,7 @@
 
 import { ReactNode } from 'react'
 
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { MetricCard, type MetricChange } from '@posthog/quill-charts'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -99,6 +99,7 @@ export function MetricTile({
     value,
     delta,
     sub,
+    loading = false,
     className,
 }: {
     label: string
@@ -109,6 +110,9 @@ export function MetricTile({
     delta?: TileDelta
     /** Visible caption — only for an answer worth a glance (what's failing, why there's no value). */
     sub?: ReactNode
+    /** Backend load in flight: skeleton the value so it doesn't flash a stale/zero number. Only for a
+     *  genuine reload — client-side-instant derivations should never pass this. */
+    loading?: boolean
     className?: string
 }): JSX.Element {
     const labelNode = tooltip ? (
@@ -123,17 +127,26 @@ export function MetricTile({
             hoverEffect={false}
             className={cn('flex min-w-44 flex-1 flex-col justify-center px-5 py-4', className)}
         >
-            <MetricCard
-                title={labelNode}
-                // These tiles have no series data and often a non-numeric headline ("3 / 5", "2h 10m"),
-                // so the pre-formatted display string rides through MetricCard's formatter.
-                value={0}
-                formatValue={() => value}
-                change={deltaToChange(delta)}
-                goodDirection={delta?.goodWhenDown ? 'down' : 'up'}
-                changeTooltip={delta ? (delta.vs ?? 'vs the previous window') : undefined}
-                subtitle={sub}
-            />
+            {/* MetricCard has no loading prop; skeleton the whole tile on a genuine reload so it never
+                flashes a stale/zero headline (the loading-states rule). */}
+            {loading ? (
+                <div className="flex flex-col gap-2 py-1">
+                    <LemonSkeleton className="h-3 w-24" />
+                    <LemonSkeleton className="h-7 w-20" />
+                </div>
+            ) : (
+                <MetricCard
+                    title={labelNode}
+                    // These tiles have no series data and often a non-numeric headline ("3 / 5", "2h 10m"),
+                    // so the pre-formatted display string rides through MetricCard's formatter.
+                    value={0}
+                    formatValue={() => value}
+                    change={deltaToChange(delta)}
+                    goodDirection={delta?.goodWhenDown ? 'down' : 'up'}
+                    changeTooltip={delta ? (delta.vs ?? 'vs the previous window') : undefined}
+                    subtitle={sub}
+                />
+            )}
         </LemonCard>
     )
 }
