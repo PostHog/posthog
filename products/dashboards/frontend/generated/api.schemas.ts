@@ -3663,6 +3663,8 @@ export interface WebStatsTableQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -4044,6 +4046,8 @@ export interface Response5Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
