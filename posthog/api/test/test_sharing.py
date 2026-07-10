@@ -36,6 +36,8 @@ from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
 from products.product_analytics.backend.models.insight import Insight
 
+from ee.models.rbac.access_control import AccessControl
+
 
 def mock_exporter_template(test_func):
     """
@@ -1723,6 +1725,20 @@ class TestSharedLinkWarehouseExecution(APIBaseTest):
         tiles = response.json()["dashboard"]["tiles"]
         assert len(tiles) == 1
         assert tiles[0]["insight"]["result"], tiles[0]["insight"].get("result_error")
+
+    def test_shared_link_fails_closed_on_default_denied_table(self):
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+        config = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/"
+            f"?sharing_access_token={config.access_token}&refresh=blocking"
+        )
+
+        # A default of none is what an anonymous viewer resolves - the link fails closed even
+        # though members with grants could still query the table in-app.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "You don't have access to table `governed_view`" in str(response.json())
 
     def test_shared_notebook_inline_warehouse_query_executes(self):
         from products.notebooks.backend.models import Notebook

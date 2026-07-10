@@ -104,6 +104,8 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "marketing_analytics": "web_analytics",
 }
 
+# Scopes enforced per warehouse object. Service tokens bypass these (see Database.create_for);
+# shared-link viewers resolve them against the team's default rules (see TeamDefaultAccess).
 WAREHOUSE_ACCESS_SCOPES: frozenset[str] = frozenset(
     {
         "warehouse_objects",

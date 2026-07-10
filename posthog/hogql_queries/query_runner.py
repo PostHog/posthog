@@ -123,6 +123,7 @@ from posthog.hogql_queries.validation.validation import (
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
+from posthog.rbac.team_default_access import TeamDefaultAccess, for_shared_link_user
 from posthog.rbac.user_access_control import WAREHOUSE_ACCESS_SCOPES, UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
@@ -1972,6 +1973,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 **kwargs,
             )[0]
 
+    def _shared_default_access(self) -> Optional[TeamDefaultAccess]:
+        """The request's default-rules snapshot for shared-link viewers - memoized on the
+        principal, so a dashboard's runners and their database builds share one load."""
+        if not isinstance(self.user, SharedLinkUser):
+            return None
+        return for_shared_link_user(self.user, self.team)
+
     def get_cache_payload(self) -> dict:
         # remove the tags key, these are used in the query log comment but shouldn't break caching
         # note: to_dict already strips custom_name from series (see schema_helpers.py)
@@ -2377,6 +2385,16 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         if queried_resources == set():
             return payload
 
+        # Shared-link viewers' warehouse visibility is defined entirely by the team's default
+        # rules; keying on that rule-state partitions their entries from every member's and
+        # orphans them the moment an admin changes the defaults - revocation propagates through
+        # the cache instead of waiting out the TTL.
+        shared_default_access = self._shared_default_access()
+        if shared_default_access is not None and (
+            queried_resources is None or queried_resources & WAREHOUSE_ACCESS_SCOPES
+        ):
+            payload["shared_default_access"] = shared_default_access.cache_fingerprint()
+
         if restricted_objects := self._get_object_access_restrictions(queried_resources):
             payload["restricted_objects"] = restricted_objects
         if restricted_resources := self._get_resource_access_restrictions(queried_resources):
@@ -2409,9 +2427,9 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
         # Non-real principals (service tokens, shared-link viewers) are scope-gated on system tables;
         # partition on the readable scopes so a narrower token can't be served a broader principal's
-        # cached result. Warehouse scopes are excluded: these principals bypass warehouse access
-        # control (see Database.create_for), so warehouse tables are readable for them and listing
-        # them as restricted would collide with users who are genuinely denied those resources.
+        # cached result. Warehouse scopes are excluded here: service tokens bypass warehouse access
+        # control (see Database.create_for), and shared-link viewers partition on the team's default
+        # rules instead (the shared_default_access payload key in get_cache_payload).
         if not isinstance(user, User):
             if queried_resources is None:
                 return ["*"]

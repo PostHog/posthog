@@ -3,6 +3,8 @@ from typing import cast
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from parameterized import parameterized
+
 from posthog.schema import HogQLQuery
 
 from posthog.hogql import ast
@@ -773,7 +775,9 @@ class TestWarehouseViewAccessControl(BaseTest):
         assert "denied_view" not in database._denied_tables
         assert "allowed_view" not in database._denied_tables
 
-    def test_shared_link_user_skips_warehouse_view_acl_but_hides_system_tables(self):
+    def test_shared_link_user_ignores_member_rules_but_hides_system_tables(self):
+        # A member-specific deny doesn't bind an anonymous viewer - the link resolves the
+        # table's default access, and with no default rules that's editor.
         self._create_ac(
             resource="warehouse_view",
             resource_id=str(self.denied_view.id),
@@ -784,19 +788,36 @@ class TestWarehouseViewAccessControl(BaseTest):
 
         database = Database.create_for(team=self.team, user=viewer)
 
-        # A shared-link viewer executes without warehouse access control - the deny is skipped.
         assert "denied_view" not in database._denied_tables
         assert "allowed_view" not in database._denied_tables
-        # But scoped system tables stay hidden, exactly like a userless build.
+        # Scoped system tables stay hidden, exactly like a userless build.
         assert "system.dashboards" in database._denied_tables
+
+    @parameterized.expand([("object_default",), ("resource_default",)])
+    def test_shared_link_user_denied_by_default_rules(self, case: str):
+        if case == "object_default":
+            self._create_ac(resource="warehouse_view", resource_id=str(self.denied_view.id), access_level="none")
+        else:
+            self._create_ac(resource="warehouse_objects", access_level="none")
+        viewer = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))
+
+        database = Database.create_for(team=self.team, user=viewer)
+
+        # Default rules are exactly what an anonymous viewer resolves - a default none is
+        # enforced on the public link even though members with grants could still query.
+        assert "denied_view" in database._denied_tables
+        if case == "object_default":
+            assert "allowed_view" not in database._denied_tables
+        else:
+            assert "allowed_view" in database._denied_tables
 
     def test_shared_link_user_requires_enabled_configuration(self):
         with self.assertRaises(ValueError):
             SharedLinkUser(SharingConfiguration(team=self.team, enabled=False))
 
     def test_shared_link_cache_key_differs_from_denied_member(self):
-        # Resource-level deny: no per-object IDs land in the cache payload, so the restriction
-        # lists alone must keep the two principals' cache keys apart.
+        # Resource-level default deny: the shared viewer partitions on the team's default-rule
+        # state (shared_default_access payload key), the member on their restriction lists.
         self._create_ac(resource="warehouse_objects", access_level="none")
         query = HogQLQuery(query="SELECT id FROM denied_view")
         shared_user = cast(User, SharedLinkUser(SharingConfiguration(team=self.team, enabled=True)))
@@ -815,6 +836,21 @@ class TestWarehouseViewAccessControl(BaseTest):
             get_query_runner(events_query, self.team, user=shared_user).get_cache_key()
             == get_query_runner(events_query, self.team, user=self.user).get_cache_key()
         )
+
+    def test_shared_link_cache_key_changes_when_defaults_change(self):
+        query = HogQLQuery(query="SELECT id FROM allowed_view")
+        config = SharingConfiguration(team=self.team, enabled=True)
+        viewer_before = cast(User, SharedLinkUser(config))
+        key_before = get_query_runner(query, self.team, user=viewer_before).get_cache_key()
+
+        self._create_ac(resource="warehouse_objects", access_level="none")
+
+        # The shared fingerprint keys on the team's default-rule state, so a new default rule
+        # orphans every previously cached shared result - revocation propagates through the
+        # cache instead of waiting out the TTL. A fresh principal models the next request (the
+        # rules snapshot is memoized per principal, i.e. per request).
+        viewer_after = cast(User, SharedLinkUser(config))
+        assert get_query_runner(query, self.team, user=viewer_after).get_cache_key() != key_before
 
     def test_synthetic_principal_skips_warehouse_view_acl(self):
         self._create_ac(
