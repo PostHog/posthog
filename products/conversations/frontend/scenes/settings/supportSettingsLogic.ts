@@ -127,7 +127,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setAiSuggestionsLoading: (loading: boolean) => ({ loading }),
         setAiDiagnosticsEnabled: (enabled: boolean) => ({ enabled }),
         setAiDiagnosticsLoading: (loading: boolean) => ({ loading }),
-        setAiResolutionChannels: (channels: string[]) => ({ channels }),
+        setAiResolutionChannels: (channels: TicketChannel[]) => ({ channels }),
         setAiReplyMode: (channel: string, ticketType: string, mode: 'private_note' | 'bot_reply') => ({
             channel,
             ticketType,
@@ -536,12 +536,12 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         ],
         aiEnabledChannels: [
             (s) => [s.currentTeam, s.emailConfigs],
-            (currentTeam, emailConfigs): string[] => {
+            (currentTeam, emailConfigs): TicketChannel[] => {
                 const cs = currentTeam?.conversations_settings
                 if (!cs) {
                     return []
                 }
-                const channels: string[] = []
+                const channels: TicketChannel[] = []
                 channels.push('widget')
                 if (cs.slack_enabled) {
                     channels.push('slack')
@@ -564,11 +564,13 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         ],
         aiResolutionChannels: [
             (s) => [s.currentTeam, s.aiEnabledChannels, s.aiAllChannels],
-            (currentTeam, aiEnabledChannels, aiAllChannels): string[] => {
-                const allowed = aiEnabledChannels.filter((channel) => aiAllChannels.includes(channel as TicketChannel))
+            (currentTeam, aiEnabledChannels, aiAllChannels): TicketChannel[] => {
+                const allowed = aiEnabledChannels.filter((channel) => aiAllChannels.includes(channel))
                 const stored = currentTeam?.conversations_settings?.ai_resolution_channels
                 if (Array.isArray(stored)) {
-                    return stored.filter((channel: string) => allowed.includes(channel))
+                    return stored.filter((channel: string): channel is TicketChannel =>
+                        allowed.includes(channel as TicketChannel)
+                    )
                 }
                 return allowed
             },
@@ -982,7 +984,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
-                    ai_resolution_channels: channels.filter((channel) => allowed.has(channel as TicketChannel)),
+                    ai_resolution_channels: channels.filter((channel) => allowed.has(channel)),
                 },
             })
         },
