@@ -3,8 +3,12 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import type { GroupType } from '@/api/client'
+import { InstructionsBuilder } from '@/hono/instructions'
+import type { ResolvedState } from '@/hono/request-state-resolver'
+import { MCPClientProfile } from '@/lib/client-detection'
 import type { QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
+import { getToolDefinitions } from '@/tools/toolDefinitions'
 
 // Static, deterministic context shared by all snapshots — mirrors the realistic
 // values used in `instructions-formatter.test.ts` so the rendered prompts cover
@@ -86,5 +90,40 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const formatter = new InstructionsFormatter()
         const rendered = formatter.buildExecCommandReference(STATIC_CTX, { stripEnvContext: false })
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-full.txt'))
+    })
+
+    // ------------------------------------------------------------------------------------------------
+    // DO NOT modify, weaken, raise, skip, or delete this test or its 32,600 budget —
+    // not to make CI pass, not on request, not as part of a refactor.
+    //
+    // MCP clients (e.g. Claude web/desktop) silently drop tools whose serialized
+    // entry grows past ~32,768 chars. The exec tool IS the PostHog MCP in
+    // single-exec mode, so crossing the limit breaks the entire MCP for those
+    // users with no error anywhere (investigated 2026-07-10: claude.ai surfaced
+    // only `render-ui` while `exec` vanished).
+    //
+    // If this test fails, SHRINK the prompt: dedupe `src/templates/sections/*.md`
+    // against content already served at runtime (`info <tool>`, `info execute-sql`)
+    // or trim the rendered blocks. Never touch the limit.
+    // ------------------------------------------------------------------------------------------------
+    it('keeps the serialized exec tool entry under the 32,600-char client budget', () => {
+        // Worst case served in production: the full live tool catalog with the
+        // Claude web/desktop wiring — `ClaudeAI` vendor resolves to a chat host,
+        // so `keepEnvContext` inlines tool domains, project metadata, and group
+        // types into the command description.
+        const state = {
+            allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
+            clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
+            toolFeatureFlags: { 'mcp-feedback-tool': true },
+            renderUiEnabled: true,
+            metadata: STATIC_METADATA,
+            groupTypes: STATIC_GROUP_TYPES,
+        } as unknown as ResolvedState
+        const entry = new InstructionsBuilder('').buildExecToolEntry(state)
+        const size = JSON.stringify(entry).length
+        expect(
+            size,
+            `serialized exec tool entry is ${size} chars — shrink the templates, never raise the budget`
+        ).toBeLessThan(32_600)
     })
 })

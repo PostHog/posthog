@@ -90,7 +90,13 @@ export class InstructionsFormatter {
      *  `supportsInstructions` but don't actually surface the `instructions`
      *  payload to the model (Claude web/desktop): it retains the full env-context
      *  (tool-domain index, project metadata, group types) here even though
-     *  `stripEnvContext` is set, so it still reaches the agent. */
+     *  `stripEnvContext` is set, so it still reaches the agent.
+     *
+     *  SIZE BUDGET: the serialized exec tool entry must stay under 32,600 chars —
+     *  clients (e.g. Claude web/desktop) silently drop tools past ~32,768, which
+     *  breaks the entire MCP for them. Enforced by the budget test in
+     *  `tests/unit/instructions-formatter-snapshot.test.ts`; when adding prose
+     *  here or to the section templates, shrink elsewhere to stay under. */
     buildExecCommandReference(
         ctx: InstructionsContext,
         opts: { stripEnvContext: boolean; keepEnvContext?: boolean }
@@ -121,7 +127,9 @@ export class InstructionsFormatter {
                       : {}),
               }
             : ctx
-        return this.compose(sections, renderCtx, { compact: false })
+        // Compact tool domains: the command reference rides inside a tool schema,
+        // where the pipe-separated form buys back budget over the bullet list.
+        return this.compose(sections, renderCtx, { compact: false, compactToolDomains: true })
     }
 
     /** The agent-feedback section is only useful when the `agent-feedback` tool
@@ -131,8 +139,13 @@ export class InstructionsFormatter {
         return featureFlags?.['mcp-feedback-tool'] === true
     }
 
-    private compose(sections: string[], ctx: InstructionsContext, opts: { compact: boolean }): string {
-        const renderToolDomains = opts.compact ? buildToolDomainsCompact : buildToolDomainsBlock
+    private compose(
+        sections: string[],
+        ctx: InstructionsContext,
+        opts: { compact: boolean; compactToolDomains?: boolean }
+    ): string {
+        const renderToolDomains =
+            opts.compact || opts.compactToolDomains ? buildToolDomainsCompact : buildToolDomainsBlock
         // `{query_tools}` only appears in non-compact sections (the exec command
         // reference and tools-mode instructions); compact mode surfaces queries
         // via the single `query` tool domain instead.
