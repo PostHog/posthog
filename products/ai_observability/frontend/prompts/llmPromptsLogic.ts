@@ -15,7 +15,7 @@ import { LLMPrompt } from '~/types'
 
 import { cleanPagedSearchOrderParams } from '../utils'
 import type { llmPromptsLogicType } from './llmPromptsLogicType'
-import { getApiErrorDetail } from './utils'
+import { getApiErrorDetail, requestPromptDuplicate } from './utils'
 
 export const PROMPTS_PER_PAGE = 30
 export const LLM_PROMPTS_FORCE_RELOAD_PARAM = 'llm_prompts_force_reload'
@@ -63,6 +63,12 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                         ...filters,
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
+            },
+        ],
+        promptsLoaded: [
+            false as boolean,
+            {
+                loadPromptsSuccess: () => true,
             },
         ],
     }),
@@ -141,6 +147,12 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                 return count === 0 ? '0 prompts' : `${start}-${end} of ${count} prompt${count === 1 ? '' : 's'}`
             },
         ],
+
+        shouldShowEmptyState: [
+            (s) => [s.count, s.promptsLoaded, s.promptsLoading, s.filters],
+            (count, promptsLoaded, promptsLoading, filters): boolean =>
+                promptsLoaded && !promptsLoading && count === 0 && !filters.search && !filters.created_by_id,
+        ],
     }),
 
     listeners(({ asyncActions, values, selectors }) => ({
@@ -164,13 +176,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
         },
 
         duplicatePrompt: async ({ promptName, newName }) => {
-            try {
-                await api.llmPrompts.duplicateByName(promptName, newName)
-                lemonToast.success(`Prompt duplicated as "${newName}".`)
-                router.actions.push(urls.aiObservabilityPrompt(newName))
-            } catch (error) {
-                lemonToast.error(getApiErrorDetail(error) || 'Failed to duplicate prompt')
-            }
+            await requestPromptDuplicate(promptName, newName)
         },
     })),
 

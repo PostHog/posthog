@@ -27,9 +27,13 @@ class CreateExperimentInput:
     description: str = ""
     type: str = "product"
 
-    # Experiment-own metadata (variant_notes, prompt_metadata, custom_exposure_filter).
-    # NOT for flag config — send that through the experiment's feature_flag object.
+    # Experiment-own parameters (variant_notes, custom_exposure_filter, prompt_metadata, ...).
+    # Flag config is NOT accepted here — it goes through feature_flag_config below.
     parameters: dict[str, Any] | None = None
+
+    # Feature flag configuration in the flag's own write shape:
+    # {filters: {multivariate, groups, aggregation_group_type_index, payloads}, ensure_experience_continuity}
+    feature_flag_config: dict[str, Any] | None = None
 
     # Running-time calculator state (minimum_detectable_effect, recommended_running_time,
     # recommended_sample_size, exposure_estimate_config)

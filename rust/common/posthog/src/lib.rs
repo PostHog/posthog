@@ -19,6 +19,7 @@ static SERVICE: OnceLock<ServiceContext> = OnceLock::new();
 static CAPTURE_WINDOW: RateWindow = RateWindow::new();
 static CLOCK_START: OnceLock<Instant> = OnceLock::new();
 
+#[derive(Clone)]
 struct ServiceContext {
     service: &'static str,
     pod: Option<String>,
@@ -40,16 +41,15 @@ pub async fn init(
     api_key: Option<&str>,
     endpoint: &str,
 ) -> Result<(), posthog_rs::Error> {
-    // A second init call keeps the first service identity.
-    drop(
-        SERVICE.set(ServiceContext {
+    let context = SERVICE
+        .get_or_init(|| ServiceContext {
             service,
             pod: std::env::var("POD_NAME")
                 .or_else(|_| std::env::var("HOSTNAME"))
                 .ok(),
             region: std::env::var("POSTHOG_REGION").ok(),
-        }),
-    );
+        })
+        .clone();
 
     let Some(api_key) = api_key else {
         posthog_rs::disable_global();
@@ -60,6 +60,7 @@ pub async fn init(
     // Exclude this crate's own frames from in-app classification so captured
     // stacks lead with the real service call site, not the shared wrapper.
     let error_tracking = posthog_rs::ErrorTrackingOptionsBuilder::default()
+        .capture_panics(true)
         .in_app_exclude_paths(vec!["common_posthog::".to_string()])
         .build()
         .expect("all error tracking options have defaults");
@@ -67,6 +68,7 @@ pub async fn init(
         .api_key(api_key.to_string())
         .host(normalize_host(endpoint))
         .error_tracking(error_tracking)
+        .before_send(move |event| prepare_event_for_capture(event, &context))
         .build()
         .expect("all client options have defaults");
     posthog_rs::init_global(options).await?;
@@ -98,15 +100,6 @@ pub fn capture_exception<E>(
     // Strings and pre-built JSON values always serialize.
     let prop_err = "string and JSON property values always serialize";
     let mut options = posthog_rs::CaptureExceptionOptions::new();
-    if let Some(ctx) = SERVICE.get() {
-        options = options.property("service", ctx.service).expect(prop_err);
-        if let Some(pod) = &ctx.pod {
-            options = options.property("pod", pod.as_str()).expect(prop_err);
-        }
-        if let Some(region) = &ctx.region {
-            options = options.property("region", region.as_str()).expect(prop_err);
-        }
-    }
     for (key, value) in properties {
         options = options.property(key, value).expect(prop_err);
     }
@@ -126,6 +119,40 @@ pub fn capture_exception<E>(
     if send.as_mut().poll(&mut cx).is_pending() {
         tokio::spawn(send);
     }
+}
+
+fn prepare_event_for_capture(
+    mut event: posthog_rs::Event,
+    context: &ServiceContext,
+) -> Option<posthog_rs::Event> {
+    if is_fatal_exception(&event)
+        && !CAPTURE_WINDOW.allows(clock_window_minutes(), MAX_CAPTURES_PER_MINUTE)
+    {
+        return None;
+    }
+
+    let prop_err = "string property values always serialize";
+    event
+        .insert_prop("service", context.service)
+        .expect(prop_err);
+    if let Some(pod) = &context.pod {
+        event.insert_prop("pod", pod.as_str()).expect(prop_err);
+    }
+    if let Some(region) = &context.region {
+        event
+            .insert_prop("region", region.as_str())
+            .expect(prop_err);
+    }
+    Some(event)
+}
+
+fn is_fatal_exception(event: &posthog_rs::Event) -> bool {
+    event.event_name() == "$exception"
+        && event
+            .properties()
+            .get("$exception_level")
+            .and_then(Value::as_str)
+            == Some("fatal")
 }
 
 /// Strip a legacy capture path suffix from a configured PostHog endpoint,
