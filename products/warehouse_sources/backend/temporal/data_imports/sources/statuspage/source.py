@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class StatuspageSource(ResumableSource[StatuspageSourceConfig, StatuspageResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.STATUSPAGE
@@ -51,6 +53,7 @@ class StatuspageSource(ResumableSource[StatuspageSourceConfig, StatuspageResumeC
                 "The key has organization-wide management access; no extra scopes are required."
             ),
             iconPath="/static/services/statuspage.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/statuspage",
             releaseStatus=ReleaseStatus.ALPHA,
             unreleasedSource=True,
             fields=cast(
