@@ -552,60 +552,60 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
     if inputs.compression is not None and inputs.compression not in SUPPORTED_COMPRESSIONS[inputs.file_format]:
         raise UnsupportedCompressionError(inputs.compression)
 
-    # Integration-backed exports resolve credentials at run time; legacy exports carry them inline.
-    # TODO: require integration
-    aws_access_key_id = inputs.aws_access_key_id
-    aws_secret_access_key = inputs.aws_secret_access_key
-    aws_session_token = inputs.aws_session_token
-    endpoint_url = inputs.endpoint_url
-
-    if inputs.integration_id is not None:
-        integration = await _get_s3_integration(inputs.integration_id, inputs.team_id)
-
-        if isinstance(integration, AwsS3Integration):
-            aws_access_key_id = integration.aws_access_key_id
-            aws_secret_access_key = integration.aws_secret_access_key
-
-        if isinstance(integration, AwsS3RoleBasedIntegration):
-            team = await Team.objects.aget(id=inputs.team_id)
-            organization_id = str(team.organization_id)
-
-            bucket_name = inputs.bucket_name
-            key_prefix = get_key_prefix(
-                inputs.prefix, inputs.data_interval_start, inputs.data_interval_end, inputs.batch_export_model
-            )
-            policy_statements = [
-                PolicyStatement(
-                    Effect="Allow",
-                    Action=["s3:PutObject", "s3:AbortMultipartUpload"],
-                    Resource=f"arn:aws:s3:::{bucket_name}/{key_prefix}/*",
-                )
-            ]
-
-            aws_access_key_id, aws_secret_access_key, aws_session_token = await get_credentials_using_user_aws_role(
-                integration.aws_role_arn,
-                organization_id,
-                session_name=f"PostHog-batch-exports-{inputs.batch_export_id}",
-                policy_statements=policy_statements,
-            )
-
-        if isinstance(integration, S3CompatibleIntegration):
-            endpoint_url = integration.endpoint_url
-
-    if not aws_access_key_id or not aws_secret_access_key:
-        # At these point these need to be defined: either by us assuming a new
-        # role, by an integration, or by the inputs.
-        raise InvalidCredentialsError("AWS access key ID and secret access key cannot be empty")
-
-    external_logger = EXTERNAL_LOGGER.bind()
-    external_logger.info(
-        "Batch exporting range %s - %s to S3: %s",
-        inputs.data_interval_start or "START",
-        inputs.data_interval_end or "END",
-        get_s3_key_from_inputs(inputs),
-    )
-
     async with Heartbeater():
+        # Integration-backed exports resolve credentials at run time; legacy exports carry them inline.
+        # TODO: require integration
+        aws_access_key_id = inputs.aws_access_key_id
+        aws_secret_access_key = inputs.aws_secret_access_key
+        aws_session_token = inputs.aws_session_token
+        endpoint_url = inputs.endpoint_url
+
+        if inputs.integration_id is not None:
+            integration = await _get_s3_integration(inputs.integration_id, inputs.team_id)
+
+            if isinstance(integration, AwsS3Integration):
+                aws_access_key_id = integration.aws_access_key_id
+                aws_secret_access_key = integration.aws_secret_access_key
+
+            if isinstance(integration, AwsS3RoleBasedIntegration):
+                team = await Team.objects.aget(id=inputs.team_id)
+                organization_id = str(team.organization_id)
+
+                bucket_name = inputs.bucket_name
+                key_prefix = get_key_prefix(
+                    inputs.prefix, inputs.data_interval_start, inputs.data_interval_end, inputs.batch_export_model
+                )
+                policy_statements = [
+                    PolicyStatement(
+                        Effect="Allow",
+                        Action=["s3:PutObject", "s3:AbortMultipartUpload"],
+                        Resource=f"arn:aws:s3:::{bucket_name}/{key_prefix}/*",
+                    )
+                ]
+
+                aws_access_key_id, aws_secret_access_key, aws_session_token = await get_credentials_using_user_aws_role(
+                    integration.aws_role_arn,
+                    organization_id,
+                    session_name=f"PostHog-batch-exports-{inputs.batch_export_id}",
+                    policy_statements=policy_statements,
+                )
+
+            if isinstance(integration, S3CompatibleIntegration):
+                endpoint_url = integration.endpoint_url
+
+        if not aws_access_key_id or not aws_secret_access_key:
+            # At these point these need to be defined: either by us assuming a new
+            # role, by an integration, or by the inputs.
+            raise InvalidCredentialsError("AWS access key ID and secret access key cannot be empty")
+
+        external_logger = EXTERNAL_LOGGER.bind()
+        external_logger.info(
+            "Batch exporting range %s - %s to S3: %s",
+            inputs.data_interval_start or "START",
+            inputs.data_interval_end or "END",
+            get_s3_key_from_inputs(inputs),
+        )
+
         # NOTE: we don't support resuming from heartbeats for this activity for 2 reasons:
         # - resuming from old heartbeats doesn't play nicely with S3 multipart uploads
         # - we don't order the events in the query to ClickHouse
