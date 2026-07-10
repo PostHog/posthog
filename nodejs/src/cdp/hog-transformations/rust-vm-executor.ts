@@ -45,12 +45,33 @@ export class RustVmExecutor {
      * event-loop yielding the Node path has. Concurrent events therefore execute in parallel on
      * worker threads; batching many events into one call (rayon fan-out) is a possible follow-up.
      */
+    /**
+     * Count and log a fallback so every node-vm handoff is attributable to a function. Returns
+     * null for the caller to pass through.
+     */
+    private fallback(
+        outcome: 'fallback_unsupported' | 'fallback_exception' | 'fallback_empty_result',
+        invocation: CyclotronJobInvocationHogFunction,
+        error: unknown
+    ): null {
+        rustVmExecution.inc({ outcome })
+        logger.warn('🦀', 'Rust HogVM invocation fell back to the node vm', {
+            outcome,
+            functionId: invocation.functionId,
+            teamId: invocation.teamId,
+            error: error !== undefined ? String(error) : undefined,
+        })
+        return null
+    }
+
     public async execute(
         invocation: CyclotronJobInvocationHogFunction,
         sensitiveValues: string[]
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null> {
         const module_ = this.getModule()
         if (!module_) {
+            // No per-invocation log: a missing addon affects every invocation and the loader
+            // already warned once with the load error.
             rustVmExecution.inc({ outcome: 'fallback_unavailable' })
             return null
         }
@@ -61,25 +82,20 @@ export class RustVmExecutor {
                 maxSteps: RUST_MAX_STEPS,
             })
         } catch (error) {
-            // A throw here is the FFI boundary, not the program — e.g. globals containing NaN or
-            // Infinity, which serde_json can't represent. The Node VM takes the JS objects
-            // directly and can run these, so fall back rather than fail the transformation.
-            rustVmExecution.inc({ outcome: 'fallback_exception' })
-            logger.warn('🦀', 'Rust HogVM invocation threw, falling back to the node vm', {
-                functionId: invocation.functionId,
-                teamId: invocation.teamId,
-                error: String(error),
-            })
-            return null
+            // A throw here is the boundary or the native side, not the program's own error path —
+            // marshalling failures (e.g. globals containing NaN or Infinity, which serde_json
+            // can't represent), rust panics, addon bugs. Deliberately broad: the node vm can run
+            // all of these, so correctness wins and the invocation falls back — while the warn log
+            // and the fallback_exception outcome carry the error so native faults stay visible
+            // rather than being silently healed.
+            return this.fallback('fallback_exception', invocation, error)
         }
         if (!rust) {
-            rustVmExecution.inc({ outcome: 'fallback_unavailable' })
-            return null
+            return this.fallback('fallback_empty_result', invocation, undefined)
         }
 
         if (rust.error && isUnsupportedByRustVm(rust.error)) {
-            rustVmExecution.inc({ outcome: 'fallback_unsupported' })
-            return null
+            return this.fallback('fallback_unsupported', invocation, rust.error)
         }
 
         const durationMs = rust.durationUs / 1000
