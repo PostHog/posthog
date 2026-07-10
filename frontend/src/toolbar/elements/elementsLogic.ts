@@ -575,6 +575,10 @@ export const elementsLogic = kea<elementsLogicType>([
                     if (e.keyCode !== 27) {
                         return
                     }
+                    if (heatmapToolbarMenuLogic.values.areaSelectionActive) {
+                        heatmapToolbarMenuLogic.actions.cancelAreaSelection()
+                        return
+                    }
                     if (values.hoverElement) {
                         actions.setHoverElement(null)
                     }

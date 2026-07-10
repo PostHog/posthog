@@ -3,7 +3,10 @@ from products.replay_vision.backend.temporal.activities.advance_scanner_watermar
 )
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
-from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_applies_activity
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
+    count_in_flight_applies_activity,
+    count_in_flight_by_team_activity,
+)
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
@@ -30,6 +33,9 @@ from products.replay_vision.backend.temporal.activities.reconciler_activities im
     list_scanner_schedules_activity,
     upsert_scanner_schedule_activity,
 )
+from products.replay_vision.backend.temporal.activities.refresh_prompt_suggestion import (
+    refresh_prompt_suggestion_activity,
+)
 from products.replay_vision.backend.temporal.activities.refresh_scanner_estimate import (
     refresh_scanner_estimate_activity,
 )
@@ -37,9 +43,11 @@ from products.replay_vision.backend.temporal.activities.upload_video_to_gemini i
 
 __all__ = [
     "advance_scanner_watermark_activity",
+    "refresh_prompt_suggestion_activity",
     "call_scanner_provider_activity",
     "cleanup_gemini_file_activity",
     "count_in_flight_applies_activity",
+    "count_in_flight_by_team_activity",
     "create_observation_activity",
     "delete_scanner_schedule_activity",
     "embed_observation_activity",

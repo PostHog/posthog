@@ -5,7 +5,7 @@ import pytest
 from django.utils import timezone
 
 from posthog.models import Organization, Team, User
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
@@ -310,6 +310,30 @@ def test_keeps_user_integration_with_empty_unsynced_repository_cache(organizatio
 
     assert isinstance(resolved, UserGitHubIntegration)
     assert resolved.integration.id == integration.id
+
+
+@pytest.mark.django_db
+def test_skips_team_integration_whose_token_refresh_permanently_failed(organization, team):
+    # An install uninstalled/suspended on GitHub's side keeps `errors=TOKEN_REFRESH_FAILED`.
+    # Re-selecting it makes repo discovery storm GitHub with doomed refreshes, so it must be
+    # skipped in favour of a healthy fallback.
+    user = _create_user("a@example.com", organization)
+    errored = _create_team_integration(team, integration_id="team-dead")
+    Integration.objects.filter(pk=errored.pk).update(errors=ERROR_TOKEN_REFRESH_FAILED)
+    user_int = _create_user_integration(user, integration_id="user-1")
+
+    resolved = resolve_team_github_integration(team.id)
+
+    assert isinstance(resolved, UserGitHubIntegration)
+    assert resolved.integration.id == user_int.id
+
+
+@pytest.mark.django_db
+def test_returns_none_when_only_team_github_has_failed_token_refresh(team):
+    errored = _create_team_integration(team, integration_id="team-dead")
+    Integration.objects.filter(pk=errored.pk).update(errors=ERROR_TOKEN_REFRESH_FAILED)
+
+    assert resolve_team_github_integration(team.id) is None
 
 
 @pytest.mark.django_db

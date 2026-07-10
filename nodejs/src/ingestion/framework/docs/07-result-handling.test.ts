@@ -12,6 +12,20 @@
  * - **DROP**: Log and discard (no Kafka message)
  * - **REDIRECT**: Send to a named output (e.g. overflow)
  *
+ * ## Redirect Options
+ *
+ * `redirect(reason, output, preserveKey?, awaitAck?)` takes two optional flags,
+ * both defaulting to `true`:
+ *
+ * - **`preserveKey`** (default `true`): keep the original Kafka message key on
+ *   the redirected message so partitioning/ordering is retained. Pass `false`
+ *   to drop the key (the message is produced with a `null` key, letting the
+ *   broker assign a partition).
+ * - **`awaitAck`** (default `true`): wait for the broker to acknowledge the
+ *   redirected produce before the result is finalized. Pass `false` to schedule
+ *   the produce as a fire-and-forget side effect instead - the pipeline does not
+ *   block on the ack, trading delivery certainty for lower latency.
+ *
  * ## Accessing handleResults()
  *
  * `handleResults()` is available through the `messageAware()` builder method.
@@ -196,7 +210,8 @@ describe('Result Handling', () => {
      * REDIRECT results send items to a named output for alternative processing.
      * Each redirect targets a specific output (e.g. overflow, high-priority)
      * which is resolved to a Kafka topic and producer at runtime. The original
-     * message key can optionally be preserved or discarded.
+     * message key is preserved by default (`preserveKey` defaults to `true`);
+     * pass `false` to discard it and let the broker assign a partition.
      */
     it('REDIRECT sends items to a named output with optional key preservation', async () => {
         const promiseScheduler = new PromiseScheduler()
@@ -285,5 +300,104 @@ describe('Result Handling', () => {
         )
         const discardedKeyMessage = mockOutputs.produce.mock.calls[1][1]
         expect(discardedKeyMessage.headers!['redirect-timestamp']).toBeDefined()
+    })
+
+    /**
+     * `awaitAck` (default `true`) makes result handling wait for the broker to
+     * acknowledge the redirected produce before `next()` resolves. This is the
+     * safe default: the item is not considered handled until it is durably
+     * accepted downstream.
+     *
+     * Here the mocked produce never acknowledges, so `next()` stays pending
+     * until the ack resolves.
+     */
+    it('REDIRECT with awaitAck=true blocks on the produce ack (default)', async () => {
+        const promiseScheduler = new PromiseScheduler()
+        const OVERFLOW = 'overflow' as const
+
+        const mockOutputs = createMockIngestionOutputs<
+            typeof DLQ_OUTPUT | typeof OVERFLOW | typeof INGESTION_WARNINGS_OUTPUT
+        >()
+
+        // Produce that only acknowledges when we resolve it by hand
+        let ackResolve: () => void
+        const ack = new Promise<void>((resolve) => {
+            ackResolve = resolve
+        })
+        mockOutputs.produce.mockReturnValue(ack)
+
+        function createRoutingStep(): BatchProcessingStep<{ v: string }, { v: string }, 'overflow'> {
+            return function routingStep(items) {
+                // awaitAck defaults to true (fourth arg omitted)
+                return Promise.resolve(items.map(() => redirect('Overflow', OVERFLOW, true)))
+            }
+        }
+
+        // await: true so the redirect side effect (the produce) is awaited before next() resolves
+        const pipeline = newBatchPipelineBuilder<{ v: string }, { message: Message }>()
+            .pipeBatch(createRoutingStep())
+            .messageAware((builder) => builder)
+            .handleResults({ outputs: mockOutputs, promiseScheduler })
+            .handleSideEffects(promiseScheduler, { await: true })
+            .build()
+
+        pipeline.feed([createOkContext({ v: 'x' }, { message: createTestMessage() })])
+
+        let resolved = false
+        const nextPromise = pipeline.next().then((r) => {
+            resolved = true
+            return r
+        })
+
+        // Flush pending microtasks/macrotasks; next() is still blocked on the ack
+        await new Promise((resolve) => setImmediate(resolve))
+        expect(resolved).toBe(false)
+
+        // Once the broker acks, next() resolves
+        ackResolve!()
+        const results = await nextPromise
+        expect(resolved).toBe(true)
+        expect(isRedirectResult(results![0].result)).toBe(true)
+    })
+
+    /**
+     * `awaitAck=false` schedules the produce as a fire-and-forget side effect.
+     * Result handling does not wait for the broker ack, so `next()` resolves
+     * even though the produce is still in flight.
+     */
+    it('REDIRECT with awaitAck=false does not block on the produce ack', async () => {
+        const promiseScheduler = new PromiseScheduler()
+        const OVERFLOW = 'overflow' as const
+
+        const mockOutputs = createMockIngestionOutputs<
+            typeof DLQ_OUTPUT | typeof OVERFLOW | typeof INGESTION_WARNINGS_OUTPUT
+        >()
+
+        // Produce that never acknowledges within the test
+        mockOutputs.produce.mockReturnValue(new Promise<void>(() => {}))
+
+        function createRoutingStep(): BatchProcessingStep<{ v: string }, { v: string }, 'overflow'> {
+            return function routingStep(items) {
+                // preserveKey = true, awaitAck = false
+                return Promise.resolve(items.map(() => redirect('Overflow', OVERFLOW, true, false)))
+            }
+        }
+
+        // Even with await: true, the redirect side effect resolves immediately because
+        // awaitAck=false means it never waits on the produce ack.
+        const pipeline = newBatchPipelineBuilder<{ v: string }, { message: Message }>()
+            .pipeBatch(createRoutingStep())
+            .messageAware((builder) => builder)
+            .handleResults({ outputs: mockOutputs, promiseScheduler })
+            .handleSideEffects(promiseScheduler, { await: true })
+            .build()
+
+        pipeline.feed([createOkContext({ v: 'x' }, { message: createTestMessage() })])
+
+        // Resolves without the pending ack (would hang if awaitAck were honored as true)
+        const results = await pipeline.next()
+
+        expect(isRedirectResult(results![0].result)).toBe(true)
+        expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
     })
 })

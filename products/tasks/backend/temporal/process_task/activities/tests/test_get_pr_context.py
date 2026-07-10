@@ -5,7 +5,9 @@ from unittest.mock import MagicMock, patch
 
 from django.core.exceptions import ObjectDoesNotExist
 
-from products.tasks.backend.exceptions import TaskInvalidStateError
+from parameterized import parameterized
+
+from products.tasks.backend.exceptions import ProcessTaskTransientError
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     GetPrContextInput,
     GetPrContextOutput,
@@ -20,19 +22,58 @@ GET_PR_CONTEXT_MODULE = "products.tasks.backend.temporal.process_task.activities
 
 class TestComputePrFingerprint:
     def test_is_deterministic_for_same_input(self):
-        pr = {"url": "https://api.github.com/repos/org/repo/pulls/1", "updated_at": "2026-04-23T10:00:00Z"}
+        pr = {"url": "https://github.com/org/repo/pull/1", "state": "open", "ci_status": "failing"}
         assert compute_pr_fingerprint(pr) == compute_pr_fingerprint(pr)
 
-    def test_changes_when_updated_at_changes(self):
-        base = {"url": "https://api.github.com/repos/org/repo/pulls/1"}
-        earlier = compute_pr_fingerprint({**base, "updated_at": "2026-04-23T10:00:00Z"})
-        later = compute_pr_fingerprint({**base, "updated_at": "2026-04-23T10:05:00Z"})
-        assert earlier != later
+    def test_stable_when_only_updated_at_or_comments_change(self):
+        # The bug: GitHub bumps updated_at on any activity (comments, labels, the bot's
+        # own pushes), so hashing it re-poked the agent as noise. unresolved_threads is
+        # in the same bucket — a review comment resolving or reopening a thread is noise,
+        # not a reason to re-fire the follow-up. Actionable state is unchanged here, so
+        # the fingerprint must not move.
+        base = {"url": "https://github.com/org/repo/pull/1", "state": "open", "ci_status": "pending"}
+        earlier = compute_pr_fingerprint(
+            {**base, "updated_at": "2026-04-23T10:00:00Z", "comments": 0, "unresolved_threads": 0}
+        )
+        later = compute_pr_fingerprint(
+            {**base, "updated_at": "2026-04-23T10:05:00Z", "comments": 3, "unresolved_threads": 2}
+        )
+        assert earlier == later
+
+    @parameterized.expand(
+        [
+            ("ci_status", "pending", "failing"),
+            ("review_decision", None, "changes_requested"),
+            ("state", "open", "closed"),
+        ]
+    )
+    def test_changes_when_actionable_field_changes(self, field, before, after):
+        base = {"url": "https://github.com/org/repo/pull/1", "state": "open", "ci_status": "pending"}
+        assert compute_pr_fingerprint({**base, field: before}) != compute_pr_fingerprint({**base, field: after})
+
+    @parameterized.expand(
+        [
+            (None, "approved"),
+            (None, "review_required"),
+            ("approved", "review_required"),
+            ("review_required", "approved"),
+        ]
+    )
+    def test_stable_across_non_actionable_review_decisions(self, before, after):
+        # Only changes_requested means the agent has code to fix. Keying on the raw
+        # decision re-poked the agent on approval and the review_required shuffle —
+        # common, non-actionable events. The fingerprint collapses review_decision to
+        # the changes_requested boolean, so transitions among the other values (none of
+        # which touch changes_requested) must not move it.
+        base = {"url": "https://github.com/org/repo/pull/1", "state": "open", "ci_status": "pending"}
+        assert compute_pr_fingerprint({**base, "review_decision": before}) == compute_pr_fingerprint(
+            {**base, "review_decision": after}
+        )
 
     def test_changes_when_url_changes(self):
-        base = {"updated_at": "2026-04-23T10:00:00Z"}
-        a = compute_pr_fingerprint({**base, "url": "https://api.github.com/repos/org/repo/pulls/1"})
-        b = compute_pr_fingerprint({**base, "url": "https://api.github.com/repos/org/repo/pulls/2"})
+        base = {"state": "open", "ci_status": "failing"}
+        a = compute_pr_fingerprint({**base, "url": "https://github.com/org/repo/pull/1"})
+        b = compute_pr_fingerprint({**base, "url": "https://github.com/org/repo/pull/2"})
         assert a != b
 
     def test_handles_missing_keys_without_raising(self):
@@ -97,7 +138,7 @@ class TestGetPrContextActivity:
         test_task_run.save(update_fields=["output"])
 
         integration = MagicMock()
-        integration.get_pull_request_from_url.return_value = {"success": False, "error": "not found"}
+        integration.get_pull_request_snapshot.return_value = {"success": False, "error": "not found"}
 
         ctx = self._ctx(run_id=str(test_task_run.id))
         with patch(f"{GET_PR_CONTEXT_MODULE}.get_github_integration", return_value=integration):
@@ -109,13 +150,16 @@ class TestGetPrContextActivity:
         test_task_run.output = {"pr_url": pr_url}
         test_task_run.save(update_fields=["output"])
 
-        integration = MagicMock()
-        integration.get_pull_request_from_url.return_value = {
+        snapshot = {
             "success": True,
             "url": pr_url,
             "state": "open",
-            "updated_at": "2026-04-23T10:00:00Z",
+            "ci_status": "failing",
+            "review_decision": None,
+            "unresolved_threads": 1,
         }
+        integration = MagicMock()
+        integration.get_pull_request_snapshot.return_value = snapshot
 
         ctx = self._ctx(run_id=str(test_task_run.id))
         with patch(f"{GET_PR_CONTEXT_MODULE}.get_github_integration", return_value=integration):
@@ -124,8 +168,8 @@ class TestGetPrContextActivity:
         assert isinstance(result, GetPrContextOutput)
         assert result.pr_url == pr_url
         assert result.pr_state == "open"
-        assert result.fingerprint == compute_pr_fingerprint({"url": pr_url, "updated_at": "2026-04-23T10:00:00Z"})
-        integration.get_pull_request_from_url.assert_called_once_with(pr_url)
+        assert result.fingerprint == compute_pr_fingerprint(snapshot)
+        integration.get_pull_request_snapshot.assert_called_once_with(pr_url)
 
     @pytest.mark.django_db
     def test_uses_user_github_integration_for_user_credentials(self, test_task_run):
@@ -134,7 +178,7 @@ class TestGetPrContextActivity:
         test_task_run.save(update_fields=["output"])
 
         integration = MagicMock()
-        integration.get_pull_request_from_url.return_value = {
+        integration.get_pull_request_snapshot.return_value = {
             "success": True,
             "url": pr_url,
             "state": "open",
@@ -149,7 +193,7 @@ class TestGetPrContextActivity:
 
         assert isinstance(result, GetPrContextOutput)
         assert result.pr_url == pr_url
-        integration.get_pull_request_from_url.assert_called_once_with(pr_url)
+        integration.get_pull_request_snapshot.assert_called_once_with(pr_url)
 
     @pytest.mark.django_db
     def test_defaults_pr_state_to_unknown_when_missing(self, test_task_run):
@@ -158,7 +202,7 @@ class TestGetPrContextActivity:
         test_task_run.save(update_fields=["output"])
 
         integration = MagicMock()
-        integration.get_pull_request_from_url.return_value = {
+        integration.get_pull_request_snapshot.return_value = {
             "success": True,
             "url": pr_url,
             "updated_at": "2026-04-23T10:00:00Z",
@@ -172,24 +216,27 @@ class TestGetPrContextActivity:
         assert result.pr_state == "unknown"
 
     @pytest.mark.django_db
-    def test_raises_task_invalid_state_when_github_call_raises(self, test_task_run):
+    def test_raises_transient_error_when_github_call_raises(self, test_task_run):
+        # A failed GitHub fetch must be retryable — raising a fatal, non-retryable error here
+        # would permanently kill the follow-up run over a transient GitHub hiccup.
         pr_url = "https://github.com/org/repo/pull/1"
         test_task_run.output = {"pr_url": pr_url}
         test_task_run.save(update_fields=["output"])
 
         integration = MagicMock()
-        integration.get_pull_request_from_url.side_effect = RuntimeError("GitHub exploded")
+        integration.get_pull_request_snapshot.side_effect = RuntimeError("GitHub exploded")
 
         ctx = self._ctx(run_id=str(test_task_run.id))
         with patch(f"{GET_PR_CONTEXT_MODULE}.get_github_integration", return_value=integration):
-            with pytest.raises(TaskInvalidStateError):
+            with pytest.raises(ProcessTaskTransientError) as exc_info:
                 self._run(ctx)
+        assert exc_info.value.non_retryable is False
 
     @pytest.mark.django_db
-    def test_different_updated_at_yields_different_fingerprint(self, test_task_run):
-        # Drives the same invariant as test_ci_follow_up_fires_on_changed_fingerprint_and_persists
-        # at the activity level — if upstream GitHub reports a newer updated_at,
-        # the workflow must see a new fingerprint and re-fire CI follow-up.
+    def test_ci_status_change_yields_different_fingerprint(self, test_task_run):
+        # When CI actually transitions (pending -> failing) the workflow must see a new
+        # fingerprint and re-fire the CI follow-up. The mirror of this — that a bare
+        # updated_at bump does NOT change the fingerprint — is covered at the unit level.
         pr_url = "https://github.com/org/repo/pull/7"
         test_task_run.output = {"pr_url": pr_url}
         test_task_run.save(update_fields=["output"])
@@ -197,20 +244,22 @@ class TestGetPrContextActivity:
         integration = MagicMock()
         ctx = self._ctx(run_id=str(test_task_run.id))
 
-        integration.get_pull_request_from_url.return_value = {
+        integration.get_pull_request_snapshot.return_value = {
             "success": True,
             "url": pr_url,
             "state": "open",
+            "ci_status": "pending",
             "updated_at": "2026-04-23T10:00:00Z",
         }
         with patch(f"{GET_PR_CONTEXT_MODULE}.get_github_integration", return_value=integration):
             first = self._run(ctx)
 
-        integration.get_pull_request_from_url.return_value = {
+        integration.get_pull_request_snapshot.return_value = {
             "success": True,
             "url": pr_url,
             "state": "open",
-            "updated_at": "2026-04-23T11:00:00Z",
+            "ci_status": "failing",
+            "updated_at": "2026-04-23T10:00:00Z",
         }
         with patch(f"{GET_PR_CONTEXT_MODULE}.get_github_integration", return_value=integration):
             second = self._run(ctx)

@@ -1,10 +1,9 @@
 //! Session-replay anonymizer: PII-scrubs rrweb events for the ml-mirror pipeline, exposed to Node as
 //! a Neon native addon.
 //!
-//! The scrubbers are a Rust port of `nodejs/src/ingestion/pipelines/sessionreplay/anonymize/*.ts`
-//! (the source of truth): text/URL redaction, native image blur, `cv` de/recompression. Parity with
-//! the TS is asserted via shared JSON fixtures under `tests/fixtures/` (the same fixtures the Jest
-//! suite runs against).
+//! The scrubbers cover text/URL redaction, native image blur, and `cv` de/recompression. Behavior
+//! is pinned by the shared JSON fixtures under `tests/fixtures/`, which both `tests/parity.rs` and
+//! the Jest suite (through the addon) run against.
 //!
 //! The production surface is the byte-buffer pipeline in [`snapshot`]: the decompressed Kafka payload
 //! goes in, ready-to-write JSONL block lines plus envelope/per-event metadata come out — Rust owns
@@ -119,6 +118,13 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         .argument_opt(1)
         .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
         .map(|s| s.value(&mut cx));
+    // A present-but-non-string argument must fail loudly (the caller drops the message), not
+    // silently disable first-party collapsing; only absent/undefined/null mean "no hosts".
+    let first_party_hosts_json: Option<String> = match cx.argument_opt(2) {
+        Some(v) if v.is_a::<JsUndefined, _>(&mut cx) || v.is_a::<JsNull, _>(&mut cx) => None,
+        Some(v) => Some(v.downcast_or_throw::<JsString, _>(&mut cx)?.value(&mut cx)),
+        None => None,
+    };
     let promise = cx
         .task(move || -> TaskOutcome {
             // Contain any panic on untrusted input so it fails closed (the caller drops the message)
@@ -130,12 +136,30 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 let allow = guard.as_ref().ok_or_else(|| {
                     "anonymizer not initialized (call initAnonymizer first)".to_string()
                 })?;
+                // A malformed host list fails closed (message dropped), never silently unscrubbed.
+                let first_party_hosts: Vec<String> = match &first_party_hosts_json {
+                    Some(json) => {
+                        let hosts: Vec<String> = serde_json::from_str(json)
+                            .map_err(|e| format!("invalid first-party hosts json: {e}"))?;
+                        hosts
+                            .iter()
+                            .map(|h| h.trim().to_ascii_lowercase())
+                            .filter(|h| !h.is_empty())
+                            .collect()
+                    }
+                    None => Vec::new(),
+                };
                 let mut payload =
                     match snapshot::decompress_payload(raw, content_encoding.as_deref()) {
                         Ok(p) => p,
                         Err(f) => return Ok(Err((f.kind.reason(), f.detail))),
                     };
-                match snapshot::anonymize_kafka_payload(allow, &mut payload) {
+                match snapshot::anonymize_kafka_payload_opts(
+                    allow,
+                    &mut payload,
+                    snapshot::AnonymizeOpts::default(),
+                    first_party_hosts,
+                ) {
                     Ok(out) => {
                         let meta = serde_json::to_string(&out.meta)
                             .map_err(|e| format!("serialize meta: {e}"))?;

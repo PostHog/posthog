@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonDivider, LemonInputSelect, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -98,9 +96,6 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
     )
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const showPersonTimezone = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_PERSON_TIMEZONE]
 
     const timezoneOptions = Object.entries(preflight?.available_timezones || {}).map(([tz, offset]) => ({
         key: tz,
@@ -172,7 +167,6 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
                     onTimezoneChange={handleTimezoneChange}
                     onUsePersonTimezoneChange={handleUsePersonTimezoneChange}
                     onFallbackTimezoneChange={handleFallbackTimezoneChange}
-                    showPersonTimezoneOption={showPersonTimezone}
                 />
             </div>
         </>
@@ -270,7 +264,6 @@ function TimezoneConfiguration({
     onTimezoneChange,
     onUsePersonTimezoneChange,
     onFallbackTimezoneChange,
-    showPersonTimezoneOption,
 }: {
     timezone: string | null
     usePersonTimezone?: boolean
@@ -280,22 +273,19 @@ function TimezoneConfiguration({
     onTimezoneChange: (timezone: string[]) => void
     onUsePersonTimezoneChange: (checked: boolean) => void
     onFallbackTimezoneChange: (timezone: string[]) => void
-    showPersonTimezoneOption: boolean
 }): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
-            {showPersonTimezoneOption && (
-                <LemonSwitch
-                    checked={usePersonTimezone ?? false}
-                    onChange={onUsePersonTimezoneChange}
-                    label="Use person's timezone"
-                    bordered
-                    tooltip="Requires the GeoIP transformation to be enabled in Data pipelines → Transformations."
-                    data-attr="use-person-timezone-switch"
-                />
-            )}
+            <LemonSwitch
+                checked={usePersonTimezone ?? false}
+                onChange={onUsePersonTimezoneChange}
+                label="Use person's timezone"
+                bordered
+                tooltip="Requires the GeoIP transformation to be enabled in Data pipelines → Transformations."
+                data-attr="use-person-timezone-switch"
+            />
 
-            {showPersonTimezoneOption && usePersonTimezone ? (
+            {usePersonTimezone ? (
                 <div>
                     <LemonLabel>Fallback timezone</LemonLabel>
                     <p className="text-xs text-muted mb-2">

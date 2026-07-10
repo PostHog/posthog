@@ -15,6 +15,7 @@ import type {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind, isExperimentFunnelMetric } from '~/queries/schema/schema-general'
+import { getExposureEventAndProperty } from '~/scenes/experiments/exposureContract'
 import {
     addExposureToMetric,
     compose,
@@ -109,10 +110,10 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                         filterTestAccounts: !!experiment.exposure_criteria?.filterTestAccounts,
                         dateRange: getExperimentDateRange(experiment),
                         breakdownFilter: {
-                            breakdown:
-                                exposureEventNode.event === '$feature_flag_called'
-                                    ? '$feature_flag_response'
-                                    : `$feature/${experiment.feature_flag_key}`,
+                            breakdown: getExposureEventAndProperty({
+                                featureFlagKey: experiment.feature_flag_key,
+                                exposureCriteria: experiment.exposure_criteria,
+                            }).variantProperty,
                             breakdown_type: 'event',
                         },
                         funnelsFilter: {

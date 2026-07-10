@@ -21,7 +21,7 @@ permissions:
 
 jobs:
     # Job to decide if we should run storybook ci
-    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    # See .github/actions/paths-filter/README.md for filter semantics
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -29,16 +29,16 @@ jobs:
         if: github.event_name != 'merge_group'
         # Set job outputs to values from filter step
         outputs:
-            # With dorny's default predicate-quantifier (some), '!path' matches
-            # every file NOT at that path — effectively matching ALL changes
-            # including backend files. Instead we use two positive filters and
-            # compare counts to exclude generated-only PRs.
+            # Two positive filters compared by count exclude generated-only PRs.
+            # This predates the vendored paths-filter's include-exclude matching;
+            # it could now be a plain '!frontend/src/generated/**' exclude on the
+            # frontend filter, kept as-is here to leave gating behavior untouched.
             #
             # Additionally skip when a bot's push adds only snapshot baselines —
             # Visual Review auto-commits frontend/snapshots.yml after human review
             # and CI approval, so re-running the suite is pure waste. The detect
             # step keys off the push delta (this push's commits), not the whole-PR
-            # diff dorny reports, so it fires even when the PR also has code changes.
+            # diff the filter reports, so it fires even when the PR also has code changes.
             frontend: >-
                 ${{
                     github.event_name == 'push'
@@ -50,9 +50,10 @@ jobs:
                 }}
             matrix: ${{ steps.matrix.outputs.matrix }}
         steps:
-            # Needed by the "Derive Node-only product workspace exclusions" step below,
-            # which reads pnpm-workspace.yaml + bin/frontend-exclude-filter. dorny itself
-            # needs no checkout (it diffs via the API), so this job didn't check out before.
+            # Needed by the "Derive Node-only product workspace exclusions" step (reads
+            # pnpm-workspace.yaml + bin/frontend-exclude-filter) and by the local
+            # ./.github/actions/paths-filter steps, which must exist on disk (on
+            # pull_request events they still diff via the API, not the checkout).
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -61,7 +62,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -121,19 +122,18 @@ jobs:
             # The excluded dirs are derived from pnpm-workspace.yaml (the product paths that
             # declare nested pnpm workspaces), not hardcoded — see bin/frontend-exclude-filter.
             #
-            # A separate `every`-quantifier step is required: a plain `!...` in the broad
-            # filter is neutralized by dorny's default `some` quantifier (same gotcha as the
-            # output comment above). With `every`, the filter is true only when some changed
-            # file lives OUTSIDE every excluded dir.
+            # A separate step is required because these exclusions are generated at
+            # runtime from pnpm-workspace.yaml into a filter file, while the main filter
+            # above is inline YAML — paths-filter takes one or the other. The exclude-only
+            # filter is true only when some changed file lives OUTSIDE every excluded dir.
             - name: Derive Node-only product workspace exclusions
               if: github.event_name != 'push'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: exclude
               if: github.event_name != 'push'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  predicate-quantifier: 'every'
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
             # Build the visual-regression matrix.
@@ -165,7 +165,11 @@ jobs:
     build-storybook:
         name: Build Storybook (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 15
+        # The Vite build normally takes ~3.5 minutes, but a degraded runner can stretch
+        # the memory-heavy bundling phase past 15 minutes — leave headroom so a slow
+        # runner yields a slow-but-green build instead of a cancelled one that hard-fails
+        # the visual-regression gate.
+        timeout-minutes: 30
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
         steps:
@@ -211,26 +215,12 @@ jobs:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
-            - name: Restore webpack build cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: common/storybook/node_modules/.cache/
-                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-webpack-storybook-
-
             - name: Build Storybook
               env:
                   NODE_OPTIONS: --max-old-space-size=32768
               run: |
                   bin/turbo --filter=@posthog/storybook prepare
                   pnpm --filter=@posthog/storybook build --test
-
-            - name: Save webpack build cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: common/storybook/node_modules/.cache/
-                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -242,8 +232,9 @@ jobs:
             # Consumed by the select-stories job below. Uploaded separately so
             # the visual-regression matrix doesn't pay to download it on every
             # shard.
+            # module-graph.json only exists once the Vite build completes, so no
+            # `if: always()`: on a failed/cancelled build it would just warn.
             - name: Upload module-graph artifact
-              if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-module-graph

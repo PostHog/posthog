@@ -1157,19 +1157,18 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
 
 export async function queryEvaluationRuns(params: {
     evaluationId?: string
-    generationEventId?: string
     traceId?: string
     forceRefresh?: boolean
 }): Promise<EvaluationRun[]> {
-    const { evaluationId, generationEventId, traceId, forceRefresh } = params
+    const { evaluationId, traceId, forceRefresh } = params
 
-    const propertyValue = evaluationId || generationEventId || traceId
+    const propertyValue = evaluationId || traceId
 
     if (!propertyValue) {
-        throw new Error('Either evaluationId, generationEventId, or traceId must be provided')
+        throw new Error('Either evaluationId or traceId must be provided')
     }
 
-    const propertyName = evaluationId ? '$ai_evaluation_id' : generationEventId ? '$ai_target_event_id' : '$ai_trace_id'
+    const propertyName = evaluationId ? '$ai_evaluation_id' : '$ai_trace_id'
 
     const query = hogql`
         SELECT

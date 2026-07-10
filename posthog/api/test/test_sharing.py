@@ -253,7 +253,7 @@ class TestSharing(APIBaseTest):
         assert asset.export_format == "image/png"
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
-    def test_should_update_to_match_existing_dashboard_sharing_token(self, patched_exporter_task: Mock):
+    def test_should_adopt_legacy_share_token_on_read_without_enabling(self, patched_exporter_task: Mock):
         dashboard = Dashboard.objects.create(team=self.team, name="example dashboard", created_by=self.user)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
         initial_token = response.json()["access_token"]
@@ -264,10 +264,12 @@ class TestSharing(APIBaseTest):
         dashboard.is_shared = True
         dashboard.save()
 
+        # A read adopts the legacy token onto the config, but must not turn sharing on: a stale
+        # legacy is_shared=True can never make a private dashboard public without an explicit PATCH.
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
         data = response.json()
         assert data["access_token"] == "my_test_token"
-        assert data["enabled"]
+        assert not data["enabled"]
 
         dashboard.share_token = None
         dashboard.is_shared = False
@@ -276,7 +278,34 @@ class TestSharing(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
         data = response.json()
         assert data["access_token"] == "my_test_token"
-        assert data["enabled"]
+        assert not data["enabled"]
+
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_read_does_not_enable_sharing_from_stale_legacy_is_shared(self, _patched_exporter_task: Mock):
+        # An active (disabled) config exists with one token while the dashboard still carries a stale
+        # legacy share_token + is_shared=True pointing at a different token. Reading the sharing config
+        # must never persist enabled=True: a plain GET can't make a private dashboard publicly reachable.
+        dashboard = Dashboard.objects.create(team=self.team, name="critical dashboard", created_by=self.user)
+        active_config = SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=dashboard,
+            enabled=False,
+            access_token="active_token",
+        )
+        dashboard.share_token = "stale_legacy_token"
+        dashboard.is_shared = True
+        dashboard.save(update_fields=["share_token", "is_shared"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not response.json()["enabled"]
+        active_config.refresh_from_db()
+        assert active_config.enabled is False
+        # No active config for this dashboard may end up enabled off the back of a read.
+        assert not SharingConfiguration.objects.filter(
+            dashboard=dashboard, expires_at__isnull=True, enabled=True
+        ).exists()
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_should_not_be_affected_by_collaboration_rules(self, _patched_exporter_task: Mock):
@@ -1634,3 +1663,94 @@ class TestSharingResourceEditChecks(APIBaseTest):
             check_can_edit_sharing_configuration(view, request, sharing)
 
         assert "cannot be shared through this endpoint" in str(caught.exception)
+
+
+def _warehouse_ac_flag(key: str, *args, **kwargs) -> bool:
+    return key == "hogql-warehouse-access-control"
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=_warehouse_ac_flag))
+class TestSharedLinkWarehouseExecution(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="governed_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        self.insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "DataTableNode",
+                "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+            },
+            created_by=self.user,
+        )
+        self.client.logout()
+
+    def test_shared_insight_over_warehouse_executes_via_token_api(self):
+        config = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/"
+            f"?sharing_access_token={config.access_token}&refresh=blocking"
+        )
+
+        # Warehouse-backed shared insight executes (AC bypassed) instead of failing closed userless.
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert not response.json().get("result_error")
+
+    def test_shared_dashboard_page_refresh_computes_warehouse_tile(self):
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+
+        # The /shared/ page normally serves cached results and refreshes them async; refresh=blocking
+        # is the only flow that executes the query during this request. That execution runs as the
+        # shared-link user from the page context - if that wiring breaks, it runs userless and fails closed.
+        response = self.client.get(f"/shared/{config.access_token}.json?refresh=blocking")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        tiles = response.json()["dashboard"]["tiles"]
+        assert len(tiles) == 1
+        assert tiles[0]["insight"]["result"], tiles[0]["insight"].get("result_error")
+
+    def test_shared_notebook_inline_warehouse_query_executes(self):
+        from products.notebooks.backend.models import Notebook
+
+        notebook = Notebook.objects.create(
+            team=self.team,
+            created_by=self.user,
+            content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-query",
+                        "attrs": {
+                            "nodeId": "wh",
+                            "query": {
+                                "kind": "DataTableNode",
+                                "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+                            },
+                        },
+                    }
+                ],
+            },
+        )
+        config = SharingConfiguration.objects.create(team=self.team, notebook=notebook, enabled=True)
+
+        response = self.client.get(f"/shared/{config.access_token}.json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        results = response.json().get("inline_query_results", {})
+        assert "wh" in results
+        assert not results["wh"].get("error")

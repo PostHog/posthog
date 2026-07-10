@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { EvaluationRun } from '../evaluations/types'
 import { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogicType'
 import { EvaluationResultTag, getEvaluationResultSortValue } from './EvaluationResultTag'
+import { EvaluationRunTargetCell } from './EvaluationRunTargetCell'
 
 export function GenerationEvalRunsTable({
     generationRunsLogic,
@@ -32,6 +33,11 @@ export function GenerationEvalRunsTable({
                     {run.evaluation_name}
                 </Link>
             ),
+        },
+        {
+            title: 'Target',
+            key: 'target',
+            render: (_, run) => <EvaluationRunTargetCell run={run} />,
         },
         {
             title: 'Result',
@@ -68,7 +74,7 @@ export function GenerationEvalRunsTable({
                     <div className="text-center py-8">
                         <div className="text-muted mb-2">No evaluations run yet</div>
                         <div className="text-sm text-muted">
-                            Click "Run Evaluation" above to run an evaluation on this generation.
+                            Evaluation runs for this trace and its generations will appear here.
                         </div>
                     </div>
                 }

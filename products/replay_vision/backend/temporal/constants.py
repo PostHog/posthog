@@ -26,8 +26,15 @@ def build_process_vision_action_workflow_id(vision_action_id: UUID) -> str:
 
 SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 
-# Children are ABANDONed and don't count against this budget.
-SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
+# Children are ABANDONed and don't count against this budget, but activities do: this must cover the
+# prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.
+# Overlap SKIP means a slow run absorbs later ticks instead of stacking.
+SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
+
+# The agentic refresh may run several tool rounds and up to two cold summaries. Its in-process budget
+# (_AGENT_BUDGET_BACKGROUND_S) keeps typical runs well under this, so the activity finishes cleanly and
+# a suggestion lands; this cap is the backstop for a hung provider.
+REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
 
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
 # Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
@@ -75,7 +82,10 @@ VISION_SIGNALS_SOURCE_TYPE = "scanner_finding"
 
 # Hard ceiling on a single scanner's concurrently-running apply-scanner workflows. Bounds one bad config
 # (broad filter on a high-volume team) from monopolising the shared rasterizer queue + provider concurrency.
-MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 50
+MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 150
+# Team-wide ceiling across all of a team's scanners and on-demand triggers, so N scanners can't hold
+# N x 150 rasterizer slots. Fairness only; the rasterizer scales horizontally for total throughput.
+MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
 
 

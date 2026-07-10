@@ -160,15 +160,7 @@ const MIN_CLAMPABLE_DEAD_ZONE_MS = 1000
 // marker); below it the dead-zone clamp handles things silently and a warning would be noise
 const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
 
-// While buffering on a still-ingesting recording we may receive no new events to re-trigger a
-// verdict re-evaluation: source polling can back off, and the grace check reads wall-clock time,
-// which isn't reactive. Re-run checkBufferingCompleted on this cadence so a recording stuck
-// buffering past the ingestion grace period still transitions to the terminal error rather than
-// sitting on "Still processing…" forever. A tick is inert unless buffering has genuinely
-// completed: checkBufferingCompleted early-returns when not buffering, and while still
-// legitimately buffering it only ends buffering on a definitive verdict — so a mid-buffer tick
-// never yanks the playhead. Cheap either way. The cadence is a deliberate safety-net interval,
-// not a tuned value: worst case is ~2 min of "Still processing…" after grace has already lapsed.
+// Safety-net cadence for re-running syncPlayerState while buffering, since neither backed-off source polling nor the non-reactive wall-clock grace check re-triggers verdict re-evaluation on its own.
 const BUFFERING_REEVALUATION_INTERVAL_MS = 120000
 
 export type SeekRenderability =
@@ -188,9 +180,7 @@ export type SeekRenderability =
     | { kind: 'unplayable' }
 
 // Non-definitive verdicts where more data could still make the position renderable — playback
-// should buffer and keep polling rather than play or error. Centralized so the buffer-entry
-// (seekToTimestamp) and buffer-exit (checkBufferingCompleted) checks can't drift if a new
-// still-loading kind is added.
+// should buffer and keep polling rather than play or error.
 export function isAwaitingMoreData(renderability: SeekRenderability): boolean {
     return renderability.kind === 'waitingForData' || renderability.kind === 'waitingForIngestion'
 }
@@ -531,9 +521,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'snapshotsLoaded',
                 'snapshotsLoading',
                 'snapshotSources',
-                'isWaitingForPlayableFullSnapshot',
                 'snapshotStore',
                 'allSourcesLoaded',
+                'storeVersion',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             [
@@ -563,6 +553,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshots',
                 'loadSnapshotsForSourceFailure',
                 'loadSnapshotSourcesFailure',
+                'snapshotSourceLoadExhausted',
                 'loadNextSnapshotSource',
                 'loadAllSources',
                 'setTargetTimestamp',
@@ -570,7 +561,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'setPlayerActive',
             ],
             sessionRecordingDataCoordinatorLogic(props),
-            ['loadRecordingData', 'loadRecordingMetaSuccess'],
+            ['loadRecordingData', 'loadRecordingMetaSuccess', 'snapshotProcessingFailed'],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting', 'setPlayerControlsOverlay'],
             sessionRecordingEventUsageLogic,
@@ -606,14 +597,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         seekToStart: true,
         showSeekIndicator: (direction: 'forward' | 'backward', seconds: number) => ({ direction, seconds }),
         hideSeekIndicator: true,
-        resolvePlayerState: true,
         updateAnimation: true,
         stopAnimation: true,
         pauseIframePlayback: true,
         restartIframePlayback: true,
         setCurrentSegment: (segment: RecordingSegment) => ({ segment }),
         setRootFrame: (frame: HTMLDivElement | null) => ({ frame }),
-        checkBufferingCompleted: true,
+        syncPlayerState: (forcePlay: boolean = false, reposition: boolean = false) => ({ forcePlay, reposition }),
         initializePlayerFromStart: true,
         incrementErrorCount: true,
         caughtAssetErrorFromIframe: (errorDetails: ResourceErrorDetails) => ({ errorDetails }),
@@ -1069,6 +1059,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     }
 
                     const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment.windowId]
+                    if (!snapshots?.length) {
+                        return
+                    }
 
                     return Math.max(0, timestamp - snapshots[0].timestamp)
                 }
@@ -1084,6 +1077,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         return
                     }
                     const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment.windowId]
+                    if (!snapshots?.length) {
+                        return
+                    }
                     return snapshots[0].timestamp + time
                 }
             },
@@ -1120,40 +1116,64 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // how playback can recover (e.g. when the initial full snapshot was lost at
         // capture time, the recording is only playable from a later FullSnapshot).
         seekRenderability: [
-            (s) => [s.segmentForTimestamp, s.snapshotStore, s.allSourcesLoaded, s.sessionPlayerData],
+            // storeVersion is what makes store mutations visible here (#53893): `snapshotStore` is a
+            // reference-stable mutable object and cannot drive re-evaluation on its own.
+            (s) => [s.segmentForTimestamp, s.snapshotStore, s.allSourcesLoaded, s.sessionPlayerData, s.storeVersion],
             (
                 segmentForTimestamp: (timestamp?: number) => RecordingSegment | null,
                 snapshotStore: SnapshotStore,
                 allSourcesLoaded: boolean,
-                sessionPlayerData: SessionPlayerData
+                sessionPlayerData: SessionPlayerData,
+                _storeVersion: number
             ) => {
-                return (timestamp: number): SeekRenderability => {
+                // Whether any segment containing the FullSnapshot's timestamp belongs to its window; boundary timestamps are shared with the preceding (micro-)gap, whose inferred windowId must not veto a usable recovery point.
+                const rendersOwnSegment = (fs: { timestamp: number; windowId: number }): boolean => {
+                    for (const seg of sessionPlayerData.segments) {
+                        if (seg.startTimestamp > fs.timestamp) {
+                            break
+                        }
+                        if (seg.windowId === fs.windowId && fs.timestamp <= seg.endTimestamp) {
+                            return true
+                        }
+                    }
+                    return false
+                }
+                const computeRenderability = (timestamp: number): SeekRenderability => {
                     const segment = segmentForTimestamp(timestamp)
                     if (segment?.kind !== 'window' || segment.windowId === undefined) {
-                        // gap and buffer segments are handled by the existing buffering machinery
-                        return { kind: 'renderable' }
+                        // Gap and buffer positions render once their underlying source has loaded; until then they are still waiting on data.
+                        return snapshotStore.isRangeLoaded(timestamp, timestamp) === false
+                            ? { kind: 'waitingForData' }
+                            : { kind: 'renderable' }
                     }
-                    if (snapshotStore.findNearestFullSnapshot(timestamp, segment.windowId)) {
-                        return { kind: 'renderable' }
-                    }
-                    // The window has no FullSnapshot at or before this position. That is
-                    // only definitive once everything before the position has loaded — an
-                    // earlier unloaded source could still contain one.
                     const targetIndex = snapshotStore.getSourceIndexForTimestamp(timestamp)
                     if (targetIndex === null) {
                         // no sources yet — initial load paths handle this
                         return { kind: 'renderable' }
                     }
+                    const nearestFull = snapshotStore.findNearestFullSnapshot(timestamp, segment.windowId)
+                    if (nearestFull) {
+                        // Renderable means a FullSnapshot for this window exists at or before the position AND everything between them is loaded — the same contract the loader satisfies.
+                        return snapshotStore.getUnloadedIndicesInRange(nearestFull.sourceIndex, targetIndex).length ===
+                            0
+                            ? { kind: 'renderable' }
+                            : { kind: 'waitingForData' }
+                    }
+                    // No FullSnapshot at or before this position for its window — only definitive once everything earlier has loaded, since an unloaded source could still contain one.
                     if (snapshotStore.getUnloadedIndicesInRange(0, targetIndex).length > 0) {
                         return { kind: 'waitingForData' }
                     }
                     // Recover at the first later FullSnapshot that can render the segment
                     // it lands in. A FullSnapshot whose landing segment belongs to another
                     // window is no use — seeking there would be just as unrenderable.
-                    const recoveryTarget = snapshotStore
-                        .fullSnapshotsAfter(timestamp)
-                        .find((fs) => segmentForTimestamp(fs.timestamp)?.windowId === fs.windowId)
+                    const recoveryTarget = snapshotStore.fullSnapshotsAfter(timestamp).find(rendersOwnSegment)
                     if (recoveryTarget) {
+                        // An unloaded source between the position and the recovery point could still contain an earlier FullSnapshot, so the clamp target isn't final yet.
+                        if (
+                            snapshotStore.getUnloadedIndicesInRange(targetIndex, recoveryTarget.sourceIndex).length > 0
+                        ) {
+                            return { kind: 'waitingForData' }
+                        }
                         return recoveryTarget.timestamp - timestamp < MIN_CLAMPABLE_DEAD_ZONE_MS
                             ? { kind: 'renderable' }
                             : { kind: 'clampToFullSnapshot', timestamp: recoveryTarget.timestamp }
@@ -1167,6 +1187,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return isWithinIngestionGracePeriod(sessionPlayerData.start)
                         ? { kind: 'waitingForIngestion' }
                         : { kind: 'unplayable' }
+                }
+
+                // The oracle runs per animation frame and several times per data arrival, so memoize the last verdict; the closure (and memo) is rebuilt whenever any input changes.
+                let memoTimestamp: number | null = null
+                let memoVerdict: SeekRenderability | null = null
+                return (timestamp: number): SeekRenderability => {
+                    if (timestamp === memoTimestamp && memoVerdict) {
+                        return memoVerdict
+                    }
+                    const verdict = computeRenderability(timestamp)
+                    // waitingForIngestion reads the wall clock (ingestion grace), so it must be recomputed every call or the lapse to 'unplayable' never happens
+                    memoTimestamp = verdict.kind === 'waitingForIngestion' ? null : timestamp
+                    memoVerdict = verdict
+                    return verdict
                 }
             },
         ],
@@ -1208,7 +1242,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // The grace check reads wall-clock `now()` at call time, so this value is intentionally
         // stale between recomputes — it only re-derives when seekRenderability/currentTimestamp
         // change, not when the grace period elapses. That's fine: it only drives the overlay
-        // message, and the buffer machinery (seekToTimestamp, checkBufferingCompleted) re-reads
+        // message, and the buffer machinery (seekToTimestamp, syncPlayerState) re-reads
         // seekRenderability fresh at event time, so the actual ERROR transition isn't gated on it.
         // The afterMount BUFFERING_REEVALUATION_INTERVAL_MS nudge guarantees that re-read happens
         // even when no events fire, so a stuck-buffering recording still flips once grace lapses.
@@ -1501,74 +1535,86 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             cache.disposables.add(
                 () => {
-                    const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
-                    const iframeCleanups: (() => void)[] = []
+                    // rrweb throws synchronously on malformed events while building the initial DOM;
+                    // the config.onError callback only covers its async internal errors. Without this
+                    // catch the throw escapes the listener and the player buffers forever.
+                    try {
+                        const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
+                        const iframeCleanups: (() => void)[] = []
 
-                    replayer.on('fullsnapshot-rebuilded', () => {
-                        const iframeContentWindow = replayer.iframe.contentWindow
-                        const iframeFetch = iframeContentWindow?.fetch
+                        replayer.on('fullsnapshot-rebuilded', () => {
+                            const iframeContentWindow = replayer.iframe.contentWindow
+                            const iframeFetch = iframeContentWindow?.fetch
 
-                        const setupErrorHandlers = (): void => {
-                            if (
-                                iframeFetch &&
-                                !(iframeFetch as any).__isWrappedForErrorReporting &&
-                                iframeContentWindow
-                            ) {
-                                const originalFetch = iframeFetch
-                                const windowRef = new WeakRef(iframeContentWindow)
+                            const setupErrorHandlers = (): void => {
+                                if (
+                                    iframeFetch &&
+                                    !(iframeFetch as any).__isWrappedForErrorReporting &&
+                                    iframeContentWindow
+                                ) {
+                                    const originalFetch = iframeFetch
+                                    const windowRef = new WeakRef(iframeContentWindow)
 
-                                iframeContentWindow.fetch = wrapFetchAndReport({
-                                    fetch: iframeFetch,
-                                    onError: (errorDetails: ResourceErrorDetails) => {
-                                        actions.caughtAssetErrorFromIframe(errorDetails)
-                                    },
-                                })
-                                ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
-
-                                iframeCleanups.push(() => {
-                                    const window = windowRef.deref()
-                                    if (window && window.fetch) {
-                                        window.fetch = originalFetch
-                                        delete (window.fetch as any).__isWrappedForErrorReporting
-                                    }
-                                })
-                            }
-
-                            if (iframeContentWindow) {
-                                iframeCleanups.push(
-                                    registerErrorListeners({
-                                        iframeWindow: iframeContentWindow,
-                                        onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                                    iframeContentWindow.fetch = wrapFetchAndReport({
+                                        fetch: iframeFetch,
+                                        onError: (errorDetails: ResourceErrorDetails) => {
+                                            actions.caughtAssetErrorFromIframe(errorDetails)
+                                        },
                                     })
-                                )
+                                    ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+
+                                    iframeCleanups.push(() => {
+                                        const window = windowRef.deref()
+                                        if (window && window.fetch) {
+                                            window.fetch = originalFetch
+                                            delete (window.fetch as any).__isWrappedForErrorReporting
+                                        }
+                                    })
+                                }
+
+                                if (iframeContentWindow) {
+                                    iframeCleanups.push(
+                                        registerErrorListeners({
+                                            iframeWindow: iframeContentWindow,
+                                            onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                                        })
+                                    )
+                                }
+                            }
+
+                            setupErrorHandlers()
+                        })
+
+                        actions.setPlayer({ replayer, windowId })
+
+                        return () => {
+                            canvasPlugin.destroy()
+                            hlsPlugin.destroy()
+
+                            if (replayer) {
+                                for (const cleanup of iframeCleanups) {
+                                    cleanup()
+                                }
+                                iframeCleanups.length = 0
+
+                                const iframe = replayer.iframe
+                                replayer.destroy()
+
+                                if (iframe?.contentDocument?.body) {
+                                    iframe.contentDocument.body.innerHTML = ''
+                                }
+                                if (iframe?.contentDocument?.head) {
+                                    iframe.contentDocument.head.innerHTML = ''
+                                }
                             }
                         }
-
-                        setupErrorHandlers()
-                    })
-
-                    actions.setPlayer({ replayer, windowId })
-
-                    return () => {
-                        canvasPlugin.destroy()
-                        hlsPlugin.destroy()
-
-                        if (replayer) {
-                            for (const cleanup of iframeCleanups) {
-                                cleanup()
-                            }
-                            iframeCleanups.length = 0
-
-                            const iframe = replayer.iframe
-                            replayer.destroy()
-
-                            if (iframe?.contentDocument?.body) {
-                                iframe.contentDocument.body.innerHTML = ''
-                            }
-                            if (iframe?.contentDocument?.head) {
-                                iframe.contentDocument.head.innerHTML = ''
-                            }
-                        }
+                    } catch (error) {
+                        posthog.captureException(error, {
+                            feature: 'session-recording-replayer-init',
+                            sessionRecordingId: props.sessionRecordingId,
+                        })
+                        actions.setPlayerError('replayerInitFailure')
+                        return () => {}
                     }
                 },
                 `replayer-${props.mode}`,
@@ -1640,9 +1686,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
                 // Otherwise keep existing player visible (last valid frame)
             }
-            if (values.currentTimestamp !== undefined) {
-                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
-            }
+            actions.syncPlayerState(values.playingState === SessionPlayerState.PLAY, true)
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
             if (!values.currentSegment?.isActive && skipInactivitySetting) {
@@ -1657,30 +1701,75 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         syncPlayerSpeed: () => {
             values.player?.replayer?.setConfig({ speed: values.playerSpeed })
         },
-        checkBufferingCompleted: () => {
-            // If buffering has completed, resume last playing state.
-            // Gates on the raw isBuffering reducer rather than currentPlayerState ===
-            // BUFFER — other states (e.g. SKIP while skipping inactivity) outrank
-            // BUFFER in that selector and would otherwise mask the exit forever.
-            // == null also catches the null that currentTimestamp holds before
-            // playback initializes — seeking to it would derail the initial load
-            if (values.currentTimestamp == null || !values.isBuffering) {
+        // The single map from (position, verdict, play intent) to player state — seeks call it with reposition=true, while data arrivals and the safety tick call it without, making it a pure buffering reconciler that never touches a healthily playing replayer.
+        syncPlayerState: ({ forcePlay, reposition }) => {
+            // The null check also catches the null that currentTimestamp holds before playback initializes — acting on it would derail the initial load.
+            const timestamp = values.currentTimestamp
+            if (timestamp == null) {
                 return
             }
-            const isBufferingSegment = values.segmentForTimestamp(values.currentTimestamp)?.kind === 'buffer'
-            const renderability = values.seekRenderability(values.currentTimestamp)
-            // A definitive verdict ends buffering even while the scheduler is still in
-            // seek mode for this position — the re-seek below clamps forward to the
-            // next FullSnapshot or errors if the position can never play
-            const hasDefinitiveVerdict =
-                renderability.kind === 'clampToFullSnapshot' || renderability.kind === 'unplayable'
-            const stillBuffering =
-                !hasDefinitiveVerdict &&
-                (isBufferingSegment || values.isWaitingForPlayableFullSnapshot || isAwaitingMoreData(renderability))
+            // Gates on the raw isBuffering reducer rather than currentPlayerState === BUFFER — other states (e.g. SKIP while skipping inactivity) outrank BUFFER in that selector and would otherwise mask the exit forever.
+            if (!reposition && !values.isBuffering) {
+                return
+            }
+            const segment = values.segmentForTimestamp(timestamp)
+            const renderability = values.seekRenderability(timestamp)
 
-            if (!stillBuffering) {
+            // Everything is loaded and no FullSnapshot could render this position — playback here can never work, so buffering would be pointless.
+            if (renderability.kind === 'unplayable') {
                 actions.endBuffer()
-                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
+                values.player?.replayer?.pause()
+                actions.setPlayerError('noPlayableFullSnapshot')
+                return
+            }
+
+            // A clamp verdict arriving mid-buffer moves the playhead — route through the seek path, which owns clamp resolution and its telemetry.
+            if (renderability.kind === 'clampToFullSnapshot' && renderability.timestamp !== timestamp) {
+                actions.seekToTimestamp(timestamp, forcePlay || values.playingState === SessionPlayerState.PLAY)
+                return
+            }
+
+            // Buffer while the position's data is pending; waitingForIngestion lands here too, polling for late sources instead of showing the terminal error.
+            if (segment?.kind === 'buffer' || isAwaitingMoreData(renderability)) {
+                values.player?.replayer?.pause()
+                actions.startBuffer()
+                actions.clearPlayerError()
+                // Re-target the (window-blind) loader with the segment's windowId, or it may consider a seek satisfied by another window's FullSnapshot and never load what this position needs.
+                if (
+                    renderability.kind === 'waitingForData' &&
+                    segment?.kind === 'window' &&
+                    segment.windowId !== undefined
+                ) {
+                    actions.setTargetTimestamp(timestamp, segment.windowId)
+                }
+                // Also the only revival path for a loading chain killed by repeated fetch failures.
+                actions.loadNextSnapshotSource()
+                return
+            }
+
+            // endBuffer first, so the pause/play decision below reads the user's play intent rather than the buffering state that outranks it.
+            actions.endBuffer()
+            actions.stopAnimation()
+            // rrweb throws synchronously on malformed events it replays through — surface an error
+            // state rather than letting the throw escape the listener and wedge the state machine.
+            try {
+                if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
+                    // NOTE: when we show a preview pane, this branch runs
+                    // in very large recordings this call to pause
+                    // can consume 100% CPU and freeze the entire page
+                    values.player?.replayer?.pause(values.toRRWebPlayerTime(timestamp))
+                    actions.clearPlayerError()
+                } else {
+                    values.player?.replayer?.play(values.toRRWebPlayerTime(timestamp))
+                    actions.updateAnimation()
+                    actions.clearPlayerError()
+                }
+            } catch (error) {
+                posthog.captureException(error, {
+                    feature: 'session-recording-replayer-playback',
+                    sessionRecordingId: props.sessionRecordingId,
+                })
+                actions.setPlayerError('replayerPlaybackFailure')
             }
         },
         initializePlayerFromStart: () => {
@@ -1701,12 +1790,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     if (searchParams.fullscreen) {
                         actions.setIsFullScreen(true)
                     }
-                    if (searchParams.timestamp) {
-                        const desiredStartTime = Number(searchParams.timestamp)
-                        actions.seekToTimestamp(desiredStartTime, true)
-                    } else if (searchParams.t) {
-                        const desiredStartTime = Number(searchParams.t) * 1000
-                        actions.seekToTime(desiredStartTime)
+                    const timestampParam = Number(searchParams.timestamp)
+                    const tParam = Number(searchParams.t) * 1000
+                    if (searchParams.timestamp && Number.isFinite(timestampParam)) {
+                        actions.seekToTimestamp(timestampParam, true)
+                    } else if (searchParams.t && Number.isFinite(tParam)) {
+                        actions.seekToTime(tParam)
                     } else {
                         actions.setSkipToFirstMatchingEvent(true)
                     }
@@ -1724,8 +1813,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const currentEvents = values.player?.replayer?.service.state.context.events ?? []
             const eventsToAdd: eventWithTime[] = []
 
-            if (values.isWaitingForPlayableFullSnapshot) {
-                actions.checkBufferingCompleted()
+            // While the playhead's position is still waiting on data, only re-check buffering — the seek machinery will feed the replayer once the position is renderable.
+            if (
+                values.currentTimestamp != null &&
+                isAwaitingMoreData(values.seekRenderability(values.currentTimestamp))
+            ) {
+                actions.syncPlayerState()
                 breakpoint()
                 return
             }
@@ -1746,9 +1839,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const YIELD_AFTER_MS = 50
                 let lastYield = performance.now()
                 for (let i = 0; i < eventsToAdd.length; i++) {
-                    values.player?.replayer?.addEvent(eventsToAdd[i])
+                    try {
+                        values.player?.replayer?.addEvent(eventsToAdd[i])
+                    } catch (error) {
+                        // A single malformed event shouldn't kill the whole sync — skip it, keep the rest.
+                        posthog.captureException(error, {
+                            feature: 'session-recording-replayer-add-event',
+                            sessionRecordingId: props.sessionRecordingId,
+                        })
+                        continue
+                    }
                     if (performance.now() - lastYield > YIELD_AFTER_MS) {
                         await new Promise<void>((r) => setTimeout(r, 0))
+                        // a newer sync run computed its own event diff — cancel here or both runs add the same tail twice
+                        breakpoint()
                         lastYield = performance.now()
                     }
                 }
@@ -1757,7 +1861,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (!values.currentTimestamp) {
                 actions.initializePlayerFromStart()
             }
-            actions.checkBufferingCompleted()
+
+            // Segments can reshape under a stale currentSegment (e.g. a trailing buffer resolving into real window segments), so re-derive it on kind/windowId changes only — re-committing on the constant boundary drift of live recordings would trigger a full rrweb re-seek per poll.
+            if (values.currentTimestamp != null && values.currentSegment) {
+                const freshSegment = values.segmentForTimestamp(values.currentTimestamp)
+                if (
+                    freshSegment &&
+                    (freshSegment.kind !== values.currentSegment.kind ||
+                        freshSegment.windowId !== values.currentSegment.windowId)
+                ) {
+                    actions.setCurrentSegment(freshSegment)
+                }
+            }
+
+            actions.syncPlayerState()
 
             // If snapshot data arrived but the replayer hasn't been created yet,
             // try initializing it now. This handles the race condition where
@@ -1789,6 +1906,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
                 actions.setPlayerError('loadSnapshotSourcesFailure')
             }
+        },
+        // Both are terminal give-ups: unlike the per-attempt failures above they fire even when other
+        // data already loaded, because the missing range would otherwise buffer forever with no error.
+        snapshotSourceLoadExhausted: () => {
+            console.error('PostHog Recording Playback Error: A snapshot source repeatedly failed to load')
+            actions.setPlayerError('snapshotSourceLoadExhausted')
+        },
+        snapshotProcessingFailed: () => {
+            console.error('PostHog Recording Playback Error: Snapshot processing repeatedly failed')
+            actions.setPlayerError('snapshotProcessingFailed')
         },
         setPlay: () => {
             if (!values.snapshotsLoaded) {
@@ -1872,24 +1999,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         seekToTimestamp: ({ timestamp, forcePlay }, breakpoint) => {
-            // If the data before `timestamp` definitively has no FullSnapshot to render
-            // from (e.g. the initial full snapshot was lost at capture time), clamp the
-            // seek forward to the first renderable position instead of letting the
-            // player get stuck on an unrenderable frame.
-            // Despite the action's typing, some callers forward currentTimestamp while
-            // it still holds its initial null — seekRenderability would coerce that to
-            // 0 and clamp every normal recording to its first FullSnapshot, firing
-            // spurious telemetry on every player init.
-            const renderability: SeekRenderability =
-                timestamp == null ? { kind: 'renderable' } : values.seekRenderability(timestamp)
-            if (renderability.kind === 'clampToFullSnapshot' && renderability.timestamp !== timestamp) {
+            // If the data before `timestamp` definitively has no FullSnapshot to render from (e.g. lost at capture time), clamp the seek forward to the first renderable position instead of sticking on an unrenderable frame.
+            // Despite the action's typing, some callers forward currentTimestamp while it still holds its initial null, which seekRenderability would coerce to 0 and clamp every normal recording to its first FullSnapshot.
+            let target = timestamp
+            for (let hops = 0; target != null && hops < 10; hops++) {
+                const renderability = values.seekRenderability(target)
+                if (renderability.kind !== 'clampToFullSnapshot' || renderability.timestamp === target) {
+                    break
+                }
                 posthog.capture('recording player seek clamped to next full snapshot', {
                     sessionId: values.sessionRecordingId,
-                    seekTimestamp: timestamp,
+                    seekTimestamp: target,
                     clampedToTimestamp: renderability.timestamp,
                 })
-                actions.seekToTimestamp(renderability.timestamp, forcePlay)
-                return
+                target = renderability.timestamp
             }
 
             actions.stopAnimation()
@@ -1898,10 +2021,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
 
             // Check if we're seeking to a new segment
-            const segment = values.segmentForTimestamp(timestamp)
+            const segment = values.segmentForTimestamp(target)
 
-            actions.setCurrentTimestamp(timestamp)
-            actions.setTargetTimestamp(timestamp, segment?.kind === 'window' ? segment.windowId : undefined)
+            actions.setCurrentTimestamp(target)
+            actions.setTargetTimestamp(target, segment?.kind === 'window' ? segment.windowId : undefined)
 
             // End-of-recording detection — independent of segment type so that
             // findSegmentForTimestamp can safely return a real segment for
@@ -1914,57 +2037,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // pause the player before tryInitReplayer has created the
             // rrweb wrapper. Natural playback progression still triggers
             // endReached via updateAnimation.
-            const isPastEnd = values.sessionPlayerData.end && timestamp > values.sessionPlayerData.end.valueOf()
+            const isPastEnd = values.sessionPlayerData.end && target > values.sessionPlayerData.end.valueOf()
             if (isPastEnd) {
                 actions.setEndReached(true)
             } else if (segment && !objectsEqual(segment, values.currentSegment)) {
+                // setCurrentSegment ends in its own syncPlayerState once the replayer is set up for the segment
                 actions.setCurrentSegment(segment)
-            }
-
-            // Everything is loaded and there is no FullSnapshot that could render this
-            // position — playback here can never work, so buffering would be pointless.
-            // Checked before the buffering branch: the scheduler may still be in seek
-            // mode for this very target (making isWaitingForPlayableFullSnapshot true),
-            // but no amount of loading changes a definitive verdict.
-            else if (renderability.kind === 'unplayable') {
-                values.player?.replayer?.pause()
-                actions.setPlayerError('noPlayableFullSnapshot')
-            }
-
-            // If next time is greater than last buffered time, set to buffering.
-            // Also buffer while we can't yet tell whether this position has a
-            // FullSnapshot to render from — playing would freeze on a blank frame.
-            // `waitingForIngestion` lands here too: a recent recording missing its
-            // FullSnapshot is still ingesting, so buffer and keep polling for late
-            // sources rather than showing the terminal error.
-            else if (
-                segment?.kind === 'buffer' ||
-                values.isWaitingForPlayableFullSnapshot ||
-                isAwaitingMoreData(renderability)
-            ) {
-                values.player?.replayer?.pause()
-                actions.startBuffer()
-                actions.clearPlayerError()
-
-                // if we're buffering, then be careful to ensure we're loading data
-                actions.loadNextSnapshotSource()
-            }
-
-            // If not forced to play and if last playing state was pause, pause
-            else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
-                // NOTE: when we show a preview pane, this branch runs
-                // in very large recordings this call to pause
-                // can consume 100% CPU and freeze the entire page
-                values.player?.replayer?.pause(values.toRRWebPlayerTime(timestamp))
-                actions.endBuffer()
-                actions.clearPlayerError()
-            }
-            // Otherwise play
-            else {
-                values.player?.replayer?.play(values.toRRWebPlayerTime(timestamp))
-                actions.updateAnimation()
-                actions.endBuffer()
-                actions.clearPlayerError()
+            } else {
+                actions.syncPlayerState(forcePlay, true)
             }
 
             breakpoint()
@@ -2124,13 +2204,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
 
                 if (newTimestamp == undefined) {
-                    // no newTimestamp is unexpected, bail out
+                    // No frame timestamp yet (e.g. the replayer exists but hasn't started its timer) — keep the loop alive so stuck-recovery can engage, instead of dying silently.
+                    cache.disposables.add(() => {
+                        const timerId = requestAnimationFrame(actions.updateAnimation)
+                        return () => cancelAnimationFrame(timerId)
+                    }, 'animationTimer')
                     return
                 }
 
                 // If we are beyond the current segment then move to the next one
                 if (values.currentSegment && newTimestamp > values.currentSegment.endTimestamp) {
-                    const nextSegment = values.segmentForTimestamp(newTimestamp)
+                    // findSegmentForTimestamp clamps past-end timestamps to the nearest segment (for stale-link boot seeks), so end-of-recording must be detected against the recording end, not a null segment.
+                    const isPastEnd =
+                        values.sessionPlayerData.end && newTimestamp > values.sessionPlayerData.end.valueOf()
+                    const nextSegment = isPastEnd ? null : values.segmentForTimestamp(newTimestamp)
 
                     if (nextSegment) {
                         // NOTE: confusingly this setCurrentTimestamp call is essential to playback
@@ -2179,6 +2266,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (values.pauseForced) {
                     actions.setPause()
                 }
+            } catch (error) {
+                // A replayer throw here would otherwise kill the animation loop silently — the
+                // playhead freezes while the controls still say "playing". Stop cleanly and surface it.
+                posthog.captureException(error, {
+                    feature: 'session-recording-replayer-animation',
+                    sessionRecordingId: props.sessionRecordingId,
+                })
+                actions.stopAnimation()
+                actions.setPlayerError('replayerPlaybackFailure')
             } finally {
                 cache._inUpdateAnimation = false
             }
@@ -2458,16 +2554,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.syncSnapshotsWithPlayer()
             }
         },
-        isWaitingForPlayableFullSnapshot: (isWaiting: boolean, wasWaiting: boolean | undefined) => {
-            // Force a buffering re-check when the scheduler gives up on seek
-            // without loading new snapshots. checkBufferingCompleted normally
-            // fires via syncSnapshotsWithPlayer on new data, but a silent
-            // seek → buffer_ahead transition delivers none, so the player
-            // would stay stuck in BUFFER without this listener (#53893).
-            if (wasWaiting && !isWaiting) {
-                actions.checkBufferingCompleted()
-            }
-        },
         timestampChangeTracking: (value) => {
             if (value.timestampMatchesPrevious < 10) {
                 return
@@ -2569,7 +2655,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // error once the grace period lapses — but only on a re-read of seekRenderability, which
         // otherwise happens solely on incoming events. Paused on hidden tabs by the plugin.
         cache.disposables.add(() => {
-            const intervalId = setInterval(() => actions.checkBufferingCompleted(), BUFFERING_REEVALUATION_INTERVAL_MS)
+            const intervalId = setInterval(() => actions.syncPlayerState(), BUFFERING_REEVALUATION_INTERVAL_MS)
             return () => clearInterval(intervalId)
         }, 'bufferingReevaluation')
 

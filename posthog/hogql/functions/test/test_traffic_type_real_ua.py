@@ -189,7 +189,10 @@ class TestTrafficTypeIntegration(BaseTest):
         assert category == "search_crawler"
         assert bot_name == "Googlebot"
 
-    def test_virt_properties_with_user_agent_fallback(self):
+    def test_virt_properties_ignore_user_agent_without_raw(self):
+        # $user_agent alone (no $raw_user_agent) is intentionally not read — it has no
+        # materialized column, so a fallback would force a properties-blob read on every
+        # query. These events classify via the empty-UA path instead.
         tag = uuid4().hex
         self._create_tagged_event(
             tag=tag,
@@ -207,8 +210,8 @@ class TestTrafficTypeIntegration(BaseTest):
         is_bot, traffic_type, category, bot_name = response.results[0]
         assert is_bot == 1
         assert traffic_type == "Automation"
-        assert category == "http_client"
-        assert bot_name == "curl"
+        assert category == "no_user_agent"
+        assert bot_name == ""
 
     def test_virt_properties_raw_ua_takes_precedence(self):
         tag = uuid4().hex
@@ -342,11 +345,11 @@ class TestTrafficTypeIntegration(BaseTest):
                 distinct_id=f"filter-{i}",
                 event="test_bot_filter",
                 team=self.team,
-                properties={"$user_agent": ua},
+                properties={"$raw_user_agent": ua},
             )
         flush_persons_and_events()
 
-        response = self._query_tagged("properties.$user_agent as ua", tag, extra_where="NOT `$virt_is_bot`")
+        response = self._query_tagged("properties.$raw_user_agent as ua", tag, extra_where="NOT `$virt_is_bot`")
         result_uas = [row[0] for row in response.results]
         assert len(result_uas) == len(regular_uas)
         for ua in regular_uas:
@@ -367,7 +370,7 @@ class TestTrafficTypeIntegration(BaseTest):
                 distinct_id=f"group-{i}",
                 event="test_group_type",
                 team=self.team,
-                properties={"$user_agent": ua},
+                properties={"$raw_user_agent": ua},
             )
         flush_persons_and_events()
 
@@ -392,7 +395,7 @@ class TestTrafficTypeIntegration(BaseTest):
             event="http_request",
             team=self.team,
             properties={
-                "$user_agent": "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)",
+                "$raw_user_agent": "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)",
                 "method": "GET",
                 "path": "/api/v1/health",
                 "status_code": 200,
@@ -421,7 +424,7 @@ class TestVirtualPropertiesWithCustomEvents(BaseTest):
                 distinct_id=f"cross-{i}",
                 event=event_name,
                 team=self.team,
-                properties={"$user_agent": "Googlebot/2.1", "_test_tag": tag},
+                properties={"$raw_user_agent": "Googlebot/2.1", "_test_tag": tag},
             )
         flush_persons_and_events()
 

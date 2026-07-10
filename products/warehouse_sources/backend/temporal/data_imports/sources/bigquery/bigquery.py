@@ -638,6 +638,23 @@ def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, 
     return False
 
 
+def _is_missing_table_or_dataset(error: Exception) -> bool:
+    """True for a table/dataset that's absent from the region the query job runs in.
+
+    BigQuery raises a `NotFound` whose `str()` is "Not found: Table <id> was not found in
+    location EU" (or "Not found: Dataset ..." / "... was not found in location ...") when the
+    table was deleted or renamed after schema discovery selected it, or lives in a different
+    region than the one we query. That's a user-side condition the main read path already
+    surfaces non-retryably (see `BigQuerySource.get_non_retryable_errors`), so the best-effort
+    row-count probe shouldn't also capture it as error-tracking noise. Distinct from the
+    transient "Not found: Job" lookup race, which is retried before reaching here.
+    """
+    if not isinstance(error, NotFound):
+        return False
+    message = str(error)
+    return "was not found in location" in message or "Not found: Table" in message or "Not found: Dataset" in message
+
+
 def _get_rows_to_sync(
     table: bigquery.Table,
     client: bigquery.Client,
@@ -683,7 +700,8 @@ def _get_rows_to_sync(
         return 0
     except Exception as e:
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-        capture_exception(e)
+        if not _is_missing_table_or_dataset(e):
+            capture_exception(e)
 
         return 0
 
@@ -996,9 +1014,14 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             # `bigquery.jobs.create`) or auth failure surfaces here rather than at `result()`.
             # Both calls must sit inside the try so a permission-denied account degrades to
             # "no new schemas" instead of crashing schema discovery.
+            # Qualify INFORMATION_SCHEMA with the project: when the dataset lives in a different
+            # project than the service account (the `dataset_project` option), the client's default
+            # project and the job's billing project diverge, and BigQuery can't resolve an unqualified
+            # `dataset.INFORMATION_SCHEMA.*` — it rejects the job with "ProjectId must be non-empty".
+            project = _resolve_query_project(config)
             query = conn.query(
-                f"SELECT table_name, column_name, data_type, is_nullable FROM `{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
-                project=_resolve_query_project(config),
+                f"SELECT table_name, column_name, data_type, is_nullable FROM `{project}.{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
+                project=project,
             )
             rows = query.result()
         except Forbidden:
@@ -1082,12 +1105,15 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         # the BigQuery region / metadata version, hence the
         # `removeprefix` below — the JOIN has to tolerate both shapes or
         # half the rows get dropped.
+        # Project-qualify the dataset (see `get_columns`): an unqualified `dataset.INFORMATION_SCHEMA.*`
+        # fails with "ProjectId must be non-empty" when the dataset lives in a different project.
+        qualified_dataset = f"{project}.{dataset_id}"
         query = f"""
         SELECT tc.table_name, kcu.column_name
-        FROM `{dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-        JOIN `{dataset_id}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+        FROM `{qualified_dataset}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+        JOIN `{qualified_dataset}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
         ON tc.constraint_name = kcu.constraint_name
-        JOIN `{dataset_id}`.INFORMATION_SCHEMA.COLUMNS c
+        JOIN `{qualified_dataset}`.INFORMATION_SCHEMA.COLUMNS c
         ON kcu.table_name = c.table_name
         AND (
             kcu.column_name = c.column_name
@@ -1136,9 +1162,11 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
 
             project = _resolve_query_project(config)
 
+            # Project-qualify the dataset (see `get_columns`): an unqualified `dataset.INFORMATION_SCHEMA.*`
+            # fails with "ProjectId must be non-empty" when the dataset lives in a different project.
             query = f"""
             SELECT table_name, column_name
-            FROM `{_resolve_dataset_id(config)}`.INFORMATION_SCHEMA.COLUMNS
+            FROM `{project}.{_resolve_dataset_id(config)}`.INFORMATION_SCHEMA.COLUMNS
             WHERE is_partitioning_column = 'YES'
                OR clustering_ordinal_position = 1
             """

@@ -1,10 +1,12 @@
 import re
+from collections import defaultdict
 from typing import Any, Literal, TypedDict, cast
 
-from django.db.models import CharField, F, Model, QuerySet, Value
+from django.db.models import BigIntegerField, CharField, F, Model, QuerySet, Value
 from django.db.models.functions import Cast, JSONObject
 from django.http import HttpResponse
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -13,6 +15,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
 from posthog.models import EventDefinition, PropertyDefinition
+from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
@@ -118,6 +121,14 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
     serializer_class = _FallbackSerializer
 
+    @extend_schema(
+        parameters=[QuerySerializer],
+        description=(
+            "Full-text search across project entities. Each result includes `user_access_level`, "
+            "the requesting user's resolved access level for that object (`none` means the user "
+            "cannot open it); `null` when access controls don't apply to the entity type."
+        ),
+    )
     def list(self, request: Request, **kw) -> HttpResponse:
         # parse query params
         query_serializer = QuerySerializer(data=self.request.query_params)
@@ -130,7 +141,13 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         include_counts = params["include_counts"]
 
         results, counts, _ = search_entities(
-            entities, query, self.project_id, self, ENTITY_MAP, include_counts=include_counts
+            entities,
+            query,
+            self.project_id,
+            self,
+            ENTITY_MAP,
+            include_counts=include_counts,
+            annotate_access_levels=self.user_access_control,
         )
 
         response_data: dict[str, Any] = {"results": results}
@@ -148,6 +165,7 @@ def search_entities(
     limit: int = LIMIT,
     offset: int = 0,
     include_counts: bool = True,
+    annotate_access_levels: UserAccessControl | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int | None] | None, int | None]:
     # empty queryset to union things onto it
     counts: dict[str, int | None] = dict.fromkeys(entity_map) if include_counts else {}
@@ -184,9 +202,42 @@ def search_entities(
 
     # Apply pagination
     results = cast(list[dict[str, Any]], list(qs[offset : offset + limit]))
+    if annotate_access_levels is not None:
+        _annotate_user_access_levels(results, entity_map, annotate_access_levels)
     for result in results:
         result.pop("_sort_name", None)
+        result.pop("_pk", None)
+        result.pop("_created_by_id", None)
     return results, counts or None, total_count
+
+
+def _annotate_user_access_levels(
+    results: list[dict[str, Any]],
+    entity_map: dict[str, EntityConfig],
+    user_access_control: UserAccessControl,
+) -> None:
+    """Set `user_access_level` on each result to the user's resolved level for that object
+    ("none" means they can't open it), or None for entity types without access controls.
+
+    Resolution is keyed by `_pk`, not `result_id` — insights and notebooks use short_id as
+    their result_id while AccessControl rows are keyed by pk.
+    """
+    results_by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for result in results:
+        results_by_type[result["type"]].append(result)
+
+    for entity_type, entity_results in results_by_type.items():
+        resource = model_to_resource(cast(Model, entity_map[entity_type]["klass"]))
+        if resource is None:
+            for result in entity_results:
+                result["user_access_level"] = None
+            continue
+
+        levels = user_access_control.bulk_object_access_levels(
+            resource, [(result["_pk"], result["_created_by_id"]) for result in entity_results]
+        )
+        for result in entity_results:
+            result["user_access_level"] = levels.get(result["_pk"])
 
 
 def class_queryset(
@@ -200,10 +251,21 @@ def class_queryset(
 ):
     """Builds a queryset for the class."""
     entity_type = class_to_entity_name(klass)
-    values = ["type", "result_id", "extra_fields", "_sort_name"]
+    values = ["type", "result_id", "extra_fields", "_sort_name", "_pk", "_created_by_id"]
 
     qs: QuerySet[Any] = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
+
+    # Uniform columns for access level resolution — every union member must produce them
+    qs = qs.annotate(_pk=Cast("pk", CharField()))
+    if hasattr(klass, "created_by"):
+        qs = qs.annotate(_created_by_id=F("created_by_id"))
+    else:
+        # Explicitly cast rather than relying on Value(None, ...)'s output_field: Django
+        # renders untyped None values as a bare `NULL`, so if two or more such entities end
+        # up adjacent in the union, Postgres resolves their shared column as `text` and then
+        # fails to match it against a real integer `_created_by_id` column elsewhere.
+        qs = qs.annotate(_created_by_id=Cast(Value(None), output_field=BigIntegerField()))
 
     # Apply entity-specific filters
     if filters:
