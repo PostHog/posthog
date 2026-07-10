@@ -37,7 +37,9 @@ export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRet
     'triggered_by',
     'verdict',
     'tags',
+    'session_id',
     'recording_subject',
+    'labeled',
     'order_by',
 ]
 

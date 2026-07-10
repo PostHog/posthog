@@ -477,7 +477,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             </LabeledRow>
                         )}
                         <LabeledRow label="Triggered by">
-                            {observation.triggered_by === 'on_demand' && observation.triggered_by_user ? (
+                            {observation.triggered_by !== 'schedule' && observation.triggered_by_user ? (
                                 <ProfilePicture
                                     user={{
                                         first_name: observation.triggered_by_user.first_name,

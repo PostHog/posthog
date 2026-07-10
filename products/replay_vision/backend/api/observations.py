@@ -563,6 +563,9 @@ class ReplayObservationViewSet(
 ):
     """Read-only access to observations produced by a scanner."""
 
+    # Upper bound on ids materialized for filtered prev/next computation (see `_observation_neighbors`).
+    NEIGHBOR_SCAN_LIMIT = 5000
+
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
     permission_classes = [ReplayVisionEnabledPermission]
@@ -598,6 +601,12 @@ class ReplayObservationViewSet(
             .order_by("-created_at", "id")
         )
 
+    def filter_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
+        # List filters scope prev/next neighbors only; the observation itself must always resolve on retrieve.
+        if self.action == "retrieve":
+            return queryset
+        return super().filter_queryset(queryset)
+
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         observation = self.get_object()
         context = {**self.get_serializer_context(), "neighbors": self._observation_neighbors(observation)}
@@ -609,17 +618,19 @@ class ReplayObservationViewSet(
         siblings = ReplayObservation.objects.filter(
             team_id=observation.team_id, scanner_id=observation.scanner_id
         ).order_by("-created_at", "id")
-        if not any(key in self.request.query_params for key in ReplayObservationFilter.base_filters):
+        # Empty values (`?status=`) are no-ops in the filterset, so they must not opt out of the fast path.
+        if not any(self.request.query_params.get(key) for key in ReplayObservationFilter.base_filters):
             return self._unfiltered_neighbors(observation, siblings)
         filterset = ReplayObservationFilter(self.request.query_params, queryset=siblings, request=self.request)
         if not filterset.is_valid():
             # Same 400 the list endpoint gives for the identical bad query string.
             raise ValidationError(filterset.errors)
-        ids: list[uuid.UUID] = list(filterset.qs.values_list("id", flat=True))
+        # Hard bound on the id scan; past it, degrade to no neighbors rather than unbounded memory.
+        ids: list[uuid.UUID] = list(filterset.qs.values_list("id", flat=True)[: self.NEIGHBOR_SCAN_LIMIT])
         try:
             index = ids.index(observation.id)
         except ValueError:
-            # The observation itself falls outside the filtered set (e.g. a stale deep link) — no neighbors.
+            # Outside the filtered set (stale deep link) or beyond the scan bound — no neighbors.
             return {"previous": None, "next": None}
         return {
             "previous": ids[index - 1] if index > 0 else None,
@@ -692,6 +703,8 @@ class ReplayObservationViewSet(
         check_team_in_flight_capacity(self.team.id)
         session_id = observation.session_id
         # Free the UNIQUE(scanner, session_id) slot; the usage ledger is immutable, so the failed attempt stays counted.
+        original_pk = observation.pk
+        original_created_at = observation.created_at
         observation.delete()
         workflow_id, outcome = start_apply_scanner_workflow(
             scanner,
@@ -699,18 +712,22 @@ class ReplayObservationViewSet(
             triggered_by_user_id=cast(User, request.user).id,
             trigger=ObservationTrigger.RETRY,
         )
+        if outcome is not WorkflowStartOutcome.STARTED:
+            # The replacement run never started, so restore the failed row (its shared label, if any, is lost
+            # to the cascade) instead of leaving the recording looking unscanned.
+            observation.pk = original_pk
+            observation.save(force_insert=True)
+            ReplayObservation.objects.filter(pk=original_pk).update(created_at=original_created_at)
         if outcome is WorkflowStartOutcome.ALREADY_RUNNING:
             # The prior run is still closing, so its deterministic id blocks the restart and no new row will appear.
             return Response(
-                {"detail": "The previous run is still finishing. Scan the recording again in a moment."},
+                {"detail": "The previous run is still finishing. Retry again in a moment."},
                 status=status.HTTP_409_CONFLICT,
             )
         if outcome is WorkflowStartOutcome.FAILED:
             # `detail` (not `error`) so ApiError carries the message into the frontend toast.
             return Response(
-                {
-                    "detail": "Failed to start the retry. The recording now shows as not scanned and can be scanned again."
-                },
+                {"detail": "Failed to start the retry. The failed observation was kept; retry again in a moment."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response(RetryResponseSerializer({"workflow_id": workflow_id}).data, status=status.HTTP_202_ACCEPTED)

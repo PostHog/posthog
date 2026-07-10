@@ -839,6 +839,18 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         defaults.update(overrides)
         return ReplayObservation.objects.create(**defaults)
 
+    def test_retrieve_with_filters_resolves_object_and_scopes_neighbors_only(self) -> None:
+        observation = self._create_observation(session_id="s-pending")
+        self._create_observation(session_id="s-other")
+
+        url = f"{self.observations_url(str(self.scanner.id))}{observation.id}/?status=succeeded"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        body = resp.json()
+        self.assertEqual(body["id"], str(observation.id))
+        self.assertIsNone(body["previous_observation_id"])
+        self.assertIsNone(body["next_observation_id"])
+
     def test_list_observations_for_scanner(self) -> None:
         self._create_observation(session_id="s1")
         self._create_observation(session_id="s2")
@@ -1610,19 +1622,23 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
         start_workflow.assert_not_called()
 
-    def test_retry_dispatch_failure_returns_503_with_row_deleted(
+    def test_retry_dispatch_failure_returns_503_with_row_restored(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
-        # Documented contract: the slot is freed even when the start fails, so the session can be re-scanned.
+        # The replacement run never started, so the failed row must come back instead of leaving the
+        # recording looking unscanned while the usage ledger still counts the failed attempt.
         mock_sync_connect.return_value = MagicMock()
         mock_async_to_sync.return_value = MagicMock(side_effect=RuntimeError("temporal unavailable"))
         observation = self._create_failed("sess-broken")
+        original_created_at = observation.created_at
 
         resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 503)
         # `detail` is what the frontend toast surfaces; `error` would be silently dropped.
-        self.assertIn("can be scanned again", resp.json()["detail"])
-        self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
+        self.assertIn("was kept", resp.json()["detail"])
+        restored = ReplayObservation.objects.get(id=observation.id)
+        self.assertEqual(restored.status, ObservationStatus.FAILED)
+        self.assertEqual(restored.created_at, original_created_at)
 
     def _personal_api_key(self, scopes: list[str]) -> str:
         value = generate_random_token_personal()
@@ -1680,8 +1696,8 @@ class TestRetryActions(_VisionAPITestCase):
 
         resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 409, resp.json())
-        # Documented contract: the slot is already freed; the recording can be scanned again shortly.
-        self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
+        # The restart was blocked, so the failed row is restored and the retry can be attempted again.
+        self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
 
     def test_retry_works_on_session_scoped_route(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
