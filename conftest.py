@@ -8,8 +8,10 @@ import pytest
 # phase only adds pauses (seconds on a full-tree CI shard collection). Run the boot
 # with GC off, then freeze the survivors into the permanent generation so the
 # collector never rescans them during the test phase. Tests themselves run with GC
-# enabled as usual. (django.setup() runs in pytest-django's load_initial_conftests,
-# before conftest files load, so it stays outside the window.)
+# enabled as usual. The window normally opens even earlier, in the pytest_boot_gc
+# plugin (`-p pytest_boot_gc` in pytest.ini), so that django.setup() — which
+# pytest-django runs before conftest files load — sits inside it too; the disable
+# here is the fallback for runs that don't load that plugin (e.g. ee/pytest.ini).
 gc.disable()
 
 
