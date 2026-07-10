@@ -20,6 +20,7 @@ hogli owners:unowned                          # every tracked file with no owner
 
 `owners:who` prints the resolved `owners`, the `status`, the derived Slack channel, and `source` — the `owners.yaml`/`product.yaml` file that decided the answer.
 `owners:resolve` takes paths as arguments or newline-delimited on stdin, so you can pipe a file list: `git ls-files posthog/hogql | hogli owners:resolve --json`.
+No hogli/flox available? The dependency-light fallback needs only pyyaml: `git ls-files posthog/hogql | PYTHONPATH=tools/hogli-commands python -m hogli_commands.owners` (stdin paths → the same JSON).
 
 ## Resolution algorithm (what the resolver does)
 
@@ -27,7 +28,7 @@ For a path, it walks from the repo root down to the path collecting ownership fi
 
 1. **`owners.yaml` — the canonical, distributed source.** Each directory can carry one. Fields (`owners`, `contact`, `status`, `inherit`, per-path `rules`) fall through to the nearest ancestor unless overridden. `inherit: false` cuts the walk (Gerrit's `set noparent`) — nothing above it contributes. Within a file, `rules:` are last-match-wins. `owners: null` means **unowned by design** (exempt from the coverage check), distinct from a directory with no file at all (genuinely unowned).
 2. **`products/<name>/product.yaml` — an accepted alias.** When a product dir has no `owners.yaml`, its `product.yaml` `owners:` list is read as the ownership for `products/<name>/**` (every other `product.yaml` field is ignored). A dir with both files is a lint error; `owners.yaml` wins.
-3. **`.github/CODEOWNERS` — a read-only blocking overlay, never part of the walk.** It keeps GitHub-native semantics and stays hand-maintained (mostly infra, e.g. `team-security`). It never changes the resolved `owners`; it only tells you "a blocking approval is additionally required from X". Nothing here writes to it.
+3. **`.github/CODEOWNERS` — blocking approvals, never part of the walk.** It keeps GitHub-native semantics, stays hand-maintained (mostly infra, e.g. `team-security`), and is enforced by GitHub itself. The resolver does **not** read it — when you need to know whether a blocking approval is additionally required, consult the file directly. It never changes the resolved `owners`, and nothing here writes to it.
 
 Owners are a mixed list of **team slugs** (`team-devex`, `conversations`, `logs` — the GitHub team handle minus `@PostHog/`) and **`@handles`** for individuals; the first entry is the primary owner.
 

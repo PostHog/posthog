@@ -29,6 +29,8 @@ rules:
       owners: [team-devex]
     - match: '/.claude/agents/ingestion/'
       owners: [team-ingestion]
+    - match: '/bin/start-llm-gateway'
+      owners: [team-devex, team-ai-gateway]
     - match: '/cli/'
       owners: [team-error-tracking]
     - match: '/docs/onboarding/ai-observability/'

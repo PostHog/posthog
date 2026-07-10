@@ -33,6 +33,9 @@ posthog/hogql/database/test/__snapshots__/test_database.ambr
 .github/scripts/assign-reviewers.js @PostHog/team-security
 # The vendored CODEOWNERS matcher the auto-assigner (and the ownership skill) depend on.
 .github/scripts/codeowners.js @PostHog/team-security
+# The distributed-ownership resolver the auto-assigner executes on that same
+# pull_request_target event (via `python -m hogli_commands.owners`).
+tools/hogli-commands/hogli_commands/owners/** @PostHog/team-security
 
 # And of course modifying this file can bring us problems so let's have the security team own it.
 # This does not affect the distributed owners.yaml files, which drive non-required reviewer

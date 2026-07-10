@@ -156,7 +156,7 @@ For a path `P`:
 
 **Consolidation vs distribution is a readability choice, not a semantic one.** A parent `owners.yaml` may own subtrees through anchored directory rules (`- match: '/rust/capture/'`), and a deeper `owners.yaml` still wins by nearest-file resolution. So a cluster of one-line child files and a single parent file with equivalent rules resolve identically; pick whichever reads better for that tree. `owners:lint` nudges toward folding when a directory accumulates enough single-purpose children.
 
-The hard `.github/CODEOWNERS` stays outside this walk entirely. It keeps its own GitHub-native semantics and remains hand-maintained; the resolver reads it only as a **read-only overlay** so lookups can additionally report "blocking approval required from X" (what the ownership skill layers in today). It never influences the resolved `owners`, and nothing in this proposal writes to it.
+The hard `.github/CODEOWNERS` stays outside this walk entirely. It keeps its own GitHub-native semantics and remains hand-maintained and GitHub-enforced; the resolver does **not** read it — blocking ownership is consulted manually (or via GitHub's own UI) when needed. It never influences the resolved `owners`, and nothing in this proposal writes to it.
 
 ## 5. Tool independence: one resolver, many consumers
 
@@ -170,7 +170,7 @@ The stability guarantee is architectural: **consumers never parse ownership file
 
 - **Lookup**: `hogli owners:who <path>` / `owners:team <slug>` / `owners:unowned` — thin wrappers over the library; the `establishing-code-ownership` skill's `ownership.js` becomes a shim over the CLI (or is deleted in favor of it).
 
-One tradeoff to acknowledge: today `.github/scripts/` sits behind the blocking `CODEOWNERS` (`team-security`), so changes to assignment logic require their approval. Moving the resolver into hogli takes it out of that gate. If that matters, the fix is a one-line addition to the hard file covering `tools/hogli-commands/hogli_commands/owners/` — a deliberate exception to "leave CODEOWNERS alone", to be decided at review.
+One tradeoff to acknowledge: today `.github/scripts/` sits behind the blocking `CODEOWNERS` (`team-security`), so changes to assignment logic require their approval. Moving the resolver into hogli takes it out of that gate. Done — the resolver package (`tools/hogli-commands/hogli_commands/owners/`) is under the blocking file, a deliberate exception to "leave CODEOWNERS alone" since the auto-assigner executes it on `pull_request_target`.
 
 If the first consumer (say the auto-assigner) is ever replaced, the resolver, schema, and lint are untouched — only one caller changes. That is the "source of truth, not tool config" property.
 
@@ -222,6 +222,6 @@ Safety properties of the atomic switch:
 ## 7. Open questions for maintainers
 
 1. **`contact.oncall`**: `contact.slack` now costs nothing (derived from the team slug by convention, override or `slack: false` only when needed), but is an oncall reference worth carrying in v1, or deferred until something consumes it?
-2. **Resolver ownership**: moving resolution logic from security-gated `.github/scripts/` into hogli drops the blocking-approval requirement on it — accept, or add the one covering line to the hard `CODEOWNERS`?
+2. **Resolver ownership**: resolved — the resolver package is covered by the hard `CODEOWNERS` (see §5).
 3. **Coverage gating cadence**: how soon after the PR to flip `owners:lint` coverage from warn to fail — immediately for _new_ directories (ratchet), or only once the whole tree is clean?
 4. **Hard-CODEOWNERS future** (explicitly out of scope now): if blocking gates ever move into the schema, approver inheritance should probably union up the tree rather than nearest-wins — parked until `team-security` wants to revisit.
