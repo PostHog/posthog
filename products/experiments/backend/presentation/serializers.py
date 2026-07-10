@@ -361,6 +361,14 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "without this flag is rejected."
         ),
     )
+    can_freeze_exposure = serializers.SerializerMethodField(
+        help_text=(
+            "Whether enrollment can be frozen right now: the experiment must be running (not draft, "
+            "paused, stopped, or already frozen) and its feature flag must have release conditions "
+            "that a person cohort can narrow (no group aggregation, no holdout, no early access "
+            "conditions)."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
@@ -404,6 +412,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "update_feature_flag_params",
             "status",
             "is_legacy",
+            "can_freeze_exposure",
             "user_access_level",
         ]
         read_only_fields = [
@@ -416,6 +425,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "holdout",
             "saved_metrics",
             "status",
+            "can_freeze_exposure",
             "user_access_level",
         ]
 
@@ -427,6 +437,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         else:
             fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
         return fields
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_can_freeze_exposure(self, obj: Experiment) -> bool:
+        return obj.can_freeze_exposure
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):

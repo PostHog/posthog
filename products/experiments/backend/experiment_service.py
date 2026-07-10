@@ -89,6 +89,11 @@ from products.feature_flags.backend.facade.api import (
     update_flag,
     user_can_edit_flag,
 )
+from products.feature_flags.backend.facade.filters import (
+    group_cohort_restriction_blocker,
+    restrict_groups_to_cohort,
+    strip_group_cohort_restriction,
+)
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notifications.backend.facade.api import (
@@ -1883,7 +1888,13 @@ class ExperimentService:
                 # return the flag's default for everyone. This is the standard behavior of any static-cohort flag,
                 # not specific to freezing — it just means a frozen experiment is evaluated server-side via /decide
                 # rather than locally.
-                new_filters = self._transform_filters_for_frozen_exposure(locked_flag.filters, exposure_snapshot.id)
+                new_filters = restrict_groups_to_cohort(
+                    locked_flag.filters,
+                    exposure_snapshot.id,
+                    marker_key=EXPOSURE_FROZEN_GROUP_KEY,
+                    cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
+                    marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
+                )
 
                 # 5. Persist the narrowed filters via the gated flag write.
                 #
@@ -1955,25 +1966,23 @@ class ExperimentService:
         flag = experiment.feature_flag
         if flag.deleted:
             raise ValidationError("Experiment's feature flag has been deleted.")
-        if flag.aggregation_group_type_index is not None:
+        # The flag-shape preconditions (group aggregation, evaluation order, empty groups) live
+        # flag-side in group_cohort_restriction_blocker; each blocker maps to an experiments-facing
+        # message here. Fail closed rather than freeze partially.
+        blocker = group_cohort_restriction_blocker(flag.filters or {})
+        if blocker == "group_aggregation":
             raise ValidationError("Group-aggregated experiments cannot have their exposure frozen.")
-        # Holdout assignment and early-access enrollment (super_groups) are evaluated by the flag
-        # matcher before release conditions, so narrowing the release groups to a cohort cannot stop
-        # new users from entering through those paths. Fail closed rather than freeze partially.
-        flag_filters = flag.filters or {}
-        if experiment.holdout_id is not None or flag_filters.get("holdout") or flag_filters.get("holdout_groups"):
+        if experiment.holdout_id is not None or blocker == "holdout":
             raise ValidationError(
                 "Experiments in a holdout cannot have their exposure frozen: holdout assignment is "
                 "evaluated before release conditions, so new users would keep entering the holdout."
             )
-        if flag_filters.get("super_groups"):
+        if blocker == "super_groups":
             raise ValidationError(
                 "This experiment's feature flag has early access conditions, which are evaluated "
                 "before release conditions, so freezing cannot stop new enrollment."
             )
-        # Without release conditions there is nothing to narrow: the transform would be a no-op and
-        # the frozen state (derived from the per-group key) could never be detected.
-        if not flag_filters.get("groups"):
+        if blocker == "no_groups":
             raise ValidationError("Experiment's feature flag has no release conditions to freeze.")
 
     def _fetch_exposed_person_uuids(self, experiment: Experiment) -> list[str]:
@@ -2132,78 +2141,6 @@ class ExperimentService:
             raise
         return cohort
 
-    @staticmethod
-    def _transform_filters_for_frozen_exposure(current_filters: dict, cohort_id: int) -> dict:
-        """AND a static-cohort condition into every release group and stamp the freeze key.
-
-        AND (not a new group): groups are OR'd, so a separate group would *widen* access.
-        AND (not replace): the original per-group ``properties``/``rollout_percentage`` are
-        preserved so a future unfreeze or manual revert strips back to exactly the original.
-        The frozen state lives in the structured EXPOSURE_FROZEN_GROUP_KEY on each group;
-        the marker is merely prepended to the (preserved) ``description`` as a human-readable
-        note. Everything else (``multivariate``, ``payloads``, aggregation index) is left
-        byte-for-byte.
-        """
-        cohort_condition = {"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}
-
-        new_groups = []
-        for group in current_filters.get("groups", []):
-            # One deepcopy per group so the new filters never alias the original flag's dicts.
-            new_group = deepcopy(group)
-            new_group["properties"] = [*new_group.get("properties", []), cohort_condition]
-            new_group[EXPOSURE_FROZEN_GROUP_KEY] = True
-            new_group[EXPOSURE_FROZEN_COHORT_KEY] = cohort_id
-            existing_description = new_group.get("description")
-            new_group["description"] = (
-                f"{EXPOSURE_FROZEN_GROUP_MARKER} {existing_description}"
-                if existing_description
-                else EXPOSURE_FROZEN_GROUP_MARKER
-            )
-            new_groups.append(new_group)
-        return {**current_filters, "groups": new_groups}
-
-    @staticmethod
-    def _strip_frozen_exposure_from_filters(current_filters: dict) -> tuple[dict, list[int]]:
-        """Inverse of _transform_filters_for_frozen_exposure: remove the freeze stamps from every
-        release group — the AND'd snapshot-cohort condition (identified via the per-group
-        EXPOSURE_FROZEN_COHORT_KEY, so user-added cohort conditions survive), the two structured
-        keys, and the description marker note. Groups without the freeze key pass through untouched.
-
-        Returns the stripped filters plus the snapshot cohort ids that were referenced, so callers
-        can clean up the then-orphaned cohorts once the stripped filters are persisted — and only
-        then: deleting earlier would yank the cohort from under a still-frozen flag if the save fails.
-        """
-        new_groups = []
-        cohort_ids: list[int] = []
-        for group in current_filters.get("groups", []):
-            new_group = deepcopy(group)
-            if new_group.get(EXPOSURE_FROZEN_GROUP_KEY) is not True:
-                new_groups.append(new_group)
-                continue
-            new_group.pop(EXPOSURE_FROZEN_GROUP_KEY, None)
-            cohort_id = new_group.pop(EXPOSURE_FROZEN_COHORT_KEY, None)
-            if cohort_id is not None:
-                cohort_ids.append(cohort_id)
-                new_group["properties"] = [
-                    condition
-                    for condition in new_group.get("properties", [])
-                    if not (
-                        condition.get("type") == "cohort"
-                        and condition.get("key") == "id"
-                        and condition.get("value") == cohort_id
-                    )
-                ]
-            description = new_group.get("description")
-            if isinstance(description, str) and EXPOSURE_FROZEN_GROUP_MARKER in description:
-                stripped_description = description.replace(EXPOSURE_FROZEN_GROUP_MARKER, "").strip()
-                if stripped_description:
-                    new_group["description"] = stripped_description
-                else:
-                    # The freeze added the description outright — restore its absence.
-                    del new_group["description"]
-            new_groups.append(new_group)
-        return {**current_filters, "groups": new_groups}, list(dict.fromkeys(cohort_ids))
-
     def _delete_orphaned_snapshot_cohorts(self, cohort_ids: list[int]) -> None:
         """Soft-delete freeze snapshot cohorts whose flag reference was just removed.
 
@@ -2256,7 +2193,12 @@ class ExperimentService:
             raise ValidationError("Experiment exposure is not frozen.")
 
         flag = experiment.feature_flag
-        new_filters, cohort_ids = self._strip_frozen_exposure_from_filters(flag.filters or {})
+        new_filters, cohort_ids = strip_group_cohort_restriction(
+            flag.filters or {},
+            marker_key=EXPOSURE_FROZEN_GROUP_KEY,
+            cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
+            marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
+        )
 
         update_flag(flag, {"filters": new_filters}, team=self.team, user=self.user, request=request)
 
@@ -2528,7 +2470,12 @@ class ExperimentService:
         )
         if flag is None or flag.deleted:
             return
-        stripped_filters, cohort_ids = self._strip_frozen_exposure_from_filters(flag.filters or {})
+        stripped_filters, cohort_ids = strip_group_cohort_restriction(
+            flag.filters or {},
+            marker_key=EXPOSURE_FROZEN_GROUP_KEY,
+            cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
+            marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
+        )
         if stripped_filters == (flag.filters or {}):
             return
 
@@ -2598,7 +2545,12 @@ class ExperimentService:
         # Shipping a winner ends the enrollment freeze by definition, so strip it in the same flag
         # write: preserved, it would lock the shipped variant to the stale snapshot forever in the
         # default mode, and linger as dead weight below the catch-all in release_to_everyone mode.
-        base_filters, frozen_cohort_ids = self._strip_frozen_exposure_from_filters(flag.filters)
+        base_filters, frozen_cohort_ids = strip_group_cohort_restriction(
+            flag.filters,
+            marker_key=EXPOSURE_FROZEN_GROUP_KEY,
+            cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
+            marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
+        )
 
         # Update the flag through the gated write to preserve the approval
         # workflow. If change-request approval is required, this raises

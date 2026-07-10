@@ -12,6 +12,8 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import RootTeamMixin, UUIDModel
 
+from products.feature_flags.backend.facade.filters import group_cohort_restriction_blocker, groups_restricted_to_cohort
+
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
@@ -174,8 +176,20 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             return False
         # Enrollment is closed only when EVERY release group is stamped, so that add/edit groups
         # surfaces as the experiment reverting to "running".
-        groups = (self.feature_flag.filters or {}).get("groups", [])
-        return bool(groups) and all(group.get(EXPOSURE_FROZEN_GROUP_KEY) is True for group in groups)
+        return groups_restricted_to_cohort(self.feature_flag.filters or {}, marker_key=EXPOSURE_FROZEN_GROUP_KEY)
+
+    @property
+    def can_freeze_exposure(self) -> bool:
+        # Mirrors the stable preconditions of the freeze validator
+        # (ExperimentService._validate_freeze_exposure_state) so the UI can gate the action
+        # without recomputing flag evaluation-order knowledge from the filters.
+        if not self.is_running or self.is_paused or self.is_exposure_frozen:
+            return False
+        if self.feature_flag_id is None or self.feature_flag.deleted:
+            return False
+        if self.holdout_id is not None:
+            return False
+        return group_cohort_restriction_blocker(self.feature_flag.filters or {}) is None
 
     @property
     def computed_status(self) -> "Experiment.Status":
