@@ -1402,3 +1402,53 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Estimated days to reach the recommended sample size. Null when exposure_rate_per_day is omitted.",
     )
+
+
+class ExperimentSessionContextItemSerializer(serializers.Serializer):
+    """One experiment whose feature flag a session recording saw."""
+
+    experiment_id = serializers.IntegerField(help_text="ID of the experiment whose feature flag the session saw.")
+    experiment_name = serializers.CharField(help_text="Name of the experiment.")
+    flag_key = serializers.CharField(help_text="Key of the experiment's feature flag.")
+    variant = serializers.CharField(
+        help_text=(
+            "Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one "
+            "exists, otherwise from the $feature/<key> property stamped on the session's events."
+        )
+    )
+    variants_seen = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "All distinct variant values observed for this flag during the session, sorted alphabetically. "
+            "More than one value means the session saw multiple variants — a signal of multi-exposure bias."
+        ),
+    )
+    multiple_variants = serializers.BooleanField(
+        help_text="True when the session saw more than one variant of this flag."
+    )
+    first_flag_evaluation_timestamp = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag "
+            "was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> "
+            "properties (e.g. the assignment carried over from an earlier session). For experiments with custom "
+            "exposure criteria this is not the experiment's exposure moment."
+        ),
+    )
+    experiment_start_date = serializers.DateTimeField(allow_null=True, help_text="When the experiment was launched.")
+    experiment_end_date = serializers.DateTimeField(
+        allow_null=True, help_text="When the experiment ended. Null while the experiment is still running."
+    )
+
+
+class ExperimentSessionContextResponseSerializer(serializers.Serializer):
+    """Experiment/variant context for a session recording."""
+
+    session_id = serializers.CharField(help_text="ID of the session recording the context was resolved for.")
+    results = ExperimentSessionContextItemSerializer(
+        many=True,
+        help_text=(
+            "Experiments (and variants) the session saw, sorted by experiment name. Empty when no launched "
+            "experiment's run window overlaps the recording or no flag data was observed in the session."
+        ),
+    )

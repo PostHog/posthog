@@ -19,9 +19,11 @@ import type {
     ExperimentMetricsRecalculationApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
+    ExperimentSessionContextResponseApi,
     ExperimentWriteApi,
     ExperimentsListParams,
     ExperimentsPromptTemplatesRetrieve200Item,
+    ExperimentsSessionContextRetrieveParams,
     ExperimentsTimeseriesResultsRetrieveParams,
     PaginatedExperimentBasicListApi,
     PaginatedExperimentHoldoutListApi,
@@ -995,6 +997,39 @@ export const experimentsPromptTemplatesRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getExperimentsSessionContextRetrieveUrl = (
+    projectId: string,
+    params: ExperimentsSessionContextRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/session_context/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/session_context/`
+}
+
+/**
+ * Resolve which experiments (and variants) a session recording saw. Variants come from the session's $feature_flag_called events and stamped $feature/<key> event properties — flag evaluation, which may differ from an experiment's exposure criteria.
+ */
+export const experimentsSessionContextRetrieve = async (
+    projectId: string,
+    params: ExperimentsSessionContextRetrieveParams,
+    options?: RequestInit
+): Promise<ExperimentSessionContextResponseApi> => {
+    return apiMutator<ExperimentSessionContextResponseApi>(getExperimentsSessionContextRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getExperimentsStatsRetrieveUrl = (projectId: string) => {
