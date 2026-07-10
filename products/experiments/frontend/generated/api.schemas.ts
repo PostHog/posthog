@@ -2078,7 +2078,7 @@ export interface ExperimentSessionContextItemApi {
     flag_key: string
     /** Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one exists, otherwise from the $feature/<key> property stamped on the session's events. */
     variant: string
-    /** All distinct variant values observed for this flag during the session, sorted alphabetically. More than one value means the session saw multiple variants — a signal of multi-exposure bias. */
+    /** All distinct variant values observed for this flag during the session, sorted alphabetically. Only the flag's defined variant keys count; non-enrollment responses (false) are ignored. More than one value means the session saw multiple variants — a signal of multi-exposure bias. */
     variants_seen: string[]
     /** True when the session saw more than one variant of this flag. */
     multiple_variants: boolean

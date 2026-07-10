@@ -1420,6 +1420,7 @@ class ExperimentSessionContextItemSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text=(
             "All distinct variant values observed for this flag during the session, sorted alphabetically. "
+            "Only the flag's defined variant keys count; non-enrollment responses (false) are ignored. "
             "More than one value means the session saw multiple variants — a signal of multi-exposure bias."
         ),
     )

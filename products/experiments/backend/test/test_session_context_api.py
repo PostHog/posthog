@@ -40,7 +40,20 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         end_date: Optional[datetime] = None,
     ) -> Experiment:
         team = team or self.team
-        flag = FeatureFlag.objects.create(team=team, key=key, name=key, created_by=self.user)
+        flag = FeatureFlag.objects.create(
+            team=team,
+            key=key,
+            name=key,
+            created_by=self.user,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+        )
         return Experiment.objects.create(
             team=team,
             name=name,
@@ -152,6 +165,22 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert sorted(results[0]["variants_seen"]) == ["control", "test"]
         assert results[0]["multiple_variants"] is True
         assert results[0]["first_flag_evaluation_timestamp"] == "2026-01-01T10:02:11Z"
+
+    def test_ignores_non_enrolled_flag_responses(self) -> None:
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": False},
+        )
+        self._create_session_event(
+            event="$pageview",
+            properties={"$feature/checkout-cta": True},
+        )
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
 
     def test_ignores_flags_without_experiments(self) -> None:
         self._create_recording()

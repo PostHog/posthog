@@ -190,8 +190,10 @@ export type InspectorListItemSummary = InspectorListItemBase & {
 export type InspectorListItemExperimentVariant = InspectorListItemBase & {
     type: 'experiment-variant'
     data: {
-        // Synthesized from the session's experiment context, not backed by a loaded event.
-        // `id` keeps the same keying contract as event/comment items in the seekbar.
+        // Synthesized client-side from the experiments session_context endpoint response
+        // (first_flag_evaluation_timestamp) — there is no backend event for this item, so it is
+        // not part of the loaded event stream. `id` keeps the same keying contract as
+        // event/comment items in the seekbar.
         id: string
         experimentId: number
         experimentName: string

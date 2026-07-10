@@ -77,8 +77,13 @@ def get_session_experiment_context(team: Team, session_id: str) -> Optional[list
     items: list[ExperimentSessionContextItem] = []
     for experiment in candidates:
         flag_key = experiment.feature_flag.key
-        exposure_rows = exposures.get(flag_key, [])
-        variants_seen = sorted({variant for variant, _ in exposure_rows} | set(stamped.get(flag_key, [])))
+        # Only the flag's defined variant keys count, mirroring the `variant IN variants` filter in
+        # build_common_exposure_conditions: a non-enrolled user's flag evaluation captures
+        # `$feature_flag_response: false`, which must not surface as a variant named "false".
+        defined_variants = _defined_variant_keys(experiment)
+        exposure_rows = [row for row in exposures.get(flag_key, []) if row[0] in defined_variants]
+        stamped_values = [value for value in stamped.get(flag_key, []) if value in defined_variants]
+        variants_seen = sorted({variant for variant, _ in exposure_rows} | set(stamped_values))
         if not variants_seen:
             continue
 
@@ -105,6 +110,11 @@ def get_session_experiment_context(team: Team, session_id: str) -> Optional[list
         )
 
     return sorted(items, key=lambda item: item.experiment_name.lower())
+
+
+def _defined_variant_keys(experiment: Experiment) -> set[str]:
+    multivariate = (experiment.feature_flag.filters or {}).get("multivariate") or {}
+    return {variant["key"] for variant in multivariate.get("variants", []) if variant.get("key")}
 
 
 def _query_exposure_events(

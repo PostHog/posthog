@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconFlask } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -46,10 +47,11 @@ export function PlayerMetaExperimentTags(): JSX.Element | null {
                 >
                     <LemonTag
                         type={item.multiple_variants ? 'warning' : 'default'}
+                        icon={<IconFlask />}
                         onClick={openOverview}
                         forceClickable
                     >
-                        🧪 {item.experiment_name}: {item.multiple_variants ? 'saw multiple variants' : item.variant}
+                        {item.experiment_name}: {item.multiple_variants ? 'saw multiple variants' : item.variant}
                     </LemonTag>
                 </Tooltip>
             ))}
