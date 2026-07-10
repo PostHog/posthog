@@ -149,4 +149,58 @@ describe('sentimentQueries', () => {
             },
         })
     })
+
+    it('still returns generations when the input lookup query fails', async () => {
+        // Input enrichment is best-effort: a failing HogQL input lookup must not
+        // take down the whole sentiment page load. Sentiment is intact; aiInput falls back.
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+        jest.spyOn(mockApi, 'query').mockResolvedValue({
+            results: [['generation-uuid', 'trace-1', null, 'gpt-4.1', 'distinct-1', '2026-06-23T10:00:00Z']],
+        } as any)
+        jest.spyOn(mockApi, 'queryHogQL')
+            // stored sentiment lookup (ai_events) succeeds
+            .mockResolvedValueOnce({
+                results: [
+                    [
+                        'trace-1',
+                        'generation-uuid',
+                        'positive',
+                        '0.91',
+                        { positive: 0.91, neutral: 0.08, negative: 0.01 },
+                        {
+                            '0': {
+                                label: 'positive',
+                                score: 0.91,
+                                scores: { positive: 0.91, neutral: 0.08, negative: 0.01 },
+                            },
+                        },
+                        1,
+                        '2026-06-23T10:00:01Z',
+                    ],
+                ],
+            } as any)
+            // both input lookups (ai_events then events fallback) fail server-side
+            .mockRejectedValueOnce(new Error('Non-OK response (status 500)'))
+            .mockRejectedValueOnce(new Error('Non-OK response (status 500)'))
+
+        const page = await fetchSentimentGenerationsPage(
+            {
+                dateFilter: { dateFrom: '-7d', dateTo: null },
+                shouldFilterTestAccounts: false,
+                propertyFilters: [],
+            },
+            0
+        )
+
+        expect(page.generations).toHaveLength(1)
+        expect(page.generations[0]).toMatchObject({
+            uuid: 'generation-uuid',
+            traceId: 'trace-1',
+            aiInput: null,
+            sentiment: {
+                label: 'positive',
+                score: 0.91,
+            },
+        })
+    })
 })
