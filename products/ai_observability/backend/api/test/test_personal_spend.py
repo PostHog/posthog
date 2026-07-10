@@ -140,13 +140,19 @@ class TestPersonalSpendValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("within_cap", "-7d", status.HTTP_200_OK),
-            ("over_cap", "-30d", status.HTTP_400_BAD_REQUEST),
+            ("hourly_within_cap", 60, "-7d", status.HTTP_200_OK),
+            ("hourly_over_cap", 60, "-30d", status.HTTP_400_BAD_REQUEST),
+            ("five_min_within_cap", 5, "-1d", status.HTTP_200_OK),
+            ("five_min_over_cap", 5, "-7d", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_hourly_window_cap(self, _label: str, date_from: str, expected: int) -> None:
-        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from={date_from}&hourly=true")
+    def test_bucket_window_cap(self, _label: str, bucket_minutes: int, date_from: str, expected: int) -> None:
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from={date_from}&bucket_minutes={bucket_minutes}")
         assert response.status_code == expected
+
+    def test_unsupported_bucket_size_rejected(self) -> None:
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&bucket_minutes=7")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_product_too_long_rejected(self) -> None:
         response = self.client.get(f"{ENDPOINT}?product={'x' * 100}")
@@ -473,12 +479,12 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-10&date_to=2026-06-16")
         assert [r["day"] for r in response.json()["by_day"]["items"]] == ["2026-06-15"]
 
-    def test_by_hour_absent_unless_requested(self) -> None:
+    def test_by_bucket_absent_unless_requested(self) -> None:
         response = self.client.get(ENDPOINT_OK)
         assert response.status_code == status.HTTP_200_OK
-        assert "by_hour" not in response.json()
+        assert "by_bucket" not in response.json()
 
-    def test_by_hour_groups_cost_components_per_utc_hour(self) -> None:
+    def test_by_bucket_groups_cost_components_per_utc_hour(self) -> None:
         warm = datetime(2026, 6, 15, 9, 30, tzinfo=UTC)
         cold = datetime(2026, 6, 15, 11, 5, tzinfo=UTC)
         # Warm turn: most of the prompt served from cache.
@@ -517,12 +523,13 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         self._create_generation(ai_product="background_agents", cost=99.0, timestamp=cold)
         flush_persons_and_events()
 
-        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16&hourly=true")
-        by_hour = response.json()["by_hour"]
-        assert by_hour["truncated"] is False
-        assert by_hour["items"] == [
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16&bucket_minutes=60")
+        by_bucket = response.json()["by_bucket"]
+        assert by_bucket["truncated"] is False
+        assert by_bucket["bucket_minutes"] == 60
+        assert by_bucket["items"] == [
             {
-                "hour": "2026-06-15T09:00:00Z",
+                "bucket_start": "2026-06-15T09:00:00Z",
                 "event_count": 1,
                 "cost_usd": 1.0,
                 "input_cost_usd": 0.1,
@@ -535,7 +542,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
                 "cache_creation_input_tokens": 20000,
             },
             {
-                "hour": "2026-06-15T11:00:00Z",
+                "bucket_start": "2026-06-15T11:00:00Z",
                 "event_count": 1,
                 "cost_usd": 3.0,
                 "input_cost_usd": 0.2,
@@ -549,28 +556,43 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             },
         ]
 
-    def test_by_hour_defaults_components_to_zero_when_breakdown_missing(self) -> None:
+    def test_by_bucket_five_minute_buckets_split_within_the_hour(self) -> None:
+        # Two calls 15 minutes apart share an hourly bucket but must split at 5-minute
+        # resolution — this is what isolates a cold-revival spike from surrounding traffic.
+        self._create_generation(cost=1.0, trace_id="a", timestamp=datetime(2026, 6, 15, 9, 2, tzinfo=UTC))
+        self._create_generation(cost=3.0, trace_id="b", timestamp=datetime(2026, 6, 15, 9, 17, tzinfo=UTC))
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16&bucket_minutes=5")
+        by_bucket = response.json()["by_bucket"]
+        assert by_bucket["bucket_minutes"] == 5
+        assert [(r["bucket_start"], r["cost_usd"]) for r in by_bucket["items"]] == [
+            ("2026-06-15T09:00:00Z", 1.0),
+            ("2026-06-15T09:15:00Z", 3.0),
+        ]
+
+    def test_by_bucket_defaults_components_to_zero_when_breakdown_missing(self) -> None:
         # Fallback-priced events carry only $ai_total_cost_usd — components must be 0, not an error.
         self._create_generation(cost=1.5, timestamp=datetime(2026, 6, 15, 9, 30, tzinfo=UTC))
         flush_persons_and_events()
 
-        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16&hourly=true")
-        items = response.json()["by_hour"]["items"]
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16&bucket_minutes=60")
+        items = response.json()["by_bucket"]["items"]
         assert len(items) == 1
         assert items[0]["cost_usd"] == 1.5
         assert items[0]["input_cost_usd"] == 0.0
         assert items[0]["cache_creation_cost_usd"] == 0.0
         assert items[0]["cache_read_input_tokens"] == 0
 
-    def test_cache_key_includes_hourly(self) -> None:
-        # Without `hourly` in the cache key, this second call would be served the
-        # cached non-hourly payload and silently drop `by_hour`.
+    def test_cache_key_includes_bucket_minutes(self) -> None:
+        # Without `bucket_minutes` in the cache key, this second call would be served
+        # the cached bucketless payload and silently drop `by_bucket`.
         with patch("products.ai_observability.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
             self.client.get(ENDPOINT_OK)
-            response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&hourly=true")
+            response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&bucket_minutes=60")
         assert response.status_code == status.HTTP_200_OK
-        assert "by_hour" in response.json()
+        assert "by_bucket" in response.json()
 
     def test_by_day_counts_embeddings_and_costless_events(self) -> None:
         day_one = datetime(2026, 6, 13, 9, 0, tzinfo=UTC)
