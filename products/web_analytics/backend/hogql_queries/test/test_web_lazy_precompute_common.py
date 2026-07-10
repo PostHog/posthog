@@ -437,3 +437,33 @@ class TestWebEnsurePrecomputed(BaseTest):
         assert isinstance(passed, TtlSchedule)
         assert passed.max_window_days == 1
         assert passed.default_ttl_seconds == 3600
+
+
+class TestClearPrecomputeOomPinsCommand(BaseTest):
+    def tearDown(self):
+        for team_id in (901901, 901902):
+            redis.get_client().delete(_oom_pin_key(team_id))
+        super().tearDown()
+
+    def test_list_clear_one_and_clear_all(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        pin_team_oom(901901)
+        pin_team_oom(901902)
+
+        out = StringIO()
+        call_command("clear_precompute_oom_pins", "--list", stdout=out)
+        assert "team 901901" in out.getvalue()
+        assert "team 901902" in out.getvalue()
+
+        out = StringIO()
+        call_command("clear_precompute_oom_pins", "--team-id", "901901", stdout=out)
+        assert "Cleared OOM pin for team 901901" in out.getvalue()
+        assert is_team_oom_pinned(901901) is False
+        assert is_team_oom_pinned(901902) is True
+
+        out = StringIO()
+        call_command("clear_precompute_oom_pins", "--all", stdout=out)
+        assert is_team_oom_pinned(901902) is False
