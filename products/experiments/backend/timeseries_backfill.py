@@ -6,7 +6,7 @@ query with as_of pinned to each day's end. Normally invoked via the Temporal
 dependencies, so it can also run in-process (e.g. from demo data seeding).
 """
 
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -23,7 +23,14 @@ from products.experiments.backend.temporal.metric_resolution import build_metric
 logger = structlog.get_logger(__name__)
 
 
-def backfill_experiment_timeseries(recalculation_id: str) -> dict[str, Any]:
+def backfill_experiment_timeseries(recalculation_id: str, *, backfill_until: date | None = None) -> dict[str, Any]:
+    """Backfill daily metric results for the recalculation request.
+
+    `backfill_until` caps the backfill window. A running experiment (no end_date) otherwise
+    backfills through the real today — callers whose data ends earlier (e.g. demo seeding
+    pinned to a simulated clock) must pass the last date that actually has data, or every
+    day in between costs a ClickHouse query that computes an empty result.
+    """
     logger.info("Starting timeseries recalculation", recalculation_id=recalculation_id)
 
     try:
@@ -49,6 +56,9 @@ def backfill_experiment_timeseries(recalculation_id: str) -> dict[str, Any]:
         end_date = experiment.end_date.astimezone(team_tz).date()
     else:
         end_date = datetime.now(team_tz).date()
+
+    if backfill_until is not None:
+        end_date = min(end_date, backfill_until)
 
     if recalculation_request.last_successful_date:
         current_date = recalculation_request.last_successful_date + timedelta(days=1)

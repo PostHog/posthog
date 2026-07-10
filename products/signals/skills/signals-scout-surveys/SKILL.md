@@ -185,7 +185,7 @@ A survey created > 90 days ago with steadily declining response volume and no `u
 
 #### Theme correlated with recent change
 
-When a theme emerges, cross-check `activity-log-list` for the period around the inflection. If a deploy / flag flip / feature change in the same week matches the theme content, the finding lands much harder ("4 users complained about checkout slowness on $date; deploy of `checkout-rewrite-v2` flag rolled to 100% on $date-1"). Timing is hint, not proof — say "matches" rather than "caused by".
+When a theme emerges, cross-check `advanced-activity-logs-list` for the period around the inflection. If a deploy / flag flip / feature change in the same week matches the theme content, the finding lands much harder ("4 users complained about checkout slowness on $date; deploy of `checkout-rewrite-v2` flag rolled to 100% on $date-1"). Timing is hint, not proof — say "matches" rather than "caused by".
 
 #### Theme drift across survey iterations
 
@@ -256,7 +256,7 @@ Direct calls (read-only):
 - `execute-sql` against `events` — for raw response analysis (rating trends, theme aggregation). The property reference, the dual response-key coalesce, and the `$survey_submission_id` dedupe SQL are all in [`references/response-querying.md`](references/response-querying.md).
 - `read-data-schema event_property_values` — sample response values to confirm property keys exist and have the shape you expect before running heavy aggregations.
 - `query-trends` — confirm `survey shown` / `survey sent` volume trends with weekly comparisons. Cheaper than a full SQL aggregation when you just need the shape.
-- `activity-log-list` — correlate themes / score drops with recent product changes.
+- `advanced-activity-logs-list` — correlate themes / score drops with recent product changes.
 - `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
 - `signals-scout-members-list` — this project's members with their resolved `github_login`, to route `suggested_reviewers` to a survey's owner (null `github_login` → can't route, try the next owner). The in-run roster; the org-scoped resolver tools aren't available in a scout run.

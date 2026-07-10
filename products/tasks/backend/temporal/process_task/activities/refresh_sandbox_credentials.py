@@ -21,6 +21,11 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     DEFAULT_REFRESH_INTERVAL_SECONDS,
     build_sandbox_credentials,
 )
+from products.tasks.backend.temporal.process_task.utils import (
+    get_actor_distinct_id,
+    get_task_run_credential_user,
+    is_slack_interaction_state,
+)
 
 from .get_task_processing_context import TaskProcessingContext
 
@@ -34,10 +39,14 @@ def _notify_agent_server_of_refresh(ctx: TaskProcessingContext, task: Task, refr
     try:
         task_run = TaskRun.objects.get(id=ctx.run_id)
         auth_token = None
-        created_by = task.created_by
-        if created_by and created_by.id:
-            distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-            auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+        actor_user = get_task_run_credential_user(task, ctx.state)
+        if is_slack_interaction_state(ctx.state) and actor_user is None:
+            logger.warning("sandbox_credentials_refresh_notify_missing_slack_actor", run_id=ctx.run_id)
+            return
+        if actor_user and actor_user.id:
+            auth_token = create_sandbox_connection_token(
+                task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
+            )
         authorship = (ctx.state or {}).get("pr_authorship_mode")
         send_refresh_session(
             task_run, [], auth_token=auth_token, refreshed_credentials=refreshed_kinds, authorship=authorship

@@ -1,9 +1,9 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 
-class BackfillThreadMessageMentionsMigrationTest(TestMigrations):
+class BackfillThreadMessageMentionsMigrationTest(NonAtomicTestMigrations):
     """0050 indexes mentions already stored inline in existing thread messages. The backfill
     must mirror write-time extraction: org members only, self-mentions skipped, created_at
     copied from the message.
@@ -11,6 +11,8 @@ class BackfillThreadMessageMentionsMigrationTest(TestMigrations):
 
     migrate_from = "0049_taskthreadmessagemention"
     migrate_to = "0050_backfill_thread_message_mentions"
+
+    CLASS_DATA_LEVEL_SETUP = False
 
     @property
     def app(self) -> str:

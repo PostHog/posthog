@@ -590,6 +590,11 @@ class ChartDisplayType(StrEnum):
     SLOPE_GRAPH = "SlopeGraph"
 
 
+class Curve(StrEnum):
+    LINEAR = "linear"
+    SMOOTH = "smooth"
+
+
 class ColorMode(StrEnum):
     LIGHT = "light"
     DARK = "dark"
@@ -877,6 +882,16 @@ class DatabaseSerializedFieldType(StrEnum):
     VIEW = "view"
     MATERIALIZED_VIEW = "materialized_view"
     UNKNOWN = "unknown"
+
+
+class DaysOfWeekEnum(float, Enum):
+    NUMBER_1 = 1
+    NUMBER_2 = 2
+    NUMBER_3 = 3
+    NUMBER_4 = 4
+    NUMBER_5 = 5
+    NUMBER_6 = 6
+    NUMBER_7 = 7
 
 
 class DeepResearchType(StrEnum):
@@ -1830,6 +1845,98 @@ class ExternalDataSourceType(StrEnum):
     PEEC_AI = "PeecAI"
     HEALTHCHECKS = "Healthchecks"
     IMPACT = "Impact"
+    AIKIDO_SECURITY = "AikidoSecurity"
+    ALGUNA = "Alguna"
+    ANTHROPIC = "Anthropic"
+    APPWRITE = "Appwrite"
+    BLAND_AI = "BlandAI"
+    BROWSE_AI = "BrowseAI"
+    BROWSER_USE = "BrowserUse"
+    CHART_HOP = "ChartHop"
+    CODY = "Cody"
+    CURSOR = "Cursor"
+    DECAGON = "Decagon"
+    DEEPGRAM = "Deepgram"
+    ELEVEN_LABS = "ElevenLabs"
+    HARVEY = "Harvey"
+    HYPERSPELL = "Hyperspell"
+    LANGFUSE = "Langfuse"
+    LINGO_DEV = "LingoDev"
+    M3TER = "M3ter"
+    MAXIO = "Maxio"
+    METORIAL = "Metorial"
+    OPEN_ROUTER = "OpenRouter"
+    TOGETHER_AI = "TogetherAI"
+    VAPI = "Vapi"
+    VESPA = "Vespa"
+    WRITESONIC = "Writesonic"
+    AIVEN = "Aiven"
+    AVIATOR = "Aviator"
+    BACKBLAZE = "Backblaze"
+    BASETEN = "Baseten"
+    BROWSERBASE = "Browserbase"
+    COHERE = "Cohere"
+    DENO_DEPLOY = "DenoDeploy"
+    DIGITAL_OCEAN = "DigitalOcean"
+    E2_B = "E2B"
+    FINTOC = "Fintoc"
+    FIRECRAWL = "Firecrawl"
+    FIREWORKS_AI = "FireworksAI"
+    FLY_IO = "FlyIo"
+    GROQ = "Groq"
+    GROWTH_BOOK = "GrowthBook"
+    GUMLOOP = "Gumloop"
+    HATCHET = "Hatchet"
+    HELICONE = "Helicone"
+    HEROKU = "Heroku"
+    HETZNER = "Hetzner"
+    HEY_GEN = "HeyGen"
+    INFISICAL = "Infisical"
+    INNGEST = "Inngest"
+    KAPA_AI = "KapaAI"
+    KERNEL = "Kernel"
+    KOYEB = "Koyeb"
+    LAMBDA_LABS = "LambdaLabs"
+    LANG_SMITH = "LangSmith"
+    LINODE = "Linode"
+    LLAMA_CLOUD = "LlamaCloud"
+    MEM0 = "Mem0"
+    METRIPORT = "Metriport"
+    MINTLIFY = "Mintlify"
+    MISTRAL_AI = "MistralAI"
+    MONO = "Mono"
+    NETLIFY = "Netlify"
+    NORTHFLANK = "Northflank"
+    OPEN_AI = "OpenAI"
+    PINECONE = "Pinecone"
+    PLATFORM_SH = "PlatformSh"
+    PROMPTING_COMPANY = "PromptingCompany"
+    QDRANT = "Qdrant"
+    RENDER = "Render"
+    REPLICATE = "Replicate"
+    RETELL_AI = "RetellAI"
+    ROARK = "Roark"
+    RUN_POD = "RunPod"
+    SCALE_AI = "ScaleAI"
+    SCALEWAY = "Scaleway"
+    SIG_NOZ = "SigNoz"
+    SIM = "Sim"
+    SKYVERN = "Skyvern"
+    SLASH = "Slash"
+    SYNTHESIA = "Synthesia"
+    TELLI = "Telli"
+    TERRA_API = "TerraApi"
+    TRIGGER_DEV = "TriggerDev"
+    TURSO = "Turso"
+    TWELVE_LABS = "TwelveLabs"
+    TWENTY = "Twenty"
+    UNSTRUCTURED = "Unstructured"
+    UPSTASH = "Upstash"
+    VELLUM = "Vellum"
+    VULTR = "Vultr"
+    WINDMILL = "Windmill"
+    ZEP = "Zep"
+    HEX = "Hex"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2438,6 +2545,31 @@ class MetaAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
+class MetricsAggregation(StrEnum):
+    SUM = "sum"
+    AVG = "avg"
+    COUNT = "count"
+    MIN = "min"
+    MAX = "max"
+    QUANTILE = "quantile"
+    RATE = "rate"
+    INCREASE = "increase"
+    HISTOGRAM_QUANTILE = "histogram_quantile"
+
+
+class MetricsAttributeScope(StrEnum):
+    RESOURCE = "resource"
+    ATTRIBUTE = "attribute"
+    AUTO = "auto"
+
+
+class MetricsFilterOp(StrEnum):
+    EQ = "eq"
+    NEQ = "neq"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+
+
 class MultiQuestionFormFieldType(StrEnum):
     TEXT = "text"
     NUMBER = "number"
@@ -2506,6 +2638,7 @@ class NodeKind(StrEnum):
     LOGS_QUERY = "LogsQuery"
     LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"
     LOG_VALUES_QUERY = "LogValuesQuery"
+    METRICS_QUERY = "MetricsQuery"
     TRACE_SPANS_QUERY = "TraceSpansQuery"
     TRACE_SPANS_AGGREGATION_QUERY = "TraceSpansAggregationQuery"
     TRACE_SPANS_TREE_QUERY = "TraceSpansTreeQuery"
@@ -2811,6 +2944,7 @@ class PropertyFilterType(StrEnum):
     LOG = "log"
     LOG_ATTRIBUTE = "log_attribute"
     LOG_RESOURCE_ATTRIBUTE = "log_resource_attribute"
+    METRIC_ATTRIBUTE = "metric_attribute"
     SPAN = "span"
     SPAN_ATTRIBUTE = "span_attribute"
     SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
@@ -3034,8 +3168,10 @@ class SlackIntegrationScope(StrEnum):
 
 class SlackIntegrationScopeInReview(StrEnum):
     ASSISTANT_WRITE = "assistant:write"
+    CANVASES_WRITE = "canvases:write"
     CHANNELS_MANAGE = "channels:manage"
     COMMANDS = "commands"
+    FILES_WRITE = "files:write"
     IM_HISTORY = "im:history"
     MPIM_READ = "mpim:read"
 
@@ -3246,6 +3382,7 @@ class TaxonomicFilterGroupType(StrEnum):
     LOGS = "logs"
     LOG_ATTRIBUTES = "log_attributes"
     LOG_RESOURCE_ATTRIBUTES = "log_resource_attributes"
+    METRIC_ATTRIBUTES = "metric_attributes"
     SPANS = "spans"
     SPAN_ATTRIBUTES = "span_attributes"
     SPAN_RESOURCE_ATTRIBUTES = "span_resource_attributes"
@@ -3286,6 +3423,7 @@ class TraceSpanBreakdownOrderBy(StrEnum):
 
 
 class TraceSpanBreakdownType(StrEnum):
+    SPAN = "span"
     SPAN_ATTRIBUTE = "span_attribute"
     SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
 

@@ -41,6 +41,10 @@ MAX_CUSTOM_IMAGES_PER_USER = 10
 MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG = "tasks-modal-directory-resume-snapshots"
 STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
+# Kill switch: rtk command-output compression is on by default in cloud sandboxes;
+# enabling this flag disables it fleet-wide — over any per-run override — without
+# an image rebuild.
+RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
 
 SnapshotKind = Literal["filesystem", "directory"]
 SNAPSHOT_KIND_FILESYSTEM: SnapshotKind = "filesystem"
@@ -56,7 +60,7 @@ DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH = DEFAULT_SANDBOX_WORKING_DIR
 ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS: frozenset[str] = frozenset({DEFAULT_SANDBOX_WORKING_DIR})
 
 ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
-CodexPermissionMode = Literal["auto", "read-only", "full-access"]
+CodexPermissionMode = Literal["plan", "auto", "read-only", "full-access"]
 InitialPermissionMode = ClaudePermissionMode | CodexPermissionMode
 
 INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(ClaudePermissionMode))

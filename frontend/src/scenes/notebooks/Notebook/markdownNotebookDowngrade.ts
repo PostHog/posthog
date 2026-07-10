@@ -65,7 +65,12 @@ function convertBlockNode(node: NotebookBlockNode): JSONContent | JSONContent[] 
     }
     if (node.type === 'heading') {
         const content = convertInlineNodes(node.children)
-        return { type: 'heading', attrs: { level: node.level ?? 1 }, ...(content.length ? { content } : {}) }
+        const heading: JSONContent = {
+            type: 'heading',
+            attrs: { level: node.level ?? 1 },
+            ...(content.length ? { content } : {}),
+        }
+        return node.blockquote ? { type: 'blockquote', content: [heading] } : heading
     }
     if (node.type === 'blockquote') {
         return { type: 'blockquote', content: [makeParagraph(convertInlineNodes(node.children))] }
