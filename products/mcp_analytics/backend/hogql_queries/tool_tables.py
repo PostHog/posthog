@@ -76,6 +76,19 @@ _EFFECTIVE_DESCRIPTION = (
 # token only has to be materialized once as `h`.
 _HARNESS_LABELS_AGG = f"arraySort(arrayDistinct(groupArray({mcp_harness.harness_label_sql('h')})))"
 
+# Human-readable failure label for an errored $mcp_tool_call. There is no free-text error
+# message on tool-call events — the SDK stamps a semantic bucket ($mcp_error_type: internal,
+# validation, api_4xx, api_5xx, permission, timeout, rate_limited, missing_context) plus an
+# optional HTTP status ($mcp_error_status). We compose the two into one label, falling back to
+# "unknown" when neither is present (older SDKs / server paths that only set $mcp_is_error).
+_FAILURE_LABEL = (
+    "concat("
+    "coalesce(nullIf(toString(properties.$mcp_error_type), ''), 'unknown'), "
+    "if(empty(coalesce(toString(properties.$mcp_error_status), '')), '', "
+    "concat(' (HTTP ', toString(properties.$mcp_error_status), ')'))"
+    ")"
+)
+
 
 def _display_properties(*, email: str, name: str) -> str:
     """JSON of only the person fields the Top-users cell renders, omitting blanks."""
@@ -197,23 +210,14 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
         return mcp_query_date_range(self.team, self.query.dateRange)
 
     def _where(self) -> ast.Expr:
-        # $exception events don't carry the new-SDK markers ($mcp_source / $mcp_exec_tool_call_name),
-        # so this matches the raw $mcp_tool_name rather than the effective tool name.
-        return ast.And(
-            exprs=[
-                parse_expr("event = {event}", placeholders={"event": ast.Constant(value="$exception")}),
-                parse_expr(
-                    "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
-                ),
-                parse_expr(
-                    "timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}
-                ),
-                parse_expr(
-                    "toString(properties.$mcp_tool_name) = {tool}",
-                    placeholders={"tool": ast.Constant(value=self.query.toolName)},
-                ),
-                parse_expr("notEmpty(toString(properties.$exception_message))"),
-            ]
+        # Failures share the tool-call source with every other tool-detail table, so they use the
+        # effective tool name and the same $mcp_source scoping as the stats/error-rate query — the
+        # two can never disagree. (Previously this read $exception events, which don't carry MCP
+        # tool markers, so the table was always empty while the error rate showed failures.)
+        return _tool_call_where(
+            self.query.toolName,
+            self.query_date_range,
+            extra=[parse_expr("toBool(properties.$mcp_is_error)")],
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -226,7 +230,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
                 {_HARNESS_LABELS_AGG} AS harnesses
             FROM (
                 SELECT
-                    substring(toString(properties.$exception_message), 1, 200) AS message,
+                    {_FAILURE_LABEL} AS message,
                     timestamp,
                     {token} AS h
                 FROM events
@@ -238,6 +242,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
             """,
             placeholders={
                 "_HARNESS_LABELS_AGG": parse_expr(_HARNESS_LABELS_AGG),
+                "_FAILURE_LABEL": parse_expr(_FAILURE_LABEL),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "where": self._where(),
             },

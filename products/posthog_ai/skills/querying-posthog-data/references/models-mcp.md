@@ -4,13 +4,13 @@ Any MCP server instrumented with the `@posthog/mcp` SDK — and PostHog's own MC
 
 Query the canonical `$`-prefixed event name. Servers instrumented with the `@posthog/mcp` SDK emit only `$mcp_tool_call` / `$mcp_initialize`; PostHog's own hosted server additionally dual-emits legacy un-prefixed `mcp_tool_call` / `mcp_initialize` aliases through a transition shim. Match the canonical name only — an `event IN ('mcp_tool_call', '$mcp_tool_call')` would double-count PostHog's own server.
 
-**For a single tool, prefer the typed tools.** Each takes a `toolName` plus a `dateRange`, runs the same query runner the tool-detail UI uses, and is gated behind the `mcp-analytics` flag, so results match the UI exactly and you don't re-derive the SQL below. For all of them **except `posthog:query-mcp-tool-failures`**, `toolName` is the effective name (resolved server-side — the inner tool of a single-exec wrapper call). `posthog:query-mcp-tool-failures` is the exception: it matches `$exception` events, which don't carry the new-SDK effective-tool markers, so it takes the **raw** `$mcp_tool_name` (the registered tool name):
+**For a single tool, prefer the typed tools.** Each takes a `toolName` plus a `dateRange`, runs the same query runner the tool-detail UI uses, and is gated behind the `mcp-analytics` flag, so results match the UI exactly and you don't re-derive the SQL below. `toolName` is the effective name (resolved server-side — the inner tool of a single-exec wrapper call) for all of them, including `posthog:query-mcp-tool-failures`:
 
 | question about one tool                                             | tool                                                     |
 | ------------------------------------------------------------------- | -------------------------------------------------------- |
 | headline numbers (calls, errors, p50/p95, users, sessions, intents) | `posthog:query-mcp-tool-stats`                           |
 | day-by-day trend                                                    | `posthog:query-mcp-tool-daily-stats`                     |
-| top error messages, by harness                                      | `posthog:query-mcp-tool-failures` (raw `$mcp_tool_name`) |
+| top failure buckets, by harness                                     | `posthog:query-mcp-tool-failures`                        |
 | top callers (incl. person email/name)                               | `posthog:query-mcp-tool-top-users`                       |
 | tools called before/after it (`neighborDirection: before`/`after`)  | `posthog:query-mcp-tool-neighbors`                       |
 | recent agent intents                                                | `posthog:query-mcp-tool-sample-intents`                  |
@@ -27,7 +27,8 @@ And `posthog:query-mcp-harness-breakdown` for the cross-tool harness cut (see be
 | `$mcp_tool_name`           | Registered tool name.                                                                                                                    |
 | `$mcp_exec_tool_call_name` | Inner tool name when the call went through the new-SDK single-exec wrapper. See effective-tool-name note below.                          |
 | `$mcp_is_error`            | Whether the call failed. Always read via `toBool(properties.$mcp_is_error)`.                                                             |
-| `$mcp_error_message`       | Error text when `$mcp_is_error` is true.                                                                                                 |
+| `$mcp_error_type`          | Semantic failure bucket when `$mcp_is_error` is true (`internal`, `validation`, `api_4xx`, `api_5xx`, `permission`, `timeout`, `rate_limited`, `missing_context`). Only newer SDK/server paths set it. |
+| `$mcp_error_status`        | HTTP status code for an errored call, when the failure came from an HTTP call.                                                           |
 | `$mcp_duration_ms`         | Wall-clock duration; cast with `toFloat(...)`.                                                                                           |
 | `$session_id`              | Session/conversation id — the grouping key for a single agent run. Use the bare `$session_id` field, not `properties.$session_id`.       |
 | `$mcp_intent`              | The agent's stated intent for the call, when supplied.                                                                                   |
@@ -41,7 +42,7 @@ And `posthog:query-mcp-harness-breakdown` for the cross-tool harness cut (see be
 coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))
 ```
 
-**Failures with detail.** `$mcp_tool_call` carries `$mcp_is_error` + `$mcp_error_message`; richer stack/exception data is on `$exception` events (`$exception_message`), correlated by `$mcp_session_id` / `$session_id` and timestamp.
+**Failures with detail.** `$mcp_tool_call` carries `$mcp_is_error` plus a semantic `$mcp_error_type` and, for HTTP failures, `$mcp_error_status`. `posthog:query-mcp-tool-failures` groups errored tool calls by these two fields. A free-text `$mcp_error_message` / `$mcp_response` exists in the SDK schema but PostHog's hosted server leaves both empty, so don't rely on them for tool-failure detail. PostHog's own tool calls also don't emit `$exception` events — those only exist for separately-instrumented MCP servers.
 
 ## Example queries
 

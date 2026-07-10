@@ -677,13 +677,13 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <ResultTable
                     title="Failures"
-                    description="Top exception messages paired with this tool. Sourced from $exception events."
+                    description="Errored calls of this tool grouped by error type and HTTP status. Sourced from the $mcp_is_error flag on $mcp_tool_call events, the same source as the error rate above."
                     rows={failureRows}
                     loading={failureRowsLoading}
-                    emptyMessage="No exceptions recorded for this tool in the last 7 days."
+                    emptyMessage="No errored calls recorded for this tool in the last 7 days."
                     columns={[
                         {
-                            header: 'Message',
+                            header: 'Error type',
                             expand: true,
                             render: (r) => <span className="font-mono text-xs">{String(r[0] ?? '')}</span>,
                         },

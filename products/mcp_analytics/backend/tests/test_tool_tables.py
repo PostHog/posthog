@@ -130,21 +130,34 @@ class TestMCPToolTopUsersQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
 
 
 class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
-    def _emit_exception(
+    def _emit(
         self,
         *,
         tool_name: str = "query_run",
-        message: str = "boom",
+        distinct_id: str = "d1",
         client_name: str | None = None,
+        source: str | None = NEW_SDK_SOURCE,
+        is_error: bool = True,
+        error_type: str | None = None,
+        error_status: str | None = None,
+        exec_tool: str | None = None,
         timestamp: datetime | None = None,
     ) -> None:
-        properties: dict[str, Any] = {"$mcp_tool_name": tool_name, "$exception_message": message}
+        properties: dict[str, Any] = {"$mcp_tool_name": tool_name, "$mcp_is_error": is_error}
+        if source is not None:
+            properties["$mcp_source"] = source
         if client_name is not None:
             properties["$mcp_client_name"] = client_name
+        if error_type is not None:
+            properties["$mcp_error_type"] = error_type
+        if error_status is not None:
+            properties["$mcp_error_status"] = error_status
+        if exec_tool is not None:
+            properties["$mcp_exec_tool_call_name"] = exec_tool
         _create_event(
             team=self.team,
-            event="$exception",
-            distinct_id="d1",
+            event="$mcp_tool_call",
+            distinct_id=distinct_id,
             timestamp=timestamp or datetime.now(tz=UTC),
             properties=properties,
         )
@@ -158,48 +171,64 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
 
     @parameterized.expand(
         [
-            ("sdk_claudeai", "claude-ai", ["Claude.ai"]),
-            ("sdk_mcp_remote_stripped", "claude-ai (via mcp-remote 0.1.37)", ["Claude.ai"]),
-            ("sdk_unknown_to_other", "weird-client", ["Other"]),
+            ("type_and_status", "api_5xx", "500", "api_5xx (HTTP 500)"),
+            ("type_only", "validation", None, "validation"),
+            ("neither_falls_back_to_unknown", None, None, "unknown"),
         ]
     )
-    def test_resolves_harness_labels(self, _name: str, client_name: str, expected: list[str]) -> None:
-        self._emit_exception(client_name=client_name)
+    def test_composes_failure_label(
+        self, _name: str, error_type: str | None, error_status: str | None, expected: str
+    ) -> None:
+        self._emit(error_type=error_type, error_status=error_status, client_name="claude-ai")
         flush_persons_and_events()
 
         rows = self._run()
 
         assert len(rows) == 1
-        assert rows[0].harnesses == expected
+        assert rows[0].message == expected
 
-    def test_groups_by_message_and_counts_occurrences(self) -> None:
-        self._emit_exception(message="boom", client_name="claude-ai")
-        self._emit_exception(message="boom", client_name="cursor-vscode")
-        self._emit_exception(message="other", client_name="claude-ai")
+    def test_only_counts_errored_calls(self) -> None:
+        # The fix's core behavior: failures are sourced from $mcp_is_error on $mcp_tool_call,
+        # so successful calls must never appear (they did when the table read $exception events).
+        self._emit(is_error=False, error_type="validation", client_name="claude-ai")
+        self._emit(is_error=True, error_type="internal", client_name="claude-ai")
         flush_persons_and_events()
 
-        rows = self._run()
-        by_message = {r.message: r for r in rows}
+        assert [r.message for r in self._run()] == ["internal"]
 
-        assert by_message["boom"].occurrences == 2
-        assert by_message["boom"].harnesses == ["Claude.ai", "Cursor"]
-        assert by_message["other"].occurrences == 1
-
-    def test_excludes_other_tools(self) -> None:
-        self._emit_exception(tool_name="other_tool", message="boom", client_name="claude-ai")
+    def test_groups_by_label_dedupes_harnesses_and_counts(self) -> None:
+        self._emit(error_type="internal", client_name="claude-ai")
+        self._emit(error_type="internal", client_name="cursor-vscode")
+        self._emit(error_type="validation", client_name="claude-ai")
         flush_persons_and_events()
 
-        assert self._run(tool_name="query_run") == []
+        by_label = {r.message: r for r in self._run()}
+
+        assert by_label["internal"].occurrences == 2
+        assert by_label["internal"].harnesses == ["Claude.ai", "Cursor"]
+        assert by_label["validation"].occurrences == 1
+
+    def test_excludes_other_tools_and_resolves_effective_tool_name(self) -> None:
+        self._emit(tool_name="other_tool", error_type="internal", client_name="claude-ai")
+        # Single-exec wrapper: the effective tool is in $mcp_exec_tool_call_name, not $mcp_tool_name.
+        self._emit(tool_name="exec", exec_tool="query_run", error_type="validation", client_name="cursor-vscode")
+        flush_persons_and_events()
+
+        assert [r.message for r in self._run(tool_name="query_run")] == ["validation"]
+
+    def test_excludes_events_without_new_sdk_source(self) -> None:
+        self._emit(source=None, error_type="internal", client_name="claude-ai")
+        flush_persons_and_events()
+
+        assert self._run() == []
 
     def test_date_range_excludes_older_events(self) -> None:
         now = datetime.now(tz=UTC)
-        self._emit_exception(message="old", client_name="claude-ai", timestamp=now - timedelta(days=30))
-        self._emit_exception(message="recent", client_name="claude-ai", timestamp=now)
+        self._emit(error_type="internal", timestamp=now - timedelta(days=30))
+        self._emit(error_type="validation", timestamp=now)
         flush_persons_and_events()
 
-        rows = self._run()
-
-        assert {r.message for r in rows} == {"recent"}
+        assert {r.message for r in self._run()} == {"validation"}
 
 
 def _emit_tool_call(

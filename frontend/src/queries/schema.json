@@ -28434,10 +28434,10 @@
         },
         "MCPToolFailureItem": {
             "additionalProperties": false,
-            "description": "One row of the per-tool \"Failures\" table: an exception message paired with a tool.",
+            "description": "One row of the per-tool \"Failures\" table: a failure bucket (error type/status) for a tool.",
             "properties": {
                 "harnesses": {
-                    "description": "Resolved harness labels seen for this exception, deduped and sorted.",
+                    "description": "Resolved harness labels seen for this failure, deduped and sorted.",
                     "items": {
                         "type": "string"
                     },
@@ -28447,6 +28447,7 @@
                     "type": "string"
                 },
                 "message": {
+                    "description": "Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. \"api_5xx (HTTP 500)\").",
                     "type": "string"
                 },
                 "occurrences": {
@@ -28458,7 +28459,7 @@
         },
         "MCPToolFailuresQuery": {
             "additionalProperties": false,
-            "description": "Top exception messages paired with a single MCP tool, with server-resolved harness labels.",
+            "description": "Errored calls of a single MCP tool grouped by error type/status, with server-resolved harness labels.",
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -28478,7 +28479,7 @@
                     "$ref": "#/definitions/QueryLogTags"
                 },
                 "toolName": {
-                    "description": "The raw $mcp_tool_name to scope $exception events to.",
+                    "description": "The effective tool name to scope to (matched against the single-exec-resolved tool name).",
                     "type": "string"
                 },
                 "version": {

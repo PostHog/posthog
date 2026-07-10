@@ -5267,10 +5267,16 @@ class MCPToolFailureItem(BaseModel):
     )
     harnesses: list[str] = Field(
         ...,
-        description=("Resolved harness labels seen for this exception, deduped and sorted."),
+        description=("Resolved harness labels seen for this failure, deduped and sorted."),
     )
     last_seen: str
-    message: str
+    message: str = Field(
+        ...,
+        description=(
+            'Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. "api_5xx (HTTP '
+            '500)").'
+        ),
+    )
     occurrences: int
 
 
@@ -24177,7 +24183,10 @@ class MCPToolFailuresQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MCPToolFailuresQueryResponse | None = None
     tags: QueryLogTags | None = None
-    toolName: str = Field(..., description="The raw $mcp_tool_name to scope $exception events to.")
+    toolName: str = Field(
+        ...,
+        description="The effective tool name to scope to (matched against the single-exec-resolved tool name).",
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
