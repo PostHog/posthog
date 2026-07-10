@@ -49,7 +49,8 @@ from posthog.api.integration import github_rate_limited_response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -155,6 +156,7 @@ tracer = trace.get_tracer(__name__)
 # signal that it's time to add real pagination, rather than silently truncating the list (the
 # old behaviour, which capped at 100 and dropped everyone alphabetically after ~"M").
 REVIEWER_PAGINATION_THRESHOLD = 1200
+PR_GITHUB_CACHE_SECONDS = 15
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -2101,6 +2103,7 @@ class SignalReportViewSet(
                 description="Report has no implementation PR, or no GitHub integration can access it."
             ),
             502: OpenApiResponse(description="GitHub could not return the checks."),
+            503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
         },
         summary="Fetch CI checks for a report's implementation PR",
         description=(
@@ -2125,6 +2128,7 @@ class SignalReportViewSet(
                 description="Report has no implementation PR, or no GitHub integration can access it."
             ),
             502: OpenApiResponse(description="GitHub could not return the comments."),
+            503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
         },
         summary="Fetch comments for a report's implementation PR",
         description=(
@@ -2144,7 +2148,19 @@ class SignalReportViewSet(
         GitHub integration that can read it, call ``fetch_name`` on the client, and return ``{key: ...}``.
         A missing PR/integration maps to 404, a rate limit to its response, and any other upstream GitHub
         failure to 502 — an upstream hiccup never 500s the endpoint."""
-        github, repository, pr_number, error = self._github_for_report_pr(report)
+        reference = self._resolve_report_pr_reference(report)
+        if reference is None:
+            return Response(
+                {"error": "This report has no implementation pull request."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        repository, pr_number = reference
+        cache_key = f"signals:pr-github:{self.team.id}:{repository}:{pr_number}:{fetch_name}"
+        cached_result = cache.get(cache_key)
+        if isinstance(cached_result, dict) and key in cached_result:
+            return Response({key: cached_result[key]})
+
+        github, repository, pr_number, error = self._github_for_report_pr(report, reference=reference)
         if error is not None:
             return error
         assert github is not None  # `error is None` guarantees a resolved integration
@@ -2152,6 +2168,11 @@ class SignalReportViewSet(
             result: dict[str, Any] = getattr(github, fetch_name)(repository, pr_number)
         except GitHubRateLimitError as e:
             return github_rate_limited_response(e)
+        except GitHubEgressBudgetExhausted:
+            return Response(
+                {"error": "GitHub is temporarily busy. Try again shortly."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
             logger.warning(f"signals pr {noun} fetch errored", repository=repository, pr_number=pr_number)
             return Response(
@@ -2163,9 +2184,15 @@ class SignalReportViewSet(
                 {"error": result.get("error") or f"GitHub could not return the {noun} for this pull request."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+        cache.set(cache_key, result, timeout=PR_GITHUB_CACHE_SECONDS)
         return Response({key: result[key]})
 
-    def _github_for_report_pr(self, report: SignalReport) -> tuple[GitHubIntegration | None, str, int, Response | None]:
+    def _github_for_report_pr(
+        self,
+        report: SignalReport,
+        *,
+        reference: tuple[str, int] | None = None,
+    ) -> tuple[GitHubIntegration | None, str, int, Response | None]:
         """Resolve the report's implementation PR and the GitHub integration that can read it.
 
         Returns ``(github, repository, pr_number, error_response)`` — on any failure ``error_response``
@@ -2173,7 +2200,7 @@ class SignalReportViewSet(
         scoping of the artefact `diff` action: access is bounded to repos the team's installation can
         reach, not to a single per-report repository.
         """
-        reference = self._resolve_report_pr_reference(report)
+        reference = reference or self._resolve_report_pr_reference(report)
         if reference is None:
             return (
                 None,
@@ -2186,9 +2213,24 @@ class SignalReportViewSet(
             )
         repository, pr_number = reference
         try:
-            github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+            github = GitHubIntegration.first_for_team_repository(
+                self.team.id,
+                repository,
+                source="signals_pr_detail",
+                priority=Priority.NORMAL,
+            )
         except GitHubRateLimitError as e:
             return None, repository, pr_number, github_rate_limited_response(e)
+        except GitHubEgressBudgetExhausted:
+            return (
+                None,
+                repository,
+                pr_number,
+                Response(
+                    {"error": "GitHub is temporarily busy. Try again shortly."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                ),
+            )
         if github is None:
             return (
                 None,

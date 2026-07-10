@@ -18,6 +18,8 @@ from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
 from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import (
@@ -2363,6 +2365,33 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             response = self.client.get(self._checks_url(str(report.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_pr_checks_503_when_egress_budget_sheds_request(self):
+        report = self._create_report()
+        with (
+            patch(
+                "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+                return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+            ),
+            patch(
+                "products.signals.backend.views.GitHubIntegration.first_for_team_repository",
+                side_effect=GitHubEgressBudgetExhausted("shed"),
+            ),
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    def test_pr_checks_503_when_egress_budget_sheds_fetch(self):
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        github.return_value.get_pull_request_checks.side_effect = GitHubEgressBudgetExhausted("shed")
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
     def test_pr_checks_success_returns_checks(self):
         report = self._create_report()
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
@@ -2374,10 +2403,20 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
         ):
             response = self.client.get(self._checks_url(str(report.id)))
+            cached_response = self.client.get(self._checks_url(str(report.id)))
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"checks": checks}
+        assert cached_response.status_code == status.HTTP_200_OK
+        assert cached_response.json() == {"checks": checks}
         # The PR number is parsed off the stored URL and passed through to the integration.
         assert github.return_value.get_pull_request_checks.call_args.args == ("PostHog/posthog", 7)
+        github.return_value.get_pull_request_checks.assert_called_once()
+        github.assert_called_once_with(
+            self.team.id,
+            "PostHog/posthog",
+            source="signals_pr_detail",
+            priority=Priority.NORMAL,
+        )
 
     def test_pr_checks_maps_upstream_failure_to_502(self):
         report = self._create_report()

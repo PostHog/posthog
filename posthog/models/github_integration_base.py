@@ -528,6 +528,49 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: installation GET failed", url=url, exc_info=True)
             return None
 
+    def _installation_authenticated_get_pages(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        params: dict[str, str | int] | None = None,
+        timeout: int = 10,
+    ) -> list[requests.Response]:
+        """Follow GitHub's trusted ``next`` links so list endpoints are not silently truncated."""
+        responses: list[requests.Response] = []
+        next_url: str | None = url
+        next_params = params
+        seen_urls: set[str] = set()
+
+        while next_url is not None and next_url not in seen_urls:
+            seen_urls.add(next_url)
+            response = self._installation_authenticated_get(
+                next_url,
+                endpoint=endpoint,
+                params=next_params,
+                timeout=timeout,
+            )
+            if response is None:
+                break
+            responses.append(response)
+            if response.status_code != 200:
+                break
+
+            links = getattr(response, "links", None)
+            next_link = links.get("next") if isinstance(links, dict) else None
+            next_link_url = next_link.get("url") if isinstance(next_link, dict) else None
+            parsed_next_url = urlparse(next_link_url) if isinstance(next_link_url, str) else None
+            next_url = (
+                next_link_url
+                if parsed_next_url is not None
+                and parsed_next_url.scheme == "https"
+                and parsed_next_url.netloc == "api.github.com"
+                else None
+            )
+            next_params = None
+
+        return responses
+
     def _installation_authenticated_patch(
         self,
         url: str,
@@ -948,12 +991,14 @@ class GitHubIntegrationBase:
         checks: list[dict[str, Any]] = []
 
         # GitHub Actions (and any Checks-API app) — the primary source for a modern repo.
-        runs_response = self._installation_authenticated_get(
+        runs_responses = self._installation_authenticated_get_pages(
             f"https://api.github.com/repos/{repo_path}/commits/{head_sha}/check-runs",
             endpoint="/repos/{owner}/{repo}/commits/{ref}/check-runs",
             params={"per_page": 100},
         )
-        if runs_response is not None and runs_response.status_code == 200:
+        for runs_response in runs_responses:
+            if runs_response.status_code != 200:
+                continue
             try:
                 runs_body = runs_response.json()
             except Exception:
@@ -971,12 +1016,14 @@ class GitHubIntegrationBase:
                 )
 
         # Legacy commit statuses (external CI posting via the Statuses API) — combined per context.
-        status_response = self._installation_authenticated_get(
+        status_responses = self._installation_authenticated_get_pages(
             f"https://api.github.com/repos/{repo_path}/commits/{head_sha}/status",
             endpoint="/repos/{owner}/{repo}/commits/{ref}/status",
             params={"per_page": 100},
         )
-        if status_response is not None and status_response.status_code == 200:
+        for status_response in status_responses:
+            if status_response.status_code != 200:
+                continue
             try:
                 status_body = status_response.json()
             except Exception:
@@ -1037,24 +1084,27 @@ class GitHubIntegrationBase:
             (f"issues/{pr_number}/comments", "conversation", "/repos/{owner}/{repo}/issues/{issue_number}/comments"),
             (f"pulls/{pr_number}/comments", "review", "/repos/{owner}/{repo}/pulls/{pull_number}/comments"),
         ):
-            response = self._installation_authenticated_get(
+            responses = self._installation_authenticated_get_pages(
                 f"https://api.github.com/repos/{repo_path}/{path}",
                 endpoint=endpoint,
                 params={"per_page": 100},
             )
-            if response is None or response.status_code != 200:
-                continue
-            try:
-                body = response.json()
-            except Exception:
-                logger.warning("GitHubIntegration: get_pull_request_comments non-JSON response", repository=repo_path)
-                continue
-            if not isinstance(body, list):
-                continue
-            for raw in body:
-                normalized = normalize(raw, comment_type)
-                if normalized is not None:
-                    comments.append(normalized)
+            for response in responses:
+                if response.status_code != 200:
+                    continue
+                try:
+                    body = response.json()
+                except Exception:
+                    logger.warning(
+                        "GitHubIntegration: get_pull_request_comments non-JSON response", repository=repo_path
+                    )
+                    continue
+                if not isinstance(body, list):
+                    continue
+                for raw in body:
+                    normalized = normalize(raw, comment_type)
+                    if normalized is not None:
+                        comments.append(normalized)
 
         # Merge both streams into a single chronological thread; entries without a timestamp sort last.
         comments.sort(key=lambda c: c.get("created_at") or "")

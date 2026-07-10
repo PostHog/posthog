@@ -1615,6 +1615,48 @@ class TestGitHubIntegrationModel(BaseTest):
             {"name": "buildkite", "status": "completed", "conclusion": "success", "url": "https://bk/1"},
         ]
 
+    def test_get_pull_request_checks_follows_pagination(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            response = MagicMock(status_code=200)
+            response.links = {}
+            if "/check-runs" not in url:
+                response.json.return_value = {"statuses": []}
+            elif "page=2" in url:
+                response.json.return_value = {
+                    "check_runs": [
+                        {
+                            "name": "second page",
+                            "status": "completed",
+                            "conclusion": "success",
+                        }
+                    ]
+                }
+            else:
+                response.json.return_value = {
+                    "check_runs": [
+                        {
+                            "name": "first page",
+                            "status": "completed",
+                            "conclusion": "success",
+                        }
+                    ]
+                }
+                response.links = {
+                    "next": {"url": "https://api.github.com/repos/PostHog/posthog/commits/abc123f/check-runs?page=2"}
+                }
+            return response
+
+        with (
+            patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}),
+            patch.object(github, "_installation_authenticated_get", side_effect=fake_get),
+        ):
+            result = github.get_pull_request_checks("PostHog/posthog", 1)
+
+        assert [check["name"] for check in result["checks"]] == ["first page", "second page"]
+
     def test_get_pull_request_checks_fails_when_pr_unavailable(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
