@@ -2,7 +2,7 @@ from typing import NotRequired, Optional, TypedDict, cast
 
 import numpy as np
 
-from posthog.schema import IntervalType, TrendsAlertConfig, TrendsQuery
+from posthog.schema import FunnelsQuery, IntervalType, TrendsAlertConfig, TrendsQuery
 
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter
@@ -33,7 +33,7 @@ def _is_non_time_series_trend(query: TrendsQuery) -> bool:
     return bool(query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES)
 
 
-def query_excludes_incomplete_periods(query: TrendsQuery) -> bool:
+def query_excludes_incomplete_periods(query: TrendsQuery | FunnelsQuery) -> bool:
     """When the insight already clips the ongoing interval via
     DateRange.excludeIncompletePeriods, every returned point is complete and
     the alert machinery must not drop or skip the trailing one."""
@@ -41,7 +41,7 @@ def query_excludes_incomplete_periods(query: TrendsQuery) -> bool:
 
 
 def _drop_incomplete_current_interval(
-    data: np.ndarray, dates: list[str], is_non_time_series: bool, *, drop_current: bool = True
+    data: np.ndarray, dates: list[str], is_non_time_series: bool, *, drop_current: bool
 ) -> tuple[np.ndarray, list[str]]:
     """Drop the current (incomplete) interval — always the last element.
 
@@ -49,7 +49,8 @@ def _drop_incomplete_current_interval(
     interval whose value is still accumulating.  Comparing this partial
     value against complete historical intervals causes systematic false
     positives. Pass drop_current=False when the query already excludes
-    incomplete periods, so a complete trailing interval isn't lost too.
+    incomplete periods, so a complete trailing interval isn't lost too;
+    it has no default so callers can't silently drop a complete point.
     """
     if drop_current and not is_non_time_series and len(data) > 1:
         data = data[:-1]

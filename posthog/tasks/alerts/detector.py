@@ -42,9 +42,7 @@ class PreparedSeries:
     label: str
 
 
-def _prepare_series(
-    series: TrendResult, is_non_time_series: bool, *, drop_current: bool = True
-) -> PreparedSeries | None:
+def _prepare_series(series: TrendResult, is_non_time_series: bool, *, drop_current: bool) -> PreparedSeries | None:
     """Extract data + dates from a TrendResult and drop the incomplete interval.
 
     Returns None if the series has too few points for detection.

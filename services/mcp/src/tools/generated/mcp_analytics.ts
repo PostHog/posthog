@@ -240,7 +240,7 @@ const DateRange = z.object({
         .boolean()
         .nullable()
         .describe(
-            'Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone).'
+            'Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.'
         )
         .default(false)
         .optional(),

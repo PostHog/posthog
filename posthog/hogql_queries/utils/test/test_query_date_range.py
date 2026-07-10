@@ -118,7 +118,7 @@ class TestQueryDateRange(APIBaseTest):
 
     @parameterized.expand(
         [
-            # now is 2021-08-25T10:00Z (a Wednesday) — clip to the end of the last complete interval
+            # now is 2021-08-25T10:00Z (a Wednesday): clip to the end of the last complete interval
             ("day", IntervalType.DAY, "-7d", "2021-08-24T23:59:59.999999Z"),
             ("week_sunday_start", IntervalType.WEEK, "-30d", "2021-08-21T23:59:59.999999Z"),
             ("week_monday_start", IntervalType.WEEK, "-30d", "2021-08-22T23:59:59.999999Z"),
@@ -162,6 +162,42 @@ class TestQueryDateRange(APIBaseTest):
             now=now,
         )
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-06-15T23:59:59.999999Z"))
+
+    @parameterized.expand(
+        [
+            # A range entirely inside the current period must not be clipped into an inverted
+            # (date_to < date_from) range: the partial current period is kept instead.
+            ("range_within_current_day", "dStart", IntervalType.DAY, None, "2021-08-25T23:59:59.999999Z"),
+            ("range_within_current_month", "mStart", IntervalType.MONTH, None, "2021-08-25T23:59:59.999999Z"),
+            # Multi-unit buckets don't sit on single-interval boundaries: clipping would truncate
+            # the trailing bucket mid-bucket, so the flag is a no-op there.
+            ("multi_unit_interval", "-1d", IntervalType.HOUR, 2, "2021-08-25T10:00:59.999999Z"),
+        ]
+    )
+    def test_exclude_incomplete_periods_no_op_edge_cases(
+        self, _name, date_from, interval, interval_count, expected_date_to
+    ):
+        now = parser.isoparse("2021-08-25T10:00:00.000Z")
+        query_date_range = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from=date_from, excludeIncompletePeriods=True),
+            interval=interval,
+            interval_count=interval_count,
+            now=now,
+        )
+        self.assertEqual(query_date_range.date_to(), parser.isoparse(expected_date_to))
+
+    def test_exclude_incomplete_periods_clips_exact_timerange(self):
+        # exact_timerange returns early (no end-of-period padding), but the clip must still apply.
+        now = parser.isoparse("2021-08-25T10:00:00.000Z")
+        query_date_range = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from="-7d", excludeIncompletePeriods=True),
+            interval=IntervalType.DAY,
+            now=now,
+            exact_timerange=True,
+        )
+        self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-24T23:59:59.999999Z"))
 
     def test_exclude_incomplete_periods_clips_in_project_timezone(self):
         # now=2021-08-25T02:00Z is still Aug 24 19:00 in US/Pacific (PDT, UTC-7),

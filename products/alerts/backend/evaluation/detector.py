@@ -63,7 +63,7 @@ def extract_detector_series(
     """
     min_samples = _compute_min_samples_for_detector(detector_config) + 1
     is_non_time_series = _is_non_time_series_trend(query)
-    drop_current = not query_excludes_incomplete_periods(query)
+    already_complete = query_excludes_incomplete_periods(query)
     has_breakdown = _has_breakdown(query)
 
     if is_non_time_series:
@@ -97,7 +97,7 @@ def extract_detector_series(
 
     series: list[ComparableSeries] = []
     for result in results:
-        prepared = _prepare_series(result, is_non_time_series, drop_current=drop_current)
+        prepared = _prepare_series(result, is_non_time_series, drop_current=not already_complete)
         if prepared is None:
             continue
         points = [
