@@ -39,6 +39,8 @@ declare module 'storybook/internal/types' {
             waitForLoadersToDisappear?: boolean
             /** If set, we'll wait for the given selector (or all selectors, if multiple) to be satisfied. */
             waitForSelector?: string | string[]
+            /** Timeout in ms for waitForSelector. Defaults to Playwright's context default (10s). */
+            waitForSelectorTimeout?: number
             /**
              * By default we wait for images to have width as an indication the page is ready for screenshot testing
              * Some stories have broken images on purpose to test what the UI does
@@ -275,7 +277,8 @@ async function expectStoryToMatchSnapshot(
     // Allow ResizeObserver callbacks to fire and React to re-render with updated dimensions
     await page.waitForTimeout(300)
 
-    const { waitForLoadersToDisappear = true, waitForSelector } = storyContext.parameters?.testOptions ?? {}
+    const { waitForLoadersToDisappear = true, waitForSelector, waitForSelectorTimeout } =
+        storyContext.parameters?.testOptions ?? {}
 
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
@@ -287,9 +290,11 @@ async function expectStoryToMatchSnapshot(
     }
 
     if (typeof waitForSelector === 'string') {
-        await page.waitForSelector(waitForSelector)
+        await page.waitForSelector(waitForSelector, { timeout: waitForSelectorTimeout })
     } else if (Array.isArray(waitForSelector)) {
-        await Promise.all(waitForSelector.map((selector) => page.waitForSelector(selector)))
+        await Promise.all(
+            waitForSelector.map((selector) => page.waitForSelector(selector, { timeout: waitForSelectorTimeout }))
+        )
     }
 
     // Snapshot both light and dark themes

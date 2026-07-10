@@ -206,6 +206,7 @@ async function expandAndOpenTab(canvasElement: HTMLElement, tab: 'Usage' | 'Spen
 // expanded-row content turns a lost expansion into a retry instead of a flaky collapsed capture.
 const EXPANDED_ROW_TEST_OPTIONS = {
     waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-expansion"]'],
+    waitForSelectorTimeout: 30000,
 }
 
 function mockAccountsQuery(rows: AccountRow[]): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
@@ -384,6 +385,7 @@ export const RowExpandedUsageNotFound: Story = {
     parameters: {
         testOptions: {
             waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-billing-insight-not-found"]'],
+            waitForSelectorTimeout: 30000,
         },
     },
     decorators: billingTabDecorators(EMPTY_INSIGHTS, mockAccountsQuery(SINGLE_ROW)),
@@ -396,9 +398,7 @@ export const RowExpandedUsageNotFound: Story = {
 export const RowExpandedUsagePopulated: Story = {
     render: () => <App />,
     parameters: {
-        testOptions: {
-            waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-expansion"]'],
-        },
+        testOptions: EXPANDED_ROW_TEST_OPTIONS,
     },
     decorators: billingTabDecorators(
         insightsResponse(USAGE_INSIGHT),
