@@ -15,3 +15,4 @@ class ActiveInstallationInfo:
     id: str
     name: str
     proxy_path: str
+    scope: str = "personal"
