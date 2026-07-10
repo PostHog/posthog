@@ -3133,6 +3133,61 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError):
             service.resume_experiment(experiment)
 
+    @parameterized.expand(
+        [
+            (
+                "launched",
+                "experiment launched",
+                lambda self: self._create_launchable_experiment(name="Ev L", feature_flag_key="ev-launched-flag"),
+                lambda service, experiment, request: service.launch_experiment(experiment, request=request),
+            ),
+            (
+                "paused",
+                "experiment paused",
+                lambda self: self._create_running_experiment(name="Ev P", feature_flag_key="ev-paused-flag"),
+                lambda service, experiment, request: service.pause_experiment(experiment, request=request),
+            ),
+            (
+                "resumed",
+                "experiment resumed",
+                lambda self: self._create_running_experiment(name="Ev R", feature_flag_key="ev-resumed-flag"),
+                # pause first (no request -> no report), then resume with the request under assertion
+                lambda service, experiment, request: (
+                    service.pause_experiment(experiment),
+                    service.resume_experiment(experiment, request=request),
+                ),
+            ),
+            (
+                "archived",
+                "experiment archived",
+                lambda self: self._create_ended_experiment(name="Ev A", feature_flag_key="ev-archived-flag"),
+                lambda service, experiment, request: service.archive_experiment(experiment, request=request),
+            ),
+            (
+                "unarchived",
+                "experiment unarchived",
+                lambda self: self._create_ended_experiment(name="Ev U", feature_flag_key="ev-unarchived-flag"),
+                # archive first (no request -> no report), then unarchive with the request under assertion
+                lambda service, experiment, request: (
+                    service.archive_experiment(experiment),
+                    service.unarchive_experiment(experiment, request=request),
+                ),
+            ),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_lifecycle_action_emits_exact_event_name(self, _name, event_name, build, act, mock_report_user_action):
+        # These five event strings are asserted nowhere else. After the per-action report methods were
+        # collapsed into one _report_lifecycle_event(event_name) call, a typo'd string at any call site
+        # would silently break the analytics event without this guard.
+        experiment = build(self)
+        mock_report_user_action.reset_mock()
+
+        act(self._service(), experiment, self._make_request())
+
+        mock_report_user_action.assert_called_once()
+        assert mock_report_user_action.call_args.args[1] == event_name
+
     # ------------------------------------------------------------------
     # Freeze exposure
     # ------------------------------------------------------------------
