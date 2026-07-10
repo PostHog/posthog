@@ -21,6 +21,7 @@ import {
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { ToolbarNotAuthenticatedError } from '~/toolbar/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
@@ -467,6 +468,11 @@ export const productToursLogic = kea<productToursLogicType>([
             const selector = elementToActionStep(element, dataAttributes).selector ?? ''
             const inferenceData = inferSelector(element)?.selector
             const screenshot = await captureAndUploadElementScreenshot(element).catch((e) => {
+                if (e instanceof ToolbarNotAuthenticatedError) {
+                    // Expected in unauthenticated sessions — the screenshot is best-effort, so skip it quietly.
+                    toolbarLogger.warn('product_tours', 'Skipping element screenshot: toolbar not authenticated')
+                    return null
+                }
                 toolbarLogger.warn('product_tours', 'Failed to capture element screenshot')
                 captureToolbarException(e, 'product_tour_screenshot')
                 return null

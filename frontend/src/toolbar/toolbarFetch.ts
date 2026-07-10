@@ -141,13 +141,26 @@ export interface ToolbarMediaUploadResponse {
     name: string
 }
 
+/**
+ * Thrown by `toolbarUploadMedia` when the toolbar session has no access token.
+ * This is an expected condition (e.g. best-effort background screenshot uploads
+ * in an unauthenticated session), so callers should skip it rather than report
+ * it to error tracking.
+ */
+export class ToolbarNotAuthenticatedError extends Error {
+    constructor() {
+        super('Toolbar not authenticated')
+        this.name = 'ToolbarNotAuthenticatedError'
+    }
+}
+
 /** Upload media (images) from the toolbar. */
 export async function toolbarUploadMedia(file: File): Promise<{ id: string; url: string; fileName: string }> {
     // Fail fast when there's no session to begin with — don't route through
     // toolbarFetch (which would return a stub 401 and trip tokenExpired
     // telemetry / toasts for a user who was never authenticated).
     if (!toolbarConfigLogic.findMounted()?.values.accessToken) {
-        throw new Error('Toolbar not authenticated')
+        throw new ToolbarNotAuthenticatedError()
     }
 
     // Route through toolbarFetch so authenticated uploads share the single
