@@ -5110,6 +5110,14 @@ export interface DateRange {
      * Omit or empty for all days. Only applied by insight queries.
      */
     daysOfWeek?: (1 | 2 | 3 | 4 | 5 | 6 | 7)[] | null
+    /**
+     * Exclude the current, still-collecting period by clipping date_to to the
+     * end of the last complete interval (evaluated in the project timezone).
+     * No-op when the range contains no complete interval. Only applied by
+     * insight queries.
+     * @default false
+     */
+    excludeIncompletePeriods?: boolean | null
 }
 
 export interface ResolvedDateRangeResponse {
