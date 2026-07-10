@@ -197,6 +197,13 @@ class TestTruncateForSlack:
         assert len(result) <= SLACK_SECTION_TEXT_LIMIT
         assert "…(truncated)…" in result
 
+    def test_limit_smaller_than_marker_still_respects_limit(self):
+        # The marker itself is longer than a tiny limit — must hard-cut instead of overflowing.
+        text = "x" * 100
+        for limit in (0, 5, 18):
+            result = _truncate_for_slack(text, limit)
+            assert len(result) <= limit
+
     def test_truncation_keeps_head_and_tail(self):
         # Head carries the exception type, tail carries the root cause — keep both.
         text = "HEAD_MARKER" + ("m" * 5000) + "TAIL_MARKER"

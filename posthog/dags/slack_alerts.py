@@ -50,6 +50,9 @@ def _truncate_for_slack(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     marker = "\n…(truncated)…\n"
+    if limit < len(marker):
+        # Not enough room for the marker itself — just hard-cut to the limit.
+        return text[:limit] if limit > 0 else ""
     keep = max(limit - len(marker), 0)
     head = keep * 2 // 3
     tail = keep - head
