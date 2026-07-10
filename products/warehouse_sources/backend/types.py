@@ -795,6 +795,7 @@ class ExternalDataSourceType(models.TextChoices):
     VULTR = "Vultr", "Vultr"
     WINDMILL = "Windmill", "Windmill"
     ZEP = "Zep", "Zep"
+    HEX = "Hex", "Hex"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

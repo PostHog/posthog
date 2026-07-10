@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { AlertDeletionWarning } from 'lib/components/Alerts/AlertDeletionWarning'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+
+import { AlertDeletionWarning } from 'products/alerts/frontend/components/AlertDeletionWarning'
 
 import { insightLogic } from '../insightLogic'
 
