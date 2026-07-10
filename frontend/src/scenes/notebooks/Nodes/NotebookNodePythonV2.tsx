@@ -10,6 +10,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
@@ -51,9 +52,21 @@ const Component = ({
         updateAttributes,
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
+        getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, runError, page, pageSize, pageResult, pageLoading, operationBlockReason } = useValues(dataLogic)
-    const { setPage, setPageSize } = useActions(dataLogic)
+    const {
+        isRunning,
+        runError,
+        page,
+        pageSize,
+        pageResult,
+        pageLoading,
+        operationBlockReason,
+        isStale,
+        staleCount,
+        isChainRunning,
+    } = useValues(dataLogic)
+    const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
     const result = attributes.result ?? null
     const dataframeResult = useMemo(() => {
@@ -83,6 +96,21 @@ const Component = ({
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
+                {isStale ? (
+                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                        <NotebookStaleCellBanner
+                            staleCount={staleCount}
+                            onRun={() => runStaleChain(notebookLogic.values.content ?? null)}
+                            disabledReason={
+                                isChainRunning
+                                    ? 'Stale cells are already being re-run'
+                                    : isRunning
+                                      ? 'This cell is running'
+                                      : (operationBlockReason ?? undefined)
+                            }
+                        />
+                    </div>
+                ) : null}
                 {hasStreamOutput ? (
                     <div className="shrink-0 space-y-2 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
                         {result?.stdout ? (
@@ -169,6 +197,7 @@ const Settings = ({
         updateAttributes,
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
+        getContent: () => notebookLogic.values.content ?? null,
     })
     const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
     const { runQuery, interruptRun } = useActions(dataLogic)

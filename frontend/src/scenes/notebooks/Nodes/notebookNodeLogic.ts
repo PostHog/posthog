@@ -43,6 +43,7 @@ import {
     type NotebookDependencyGraph,
     type NotebookDependencyNode,
     type NotebookDependencyUsage,
+    collectDependencyNodeIds,
     extractHogqlPlaceholders,
     getUniqueDuckSqlReturnVariable,
     getUniqueHogqlReturnVariable,
@@ -240,45 +241,6 @@ const buildHogqlExecutionResult = ({
 }
 
 type DependencyRunDirection = 'upstream' | 'downstream'
-
-const collectDependencyNodeIds = (
-    dependencyGraph: NotebookDependencyGraph,
-    startNodeId: string,
-    direction: DependencyRunDirection
-): Set<string> => {
-    const visited = new Set<string>()
-    if (!startNodeId || !dependencyGraph.nodesById[startNodeId]) {
-        return visited
-    }
-
-    const stack = [startNodeId]
-
-    while (stack.length > 0) {
-        const currentId = stack.pop()
-        if (!currentId || visited.has(currentId)) {
-            continue
-        }
-        visited.add(currentId)
-
-        if (direction === 'upstream') {
-            const sources = Object.values(dependencyGraph.upstreamSourcesByNode[currentId] ?? {})
-            sources.forEach((source) => {
-                if (source.nodeId && !visited.has(source.nodeId)) {
-                    stack.push(source.nodeId)
-                }
-            })
-        } else {
-            const downstreamGroups = Object.values(dependencyGraph.downstreamUsageByNode[currentId] ?? {})
-            downstreamGroups.flat().forEach((usage) => {
-                if (usage.nodeId && !visited.has(usage.nodeId)) {
-                    stack.push(usage.nodeId)
-                }
-            })
-        }
-    }
-
-    return visited
-}
 
 const getDependencyNodesForRun = (
     dependencyGraph: NotebookDependencyGraph,

@@ -4,8 +4,10 @@ import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { notebookNodeStalenessLogic } from '../Notebook/notebookNodeStalenessLogic'
 import { NotebookOperation, notebookOperationsLogic } from '../Notebook/notebookOperationsLogic'
-import { collectPythonKernelNodes, collectSqlV2Nodes } from './notebookNodeContent'
+import { NotebookNodeType } from '../types'
+import { buildNotebookDependencyGraph, collectPythonKernelNodes, collectSqlV2Nodes } from './notebookNodeContent'
 import { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import type { notebookNodeSQLV2LogicType } from './notebookNodeSQLV2LogicType'
 
@@ -70,6 +72,8 @@ export interface NotebookNodeSQLV2LogicProps {
         runId?: string | null
         result?: NotebookNodeSQLV2Result | null
     }) => void
+    // The live notebook document, for staleness marking and chain-dispatched runs (Journey 10).
+    getContent?: () => JSONContent | null
 }
 
 export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
@@ -77,10 +81,17 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
     props({} as NotebookNodeSQLV2LogicProps),
     key((props) => props.nodeId),
     connect((props: NotebookNodeSQLV2LogicProps) => ({
-        values: [notebookOperationsLogic({ shortId: props.notebookShortId }), ['activeOperation', 'isBusy']],
+        values: [
+            notebookOperationsLogic({ shortId: props.notebookShortId }),
+            ['activeOperation', 'isBusy'],
+            notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
+            ['staleNodeIds', 'staleCount', 'chainQueue', 'isChainRunning'],
+        ],
         actions: [
             notebookOperationsLogic({ shortId: props.notebookShortId }),
             ['startOperation', 'finishOperation', 'finishNodeOperations'],
+            notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
+            ['nodeRunFinished', 'dispatchChainRun', 'runStaleChain'],
         ],
     })),
     actions({
@@ -231,6 +242,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 if (!code.trim()) {
                     actions.setRunError('Nothing to run — type some code first.')
                     actions.setIsRunning(false)
+                    actions.nodeRunFinished(props.nodeId, 'failed', null)
                     return
                 }
                 // The run button is disabled while the notebook is busy; this guards Cmd+Enter
@@ -238,6 +250,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 if (values.isBusy && values.activeOperation?.nodeId !== props.nodeId) {
                     lemonToast.info('Another operation is running in this notebook — wait for it to finish.')
                     actions.setIsRunning(false)
+                    actions.nodeRunFinished(props.nodeId, 'failed', null)
                     return
                 }
                 actions.startOperation(runOperation)
@@ -261,7 +274,26 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     actions.setRunError(error instanceof Error ? error.message : 'Failed to run query')
                     actions.setIsRunning(false)
                     actions.finishOperation(runOperation.id)
+                    actions.nodeRunFinished(props.nodeId, 'failed', null)
                 }
+            },
+            // A chain-dispatched run (Journey 10): only the matching node acts; it rebuilds its
+            // code and refs from the live document, exactly like its own Run button would.
+            dispatchChainRun: ({ nodeId }) => {
+                if (nodeId !== props.nodeId) {
+                    return
+                }
+                const content = props.getContent?.() ?? null
+                const self = content ? buildNotebookDependencyGraph(content).nodesById[props.nodeId] : null
+                if (!content || !self) {
+                    actions.nodeRunFinished(props.nodeId, 'failed', null)
+                    return
+                }
+                const opts: RunQueryOptions =
+                    self.nodeType === NotebookNodeType.PythonV2
+                        ? { nodeType: 'python', outputName: self.returnVariable }
+                        : {}
+                actions.runQuery(self.code ?? '', collectSqlV2Refs(content, props.nodeId), opts)
             },
             startPolling: ({ runId }) => {
                 // Idempotent re-register: also covers a remount resuming a persisted in-flight run.
@@ -283,6 +315,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 if (cache.pollAttempts > MAX_POLL_ATTEMPTS) {
                     actions.setRunError('Timed out waiting for result')
                     actions.stopPolling()
+                    actions.nodeRunFinished(props.nodeId, 'failed', null)
                     return
                 }
                 cache.pollInFlight = true
@@ -310,6 +343,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         // A fresh envelope replaces whatever page the user had drilled into.
                         actions.resetPaging()
                         actions.stopPolling()
+                        // Downstream cells now derive from outdated data — mark them stale
+                        // against the document as it stands now (Journey 10).
+                        actions.nodeRunFinished(props.nodeId, 'done', props.getContent?.() ?? null)
                     } else if (status === 'interrupted') {
                         // A user-requested stop: the envelope still carries whatever stdout,
                         // stderr, and figures the cell produced before the interrupt landed.
@@ -317,9 +353,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         actions.setRunError(error ?? 'Run interrupted.')
                         actions.resetPaging()
                         actions.stopPolling()
+                        actions.nodeRunFinished(props.nodeId, 'interrupted', null)
                     } else if (status === 'failed') {
                         actions.setRunError(error ?? 'Run failed')
                         actions.stopPolling()
+                        actions.nodeRunFinished(props.nodeId, 'failed', null)
                     }
                     // 'running' → keep polling
                 } catch (error) {
@@ -328,6 +366,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     }
                     actions.setRunError(error instanceof Error ? error.message : 'Failed to fetch result')
                     actions.stopPolling()
+                    actions.nodeRunFinished(props.nodeId, 'failed', null)
                 } finally {
                     cache.pollInFlight = false
                 }
@@ -368,6 +407,8 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     ? 'Another operation is running in this notebook'
                     : null,
         ],
+        // An upstream cell's run landed after this cell last ran (Journey 10).
+        isStale: [(s) => [s.staleNodeIds], (staleNodeIds): boolean => !!staleNodeIds[props.nodeId]],
     })),
     afterMount(({ props, actions }) => {
         // Recover after a reload/remount: a persisted runId with no result means the run may still be
@@ -376,8 +417,12 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
             actions.startPolling(props.runId)
         }
     }),
-    beforeUnmount(({ props, actions }) => {
+    beforeUnmount(({ props, actions, values }) => {
         // A deleted or unmounted cell must never leave the notebook wedged as busy.
         actions.finishNodeOperations(props.nodeId)
+        // Nor leave a stale-cell chain waiting forever on a run that can no longer report.
+        if (values.chainQueue[0] === props.nodeId) {
+            actions.nodeRunFinished(props.nodeId, 'failed', null)
+        }
     }),
 ])
