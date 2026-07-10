@@ -1,23 +1,22 @@
 {
   "learnings": [
     {
-      "id": "pr-adoption-is-a-workflow",
-      "title": "Adopting an existing PR is a repeatable workflow, not an ad-hoc task",
-      "markdown": "Adopting someone else's in-flight PR always follows the same steps, and skipping any of them is where adoptions go wrong:\n\n- check the change is **still necessary** before any mechanical work\n- update from trunk without polluting the diff\n- fix CI, then address open review threads\n- split oversized PRs into independently assessable changes — [#66590](https://github.com/PostHog/posthog/pull/66590) was one PR that became three\n\nThe recurring pitfalls: diffs polluted by bad merges (a PR \"showing way too many changes\" is almost always this), stale review context silently dropped, and rebasing an obsolete change trunk already solved another way.\n\nNow encoded in the `adopting-prs` skill in the skills store.",
+      "id": "mining-conversations-yields-skills",
+      "title": "Asking the agent to mine past conversations for repeated workflows generates useful skills",
+      "markdown": "The conversation log is a mining surface, not just a record: a recurring prompt is an unwritten skill.\n\nOne pass over a fortnight of history surfaced thirteen \"adopt PR NNNN\" conversations re-explaining the same steps — distilled the same day into the `adopting-prs` skill in the skills store — plus a backlog of proposed skills from other repeated prompts (the pasted autoresearch protocol, error-noise triage, bundle-size work, fleet metrics questions).\n\nThe skill that comes out of the mining is the evidence the mining works. The interesting follow-on question is cadence: how often is a sweep worth it, and does the yield drop once the obvious repetitions are encoded?",
+      "concepts": [
+        "skills-system"
+      ],
       "evidence_tasks": [
-        72639,
-        73528,
-        73819,
-        74505,
-        74556,
-        74627,
-        75851,
-        77935,
-        80691,
-        83401,
-        83731,
-        85237,
-        85972
+        89905
+      ],
+      "observations": [
+        {
+          "date": "2026-07-10",
+          "kind": "observed",
+          "note": "two-week history sweep produced adopting-prs (shipped to the skills store) and four more proposed skills",
+          "task": 89905
+        }
       ],
       "skills": [
         {
@@ -25,52 +24,7 @@
           "status": "existing"
         }
       ],
-      "author": "paul",
-      "concepts": [
-        "pr-fleet"
-      ],
-      "observations": [
-        {
-          "date": "2026-06-28",
-          "kind": "observed",
-          "note": "1 conversation hit this"
-        },
-        {
-          "date": "2026-06-29",
-          "kind": "observed",
-          "note": "5 conversations hit this"
-        },
-        {
-          "date": "2026-06-30",
-          "kind": "observed",
-          "note": "1 conversation hit this"
-        },
-        {
-          "date": "2026-07-02",
-          "kind": "observed",
-          "note": "1 conversation hit this"
-        },
-        {
-          "date": "2026-07-03",
-          "kind": "observed",
-          "note": "1 conversation hit this"
-        },
-        {
-          "date": "2026-07-06",
-          "kind": "observed",
-          "note": "2 conversations hit this"
-        },
-        {
-          "date": "2026-07-07",
-          "kind": "observed",
-          "note": "1 conversation hit this"
-        },
-        {
-          "date": "2026-07-08",
-          "kind": "observed",
-          "note": "1 conversation hit this"
-        }
-      ]
+      "author": "paul"
     },
     {
       "id": "autoresearch-protocol-is-pasted",
