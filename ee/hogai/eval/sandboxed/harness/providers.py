@@ -62,6 +62,48 @@ def cleanup_eval_containers() -> None:
         pass
 
 
+def _modal_eval_app_name() -> str:
+    """Name of the dedicated Modal app the eval sandboxes run under (the
+    ``MODAL_DOCKER`` provider), read from its source of truth in ``products.tasks``."""
+    from products.tasks.backend.logic.services.sandbox import (  # noqa: PLC0415 — Django import, kept off the harness import path
+        get_sandbox_class_for_backend,
+    )
+
+    app_name = getattr(get_sandbox_class_for_backend("MODAL_DOCKER"), "DEFAULT_APP_NAME", "")
+    return app_name if isinstance(app_name, str) else ""
+
+
+def cleanup_modal_eval_sandboxes(app_name: str) -> None:
+    """Terminate every Modal sandbox still running under the eval app.
+
+    The Modal analog of ``cleanup_eval_containers``: best effort, and also reached
+    from an ``atexit`` hook. A case that finishes cleanly has its own workflow
+    terminate its sandbox; this catches the ones a per-case timeout, a crash, or a
+    Ctrl-C left running, so they don't idle (and bill) until their TTL. The app is
+    dedicated to local/eval sandboxes, so sweeping the whole app is safe.
+    """
+    try:
+        import modal  # noqa: PLC0415 — heavy, optional dep kept off the harness import path
+    except Exception:
+        return
+    try:
+        app = modal.App.lookup(app_name, create_if_missing=False)
+    except Exception:
+        # Nothing ever ran under this app, so there is nothing to sweep.
+        return
+    try:
+        sandboxes = list(modal.Sandbox.list(app_id=app.app_id))
+    except Exception:
+        logger.warning("Could not list Modal sandboxes for app %s during cleanup", app_name)
+        return
+    for sandbox in sandboxes:
+        try:
+            logger.info("Terminating leftover Modal sandbox %s", sandbox.object_id)
+            sandbox.terminate()
+        except Exception:
+            pass
+
+
 class SandboxProviderStrategy(ABC):
     """Per-provider bootstrap, settings, and teardown for a harness run."""
 
@@ -85,7 +127,7 @@ class SandboxProviderStrategy(ABC):
         """Per-sandbox max lifetime, or ``None`` to keep ``SANDBOX_TTL_SECONDS``."""
         return None
 
-    def cleanup(self) -> None:  # noqa: B027 — optional hook; modal has nothing to sweep host-side
+    def cleanup(self) -> None:  # noqa: B027 — optional hook; providers that own teardown override it
         """End-of-run sweep for anything per-case teardown may have missed."""
 
 
@@ -139,6 +181,7 @@ class ModalProviderStrategy(SandboxProviderStrategy):
 
     def __init__(self) -> None:
         self._tunnels: NgrokTunnels | None = None
+        self._sandbox_app_name: str | None = None
 
     def preflight(self) -> None:
         if shutil.which("ngrok") is None:
@@ -168,6 +211,14 @@ class ModalProviderStrategy(SandboxProviderStrategy):
             )
 
     def start(self, stack: ExitStack) -> None:
+        # Resolve the eval sandbox app now, while Django is configured, so cleanup()
+        # can sweep leftover sandboxes later — including from the atexit path, where
+        # importing products.tasks is unsafe. A failure here must not fail the run.
+        try:
+            self._sandbox_app_name = _modal_eval_app_name()
+        except Exception:
+            logger.warning("Could not resolve the Modal eval app; end-of-run sandbox sweep is disabled")
+
         tunnels = NgrokTunnels(
             {
                 "django": DJANGO_LIVE_PORT,
@@ -193,6 +244,12 @@ class ModalProviderStrategy(SandboxProviderStrategy):
         # Under TEST=1, SANDBOX_TTL_SECONDS equals the per-case timeout, so Modal
         # would reap a slow case's sandbox exactly as it was about to finish.
         return per_case_timeout_seconds + 10 * 60
+
+    def cleanup(self) -> None:
+        # A finished case terminates its own sandbox; sweep the app for any that a
+        # timeout, crash, or Ctrl-C left running so they don't idle until their TTL.
+        if self._sandbox_app_name:
+            cleanup_modal_eval_sandboxes(self._sandbox_app_name)
 
 
 def build_provider(provider: SandboxProvider, *, keep_containers: bool) -> SandboxProviderStrategy:
