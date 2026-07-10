@@ -10,10 +10,10 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
 import { isMetricThresholdCueVisible } from 'scenes/experiments/ExperimentMetricThreshold'
+import { getExposureEventAndProperty } from 'scenes/experiments/exposureContract'
 import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 import { sharedMetricDetailsModalLogic } from 'scenes/experiments/Metrics/sharedMetricDetailsModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
-import { isEventExposureConfig } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
 import type { Breakdown, EventsNode, ExperimentMetric } from '~/queries/schema/schema-general'
@@ -26,17 +26,11 @@ import { getMetricTag } from './utils'
 const MAX_BREAKDOWNS = 3
 
 // Helper function to get the exposure event from experiment
-const getExposureEvent = (experiment: Experiment): string => {
-    const exposureConfig = experiment.exposure_criteria?.exposure_config
-    if (!exposureConfig) {
-        return '$feature_flag_called'
-    }
-    if (isEventExposureConfig(exposureConfig)) {
-        return exposureConfig.event
-    }
-    // Fall back
-    return '$feature_flag_called'
-}
+const getExposureEvent = (experiment: Experiment): string =>
+    getExposureEventAndProperty({
+        featureFlagKey: experiment.feature_flag_key,
+        exposureCriteria: experiment.exposure_criteria,
+    }).event
 
 const AddBreakdownMenuItem = ({
     experiment,

@@ -9,6 +9,7 @@ import {
     isExperimentFunnelMetric,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { EXPOSURE_DEFAULT_EVENT } from '~/scenes/experiments/exposureContract'
 import { getVariantColor } from '~/scenes/experiments/utils'
 import { funnelTitle } from '~/scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from '~/scenes/trends/persons-modal/PersonsModal'
@@ -97,7 +98,7 @@ function openExperimentPersonsModalForSeries({
         // Add exposure configuration from experiment
         exposureConfig: experiment?.exposure_criteria?.exposure_config || {
             kind: NodeKind.ExperimentEventExposureConfig,
-            event: '$feature_flag_called',
+            event: EXPOSURE_DEFAULT_EVENT,
             properties: [],
         },
         multipleVariantHandling: experiment?.exposure_criteria?.multiple_variant_handling || 'exclude',
