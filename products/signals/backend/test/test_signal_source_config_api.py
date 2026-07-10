@@ -524,21 +524,3 @@ class TestIsSourceEnabledGating(APIBaseTest):
             )
 
         assert SignalSourceConfig.is_source_enabled(self.team.id, "signals_scout", "cross_source_issue") is expected
-
-    @parameterized.expand(
-        [
-            ("no_row_defaults_on", None, True),
-            ("explicit_disabled_opts_out", False, False),
-            ("explicit_enabled_on", True, True),
-        ]
-    )
-    def test_anomaly_investigation_source_on_by_default(self, _name, existing_enabled, expected):
-        if existing_enabled is not None:
-            SignalSourceConfig.objects.create(
-                team=self.team,
-                source_product=SignalSourceConfig.SourceProduct.ALERTS,
-                source_type=SignalSourceConfig.SourceType.ANOMALY_INVESTIGATION,
-                enabled=existing_enabled,
-            )
-
-        assert SignalSourceConfig.is_source_enabled(self.team.id, "alerts", "anomaly_investigation") is expected

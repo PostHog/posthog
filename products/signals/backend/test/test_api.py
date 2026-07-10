@@ -69,23 +69,6 @@ GITHUB_ISSUE_EXTRA = {
     "state": "open",
 }
 
-ANOMALY_INVESTIGATION_EXTRA = {
-    "alert_id": "alert-1",
-    "alert_name": "Signups dropped",
-    "alert_check_id": "check-1",
-    "insight_short_id": "abc123",
-    "insight_name": "Daily signups",
-    "detector_type": "zscore",
-    "verdict": "true_positive",
-    "summary": "Signups fell 40% after the deploy.",
-    "hypotheses": [{"title": "Broken form", "rationale": "JS error on submit", "evidence": ["exception spike"]}],
-    "recommendations": ["Roll back the deploy"],
-    "triggered_dates": ["2026-07-09"],
-    "notebook_short_id": "nb123",
-    "tool_calls_used": 4,
-    "url": "https://us.posthog.com/notebooks/nb123",
-}
-
 
 @pytest.mark.asyncio
 class TestEmitSignalValidation:
@@ -96,9 +79,8 @@ class TestEmitSignalValidation:
             ("llm_analytics", "evaluation", EVALUATION_EXTRA),
             ("zendesk", "ticket", ZENDESK_TICKET_EXTRA),
             ("github", "issue", GITHUB_ISSUE_EXTRA),
-            ("alerts", "anomaly_investigation", ANOMALY_INVESTIGATION_EXTRA),
         ],
-        ids=["session_problem", "evaluation", "ticket", "issue", "anomaly_investigation"],
+        ids=["session_problem", "evaluation", "ticket", "issue"],
     )
     async def test_emit_signal_accepts_valid_input(self, source_product, source_type, extra, team_stub):
         client = AsyncMock()
@@ -134,15 +116,8 @@ class TestEmitSignalValidation:
             ("github", "issue", {}),
             ("zendesk", "ticket", {**ZENDESK_TICKET_EXTRA, "tags": "not-a-list"}),
             ("llm_analytics", "evaluation", {**EVALUATION_EXTRA, "bogus": 1}),
-            ("alerts", "anomaly_investigation", {**ANOMALY_INVESTIGATION_EXTRA, "verdict": "maybe"}),
         ],
-        ids=[
-            "unknown_source_type",
-            "missing_extra_fields",
-            "wrong_extra_field_type",
-            "unexpected_extra_field",
-            "invalid_verdict",
-        ],
+        ids=["unknown_source_type", "missing_extra_fields", "wrong_extra_field_type", "unexpected_extra_field"],
     )
     async def test_emit_signal_rejects_invalid_input(self, source_product, source_type, extra, team_stub):
         client = AsyncMock()
