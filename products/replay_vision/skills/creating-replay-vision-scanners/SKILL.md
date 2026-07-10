@@ -1,25 +1,29 @@
 ---
 name: creating-replay-vision-scanners
-description: "Guides agents through creating and safely sizing a Replay Vision scanner: choosing the scanner type (monitor/classifier/scorer/summarizer), shaping the RecordingsQuery that selects sessions, and — crucially — estimating observation volume and checking the org's monthly quota before creating, so a broad scanner doesn't exhaust the budget on its first scheduled sweep.\nTRIGGER when: user asks to create, set up, or configure a Replay Vision scanner, OR when you are about to call vision-scanners-create, OR when widening an existing scanner's query or sampling_rate via vision-scanners-update.\nDO NOT TRIGGER when: only reading scanners or observations, deleting a scanner, or running an existing scanner against a single session on demand (vision-scanners-scan-session)."
+description: "Guides agents through creating and safely sizing a Replay Vision scanner: choosing the scanner type (monitor/classifier/scorer/summarizer), shaping the RecordingsQuery that selects sessions, and — crucially — estimating credit cost (model-dependent) and checking the org's remaining budget before creating, so a broad or expensive scanner doesn't exhaust the budget on its first scheduled sweep.\nTRIGGER when: user asks to create, set up, or configure a Replay Vision scanner, OR when you are about to call vision-scanners-create, OR when widening an existing scanner's query or sampling_rate, or switching it to a more expensive model, via vision-scanners-update.\nDO NOT TRIGGER when: only reading scanners or observations, deleting a scanner, or running an existing scanner against a single session on demand (vision-scanners-scan-session)."
 ---
 
 # Creating Replay Vision scanners
 
 A scanner is a standing LLM probe over session recordings. Once created and enabled, it runs on a
 **Temporal schedule that sweeps every 5 minutes**, applying its prompt to each new matching recording and
-recording the result as an observation (a queryable `$recording_observed` event). Each observation counts
-against a **monthly org quota** (a fixed number of observations per calendar month).
+recording the result as an observation (a queryable `$recording_observed` event). Each observation spends
+**credits** against the org's billing-period budget (1 credit = $0.01). An observation's cost is
+**model-dependent**: a cheap model bills a couple of credits per observation, a more capable one many more,
+so the same session volume can cost wildly different amounts depending on the scanner's `model`. Some orgs
+are **uncapped** (no spend limit), in which case there's no budget to exhaust.
 
-That schedule is exactly why creation needs a gut-check: a scanner with a permissive query and full sampling
-starts consuming quota automatically and can drain the whole month's budget within its first few sweeps.
-Creation itself does **not** check quota — that protection only kicks in at observation time, by which point
-the budget may already be gone.
+That schedule is exactly why creation needs a gut-check: a scanner with a permissive query, full sampling,
+and an expensive model starts spending credits automatically and can drain the whole period's budget within
+its first few sweeps. Creation itself does **not** check the budget — that protection only kicks in at
+observation time, by which point the credits may already be gone.
 
 ## Core principle: size before you ship
 
-Never create an enabled scanner blind. Estimate its volume, check remaining quota, and — when the projected
-volume is a meaningful fraction of what's left — show the user the numbers and get confirmation before
-creating. This is the heart of the skill; the rest is supporting detail.
+Never create an enabled scanner blind. Estimate its monthly credit cost (volume × the model's per-observation
+price), check the org's remaining budget, and — when the projected spend is a meaningful fraction of what's
+left — show the user the numbers and get confirmation before creating. This is the heart of the skill; the
+rest is supporting detail.
 
 ## The flow
 
@@ -54,23 +58,33 @@ trade coverage for budget.
 
 Before creating, run both checks and reason about them together:
 
-1. **Estimate volume** — call `vision-scanners-estimate-create` with the proposed `query` + `sampling_rate`.
-   It returns `matched_sessions_in_window`, the `window_days` measured, and
-   `estimated_observations_per_month`.
-2. **Check budget** — call `vision-quota-retrieve` for `remaining` and `exhausted` against the org's monthly
-   `credit_limit` (credits, 1 credit = $0.01; `null` when uncapped).
+1. **Estimate cost** — call `vision-scanners-estimate-create` with the proposed `query`, `sampling_rate`, and
+   `model`. It returns the volume (`matched_sessions_in_window`, the `window_days` measured, and
+   `estimated_observations_per_month`) alongside the priced numbers that actually gate the budget:
+   `credits_per_observation` (set by the `model`), `estimated_credits_per_month` (volume × that price), and
+   `other_enabled_scanners_monthly_credits` (the org's other enabled scanners' projected spend). Omitting
+   `model` prices at the default (`gemini-3-flash-preview`); pass the model you actually intend to create so
+   the credit numbers match.
+2. **Check budget** — call `vision-quota-retrieve` for `remaining`, `exhausted`, and `credit_limit` (credits,
+   1 credit = $0.01). Both `remaining` and `credit_limit` are `null` when the org is **uncapped**.
 
-Then decide:
+Then decide, comparing credits to credits (never observations to credits):
 
-- If `estimated_observations_per_month` comfortably fits within `remaining`, proceed.
-- If it's a large fraction of (or exceeds) `remaining`, **stop and tell the user the concrete numbers**
-  — e.g. "This scanner is projected to produce ~X observations/month; you have Y of Z left this month." —
-  and confirm before creating, or suggest tightening the `query` or lowering `sampling_rate` first.
-- If the org is already `exhausted`, say so — a new enabled scanner won't produce anything until the quota
+- If `remaining` is `null`, the org is **uncapped** — there's no budget to blow, so proceed. Still mention the
+  projected monthly credit spend when it's large, so the user isn't surprised by the bill.
+- If `estimated_credits_per_month` comfortably fits within `remaining`, proceed.
+- If it's a large fraction of (or exceeds) `remaining`, **stop and tell the user the concrete numbers** — e.g.
+  "This scanner is projected to spend ~X credits/month (~Y observations at Z credits each); you have N of M
+  credits left this period." — and confirm before creating, or suggest tightening the `query`, lowering
+  `sampling_rate`, or switching to a cheaper `model` first.
+- If the org is already `exhausted`, say so — a new enabled scanner won't produce anything until the budget
   resets, and its observations will be silently skipped.
 
-Confirmation here is a conversation step, not an API capability — surface the trade-off and let the user
-choose. When the projected volume is clearly small relative to the budget, you don't need to ask.
+The volume estimate is still a useful scale check (how many sessions this will touch), but the budget unit is
+credits: a small observation count on an expensive model can still be costly, and a large count on a cheap
+model can be fine. Confirmation here is a conversation step, not an API capability — surface the trade-off and
+let the user choose. When the projected spend is clearly small relative to the budget (or the org is
+uncapped), you don't need to ask.
 
 ### Step 4: Create
 
@@ -89,7 +103,7 @@ Call `vision-scanners-create`. Minimal example:
 ```
 
 `name` must be unique within the team. Set `enabled: false` if the user wants to create it paused (no
-schedule, no quota consumption) and turn it on later.
+schedule, no credit spend) and turn it on later.
 
 ## After creation
 
@@ -102,9 +116,11 @@ schedule, no quota consumption) and turn it on later.
 ## Updating an existing scanner
 
 `vision-scanners-update` is a partial update — send only changed fields. **Re-run the Step 3 gut-check
-whenever you widen scope**: a broader `query` or a higher `sampling_rate` raises the sweep volume just like a
-fresh broad scanner would. Toggling `enabled`, tweaking the prompt, or narrowing the query don't need a
-re-estimate. Editing config bumps `scanner_version`; past observations keep a snapshot of the old config.
+whenever you raise projected spend**: a broader `query` or a higher `sampling_rate` raises the sweep volume,
+and switching to a more expensive `model` raises `credits_per_observation` — either can blow the budget just
+like a fresh broad scanner would. Toggling `enabled`, tweaking the prompt, narrowing the query, or moving to a
+cheaper `model` don't need a re-estimate. Editing config bumps `scanner_version`; past observations keep a
+snapshot of the old config.
 
 ## Gotchas
 
