@@ -34,6 +34,7 @@ import {
     Experiment,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
+    FeatureFlagBasicType,
     FeatureFlagType,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -51,6 +52,12 @@ import type {
 } from 'products/experiments/frontend/generated/api.schemas'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
+import {
+    EXPOSURE_DEFAULT_EVENT,
+    EXPOSURE_FEATURE_FLAG_PROPERTY,
+    EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
+    featureFlagVariantProperty,
+} from './exposureContract'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
 const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5 // on the 0-100 scale (0.5 = 0.5%)
@@ -85,14 +92,24 @@ export function getVariantColor(variantKey: string, featureFlagVariants: Multiva
 }
 
 /**
- * Variants for an experiment, read flag-first. The linked feature flag is the source of truth;
- * `parameters.feature_flag_variants` is a legacy mirror that only matters while creating an
- * experiment, before its flag exists. Saved experiments always resolve from the flag.
+ * Variants for an experiment. Saved experiments resolve from the linked feature flag (the source
+ * of truth); an unsaved draft has no flag yet, so it resolves from the draft flag config instead.
  */
 export function getExperimentVariants(experiment: Partial<Experiment> | null | undefined): MultivariateFlagVariant[] {
     return (
-        experiment?.feature_flag?.filters?.multivariate?.variants ?? experiment?.parameters?.feature_flag_variants ?? []
+        experiment?.feature_flag?.filters?.multivariate?.variants ??
+        experiment?.feature_flag_config?.filters?.multivariate?.variants ??
+        []
     )
+}
+
+/**
+ * Variants for a standalone feature flag (no experiment in hand). Reads the flag's saved config only.
+ */
+export function getFlagVariants(
+    flag: FeatureFlagBasicType | FeatureFlagType | null | undefined
+): MultivariateFlagVariant[] {
+    return flag?.filters?.multivariate?.variants ?? []
 }
 
 export function formatUnitByQuantity(value: number, unit: string): string {
@@ -133,7 +150,7 @@ function seriesToFilterLegacy(
             type: 'events',
             properties: [
                 {
-                    key: `$feature/${featureFlagKey}`,
+                    key: featureFlagVariantProperty(featureFlagKey),
                     type: PropertyFilterType.Event,
                     value: [variantKey],
                     operator: PropertyOperator.Exact,
@@ -192,7 +209,7 @@ function createExposureFilter(
         properties: [
             ...(exposureConfig.properties || []),
             {
-                key: `$feature/${featureFlagKey}`,
+                key: featureFlagVariantProperty(featureFlagKey),
                 type: PropertyFilterType.Event,
                 value: [variantKey],
                 operator: PropertyOperator.Exact,
@@ -219,23 +236,23 @@ export function getViewRecordingFilters(
     const exposureCriteria = experiment.exposure_criteria?.exposure_config
     if (
         exposureCriteria &&
-        !(isEventExposureConfig(exposureCriteria) && exposureCriteria.event === '$feature_flag_called')
+        !(isEventExposureConfig(exposureCriteria) && exposureCriteria.event === EXPOSURE_DEFAULT_EVENT)
     ) {
         filters.push(createExposureFilter(exposureCriteria, experiment.feature_flag_key, variantKey))
     } else {
         filters.push({
-            id: '$feature_flag_called',
-            name: '$feature_flag_called',
+            id: EXPOSURE_DEFAULT_EVENT,
+            name: EXPOSURE_DEFAULT_EVENT,
             type: 'events',
             properties: [
                 {
-                    key: '$feature_flag_response',
+                    key: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
                     type: PropertyFilterType.Event,
                     value: [variantKey],
                     operator: PropertyOperator.Exact,
                 },
                 {
-                    key: '$feature_flag',
+                    key: EXPOSURE_FEATURE_FLAG_PROPERTY,
                     type: PropertyFilterType.Event,
                     value: experiment.feature_flag_key,
                     operator: PropertyOperator.Exact,
@@ -303,7 +320,7 @@ export function getViewRecordingFiltersLegacy(
                         type: 'events',
                         properties: [
                             {
-                                key: `$feature/${featureFlagKey}`,
+                                key: featureFlagVariantProperty(featureFlagKey),
                                 type: PropertyFilterType.Event,
                                 value: [variantKey],
                                 operator: PropertyOperator.Exact,
@@ -326,18 +343,18 @@ export function getViewRecordingFiltersLegacy(
             }
         } else {
             filters.push({
-                id: '$feature_flag_called',
-                name: '$feature_flag_called',
+                id: EXPOSURE_DEFAULT_EVENT,
+                name: EXPOSURE_DEFAULT_EVENT,
                 type: 'events',
                 properties: [
                     {
-                        key: `$feature_flag_response`,
+                        key: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
                         type: PropertyFilterType.Event,
                         value: [variantKey],
                         operator: PropertyOperator.Exact,
                     },
                     {
-                        key: '$feature_flag',
+                        key: EXPOSURE_FEATURE_FLAG_PROPERTY,
                         type: PropertyFilterType.Event,
                         value: featureFlagKey,
                         operator: PropertyOperator.Exact,
@@ -365,8 +382,9 @@ export function getViewRecordingFiltersLegacy(
 }
 
 export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): true {
-    if (featureFlag.filters.multivariate?.variants?.length && featureFlag.filters.multivariate.variants.length > 1) {
-        if (featureFlag.filters.multivariate.variants[0].key !== 'control') {
+    const variants = getFlagVariants(featureFlag)
+    if (variants.length > 1) {
+        if (variants[0].key !== 'control') {
             throw new Error('Feature flag must have control as the first variant.')
         }
         return true
@@ -987,7 +1005,7 @@ export type MetricWithResult = {
 export const isSavedExperiment = (experiment: Experiment | null | undefined): experiment is Experiment =>
     experiment?.id != null && experiment.id !== 'new'
 
-export type ExperimentWritePayload<T> = Omit<T, 'feature_flag'> & {
+export type ExperimentWritePayload<T> = Omit<T, 'feature_flag' | 'feature_flag_config'> & {
     feature_flag?: ExperimentFeatureFlagInputApi
 }
 
@@ -1009,68 +1027,27 @@ export function toFlagVariantsInput(
     }))
 }
 
-/** The flag-config keys the GET projection mirrors into `parameters`. `ensure_experience_continuity`
- * is also user-set (the wizard's continuity toggle writes it); the others only echo the flag. */
-type ProjectedFlagConfigParameters = Experiment['parameters'] & {
-    ensure_experience_continuity?: boolean | null
-    feature_flag_payloads?: Record<string, string>
-}
-
 /**
- * Builds an experiment write payload that sends flag config through the `feature_flag` object
- * (the flag's own filters shape) instead of the deprecated `parameters` keys, which are stripped.
- * The read-only `feature_flag` echoed by a GET response is dropped either way.
+ * Builds an experiment write payload. Draft flag config lives on `feature_flag_config` in the
+ * flag's own input shape; it moves to the `feature_flag` write field. The read-only `feature_flag`
+ * echoed by a GET response is dropped, and `feature_flag_config` never travels literally.
  *
  * Pass `omitFlagConfig` when the experiment links to a pre-existing flag: the flag is linked
  * as-is, and the API rejects explicit config for it.
  */
-export function toExperimentWritePayload<T extends Pick<Experiment, 'parameters'>>(
+export function toExperimentWritePayload<T extends Pick<Experiment, 'feature_flag_config'>>(
     experiment: T,
     { omitFlagConfig = false }: { omitFlagConfig?: boolean } = {}
 ): ExperimentWritePayload<T> {
     const {
-        feature_flag_variants,
-        rollout_percentage,
-        aggregation_group_type_index,
-        feature_flag_payloads,
-        ensure_experience_continuity,
-        ...parameters
-    } = (experiment.parameters ?? {}) as ProjectedFlagConfigParameters
-    const { feature_flag: _echoedFlag, ...rest } = experiment as T & { feature_flag?: unknown }
-    // Preserve a null/undefined parameters as-is: coercing it to {} would rewrite a stored
-    // null on PATCH.
-    const payload = {
-        ...rest,
-        parameters: experiment.parameters == null ? experiment.parameters : parameters,
-    } as ExperimentWritePayload<T>
+        feature_flag: _echoedFlag,
+        feature_flag_config,
+        ...rest
+    } = experiment as T & { feature_flag?: unknown; feature_flag_config?: ExperimentFeatureFlagInputApi }
+    const payload = { ...rest } as ExperimentWritePayload<T>
 
-    if (omitFlagConfig) {
-        return payload
-    }
-
-    const filters: ExperimentFeatureFlagFiltersApi = {}
-    if (feature_flag_variants && feature_flag_variants.length > 0) {
-        filters.multivariate = { variants: toFlagVariantsInput(feature_flag_variants) }
-    }
-    if (rollout_percentage != null) {
-        filters.groups = [{ properties: [], rollout_percentage }]
-    }
-    // Forwarded rather than dropped: on update the backend would backfill these from the linked
-    // flag anyway, but on create (e.g. the duplicate prefill) there is no flag to backfill from,
-    // so dropping them would silently lose group aggregation and variant payloads.
-    if (aggregation_group_type_index != null) {
-        filters.aggregation_group_type_index = aggregation_group_type_index
-    }
-    if (feature_flag_payloads && Object.keys(feature_flag_payloads).length > 0) {
-        filters.payloads = feature_flag_payloads
-    }
-
-    const featureFlag: ExperimentFeatureFlagInputApi = {
-        ...(Object.keys(filters).length > 0 ? { filters } : {}),
-        ...(ensure_experience_continuity != null ? { ensure_experience_continuity } : {}),
-    }
-    if (Object.keys(featureFlag).length > 0) {
-        payload.feature_flag = featureFlag
+    if (!omitFlagConfig && feature_flag_config) {
+        payload.feature_flag = feature_flag_config
     }
     return payload
 }

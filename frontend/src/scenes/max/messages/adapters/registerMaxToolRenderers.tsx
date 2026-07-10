@@ -1,4 +1,4 @@
-import { type ComponentType, lazy } from 'react'
+import { type ComponentType } from 'react'
 
 import {
     IconDashboard,
@@ -16,6 +16,8 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
+import { lazyWithRetry } from 'lib/utils/retryImport'
+
 import {
     registerToolRenderers,
     type ToolRegistryEntry,
@@ -29,19 +31,23 @@ import {
 // they're resolved when a sandbox conversation renders the matching tool call. Surfaces that never load
 // Max (tasks, signals inbox) simply fall through to the generic MCP card for these keys.
 //
-// Renderers are code-split: each lazy() pulls its chunk on first use, not at registration time.
-const InsightRenderer = lazy(() => import('./CreateInsightWidget').then((m) => ({ default: m.CreateInsightWidget })))
-const DashboardRenderer = lazy(() =>
+// Renderers are code-split: each lazyWithRetry() pulls its chunk on first use, not at registration time.
+const InsightRenderer = lazyWithRetry(() =>
+    import('./CreateInsightWidget').then((m) => ({ default: m.CreateInsightWidget }))
+)
+const DashboardRenderer = lazyWithRetry(() =>
     import('./UpsertDashboardWidget').then((m) => ({ default: m.UpsertDashboardWidget }))
 )
-const SessionRecordingsRenderer = lazy(() =>
+const SessionRecordingsRenderer = lazyWithRetry(() =>
     import('./SearchSessionRecordingsWidget').then((m) => ({ default: m.SearchSessionRecordingsWidget }))
 )
-const ErrorTrackingRenderer = lazy(() =>
+const ErrorTrackingRenderer = lazyWithRetry(() =>
     import('./ErrorTrackingWidget').then((m) => ({ default: m.ErrorTrackingWidget }))
 )
-const NotebookRenderer = lazy(() => import('./CreateNotebookWidget').then((m) => ({ default: m.CreateNotebookWidget })))
-const QueryRenderer = lazy(() => import('./QueryWidget').then((m) => ({ default: m.QueryWidget })))
+const NotebookRenderer = lazyWithRetry(() =>
+    import('./CreateNotebookWidget').then((m) => ({ default: m.CreateNotebookWidget }))
+)
+const QueryRenderer = lazyWithRetry(() => import('./QueryWidget').then((m) => ({ default: m.QueryWidget })))
 
 // The single-exec inner tool names exist in two conventions — hyphenated (the MCP yaml definitions) and
 // snake_case (legacy Max tools) — so we register both aliases where both are real tool names. Each call

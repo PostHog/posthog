@@ -831,6 +831,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     'Initial permission mode for Claude runtimes.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto'
                 ),
+            rtk_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
+                ),
         })
         .describe('Request body for creating a new task run'),
     zod
@@ -914,11 +920,19 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                     'Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
                 ),
             initial_permission_mode: zod
-                .enum(['auto', 'read-only', 'full-access'])
-                .describe('\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access')
+                .enum(['plan', 'auto', 'read-only', 'full-access'])
+                .describe(
+                    '\* `plan` - plan\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                )
                 .optional()
                 .describe(
-                    'Initial permission mode for Codex runtimes.\n\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                    'Initial permission mode for Codex runtimes.\n\n\* `plan` - plan\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                ),
+            rtk_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
                 ),
         })
         .describe('Request body for creating a new task run'),
@@ -1261,7 +1275,13 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+                "Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+            ),
+        rtk_enabled: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
             ),
         home_quick_action: zod
             .string()
@@ -1690,6 +1710,116 @@ export const TasksRunsStartCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox.'
         ),
+})
+
+/**
+ * Create a stable, editable artifact handle from direct markdown/text content or an existing run artifact. Slack adapters deliver into the mapped Slack thread; document artifacts use external connector storage when available.
+ * @summary Create a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsCreateBodyNameMax = 255
+
+export const tasksRunsLivingArtifactsCreateBodyArtifactTypeDefault = `document`
+export const tasksRunsLivingArtifactsCreateBodyContentMax = 500000
+
+export const tasksRunsLivingArtifactsCreateBodyContentTypeMax = 255
+
+export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tasksRunsLivingArtifactsCreateBodyNameMax)
+        .describe('Human-readable artifact name, used as the title.'),
+    artifact_type: zod
+        .enum(['slack_message', 'slack_canvas', 'document', 'spreadsheet', 'dashboard', 'file', 'github_pr'])
+        .describe(
+            '\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `document` - document\n\* `spreadsheet` - spreadsheet\n\* `dashboard` - dashboard\n\* `file` - file\n\* `github_pr` - github_pr'
+        )
+        .default(tasksRunsLivingArtifactsCreateBodyArtifactTypeDefault)
+        .describe(
+            'Artifact format or delivery surface to create, such as document, spreadsheet, slack_canvas, or file.\n\n\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `document` - document\n\* `spreadsheet` - spreadsheet\n\* `dashboard` - dashboard\n\* `file` - file\n\* `github_pr` - github_pr'
+        ),
+    adapter: zod
+        .enum(['slack_message', 'slack_canvas', 'slack_file', 'document_connector', 'github_pr'])
+        .describe(
+            '\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `slack_file` - slack_file\n\* `document_connector` - document_connector\n\* `github_pr` - github_pr'
+        )
+        .optional()
+        .describe(
+            'Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.\n\n\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `slack_file` - slack_file\n\* `document_connector` - document_connector\n\* `github_pr` - github_pr'
+        ),
+    content: zod
+        .string()
+        .max(tasksRunsLivingArtifactsCreateBodyContentMax)
+        .optional()
+        .describe('Markdown or text content for the initial artifact version.'),
+    content_base64: zod
+        .string()
+        .optional()
+        .describe(
+            'Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts.'
+        ),
+    content_type: zod
+        .string()
+        .max(tasksRunsLivingArtifactsCreateBodyContentTypeMax)
+        .optional()
+        .describe(
+            'MIME type for content_base64 or source-backed artifacts, such as application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet.'
+        ),
+    source_artifact_id: zod
+        .string()
+        .optional()
+        .describe('Existing run artifact id to use as the initial content source.'),
+    source_storage_path: zod
+        .string()
+        .optional()
+        .describe('Existing run artifact storage_path to use as the initial content source.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Optional metadata to persist with the living artifact.'),
+})
+
+/**
+ * Commit a new version to an existing living artifact handle.
+ * @summary Edit a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsEditBodyNameMax = 255
+
+export const tasksRunsLivingArtifactsEditBodyContentMax = 500000
+
+export const tasksRunsLivingArtifactsEditBodyContentTypeMax = 255
+
+export const TasksRunsLivingArtifactsEditBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tasksRunsLivingArtifactsEditBodyNameMax)
+        .optional()
+        .describe('Optional new human-readable artifact name.'),
+    content: zod
+        .string()
+        .max(tasksRunsLivingArtifactsEditBodyContentMax)
+        .optional()
+        .describe('Markdown or text content for the next version.'),
+    content_base64: zod
+        .string()
+        .optional()
+        .describe('Base64-encoded binary content for the next version, used by adapters such as slack_file.'),
+    content_type: zod
+        .string()
+        .max(tasksRunsLivingArtifactsEditBodyContentTypeMax)
+        .optional()
+        .describe('MIME type for content_base64 or source-backed edits.'),
+    source_artifact_id: zod
+        .string()
+        .optional()
+        .describe('Existing run artifact id to use as the next version content source.'),
+    source_storage_path: zod
+        .string()
+        .optional()
+        .describe('Existing run artifact storage_path to use as the next version content source.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Optional metadata to merge into the artifact registry record.'),
 })
 
 /**

@@ -4,7 +4,6 @@
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils/url'
 import type { Params } from 'scenes/sceneTypes'
@@ -29,6 +28,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ActivityScope } from '~/types'
+
+import { AlertType } from 'products/alerts/frontend/types'
 
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from '../../products/ai_observability/frontend/clusters/constants'
 import type {
@@ -156,6 +157,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
+    Subscriptions: () => import('../../products/subscriptions/frontend/scenes/SubscriptionsScene'),
+    Subscription: () => import('../../products/subscriptions/frontend/scenes/SubscriptionScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
     TracingOperation: () => import('../../products/tracing/frontend/TracingOperationScene'),
@@ -248,23 +251,23 @@ export const productRoutes: Record<string, [string, string]> = {
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
-    '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
-    '/engineering-analytics/pulls': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
+    '/engineering-analytics/overview': ['EngineeringAnalytics', 'engineeringAnalytics'],
+    '/engineering-analytics/pull-requests': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
     '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
-    '/engineering-analytics/:repoOwner/:repoName/pull/:number': [
+    '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
         'EngineeringAnalyticsPullRequest',
         'engineeringAnalyticsPullRequest',
     ],
-    '/engineering-analytics/:repoOwner/:repoName/actions/runs/:runId': [
+    '/engineering-analytics/repos/:repoOwner/:repoName/actions/runs/:runId': [
         'EngineeringAnalyticsWorkflowRun',
         'engineeringAnalyticsWorkflowRun',
     ],
-    '/engineering-analytics/:repoOwner/:repoName/actions/workflows/:workflowName': [
+    '/engineering-analytics/repos/:repoOwner/:repoName/actions/workflows/:workflowName': [
         'EngineeringAnalyticsWorkflowRuns',
         'engineeringAnalyticsWorkflowRuns',
     ],
-    '/engineering-analytics/author/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
+    '/engineering-analytics/authors/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
@@ -305,6 +308,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
+    '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
@@ -312,6 +316,10 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills': ['Skills', 'skills'],
     '/skills/scouts': ['Skills', 'skillsScouts'],
     '/skills/:name': ['Skill', 'skill'],
+    '/subscriptions': ['Subscriptions', 'subscriptions'],
+    '/subscriptions/new': ['Subscriptions', 'subscriptionNew'],
+    '/subscriptions/:subscriptionId/edit': ['Subscriptions', 'subscriptionEdit'],
+    '/subscriptions/:subscriptionId': ['Subscription', 'subscription'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/tracing': ['Tracing', 'tracing'],
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
@@ -462,9 +470,11 @@ export const productRedirects: Record<
             : '/customer_analytics/dashboard'
         return combineUrl(defaultTab, searchParams, hashParams).url
     },
+    '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
-    '/engineering-analytics/authors': '/engineering-analytics',
+    '/engineering-analytics': '/engineering-analytics/overview',
+    '/engineering-analytics/authors': '/engineering-analytics/overview',
     '/error_tracking/configuration': (_params, searchParams, hashParams) => {
         const { tab, ...restSearchParams } = searchParams
         return combineUrl(
@@ -879,6 +889,18 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
+    Subscriptions: {
+        projectBased: true,
+        name: 'Subscriptions',
+        iconType: 'inbox',
+        description: 'View and manage scheduled insight and dashboard subscriptions for this project.',
+    },
+    Subscription: {
+        projectBased: true,
+        name: 'Subscription',
+        iconType: 'inbox',
+        description: 'View subscription details and delivery history for this project.',
+    },
     SlackTaskContext: { name: 'Slack task context', projectBased: true },
     Toolbar: {
         name: 'Toolbar',
@@ -1114,18 +1136,18 @@ export const productUrls = {
         }
         return combineUrl('/endpoints', { tab: 'usage', ...searchParams }).url
     },
-    engineeringAnalytics: (): string => '/engineering-analytics',
-    engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pulls',
+    engineeringAnalytics: (): string => '/engineering-analytics/overview',
+    engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pull-requests',
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
     engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
-        `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull/${number}`,
+        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
     engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>
-        `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
+        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
     engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
-        `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
+        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
     engineeringAnalyticsAuthor: (handle: string): string =>
-        `/engineering-analytics/author/${encodeURIComponent(handle)}`,
+        `/engineering-analytics/authors/${encodeURIComponent(handle)}`,
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string =>
         combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
@@ -1323,6 +1345,7 @@ export const productUrls = {
     replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
     replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
+    replayVisionScannerSelfDriving: (id: string): string => `/replay-vision/${id}/self-driving`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
     replayVisionActionRun: (actionId: string, runId: string): string =>
@@ -1341,6 +1364,10 @@ export const productUrls = {
             version?: number
         }
     ): string => combineUrl(`/skills/${name}`, params).url,
+    subscriptions: (): string => '/subscriptions',
+    subscription: (id: string | number): string => `/subscriptions/${id}`,
+    subscriptionNew: (): string => '/subscriptions/new',
+    subscriptionEdit: (id: string | number): string => `/subscriptions/${id}/edit`,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,

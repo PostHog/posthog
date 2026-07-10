@@ -60,6 +60,27 @@ const SIZE_PX_MAP = {
     medium: 60,
 }
 
+// Some sources (e.g. unreleased "coming soon" stubs) reference an icon file that isn't shipped yet.
+// Rather than render a broken image, fall back to the shrugging hedgehog once the load fails.
+function SourceIconImage({ src, alt, sizePx }: { src: string; alt: string; sizePx: number }): JSX.Element {
+    return (
+        <img
+            src={src}
+            alt={alt}
+            height={sizePx}
+            width={sizePx}
+            className="object-contain max-w-none rounded"
+            onError={(e) => {
+                const img = e.currentTarget
+                if (!img.dataset.fallbackApplied) {
+                    img.dataset.fallbackApplied = 'true'
+                    img.src = BlushingHog
+                }
+            }}
+        />
+    )
+}
+
 export const DATA_WAREHOUSE_SOURCE_ICON_MAP: Record<string, string> = {
     aws: IconAwsS3,
     'google-cloud': IconGoogleCloudStorage,
@@ -125,17 +146,7 @@ export function SourceIcon({
     if (disableTooltip) {
         return (
             <div className="flex gap-4 items-center">
-                {typeof icon === 'object' ? (
-                    icon
-                ) : (
-                    <img
-                        src={icon}
-                        alt={type}
-                        height={sizePx}
-                        width={sizePx}
-                        className="object-contain max-w-none rounded"
-                    />
-                )}
+                {typeof icon === 'object' ? icon : <SourceIconImage src={icon} alt={type} sizePx={sizePx} />}
             </div>
         )
     }
@@ -152,17 +163,7 @@ export function SourceIcon({
                 }
             >
                 <Link to={getDataWarehouseSourceUrl(type)}>
-                    {typeof icon === 'object' ? (
-                        icon
-                    ) : (
-                        <img
-                            src={icon}
-                            alt={type}
-                            height={sizePx}
-                            width={sizePx}
-                            className="object-contain max-w-none rounded"
-                        />
-                    )}
+                    {typeof icon === 'object' ? icon : <SourceIconImage src={icon} alt={type} sizePx={sizePx} />}
                 </Link>
             </Tooltip>
         </div>

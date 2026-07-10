@@ -12,12 +12,14 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
-import { compactHoursLabel } from '../lib/format'
+import { compactAgeLabel, compactHoursLabel } from '../lib/format'
 import { githubPrUrl } from '../lib/github'
+import { pushRoundFromSample } from '../lib/pushRounds'
 import { PullRequestRow, prKeyOf } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
 import { CIStatusTag } from './CIStatusTag'
 import { PullRequestStateTag } from './PullRequestStateTag'
+import { PushHistorySparkline } from './PushHistorySparkline'
 
 /** The PR's detail page, carrying the active source so it opens scoped to the same one. */
 function detailUrlOf(row: PullRequestRow, sourceId: string | null): string {
@@ -43,11 +45,11 @@ export interface PullRequestTableProps {
     loading: boolean
     /** Threaded into row links so the PR's detail page reads the same source. */
     sourceId: string | null
-    /** Show the pushes / re-runs / CI cost columns. */
-    costLensEnabled: boolean
     /** Author column is redundant on the author page (every row is the same author) — hide it there. */
     showAuthor?: boolean
-    /** Rows per page — the list page's 50 by default; the hub passes a small page to stay scannable. */
+    /** Show the Created date column and default the sort to newest-first. Off for the hub's triage order. */
+    showCreated?: boolean
+    /** Rows per page — the list page's 25 by default; the hub passes a small page to stay scannable. */
     pageSize?: number
     emptyState?: ReactNode
     dataAttr?: string
@@ -59,9 +61,9 @@ export function PullRequestTable({
     rows,
     loading,
     sourceId,
-    costLensEnabled,
     showAuthor = true,
-    pageSize = 50,
+    showCreated = false,
+    pageSize = 25,
     emptyState,
     dataAttr = 'engineering-analytics-pr-table',
     embedded = false,
@@ -80,9 +82,9 @@ export function PullRequestTable({
                             to={githubPrUrl(row.repoOwner, row.repoName, row.number)}
                             target="_blank"
                             targetBlankIcon
-                            className="font-mono text-[11px] text-tertiary"
+                            className="font-mono text-[11px] text-tertiary hover:text-accent"
                         >
-                            {row.repoOwner}/{row.repoName} #{row.number}
+                            #{row.number}
                         </Link>
                         {row.labels.slice(0, 3).map((label) => (
                             <LemonTag key={label} type="option">
@@ -130,67 +132,80 @@ export function PullRequestTable({
         {
             title: 'CI',
             key: 'ci',
-            width: 190,
+            width: 120,
+            render: (_, row) => <CIStatusTag rollup={row} />,
+        },
+        {
+            title: 'Pushes',
+            key: 'pushes',
+            width: 170,
+            align: 'right',
+            tooltip:
+                'One bar per push (distinct head commit that triggered CI), oldest first: height is that push’s wall-clock CI time, red means it went red. Re-run cycles are the amber tag. Fork PRs are unattributed.',
+            sorter: (a, b) => a.pushes - b.pushes,
             render: (_, row) => (
-                <div className="flex flex-col gap-0.5">
-                    <CIStatusTag rollup={row} />
-                    {row.failingWorkflows.length > 0 && (
-                        <span className="text-[10.5px] leading-tight text-tertiary">
-                            {row.failingWorkflows.slice(0, 3).join(' · ')}
-                            {row.failingWorkflows.length > 3 && ` +${row.failingWorkflows.length - 3}`}
-                        </span>
-                    )}
+                <div className="flex items-center justify-end gap-2">
+                    <PushHistorySparkline
+                        rounds={row.pushHistory.map(pushRoundFromSample)}
+                        minSlots={10}
+                        className="w-24 shrink-0"
+                        ariaLabel={`Push CI history for pull request #${row.number}`}
+                    />
+                    <span className="text-xs tabular-nums whitespace-nowrap">
+                        {humanFriendlyNumber(row.pushes)}
+                        {row.rerunCycles > 0 && (
+                            <LemonTag type="warning" className="ml-1.5">
+                                +{row.rerunCycles}
+                            </LemonTag>
+                        )}
+                    </span>
                 </div>
             ),
         },
-        ...(costLensEnabled
+        {
+            title: 'CI cost',
+            key: 'estimatedCostUsd',
+            width: 130,
+            align: 'right',
+            tooltip:
+                'Billable minutes + estimated cost across this PR’s jobs (self-hosted runners) over its full history — not the selected window. Excludes still-running jobs, so it can rise as they settle. "—" when the job-level source isn’t synced.',
+            sorter: (a, b) => (a.estimatedCostUsd ?? -1) - (b.estimatedCostUsd ?? -1),
+            render: (_, row) => <BillableBadge minutes={row.billableMinutes} costUsd={row.estimatedCostUsd} />,
+        },
+        ...(showCreated
             ? ([
                   {
-                      title: 'Pushes',
-                      key: 'pushes',
-                      width: 100,
+                      title: 'Created',
+                      key: 'created',
+                      width: 0,
                       align: 'right',
-                      tooltip:
-                          'Distinct head commits that triggered CI for this PR, with re-run cycles as the amber tag. Fork PRs are unattributed.',
-                      sorter: (a, b) => a.pushes - b.pushes,
+                      sorter: (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt),
                       render: (_, row) => (
-                          <span className="text-xs tabular-nums whitespace-nowrap">
-                              {humanFriendlyNumber(row.pushes)}
-                              {row.rerunCycles > 0 && (
-                                  <LemonTag type="warning" className="ml-1.5">
-                                      +{row.rerunCycles}
-                                  </LemonTag>
-                              )}
-                          </span>
-                      ),
-                  },
-                  {
-                      title: 'CI cost',
-                      key: 'estimatedCostUsd',
-                      width: 130,
-                      align: 'right',
-                      tooltip:
-                          'Billable minutes + estimated cost across this PR’s jobs (self-hosted runners) over its full history — not the selected window. Excludes still-running jobs, so it can rise as they settle. "—" when the job-level source isn’t synced.',
-                      sorter: (a, b) => (a.estimatedCostUsd ?? -1) - (b.estimatedCostUsd ?? -1),
-                      render: (_, row) => (
-                          <BillableBadge minutes={row.billableMinutes} costUsd={row.estimatedCostUsd} />
+                          <Tooltip title={dayjs(row.createdAt).format('MMM D, YYYY HH:mm')}>
+                              <span className="text-xs tabular-nums whitespace-nowrap text-secondary">
+                                  {compactAgeLabel(dayjs().diff(dayjs(row.createdAt), 'second'))} ago
+                              </span>
+                          </Tooltip>
                       ),
                   },
               ] as LemonTableColumns<PullRequestRow>)
-            : []),
-        {
-            title: 'Open time',
-            key: 'age',
-            width: 100,
-            align: 'right',
-            tooltip: 'How long the pull request has been open (or was, until it merged).',
-            sorter: (a, b) => (openTimeOf(a)?.seconds ?? -1) - (openTimeOf(b)?.seconds ?? -1),
-            render: (_, row) => (
-                <Tooltip title={<>opened {dayjs(row.createdAt).format('MMM D, HH:mm')}</>}>
-                    <span className="text-xs tabular-nums whitespace-nowrap">{openTimeOf(row)?.label ?? '—'}</span>
-                </Tooltip>
-            ),
-        },
+            : ([
+                  {
+                      title: 'Open time',
+                      key: 'age',
+                      width: 100,
+                      align: 'right',
+                      tooltip: 'How long the pull request has been open (or was, until it merged).',
+                      sorter: (a, b) => (openTimeOf(a)?.seconds ?? -1) - (openTimeOf(b)?.seconds ?? -1),
+                      render: (_, row) => (
+                          <Tooltip title={<>opened {dayjs(row.createdAt).format('MMM D, HH:mm')}</>}>
+                              <span className="text-xs tabular-nums whitespace-nowrap">
+                                  {openTimeOf(row)?.label ?? '—'}
+                              </span>
+                          </Tooltip>
+                      ),
+                  },
+              ] as LemonTableColumns<PullRequestRow>)),
     ]
 
     return (
@@ -226,6 +241,7 @@ export function PullRequestTable({
                 }
             }}
             useURLForSorting={false}
+            defaultSorting={showCreated ? { columnKey: 'created', order: -1 } : null}
             pagination={{ pageSize }}
             emptyState={emptyState ?? "No pull requests yet. They'll appear once the GitHub source syncs."}
             nouns={['pull request', 'pull requests']}

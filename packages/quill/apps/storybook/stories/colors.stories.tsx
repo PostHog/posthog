@@ -224,6 +224,25 @@ export const AllColors: Story = {
                         usages={['Info (used for info actions, infos, etc.)`']}
                     />
 
+                    <ColorSwatch
+                        name="Completed"
+                        items={[
+                            {
+                                className: 'bg-completed',
+                                name: 'completed',
+                                tailwindClass: 'bg-completed',
+                                value: semanticColors.completed[0],
+                            },
+                            {
+                                className: 'text-completed-foreground',
+                                name: 'completed-foreground',
+                                tailwindClass: 'text-completed-foreground',
+                                value: semanticColors['completed-foreground'][0],
+                            },
+                        ]}
+                        usages={['Completed (terminal done state, e.g. merged PR states)']}
+                    />
+
                     <div className="p-2 font-mono bg-border text-foreground">
                         border/foreground: {semanticColors.border[0]}
                     </div>

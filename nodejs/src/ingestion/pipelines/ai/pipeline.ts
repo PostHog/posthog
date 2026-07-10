@@ -219,77 +219,77 @@ export function createAiIngestionPipeline<
                                         .pipeBatch(
                                             createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate)
                                         )
+                                        // Per-event chain. Retry is applied per step: only the steps
+                                        // that do transient-failure-prone I/O (hog transform, group-type
+                                        // fetch, emit) retry, matching the analytics per-distinct-id path.
                                         .sequentially((b) =>
-                                            // Retry the per-event chain on transient failures (hog
-                                            // transform, group-type fetch, emit), matching the
-                                            // analytics per-distinct-id retry.
-                                            b.retry(
-                                                (e) =>
-                                                    e
-                                                        .pipe(createNormalizeProcessPersonFlagStep())
-                                                        .pipe(
-                                                            topHog(createHogTransformEventStep(hogTransformer), [
-                                                                sumOk(
-                                                                    'transformations_run',
-                                                                    (output) => ({ team_id: String(output.team.id) }),
-                                                                    (output) => output.transformationsRun
-                                                                ),
-                                                                sumOk(
-                                                                    'transformations_run_per_partition',
-                                                                    (output, input) => ({
-                                                                        team_id: String(output.team.id),
-                                                                        partition: String(input.message.partition),
-                                                                    }),
-                                                                    (output) => output.transformationsRun
-                                                                ),
-                                                                sumResult(
-                                                                    'events_dropped_by_transformation',
-                                                                    (_result, input) => ({
-                                                                        team_id: String(input.team.id),
-                                                                    }),
-                                                                    (result) => (isDropResult(result) ? 1 : 0)
-                                                                ),
-                                                                sumResult(
-                                                                    'events_dropped_by_transformation_per_partition',
-                                                                    (_result, input) => ({
-                                                                        team_id: String(input.team.id),
-                                                                        partition: String(input.message.partition),
-                                                                    }),
-                                                                    (result) => (isDropResult(result) ? 1 : 0)
-                                                                ),
-                                                            ])
-                                                        )
-                                                        .pipe(createNormalizeEventStep())
-                                                        .pipe(createProcessAiEventStep())
-                                                        // Read-only: drop person-update props so they don't
-                                                        // leak into person_properties (person is never written).
-                                                        .pipe(createStripPersonUpdatePropertiesStep())
-                                                        .pipe(createPrepareEventStep())
-                                                        // Read-only group-type resolution (no new group types created).
-                                                        .pipe(createReadOnlyProcessGroupsStep(groupTypeManager))
-                                                        .pipe(createCreateEventStep(EVENTS_OUTPUT))
-                                                        // Double-write to events + ai_events outputs.
-                                                        .pipe(createSplitAiEventsStep())
-                                                        .pipe(
-                                                            topHog(createEmitEventStep({ outputs }), [
-                                                                sum(
-                                                                    'emitted_events',
-                                                                    (input) => ({ team_id: String(input.teamId) }),
-                                                                    (input) => input.eventsToEmit.length
-                                                                ),
-                                                                sum(
-                                                                    'emitted_events_per_partition',
-                                                                    (input) => ({
-                                                                        team_id: String(input.teamId),
-                                                                        partition: String(input.message.partition),
-                                                                    }),
-                                                                    (input) => input.eventsToEmit.length
-                                                                ),
-                                                            ])
-                                                        )
-                                                        .pipe(createRecordIngestionLagStep()),
-                                                { tries: 5, sleepMs: 100, name: 'ai_event' }
-                                            )
+                                            b
+                                                .pipe(createNormalizeProcessPersonFlagStep())
+                                                .pipe(
+                                                    topHog(createHogTransformEventStep(hogTransformer), [
+                                                        sumOk(
+                                                            'transformations_run',
+                                                            (output) => ({ team_id: String(output.team.id) }),
+                                                            (output) => output.transformationsRun
+                                                        ),
+                                                        sumOk(
+                                                            'transformations_run_per_partition',
+                                                            (output, input) => ({
+                                                                team_id: String(output.team.id),
+                                                                partition: String(input.message.partition),
+                                                            }),
+                                                            (output) => output.transformationsRun
+                                                        ),
+                                                        sumResult(
+                                                            'events_dropped_by_transformation',
+                                                            (_result, input) => ({
+                                                                team_id: String(input.team.id),
+                                                            }),
+                                                            (result) => (isDropResult(result) ? 1 : 0)
+                                                        ),
+                                                        sumResult(
+                                                            'events_dropped_by_transformation_per_partition',
+                                                            (_result, input) => ({
+                                                                team_id: String(input.team.id),
+                                                                partition: String(input.message.partition),
+                                                            }),
+                                                            (result) => (isDropResult(result) ? 1 : 0)
+                                                        ),
+                                                    ]),
+                                                    { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
+                                                )
+                                                .pipe(createNormalizeEventStep())
+                                                .pipe(createProcessAiEventStep())
+                                                // Read-only: drop person-update props so they don't
+                                                // leak into person_properties (person is never written).
+                                                .pipe(createStripPersonUpdatePropertiesStep())
+                                                .pipe(createPrepareEventStep())
+                                                // Read-only group-type resolution (no new group types created).
+                                                .pipe(createReadOnlyProcessGroupsStep(groupTypeManager), {
+                                                    retry: { tries: 5, sleepMs: 100, name: 'readonly_process_groups' },
+                                                })
+                                                .pipe(createCreateEventStep(EVENTS_OUTPUT))
+                                                // Double-write to events + ai_events outputs.
+                                                .pipe(createSplitAiEventsStep())
+                                                .pipe(
+                                                    topHog(createEmitEventStep({ outputs }), [
+                                                        sum(
+                                                            'emitted_events',
+                                                            (input) => ({ team_id: String(input.teamId) }),
+                                                            (input) => input.eventsToEmit.length
+                                                        ),
+                                                        sum(
+                                                            'emitted_events_per_partition',
+                                                            (input) => ({
+                                                                team_id: String(input.teamId),
+                                                                partition: String(input.message.partition),
+                                                            }),
+                                                            (input) => input.eventsToEmit.length
+                                                        ),
+                                                    ]),
+                                                    { retry: { tries: 5, sleepMs: 100, name: 'emit_event' } }
+                                                )
+                                                .pipe(createRecordIngestionLagStep())
                                         )
                                 )
                                 .handleIngestionWarnings(outputs)

@@ -191,12 +191,16 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["workflow_name"] == "CI"
 
-    def test_workflow_health_passes_branch_through(self) -> None:
+    def test_workflow_health_passes_filters_through(self) -> None:
         with mock.patch(f"{_VIEWS}.list_workflow_health", return_value=[]) as list_health:
-            response = self.client.get(self._url("workflow_health"), {"branch": "main"})
+            response = self.client.get(
+                self._url("workflow_health"),
+                {"branch": "main", "run_scope": "pull_request"},
+            )
 
         assert response.status_code == status.HTTP_200_OK
         assert list_health.call_args.kwargs["branch"] == "main"
+        assert list_health.call_args.kwargs["run_scope"] == "pull_request"
 
     def test_repo_run_activity_serializes_and_forwards_branch(self) -> None:
         result = contracts.WorkflowRunActivity(
@@ -208,6 +212,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
                     duration_seconds=180,
                     head_branch="main",
                     pr_number=0,
+                    head_sha="a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
                 )
             ],
             truncated=False,
@@ -385,6 +390,13 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "the maximum is 366" in response.json()["detail"]
+
+    def test_workflow_health_400_on_invalid_run_scope(self) -> None:
+        # A typo'd scope must 400, not silently return the all-runs population as a 200.
+        response = self.client.get(self._url("workflow_health"), {"run_scope": "bogus"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "run_scope must be one of" in response.json()["detail"]
 
     @parameterized.expand(["sources", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle", "quarantine"])
     def test_requires_authentication(self, action: str) -> None:

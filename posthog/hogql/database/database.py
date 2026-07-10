@@ -150,6 +150,8 @@ from posthog.models.team.team import Team, WeekStartDay
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
+from posthog.scopes import APIScopeObject
+from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -205,7 +207,7 @@ class HogQLDatabaseSources:
     build phase runs without any queries."""
 
     team: "Team"
-    user: Optional["User | SyntheticUser"]
+    user: Optional["User | SyntheticUser | SharedLinkUser"]
     connection_id: str | None
     modifiers: "HogQLQueryModifiers"
     is_managed_viewset_enabled: bool
@@ -447,9 +449,26 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
     return TableNode(children=children)
 
 
+@cache
+def _system_table_access_scopes() -> tuple[tuple[str, APIScopeObject], ...]:
+    """(table name, access scope) for the access-controlled Postgres system tables.
+
+    Cached for the process lifetime — this result directly gates table visibility in access-control
+    decisions, so every entry here MUST remain process-static. Do NOT make a system table's
+    access_scope dynamic (per-team, per-flag, or env-driven at call time): this cache would silently
+    serve stale scopes and bypass the restriction. Today SystemTables().children is a static
+    class-level dict of module-level PostgresTable constants, which satisfies that invariant.
+    """
+    return tuple(
+        (name, table_node.table.access_scope)
+        for name, table_node in SystemTables().children.items()
+        if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+    )
+
+
 def _compute_system_table_access_decision(
     team: "Team",
-    user: Optional["User | SyntheticUser"],
+    user: Optional["User | SyntheticUser | SharedLinkUser"],
     user_access_control: Optional["UserAccessControl"] = None,
 ) -> tuple[Optional["UserAccessControl"], set[str]]:
     """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
@@ -457,18 +476,12 @@ def _compute_system_table_access_decision(
     reads are query-free) and the system-node table names to remove.
 
     Pass user_access_control when it's already preloaded to reuse the instance and avoid an extra query."""
-    system_children = SystemTables().children
+    scoped_tables = _system_table_access_scopes()
 
-    # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for anonymous / team token).
-    if user is None or isinstance(user, SyntheticUser):
+    # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).
+    if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
-        return None, {
-            name
-            for name, table_node in system_children.items()
-            if isinstance(table_node.table, PostgresTable)
-            and table_node.table.access_scope is not None
-            and table_node.table.access_scope not in readable_scopes
-        }
+        return None, {name for name, access_scope in scoped_tables if access_scope not in readable_scopes}
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
@@ -477,11 +490,8 @@ def _compute_system_table_access_decision(
         return user_access_control, set()
 
     denied: set[str] = set()
-    for name, table_node in system_children.items():
-        table = table_node.table
-        if not isinstance(table, PostgresTable) or table.access_scope is None:
-            continue  # Not access-controlled, keep it
-        access_level = user_access_control.access_level_for_resource(table.access_scope)
+    for name, access_scope in scoped_tables:
+        access_level = user_access_control.access_level_for_resource(access_scope)
         if access_level and access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
         denied.add(name)
@@ -1123,7 +1133,7 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
-        user: Optional["User | SyntheticUser"] = None,
+        user: Optional["User | SyntheticUser | SharedLinkUser"] = None,
         user_access_control: Optional["UserAccessControl"] = None,
         modifiers: "HogQLQueryModifiers | None" = None,
         timings: HogQLTimings | None = None,
@@ -1153,7 +1163,7 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
-        user: Optional["User | SyntheticUser"] = None,
+        user: Optional["User | SyntheticUser | SharedLinkUser"] = None,
         user_access_control: Optional["UserAccessControl"] = None,
         modifiers: "HogQLQueryModifiers | None" = None,
         timings: HogQLTimings | None = None,
@@ -1412,11 +1422,12 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
-            # Synthetic principals (project secret API keys) are project-wide and bypass object-level
-            # RBAC by design, so they bypass warehouse access control too. System tables stay
-            # scope-gated for them via _compute_system_table_access_decision above. This field only
-            # gates the warehouse checks in _build_from_sources.
-            bypass_warehouse_access_control=bypass_warehouse_access_control or isinstance(user, SyntheticUser),
+            # Principals that skip warehouse access control by design:
+            # - synthetic users (project-wide service tokens, bypass object-level RBAC)
+            # - shared-link users (publishing is the explicit access grant).
+            # System tables stay gated for both.
+            bypass_warehouse_access_control=bypass_warehouse_access_control
+            or isinstance(user, SyntheticUser | SharedLinkUser),
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
             denied_system_table_names=denied_system_table_names,
