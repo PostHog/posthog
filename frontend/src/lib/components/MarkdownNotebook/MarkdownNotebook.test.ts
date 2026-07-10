@@ -799,6 +799,19 @@ continued line
         fireEvent.click(link, { metaKey: true })
         expect(windowOpen).toHaveBeenCalledWith('https://posthog.com/docs', '_blank', 'noopener')
 
+        // View mode keeps native navigation: the handler must not add a second open
+        windowOpen.mockClear()
+        const { container: viewContainer } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('See [docs](https://posthog.com/docs)'),
+                mode: 'view',
+            })
+        )
+        const viewLink = viewContainer.querySelector('.MarkdownNotebook__text-block a[href]') as HTMLAnchorElement
+        expect(viewLink).toBeInstanceOf(HTMLAnchorElement)
+        fireEvent.click(viewLink, { metaKey: true })
+        expect(windowOpen).not.toHaveBeenCalled()
+
         windowOpen.mockRestore()
     })
 

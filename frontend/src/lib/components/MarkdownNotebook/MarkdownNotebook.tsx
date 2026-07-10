@@ -319,6 +319,11 @@ type NotebookHistoryState = {
 }
 
 /** Consecutive single-block edits within this window fold into one undo step. */
+// The editable surfaces whose links are pointer-inert while editing (see MarkdownNotebook.scss);
+// only these get the modifier-click open behavior, everything else keeps native navigation
+const POINTER_INERT_LINK_CONTAINER_SELECTOR =
+    '.MarkdownNotebook__text-block[contenteditable="true"], .MarkdownNotebook__list-block[contenteditable="true"], .MarkdownNotebook__table-cell-content[contenteditable="true"]'
+
 const UNDO_TYPING_GROUP_MS = 1000
 
 /** How many recent local serializations to remember for save-echo detection. Must comfortably
@@ -3968,7 +3973,7 @@ function MarkdownNotebookEditor({
         }
 
         const linkElement = event.target.closest('a[href]')
-        if (linkElement) {
+        if (linkElement && linkElement.closest(POINTER_INERT_LINK_CONTAINER_SELECTOR)) {
             if (event.metaKey || event.ctrlKey) {
                 const href = sanitizeNotebookLinkHref(linkElement.getAttribute('href') ?? '')
                 if (href) {
@@ -3976,7 +3981,7 @@ function MarkdownNotebookEditor({
                     window.open(href, '_blank', 'noopener')
                     return
                 }
-            } else if (linkElement.closest('[contenteditable="true"]')) {
+            } else {
                 // While editing, a plain click only places the caret, never navigates
                 event.preventDefault()
             }
