@@ -233,7 +233,11 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 #   - ECHECKOUTRETRIES ("failed to check out a connection after multiple retries"): the pooler
 #     couldn't hand us a backend connection after retrying internally — its pool was momentarily
 #     exhausted or every backend was busy. A slot frees the moment another session returns one.
-# Both are the same transient class as the libpq drops above and recover on reconnect. Genuine
+#   - ECHECKOUTTIMEOUT ("unable to check out connection from the pool after <n>ms in Transaction
+#     mode"): the transaction-mode sibling of ECHECKOUTRETRIES — the pooler assigns a backend per
+#     transaction and couldn't check one out before its checkout timeout elapsed because the pool
+#     was saturated for the whole window. Clears the moment a session returns a connection.
+# These are all the same transient class as the libpq drops above and recover on reconnect. Genuine
 # XX000 internal errors (data corruption, etc.) carry a different code and stay non-recoverable.
 #
 # Supavisor also surfaces a backend socket that closed mid-session — after the client authenticated
@@ -246,6 +250,7 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     "edbhandlerexited",
     "echeckoutretries",
+    "echeckouttimeout",
     "internal error (authenticated): :closed",
 )
 
