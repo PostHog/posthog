@@ -92,8 +92,8 @@ export function SurveyViewRedesign(): JSX.Element {
     const { location, searchParams, hashParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
-    const isPlaceholderSurvey = survey.id === NEW_SURVEY.id
-    const isInitialSurveyLoad = surveyLoading && isPlaceholderSurvey
+    const isUnsavedSurvey = survey.id === NEW_SURVEY.id
+    const isInitialSurveyLoad = surveyLoading && isUnsavedSurvey
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
     const surveyIdForTransfer = survey?.id && survey.id !== 'new' ? survey.id : null
@@ -170,7 +170,7 @@ export function SurveyViewRedesign(): JSX.Element {
     }, [isRemovingSidePanel, openSidePanel, setPanelTab, setScenePanelOpen])
 
     useEffect(() => {
-        if (isPlaceholderSurvey) {
+        if (isUnsavedSurvey) {
             return
         }
 
@@ -210,7 +210,7 @@ export function SurveyViewRedesign(): JSX.Element {
         }
     }, [
         isDraft,
-        isPlaceholderSurvey,
+        isUnsavedSurvey,
         isRemovingSidePanel,
         closeSidePanel,
         openSidePanel,
