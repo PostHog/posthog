@@ -723,6 +723,7 @@ const llmaPersonalSpend = (): ToolBase<typeof LlmaPersonalSpendSchema, Schemas.P
             query: {
                 date_from: params.date_from,
                 date_to: params.date_to,
+                hourly: params.hourly,
                 limit: params.limit,
                 product: params.product,
                 refresh: params.refresh,

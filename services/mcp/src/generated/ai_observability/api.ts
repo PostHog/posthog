@@ -9,13 +9,14 @@
 import * as zod from 'zod'
 
 /**
- * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / day / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. `by_day` returns a day-ascending spend series for the scoped product. Use `refresh=true` to bypass the 5-minute response cache.
+ * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / day / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. `by_day` returns a day-ascending spend series for the scoped product. Pass `hourly=true` (windows of 8 days or less) to additionally get `by_hour`, an hour-ascending series with per-hour cost split into uncached input / output / cache read / cache creation components. Use `refresh=true` to bypass the 5-minute response cache.
  */
 export const llmAnalyticsPersonalSpendListQueryDateFromDefault = `-30d`
 export const llmAnalyticsPersonalSpendListQueryDateFromMax = 32
 
 export const llmAnalyticsPersonalSpendListQueryDateToMax = 32
 
+export const llmAnalyticsPersonalSpendListQueryHourlyDefault = false
 export const llmAnalyticsPersonalSpendListQueryLimitDefault = 50
 export const llmAnalyticsPersonalSpendListQueryLimitMax = 200
 
@@ -37,6 +38,12 @@ export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.obje
         .max(llmAnalyticsPersonalSpendListQueryDateToMax)
         .nullish()
         .describe('End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted.'),
+    hourly: zod
+        .boolean()
+        .default(llmAnalyticsPersonalSpendListQueryHourlyDefault)
+        .describe(
+            'If true, additionally return a `by_hour` breakdown: an hour-ascending UTC cost series for the scoped product, with per-hour cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Only allowed for windows of 8 days or less.'
+        ),
     limit: zod
         .number()
         .min(1)

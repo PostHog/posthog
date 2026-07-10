@@ -45147,6 +45147,38 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    export interface _HourBreakdownRow {
+      /** UTC hour bucket the events fall in (`toStartOfHour(timestamp)`). */
+      hour: string;
+      /** Number of $ai_generation + $ai_embedding events in this hour for the scoped product. */
+      event_count: number;
+      /** Total cost in USD in this hour (sum of `$ai_total_cost_usd`). Authoritative: the component columns below can sum to less than this when the cost breakdown was unavailable for some events — render any remainder as uncategorized rather than assuming the components reconcile. */
+      cost_usd: number;
+      /** Cost of uncached (full-price) input tokens in USD (sum of `$ai_input_cost_usd`). */
+      input_cost_usd: number;
+      /** Cost of output tokens in USD (sum of `$ai_output_cost_usd`). */
+      output_cost_usd: number;
+      /** Cost of prompt-cache reads in USD (sum of `$ai_cache_read_cost_usd`). */
+      cache_read_cost_usd: number;
+      /** Cost of prompt-cache writes in USD (sum of `$ai_cache_creation_cost_usd`). A spike here with near-zero cache reads is the signature of a cold session being revived: the full conversation context is re-written to the cache at the cache-write rate instead of being read back cheaply. */
+      cache_creation_cost_usd: number;
+      /** Sum of uncached `$ai_input_tokens` in this hour. */
+      input_tokens: number;
+      /** Sum of `$ai_output_tokens` in this hour. */
+      output_tokens: number;
+      /** Sum of `$ai_cache_read_input_tokens` (prompt tokens served from cache) in this hour. */
+      cache_read_input_tokens: number;
+      /** Sum of `$ai_cache_creation_input_tokens` (prompt tokens written to cache) in this hour. */
+      cache_creation_input_tokens: number;
+    }
+
+    export interface _HourBreakdown {
+      /** One row per UTC hour that has events, ordered by hour ascending. Hours with no events are omitted — zero-fill client-side when rendering a continuous series. */
+      items: _HourBreakdownRow[];
+      /** Effectively always false: `by_hour` ignores `limit` because truncating a time series by cost would be meaningless, and the 8-day window cap already bounds the series length. */
+      truncated: boolean;
+    }
+
     export interface _TopTraceRow {
       /**
          * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
@@ -45185,6 +45217,8 @@ export namespace Schemas {
       by_model: _ModelBreakdown;
       /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
       by_day: _DayBreakdown;
+      /** Spend grouped by UTC hour with per-hour cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `hourly=true`. */
+      by_hour?: _HourBreakdown;
       /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
       top_traces: _TopTraces;
     }
@@ -63766,6 +63800,10 @@ export namespace Schemas {
      * @nullable
      */
     date_to?: string | null;
+    /**
+     * If true, additionally return a `by_hour` breakdown: an hour-ascending UTC cost series for the scoped product, with per-hour cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Only allowed for windows of 8 days or less.
+     */
+    hourly?: boolean;
     /**
      * Maximum number of rows to return per breakdown (1-200, defaults to 50). Each breakdown returns up to this many rows ordered by cost descending. Per-breakdown `truncated: true` indicates more rows exist beyond the limit.
      * @minimum 1
