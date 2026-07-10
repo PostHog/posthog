@@ -476,18 +476,24 @@ class TestRepartitionActivity:
             }
         )
 
-        def _newer_attempt_steals_claim_then_fail(*args, **kwargs):
-            # A newer attempt claims the schema mid-rewrite; our own rewrite then dies on the clobber.
+        def _steal_claim_but_blip_reports_still_claimant(*args, **kwargs):
+            # Model the transient blip: a newer attempt has already taken the claim in the DB, yet the
+            # claim re-read here reports True anyway (conservative on doubt). The steal is written from
+            # here rather than inside the rewrite mock because _still_claimant runs in the activity's sync
+            # context, so its ORM write is safe — the rewrite runs under async_to_sync, where sync ORM
+            # raises SynchronousOnlyOperation.
             other = ExternalDataSchema.objects.get(id=schema.id)
             other.set_repartition_claim({"token": "newer-token", "job_id": "j2", "claimed_at": "later"})
-            raise ValueError("boom from clobbered temp")
+            return True
 
-        mocked = AsyncMock(side_effect=_newer_attempt_steals_claim_then_fail)
+        mocked = AsyncMock(side_effect=ValueError("boom from clobbered temp"))
         with (
             patch.object(repartition_table, "HeartbeaterSync"),
             patch.object(repartition_table, "repartition_table_in_place", new=mocked),
             patch.object(repartition_table, "capture_repartition_event") as capture,
-            patch.object(repartition_table, "_still_claimant", return_value=True),
+            patch.object(
+                repartition_table, "_still_claimant", side_effect=_steal_claim_but_blip_reports_still_claimant
+            ),
         ):
             ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
         assert "warehouse_repartition_failed" not in [c.args[0] for c in capture.call_args_list]

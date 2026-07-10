@@ -318,8 +318,8 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             capture_exception(e)
             DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="transient").inc()
             return
-        outcome = _handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger)
-        DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome=outcome).inc()
+        failure_outcome = _handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger)
+        DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome=failure_outcome).inc()
         return
 
     duration = time.monotonic() - start
