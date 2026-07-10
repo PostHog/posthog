@@ -56,6 +56,7 @@ import {
     ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
     ErrorTrackingIssueSceneLogicProps,
     errorTrackingIssueSceneLogic,
+    parseErrorTrackingIssueSceneIdentifier,
 } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -64,7 +65,11 @@ import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
     logic: errorTrackingIssueSceneLogic,
-    paramsToProps: ({ params: { id }, searchParams: { fingerprint, timestamp } }) => ({ id, fingerprint, timestamp }),
+    paramsToProps: ({ params: { identifier }, searchParams: { fingerprint, timestamp } }) => ({
+        ...parseErrorTrackingIssueSceneIdentifier(identifier, fingerprint),
+        isScene: true,
+        timestamp,
+    }),
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
@@ -76,6 +81,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
 
     useEffect(() => {
+        if (!issueId) {
+            return
+        }
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
         posthog.capture('error_tracking_issue_viewed', {
             issue_id: issueId,
@@ -87,8 +95,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         <StyleVariables>
             <ErrorTrackingSetupPrompt>
                 <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
-                    <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
-                        {issue && (
+                    {issue && issueId && (
+                        <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
                                 {sceneMenuBarEnabled && (
                                     <SceneMenuBar>
@@ -227,8 +235,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     </div>
                                 </div>
                             </div>
-                        )}
-                    </BindLogic>
+                        </BindLogic>
+                    )}
                 </BindLogic>
             </ErrorTrackingSetupPrompt>
         </StyleVariables>

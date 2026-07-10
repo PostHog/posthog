@@ -34,12 +34,14 @@ import type {
     ErrorTrackingIssueMergeResponseApi,
     ErrorTrackingIssueQueryRequestApi,
     ErrorTrackingIssueReadApi,
+    ErrorTrackingIssueResolveResponseApi,
     ErrorTrackingIssueSplitRequestApi,
     ErrorTrackingIssueSplitResponseApi,
     ErrorTrackingIssueWriteApi,
     ErrorTrackingIssuesListParams,
     ErrorTrackingIssuesListQueryRequestApi,
     ErrorTrackingIssuesListResponseApi,
+    ErrorTrackingIssuesResolveRetrieveParams,
     ErrorTrackingRecommendationApi,
     ErrorTrackingRecommendationsListParams,
     ErrorTrackingReleaseApi,
@@ -923,6 +925,43 @@ export const errorTrackingIssuesExistsRetrieve = async (projectId: string, optio
         ...options,
         method: 'GET',
     })
+}
+
+export const getErrorTrackingIssuesResolveRetrieveUrl = (
+    projectId: string,
+    params: ErrorTrackingIssuesResolveRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/issues/resolve/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/issues/resolve/`
+}
+
+/**
+ * Resolve an exact fingerprint to its current issue, falling back to a legacy issue UUID only when no fingerprint matches.
+ * @summary Resolve an error tracking issue identifier
+ */
+export const errorTrackingIssuesResolveRetrieve = async (
+    projectId: string,
+    params: ErrorTrackingIssuesResolveRetrieveParams,
+    options?: RequestInit
+): Promise<ErrorTrackingIssueResolveResponseApi> => {
+    return apiMutator<ErrorTrackingIssueResolveResponseApi>(
+        getErrorTrackingIssuesResolveRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getErrorTrackingIssuesValuesRetrieveUrl = (projectId: string) => {

@@ -28,7 +28,7 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                 title={record.name || 'Unknown Type'}
                 description={<div className="line-clamp-1">{record.description}</div>}
                 className="flex"
-                to={urls.errorTrackingIssue(record.id)}
+                to={urls.errorTrackingIssue(record.fingerprint ?? record.id)}
             />
         </div>
     )

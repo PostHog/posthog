@@ -68,11 +68,12 @@ a typical production project; tighter thresholds make this much noisier.
 detector either over-fires or under-fires.
 
 **Useful event properties for templating** — spiking events carry a smaller surface than `_created`:
-no `status`, no `fingerprint`, no `exception_timestamp`, and no exception properties (so no per-issue
-property scoping). Available:
+no `status`, no `exception_timestamp`, and no exception properties (so no per-issue property scoping).
+Available:
 
 - `event.properties.name` — issue title.
 - `event.properties.description` — truncated body / message.
+- `event.properties.fingerprint` — used in the deep link.
 - `event.distinct_id` — the issue id.
 - `event.properties.current_bucket_value` — exception count in the current detection window (typically
   5 minutes).
@@ -94,10 +95,11 @@ useful for "manage this alert" links inside the message body.
 **Deep-link shape** for the issue page (used by the canonical block templates):
 
 ```text
-{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack
+{project.url}/error_tracking/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack
 ```
 
-`utm_medium` matches the destination (`slack`, `discord`, `microsoft_teams`). For `_spiking` links, drop
-the `fingerprint` and `timestamp` params — spiking events do not carry those properties. The `utm_*`
-tags let the team measure how often issues get clicked from alerts later via product analytics on
-`$pageview`.
+`utm_medium` matches the destination (`slack`, `discord`, `microsoft_teams`). `encodeURLComponent`
+keeps the fingerprint safe as a single path segment. Omit `timestamp` for `_spiking` links because those events do not
+carry `exception_timestamp`. The canonical `_spiking` templates prefer `event.properties.fingerprint` and temporarily
+fall back to `event.distinct_id` so links remain valid while older emitters roll out. The `utm_*` tags let the team
+measure how often issues get clicked from alerts later via product analytics on `$pageview`.

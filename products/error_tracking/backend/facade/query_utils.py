@@ -9,6 +9,7 @@ MAX_NORMALIZED_TEXT_CHARS = 1000
 
 ISSUE_FIELDS = [
     "id",
+    "fingerprint",
     "name",
     "description",
     "status",
@@ -22,6 +23,7 @@ ISSUE_FIELDS = [
 
 LIST_ISSUE_FIELDS = [
     "id",
+    "fingerprint",
     "name",
     "description",
     "status",

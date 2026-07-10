@@ -630,6 +630,11 @@ export interface ErrorTrackingIssueReadApi {
     description: string | null
     /** @nullable */
     first_seen: string | null
+    /**
+     * Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.
+     * @nullable
+     */
+    fingerprint: string | null
     assignee: ErrorTrackingIssueAssigneeReadApi | null
     external_issues: ErrorTrackingExternalReferenceResultApi[]
     cohort: ErrorTrackingIssueCohortReadApi | null
@@ -708,6 +713,11 @@ export interface PatchedErrorTrackingIssueReadApi {
     description?: string | null
     /** @nullable */
     first_seen?: string | null
+    /**
+     * Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.
+     * @nullable
+     */
+    fingerprint?: string | null
     assignee?: ErrorTrackingIssueAssigneeReadApi | null
     external_issues?: ErrorTrackingExternalReferenceResultApi[]
     cohort?: ErrorTrackingIssueCohortReadApi | null
@@ -742,6 +752,44 @@ export interface ErrorTrackingIssueSplitResponseApi {
     success: boolean
     /** IDs of the new issues created by the split. */
     new_issue_ids: string[]
+}
+
+/**
+ * * `fingerprint` - fingerprint
+ * * `issue_id` - issue_id
+ */
+export type MatchedByEnumApi = (typeof MatchedByEnumApi)[keyof typeof MatchedByEnumApi]
+
+export const MatchedByEnumApi = {
+    Fingerprint: 'fingerprint',
+    IssueId: 'issue_id',
+} as const
+
+/**
+ * Read-only serializer for issue contract types returned by the facade.
+ */
+export interface ErrorTrackingIssueResolveResponseApi {
+    id: string
+    status: string
+    /** @nullable */
+    name: string | null
+    /** @nullable */
+    description: string | null
+    /** @nullable */
+    first_seen: string | null
+    /**
+     * Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.
+     * @nullable
+     */
+    fingerprint: string | null
+    assignee: ErrorTrackingIssueAssigneeReadApi | null
+    external_issues: ErrorTrackingExternalReferenceResultApi[]
+    cohort: ErrorTrackingIssueCohortReadApi | null
+    /** Whether the identifier matched an exact fingerprint or fell back to a legacy issue ID.
+     *
+     * * `fingerprint` - fingerprint
+     * * `issue_id` - issue_id */
+    matched_by: MatchedByEnumApi
 }
 
 export interface ErrorTrackingDateRangeApi {
@@ -844,6 +892,11 @@ export interface ErrorTrackingImpactApi {
 export interface ErrorTrackingIssueDetailApi {
     /** Error tracking issue ID. */
     id: string
+    /**
+     * Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.
+     * @nullable
+     */
+    fingerprint?: string | null
     /**
      * Issue name.
      * @nullable
@@ -1242,6 +1295,11 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
 export interface ErrorTrackingIssueListItemApi {
     /** Error tracking issue ID. */
     id: string
+    /**
+     * Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.
+     * @nullable
+     */
+    fingerprint?: string | null
     /**
      * Issue name.
      * @nullable
@@ -1836,6 +1894,14 @@ export type ErrorTrackingIssuesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ErrorTrackingIssuesResolveRetrieveParams = {
+    /**
+     * Exact error fingerprint to resolve. If no fingerprint matches, a UUID is treated as a legacy issue ID.
+     * @minLength 1
+     */
+    identifier: string
 }
 
 export type ErrorTrackingRecommendationsListParams = {

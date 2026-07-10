@@ -238,9 +238,9 @@ export function DetailPanel({
                                 typeof (signal.extra as Partial<ErrorTrackingSignalExtraApi>).fingerprint ===
                                     'string' && (
                                     <Link
-                                        to={urls.errorTrackingIssue(signal.source_id, {
-                                            fingerprint: (signal.extra as ErrorTrackingSignalExtraApi).fingerprint,
-                                        })}
+                                        to={urls.errorTrackingIssue(
+                                            (signal.extra as ErrorTrackingSignalExtraApi).fingerprint
+                                        )}
                                         className="inline-flex items-center gap-1 text-xs font-medium"
                                     >
                                         Open in Error tracking <IconExternal className="size-3" />

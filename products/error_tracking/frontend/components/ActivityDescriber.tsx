@@ -113,6 +113,7 @@ const errorTrackingIssueActionsMapping: Record<
 
     /** readonly / computed fields aren't described */
     id: () => null,
+    fingerprint: () => null,
     name: () => null,
     description: () => null,
     first_seen: () => null,

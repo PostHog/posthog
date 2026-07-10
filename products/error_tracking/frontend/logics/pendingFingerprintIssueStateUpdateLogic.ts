@@ -62,7 +62,9 @@ export const pendingFingerprintIssueStateUpdateLogic = kea<pendingFingerprintIss
     selectors({
         currentPendingUpdates: [
             (s) => [s.pendingUpdates],
-            (pendingUpdates): ErrorTrackingPendingFingerprintIssueStateUpdate[] => {
+            (
+                pendingUpdates: Record<string, StoredPendingUpdate>
+            ): ErrorTrackingPendingFingerprintIssueStateUpdate[] => {
                 const now = Date.now()
                 const rows: ErrorTrackingPendingFingerprintIssueStateUpdate[] = []
                 for (const row of Object.values(pendingUpdates)) {
@@ -104,10 +106,8 @@ export const pendingFingerprintIssueStateUpdateLogic = kea<pendingFingerprintIss
 ])
 
 function findCurrentIssueState(id: string): CurrentIssueState | null {
-    const detail = errorTrackingIssueSceneLogic.findMounted({ id })?.values.issue as
-        | ErrorTrackingRelationalIssue
-        | null
-        | undefined
+    const detail = errorTrackingIssueSceneLogic.findAllMounted().find((logic) => logic.values.issue?.id === id)?.values
+        .issue as ErrorTrackingRelationalIssue | null | undefined
     if (detail && detail.id === id) {
         return {
             id: detail.id,
@@ -142,7 +142,7 @@ async function resolveFingerprintsForIssues(
 
     const toFetch: string[] = []
     for (const id of unique) {
-        const mounted = errorTrackingIssueSceneLogic.findMounted({ id })
+        const mounted = errorTrackingIssueSceneLogic.findAllMounted().find((logic) => logic.values.issue?.id === id)
         const loaded = mounted?.values.issueFingerprints
         if (mounted && Array.isArray(loaded) && loaded.length > 0) {
             result[id] = loaded.map((f) => f.fingerprint)

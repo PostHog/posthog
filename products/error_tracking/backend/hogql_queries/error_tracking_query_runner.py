@@ -1,4 +1,5 @@
 import datetime
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from posthog.schema import CachedErrorTrackingQueryResponse, ErrorTrackingQuery, ErrorTrackingQueryResponse
@@ -17,6 +18,7 @@ from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
+from products.error_tracking.backend.logic import list_first_fingerprints
 
 
 class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
@@ -26,7 +28,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     date_from: datetime.datetime
     date_to: datetime.datetime
 
-    CACHE_VERSION = 2
+    CACHE_VERSION = 3
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -110,14 +112,26 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
         columns, results = self._attach_events(query_result.columns or [], query_result.results)
 
+        processed_results = self._attach_canonical_fingerprints(self._builder.process_results(columns, results))
+
         return ErrorTrackingQueryResponse(
             columns=columns,
-            results=self._builder.process_results(columns, results),
+            results=processed_results,
             timings=query_result.timings,
             hogql=query_result.hogql,
             modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
+
+    def _attach_canonical_fingerprints(self, results: list[dict[str, object]]) -> list[dict[str, object]]:
+        issue_ids = list(dict.fromkeys(UUID(str(result["id"])) for result in results))
+        if not issue_ids:
+            return results
+
+        with self.timings.measure("error_tracking_query_fingerprint_fetch"):
+            fingerprints = list_first_fingerprints(team_id=self.team.pk, issue_ids=issue_ids)
+        fingerprints_by_issue_id = {fingerprint.issue_id: fingerprint.fingerprint for fingerprint in fingerprints}
+        return [{**result, "fingerprint": fingerprints_by_issue_id.get(UUID(str(result["id"])))} for result in results]
 
     # Aggregation queries return only event uuids for first/last event (reading the
     # properties blob inside argMin/argMax decompresses every matching event's blob);

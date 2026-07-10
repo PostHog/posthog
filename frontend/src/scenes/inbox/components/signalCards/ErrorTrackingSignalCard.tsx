@@ -47,7 +47,7 @@ function asSourceType(sourceType: string): InboxErrorTrackingIssueSourceType {
 function ViewIssueLink({ issueId, fingerprint }: { issueId: string; fingerprint: string }): JSX.Element {
     return (
         <Link
-            to={urls.errorTrackingIssue(issueId, { fingerprint })}
+            to={urls.errorTrackingIssue(fingerprint || issueId)}
             target="_blank"
             className="flex items-center gap-1 text-xs font-medium shrink-0"
         >

@@ -50,7 +50,7 @@ export const ErrorTrackingIssueScenePanel = ({
                     buttonProps={{
                         fullWidth: true,
                         onClick: () => {
-                            void copyToClipboard(urls.absolute(urls.errorTrackingIssue(issue.id)), 'issue link')
+                            void copyToClipboard(window.location.href, 'issue link')
                         },
                     }}
                 />

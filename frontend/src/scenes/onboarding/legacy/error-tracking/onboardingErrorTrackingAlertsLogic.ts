@@ -48,7 +48,7 @@ const DEFAULT_SLACK_INPUTS: Record<string, any> = {
                 type: 'actions',
                 elements: [
                     {
-                        url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}',
+                        url: '{project.url}/error_tracking/{encodeURLComponent(event.properties.fingerprint)}',
                         text: { text: 'View Issue', type: 'plain_text' },
                         type: 'button',
                     },
@@ -109,12 +109,16 @@ export const onboardingErrorTrackingAlertsLogic = kea<onboardingErrorTrackingAle
                 if (values.integration === 'microsoft-teams') {
                     configuration.inputs = {
                         webhookUrl: { value: formValues.microsoftTeamsWebhookUrl },
-                        text: { value: '**🔴 {event.properties.name} created:** {event.properties.description}' },
+                        text: {
+                            value: '**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))',
+                        },
                     }
                 } else if (values.integration === 'discord') {
                     configuration.inputs = {
                         webhookUrl: { value: formValues.discordWebhookUrl },
-                        content: { value: '**🔴 {event.properties.name} created:** {event.properties.description}' },
+                        content: {
+                            value: '**🔴 {event.properties.name} created:** {event.properties.description}\n\n[View in PostHog]({project.url}/error_tracking/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=discord)',
+                        },
                     }
                 } else if (values.integration === 'slack') {
                     configuration.inputs = {

@@ -115,6 +115,47 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == 200
         assert response.json().get("id") == str(issue.id)
 
+    def test_issue_resolve_prefers_uuid_fingerprint_and_falls_back_to_issue_id(self):
+        issue_with_colliding_id = self.create_issue(fingerprints=["original-fingerprint"])
+        issue_with_uuid_fingerprint = self.create_issue(fingerprints=[str(issue_with_colliding_id.id)])
+
+        fingerprint_response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/issues/resolve",
+            data={"identifier": str(issue_with_colliding_id.id)},
+        )
+        legacy_id_response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/issues/resolve",
+            data={"identifier": str(issue_with_uuid_fingerprint.id)},
+        )
+        legacy_environment_response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/resolve",
+            data={"identifier": str(issue_with_uuid_fingerprint.id)},
+        )
+
+        assert fingerprint_response.status_code == 200
+        assert fingerprint_response.json()["id"] == str(issue_with_uuid_fingerprint.id)
+        assert fingerprint_response.json()["matched_by"] == "fingerprint"
+        assert legacy_id_response.status_code == 200
+        assert legacy_id_response.json()["id"] == str(issue_with_uuid_fingerprint.id)
+        assert legacy_id_response.json()["matched_by"] == "issue_id"
+        assert legacy_environment_response.status_code == 404
+
+    def test_issue_resolve_fails_closed_for_mismatched_fingerprint_team(self):
+        other_team = self.create_team_with_organization(organization=self.organization)
+        other_issue = ErrorTrackingIssue.objects.create(team=other_team)
+        ErrorTrackingIssueFingerprintV2.objects.create(
+            team=self.team,
+            issue=other_issue,
+            fingerprint="mismatched-team-fingerprint",
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/issues/resolve",
+            data={"identifier": "mismatched-team-fingerprint"},
+        )
+
+        assert response.status_code == 404
+
     @freeze_time("2025-01-01")
     def test_issue_fetch(self):
         issue = self.create_issue(["fingerprint"])
@@ -130,6 +171,7 @@ class TestErrorTracking(APIBaseTest):
             "status": "active",
             "assignee": None,
             "first_seen": "2025-01-01T00:00:00Z",
+            "fingerprint": "fingerprint",
             "external_issues": [],
         }
 
@@ -174,6 +216,7 @@ class TestErrorTracking(APIBaseTest):
             "status": "resolved",
             "assignee": None,
             "first_seen": "2025-01-01T00:00:00Z",
+            "fingerprint": "fingerprint",
             "external_issues": [],
         }
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
@@ -262,6 +305,14 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two", version=1).exists()
         assert ErrorTrackingIssue.objects.count() == 1
 
+        resolve_response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/issues/resolve",
+            data={"identifier": "fingerprint_two"},
+        )
+        assert resolve_response.status_code == 200
+        assert resolve_response.json()["id"] == str(issue_one.id)
+        assert resolve_response.json()["matched_by"] == "fingerprint"
+
     def test_issue_merge_returns_not_found_when_source_issue_is_stale(self):
         issue_one = self.create_issue(fingerprints=["fingerprint_one"])
         issue_two = self.create_issue(fingerprints=["fingerprint_two"])
@@ -310,6 +361,14 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue.id).count() == 1
         assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue.id, fingerprint="fingerprint_one").exists()
         assert ErrorTrackingIssue.objects.count() == 2
+
+        resolve_response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/issues/resolve",
+            data={"identifier": "fingerprint_two"},
+        )
+        assert resolve_response.status_code == 200
+        assert resolve_response.json()["id"] == response.json()["new_issue_ids"][0]
+        assert resolve_response.json()["matched_by"] == "fingerprint"
 
     def test_issue_split_requires_fingerprint_on_each_entry(self):
         issue = self.create_issue(fingerprints=["fingerprint_one"])

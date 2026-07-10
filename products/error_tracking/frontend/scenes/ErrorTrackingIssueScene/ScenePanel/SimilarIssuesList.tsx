@@ -146,7 +146,7 @@ const EmptyState = ({
 }
 
 const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
-    const logicProps: ErrorTrackingIssueSceneLogicProps = { id: issueId }
+    const logicProps: ErrorTrackingIssueSceneLogicProps = { identifier: issueId }
     const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(
         errorTrackingIssueSceneLogic(logicProps)
     )

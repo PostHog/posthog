@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 24 enabled ops
+ * PostHog API - MCP 25 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -5570,6 +5570,27 @@ export const ErrorTrackingIssuesSplitCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe('Fingerprints to split into new issues. Each fingerprint becomes its own new issue.'),
+})
+
+/**
+ * Resolve an exact fingerprint to its current issue, falling back to a legacy issue UUID only when no fingerprint matches.
+ * @summary Resolve an error tracking issue identifier
+ */
+export const ErrorTrackingIssuesResolveRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ErrorTrackingIssuesResolveRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .min(1)
+        .describe(
+            'Exact error fingerprint to resolve. If no fingerprint matches, a UUID is treated as a legacy issue ID.'
+        ),
 })
 
 /**

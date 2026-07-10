@@ -81,8 +81,7 @@ export const exceptionRenderer: ItemRenderer<ExceptionItem> = {
                       label: 'Open exception issue',
                       onClick: () =>
                           router.actions.push(
-                              urls.errorTrackingIssue(item.payload.issue_id, {
-                                  fingerprint: item.payload.fingerprint,
+                              urls.errorTrackingIssue(item.payload.fingerprint || item.payload.issue_id, {
                                   timestamp: item.timestamp.toISOString(),
                               })
                           ),

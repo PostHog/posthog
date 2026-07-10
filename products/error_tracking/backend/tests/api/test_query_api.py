@@ -117,7 +117,15 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2026-04-24T12:00:00Z")
     def test_issues_list_accepts_typed_filters_and_matches_release_precisely(self) -> None:
-        self.create_issue()
+        issue = self.create_issue()
+        canonical_fingerprint = ErrorTrackingIssueFingerprintV2.objects.create(
+            team=self.team,
+            issue=issue,
+            fingerprint="canonical-fingerprint-without-events",
+        )
+        ErrorTrackingIssueFingerprintV2.objects.filter(id=canonical_fingerprint.id).update(
+            created_at=now() - timedelta(days=1)
+        )
         self.create_exception_event(
             properties={
                 "$lib": "posthog-js",
@@ -136,7 +144,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            f"/api/projects/{self.team.id}/error_tracking/query/issues",
             data={
                 "status": "all",
                 "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
@@ -151,9 +159,10 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert [row["id"] for row in response.json()["results"]] == [self.issue_id]
+        assert response.json()["results"][0]["fingerprint"] == "canonical-fingerprint-without-events"
 
         project_response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            f"/api/projects/{self.team.id}/error_tracking/query/issues",
             data={
                 "status": "all",
                 "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
@@ -458,7 +467,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self.create_issue()
 
         empty_range_response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            f"/api/projects/{self.team.id}/error_tracking/query/issue",
             data={
                 "issueId": self.issue_id,
                 "dateRange": {"date_from": "2026-04-23T00:00:00Z", "date_to": "2026-04-23T01:00:00Z"},
@@ -466,13 +475,14 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
         missing_response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            f"/api/projects/{self.team.id}/error_tracking/query/issue",
             data={"issueId": "00000000-0000-0000-0000-000000000000"},
             format="json",
         )
 
         assert empty_range_response.status_code == 200
         assert empty_range_response.json()["impact"] == {}
+        assert empty_range_response.json()["fingerprint"] == self.fingerprint
         assert missing_response.status_code == 404
 
     def test_issue_events_returns_404_for_foreign_issue(self) -> None:

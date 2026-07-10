@@ -44,7 +44,7 @@ export function ErrorTrackingIssueListHeader(): JSX.Element {
 
 function prefetchIssueScene(issue: ErrorTrackingIssue): void {
     const issueLogic = errorTrackingIssueSceneLogic({
-        id: issue.id,
+        identifier: issue.fingerprint ?? issue.id,
         timestamp: issue.last_seen,
     })
     issueLogic.mount()
@@ -68,10 +68,10 @@ export function ErrorTrackingIssueListRow({
 
     const issueUrl = useMemo(
         () =>
-            urls.errorTrackingIssue(issue.id, {
+            urls.errorTrackingIssue(issue.fingerprint ?? issue.id, {
                 timestamp: issue.last_seen,
             }),
-        [issue.id, issue.last_seen]
+        [issue.fingerprint, issue.id, issue.last_seen]
     )
 
     return (

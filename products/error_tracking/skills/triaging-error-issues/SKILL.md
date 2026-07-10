@@ -153,5 +153,6 @@ For each, suggest one of: **investigate** (`investigating-error-issue`), **assig
   may have already curated the most actionable issues so you avoid re-deriving them.
 - Provide each row's `_posthogUrl` (returned on every issue row) so the user can jump
   straight to the issue page if they want to drill down themselves. If you build the
-  link yourself, use the full `/project/<project_id>/error_tracking/<id>` path, never
-  a bare `/error_tracking/<id>`.
+  link yourself, use the full `/project/<project_id>/error_tracking/<fingerprint>` path
+  with the fingerprint percent-encoded as one path segment, never a bare
+  `/error_tracking/<fingerprint>`.

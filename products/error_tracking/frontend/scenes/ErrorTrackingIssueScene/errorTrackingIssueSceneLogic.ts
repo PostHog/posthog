@@ -1,4 +1,17 @@
-import { actions, connect, defaults, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    actions,
+    connect,
+    defaults,
+    events,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -15,6 +28,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils/objects'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -22,6 +36,7 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import {
     DateRange,
+    ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingIssueAggregations,
     ErrorTrackingRelationalIssue,
@@ -36,6 +51,8 @@ import {
     triggerFilterActions,
     updateFilterSearchParams,
 } from '../../components/IssueFilters/issueFiltersLogic'
+import { errorTrackingIssuesResolveRetrieve } from '../../generated/api'
+import type { ErrorTrackingIssueResolveResponseApi } from '../../generated/api.schemas'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery, errorTrackingSimilarIssuesQuery } from '../../queries'
 import { syncSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
@@ -48,10 +65,24 @@ import {
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 
 export interface ErrorTrackingIssueSceneLogicProps {
-    id: ErrorTrackingIssue['id']
-    fingerprint?: string
+    identifier: string
+    legacyFingerprint?: boolean
+    isScene?: boolean
     timestamp?: string
 }
+
+export function parseErrorTrackingIssueSceneIdentifier(
+    encodedIdentifier: string,
+    legacyFingerprint?: string
+): Pick<ErrorTrackingIssueSceneLogicProps, 'identifier' | 'legacyFingerprint'> {
+    if (legacyFingerprint) {
+        return { identifier: legacyFingerprint, legacyFingerprint: true }
+    }
+    return { identifier: decodeURIComponent(encodedIdentifier), legacyFingerprint: false }
+}
+
+export type ErrorTrackingIssueSceneIssue = ErrorTrackingRelationalIssue &
+    Partial<Pick<ErrorTrackingIssueResolveResponseApi, 'matched_by'>>
 
 export type ErrorTrackingIssueStatus = ErrorTrackingIssue['status']
 
@@ -67,7 +98,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         key,
     ]),
     props({} as ErrorTrackingIssueSceneLogicProps),
-    key((props) => props.id),
+    key((props) => `identifier:${props.identifier}`),
 
     connect(() => ({
         values: [
@@ -75,6 +106,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
             errorTrackingIssueSceneConfigurationLogic,
             ['category'],
+            projectLogic,
+            ['currentProjectId'],
         ],
         actions: [
             issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
@@ -93,6 +126,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         setMobileDetailOpen: (mobileDetailOpen: boolean) => ({ mobileDetailOpen }),
         setInitialEventTimestamp: (timestamp: string | null) => ({ timestamp }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
+        canonicalizeIssueUrl: (issue: ErrorTrackingIssueSceneIssue) => ({ issue }),
         setLastSeen: (lastSeen: string) => ({ lastSeen }),
         selectEvent: (event: ErrorEventType | null) => ({
             event,
@@ -110,7 +144,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     }),
 
     defaults({
-        issue: null as ErrorTrackingRelationalIssue | null,
+        issue: null as ErrorTrackingIssueSceneIssue | null,
         summary: null as ErrorTrackingIssueSummary | null,
         properties: null as ErrorEventProperties | null,
         lastSeen: null as Dayjs | null,
@@ -170,12 +204,24 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     loaders(({ values, actions, props }) => ({
         issue: {
             setIssue: ({ issue }) => issue,
-            loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
+            loadIssue: async () => {
+                if (values.currentProjectId === null) {
+                    throw new Error('Cannot resolve an error tracking issue without a project')
+                }
+                const response = await errorTrackingIssuesResolveRetrieve(String(values.currentProjectId), {
+                    identifier: props.identifier,
+                })
+                return toErrorTrackingIssue(response)
+            },
             createExternalReference: async ({ integrationId, config }) => {
                 if (values.issue) {
-                    const response = await api.errorTracking.createExternalReference(props.id, integrationId, config)
+                    const response = await api.errorTracking.createExternalReference(
+                        values.issue.id,
+                        integrationId,
+                        config
+                    )
                     posthog.capture('error_tracking_issue_pushed', {
-                        issue_id: props.id,
+                        issue_id: values.issue.id,
                         destination: response.integration.kind,
                     })
                     const externalIssues = values.issue.external_issues ?? []
@@ -210,9 +256,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
         initialEvent: {
             loadInitialEvent: async ({ timestamp }) => {
+                const issueId = values.issue?.id
+                if (!issueId) {
+                    return null
+                }
                 const response = await api.query(
                     errorTrackingIssueQuery({
-                        issueId: props.id,
+                        issueId,
                         dateRange: getNarrowDateRange(timestamp),
                         filterTestAccounts: false,
                         withAggregations: false,
@@ -222,12 +272,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     { refresh: 'blocking' }
                 )
                 const issue = response.results[0]
-                let positionEvent = null
-                if (issue.last_event) {
-                    positionEvent = issue.last_event
-                } else {
+                if (!issue?.last_event) {
                     return null
                 }
+                const positionEvent = issue.last_event
                 const initialEvent: ErrorEventType = {
                     event: '$exception',
                     uuid: positionEvent.uuid,
@@ -244,9 +292,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
         summary: {
             loadSummary: async () => {
+                const issueId = values.issue?.id
+                if (!issueId) {
+                    return null
+                }
                 const response = await api.query(
                     errorTrackingIssueQuery({
-                        issueId: props.id,
+                        issueId,
                         dateRange: values.dateRange,
                         filterTestAccounts: values.filterTestAccounts,
                         filterGroup: values.filterGroup,
@@ -275,15 +327,24 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         issueFingerprints: [
             [] as ErrorTrackingFingerprint[],
             {
-                loadIssueFingerprints: async () => await api.errorTracking.fingerprints.list(props.id),
+                loadIssueFingerprints: async () => {
+                    if (!values.issue?.id) {
+                        return []
+                    }
+                    return await api.errorTracking.fingerprints.list(values.issue.id)
+                },
             },
         ],
         similarIssues: [
             [] as SimilarIssue[],
             {
                 loadSimilarIssues: async (refresh: boolean = false) => {
+                    const issueId = values.issue?.id
+                    if (!issueId) {
+                        return []
+                    }
                     const query = errorTrackingSimilarIssuesQuery({
-                        issueId: props.id,
+                        issueId,
                         limit: 10,
                         maxDistance: values.similarIssuesMaxDistance,
                     })
@@ -298,9 +359,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             [] as ErrorTrackingSpikeEvent[],
             {
                 loadSpikeEvents: async () => {
+                    const issueId = values.issue?.id
+                    if (!issueId) {
+                        return []
+                    }
                     const { dateFrom, dateTo } = dateRangeToIsoBounds(values.dateRange)
                     const response = await api.errorTracking.getSpikeEvents({
-                        issueIds: [props.id],
+                        issueIds: [issueId],
                         dateFrom,
                         dateTo,
                     })
@@ -314,7 +379,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         breadcrumbs: [
             (s) => [s.issue, s.listDateRange, s.filterTestAccounts, s.filterGroup, s.searchQuery],
             (
-                issue: ErrorTrackingRelationalIssue | null,
+                issue: ErrorTrackingIssueSceneIssue | null,
                 listDateRange: DateRange | null,
                 filterTestAccounts: boolean,
                 filterGroup: UniversalFiltersGroup,
@@ -350,19 +415,21 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
 
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (_, p) => [p.id],
-            (issueId): SidePanelSceneContext => {
-                return {
-                    activity_scope: ActivityScope.ERROR_TRACKING_ISSUE,
-                    activity_item_id: issueId,
-                }
+            (s) => [s.issueId],
+            (issueId: string | null): SidePanelSceneContext | null => {
+                return issueId
+                    ? {
+                          activity_scope: ActivityScope.ERROR_TRACKING_ISSUE,
+                          activity_item_id: issueId,
+                      }
+                    : null
             },
         ],
-        issueId: [(_, p) => [p.id], (id: string) => id],
+        issueId: [(s) => [s.issue], (issue: ErrorTrackingIssueSceneIssue | null): string | null => issue?.id ?? null],
 
         firstSeen: [
             (s) => [s.issue],
-            (issue: ErrorTrackingRelationalIssue | null) => (issue ? dayjs(issue.first_seen) : null),
+            (issue: ErrorTrackingIssueSceneIssue | null) => (issue ? dayjs(issue.first_seen) : null),
         ],
 
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
@@ -391,7 +458,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
         maxContext: [
             (s) => [s.issue, s.issueId],
-            (issue: ErrorTrackingRelationalIssue | null, issueId: string): MaxContextInput[] => {
+            (issue: ErrorTrackingIssueSceneIssue | null, issueId: string | null): MaxContextInput[] => {
                 if (!issueId) {
                     return []
                 }
@@ -416,12 +483,27 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     listeners(({ props, values, actions }) => {
         return {
             setDateRange: () => {
+                if (!values.issue?.id) {
+                    return
+                }
                 actions.loadSummary()
                 actions.loadSpikeEvents()
             },
-            setFilterGroup: actions.loadSummary,
-            setFilterTestAccounts: actions.loadSummary,
-            setSearchQuery: actions.loadSummary,
+            setFilterGroup: () => {
+                if (values.issue?.id) {
+                    actions.loadSummary()
+                }
+            },
+            setFilterTestAccounts: () => {
+                if (values.issue?.id) {
+                    actions.loadSummary()
+                }
+            },
+            setSearchQuery: () => {
+                if (values.issue?.id) {
+                    actions.loadSummary()
+                }
+            },
             loadSummarySuccess: ({ summary }: { summary: ErrorTrackingIssueSummary | null }) => {
                 if (summary && summary.last_seen) {
                     actions.setLastSeen(summary.last_seen)
@@ -430,15 +512,66 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     actions.setInitialEventTimestamp(values.issue?.first_seen ?? null)
                 }
             },
-            loadIssueFailure: ({ errorObject: { status, data } }) => {
-                if (status == 308 && 'issue_id' in data) {
-                    router.actions.replace(urls.errorTrackingIssue(data.issue_id))
+            loadIssueSuccess: ({ issue }: { issue: ErrorTrackingIssueSceneIssue }) => {
+                actions.canonicalizeIssueUrl(issue)
+
+                const willRemountAtCanonicalFingerprint =
+                    props.isScene &&
+                    !props.legacyFingerprint &&
+                    issue.matched_by === 'issue_id' &&
+                    !!issue.fingerprint &&
+                    issue.fingerprint !== props.identifier
+                if (willRemountAtCanonicalFingerprint) {
+                    return
+                }
+
+                actions.setInitialEventTimestamp(props.timestamp ?? null)
+                actions.loadSummary()
+                actions.loadIssueFingerprints()
+                actions.loadSpikeEvents()
+            },
+            canonicalizeIssueUrl: ({ issue }) => {
+                if (!props.isScene) {
+                    return
+                }
+
+                const canonicalIdentifier = props.legacyFingerprint
+                    ? props.identifier
+                    : issue.matched_by === 'issue_id'
+                      ? issue.fingerprint
+                      : null
+                if (!canonicalIdentifier) {
+                    return
+                }
+
+                const searchParams = { ...router.values.searchParams }
+                delete searchParams.fingerprint
+                router.actions.replace(
+                    urls.errorTrackingIssue(canonicalIdentifier),
+                    searchParams,
+                    router.values.hashParams
+                )
+            },
+            updateName: ({ name }) => {
+                if (values.issue?.id) {
+                    actions.updateIssueName(values.issue.id, name)
                 }
             },
-            updateName: ({ name }) => actions.updateIssueName(props.id, name),
-            updateDescription: ({ description }) => actions.updateIssueDescription(props.id, description),
-            updateAssignee: ({ assignee }) => actions.updateIssueAssignee(props.id, assignee),
-            updateStatus: ({ status }) => actions.updateIssueStatus(props.id, status),
+            updateDescription: ({ description }) => {
+                if (values.issue?.id) {
+                    actions.updateIssueDescription(values.issue.id, description)
+                }
+            },
+            updateAssignee: ({ assignee }) => {
+                if (values.issue?.id) {
+                    actions.updateIssueAssignee(values.issue.id, assignee)
+                }
+            },
+            updateStatus: ({ status }) => {
+                if (values.issue?.id) {
+                    actions.updateIssueStatus(values.issue.id, status)
+                }
+            },
             selectEvent: ({ event }) => {
                 if (event) {
                     router.actions.replace(
@@ -454,33 +587,35 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             [issueActionsLogic.actionTypes.mutationSuccess]: ({ mutationName }) => {
                 if (mutationName === 'mergeIssues') {
                     actions.loadIssue()
-                    actions.loadSummary()
-                    actions.loadIssueFingerprints()
                 }
                 if (mutationName === 'createIssueCohort') {
                     actions.loadIssue()
                 }
             },
             setSimilarIssuesMaxDistance: () => {
-                actions.loadSimilarIssues(true)
+                if (values.issue?.id) {
+                    actions.loadSimilarIssues(true)
+                }
             },
         }
     }),
 
-    events(({ props, actions }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadIssue()
-            actions.setInitialEventTimestamp(props.timestamp ?? null)
-            actions.loadSummary()
-            actions.loadIssueFingerprints()
-            actions.loadSpikeEvents()
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstError)
         },
     })),
 
+    propsChanged(({ actions, props, values }, oldProps) => {
+        if (props.isScene && !oldProps.isScene && values.issue) {
+            actions.canonicalizeIssueUrl(values.issue)
+        }
+    }),
+
     urlToAction(({ actions, values }) => {
         return {
-            '**/error_tracking/:id': (_, params) => {
+            '**/error_tracking/:identifier': (_, params) => {
                 if (values.listDateRange == null) {
                     actions.setListDateRange(params.dateRange ?? DEFAULT_DATE_RANGE)
                 }
@@ -515,6 +650,52 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         }
     }),
 ])
+
+const ERROR_TRACKING_ISSUE_STATUSES: ErrorTrackingIssue['status'][] = [
+    'archived',
+    'active',
+    'resolved',
+    'pending_release',
+    'suppressed',
+]
+
+function toErrorTrackingIssue(response: ErrorTrackingIssueResolveResponseApi): ErrorTrackingIssueSceneIssue {
+    if (!ERROR_TRACKING_ISSUE_STATUSES.includes(response.status as ErrorTrackingIssue['status'])) {
+        throw new Error(`Unknown error tracking issue status: ${response.status}`)
+    }
+
+    const assignee: ErrorTrackingRelationalIssue['assignee'] =
+        response.assignee?.id != null && (response.assignee.type === 'user' || response.assignee.type === 'role')
+            ? {
+                  id: response.assignee.id,
+                  type: response.assignee.type,
+              }
+            : null
+    const externalIssues: ErrorTrackingExternalReference[] = response.external_issues.map(
+        ({ id, integration, external_url }) => ({
+            id,
+            integration: {
+                id: integration.id,
+                kind: integration.kind as ErrorTrackingExternalReference['integration']['kind'],
+                display_name: integration.display_name,
+            },
+            external_url,
+        })
+    )
+
+    return {
+        id: response.id,
+        fingerprint: response.fingerprint,
+        status: response.status as ErrorTrackingIssue['status'],
+        name: response.name,
+        description: response.description,
+        first_seen: response.first_seen as ErrorTrackingRelationalIssue['first_seen'],
+        assignee,
+        external_issues: externalIssues,
+        cohort: response.cohort ?? undefined,
+        matched_by: response.matched_by,
+    }
+}
 
 function getNarrowDateRange(timestamp: Dayjs | string): DateRange {
     const firstSeen = dayjs(timestamp)

@@ -100,11 +100,11 @@ export const IssueListTitleColumn = (props: {
             filterTestAccounts,
             searchQuery,
         })
-        return urls.errorTrackingIssue(record.id, {
+        return urls.errorTrackingIssue(record.fingerprint ?? record.id, {
             timestamp: record.last_seen,
             ...params,
         })
-    }, [dateRange, filterGroup, filterTestAccounts, searchQuery, record.last_seen, record.id])
+    }, [dateRange, filterGroup, filterTestAccounts, searchQuery, record.fingerprint, record.last_seen, record.id])
 
     return (
         <div className="flex items-start gap-x-2 group my-1 [--line-height:1.3rem] -ml-2">
@@ -148,7 +148,7 @@ const IssueTitle = ({
         to={issueUrl}
         onClick={() => {
             const issueLogic = errorTrackingIssueSceneLogic({
-                id: record.id,
+                identifier: record.fingerprint ?? record.id,
                 timestamp: record.last_seen,
             })
             issueLogic.mount()

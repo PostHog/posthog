@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Any, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 from uuid import UUID
 
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
 
 from posthog.models.integration import (
     GitHubIntegration,
@@ -138,18 +138,34 @@ def _validate_external_reference_config(integration: Integration, config: Any) -
             )
 
 
+def _fingerprint_queryset(team_id: int) -> QuerySet[ErrorTrackingIssueFingerprintV2]:
+    return ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue__team_id=team_id)
+
+
+def _with_canonical_fingerprint(queryset: QuerySet[ErrorTrackingIssue], team_id: int) -> QuerySet[ErrorTrackingIssue]:
+    canonical_fingerprint = (
+        _fingerprint_queryset(team_id)
+        .filter(issue_id=OuterRef("pk"))
+        .order_by("created_at", "id")
+        .values("fingerprint")[:1]
+    )
+    return queryset.annotate(fingerprint=Subquery(canonical_fingerprint))
+
+
 def get_issue_list_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
-    return ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team_id=team_id)
+    queryset = ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team_id=team_id)
+    return _with_canonical_fingerprint(queryset, team_id)
 
 
 def get_issue_detail_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
-    return (
+    queryset = (
         ErrorTrackingIssue.objects.with_first_seen()
         .select_related("assignment")
         .prefetch_related("external_issues__integration")
         .prefetch_related("cohorts__cohort")
         .filter(team_id=team_id)
     )
+    return _with_canonical_fingerprint(queryset, team_id)
 
 
 def list_issues(team_id: int) -> QuerySet[ErrorTrackingIssue]:
@@ -176,23 +192,33 @@ def issue_exists_by_id(team_id: int, issue_id: UUID | str) -> bool:
 
 
 def get_issue_basics(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssue | None:
-    return (
-        ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id)
-        .only("id", "name", "description", "status")
-        .first()
+    queryset = ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id).only(
+        "id", "name", "description", "status"
     )
+    return _with_canonical_fingerprint(queryset, team_id).first()
 
 
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
-    return (
-        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint)
-        .values_list("issue_id", flat=True)
-        .first()
-    )
+    return _fingerprint_queryset(team_id).filter(fingerprint=fingerprint).values_list("issue_id", flat=True).first()
+
+
+def resolve_issue_identifier(
+    team_id: int, identifier: str
+) -> tuple[ErrorTrackingIssue, Literal["fingerprint", "issue_id"]]:
+    issue_id = get_issue_id_for_fingerprint(team_id=team_id, fingerprint=identifier)
+    if issue_id is not None:
+        return get_issue(issue_id=issue_id, team_id=team_id), "fingerprint"
+
+    try:
+        issue_id = UUID(identifier)
+    except ValueError as error:
+        raise ErrorTrackingIssueNotFoundError from error
+
+    return get_issue(issue_id=issue_id, team_id=team_id), "issue_id"
 
 
 def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> QuerySet[ErrorTrackingIssueFingerprintV2]:
-    queryset = ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id).order_by("created_at")
+    queryset = _fingerprint_queryset(team_id).order_by("created_at")
     if issue_id is not None:
         queryset = queryset.filter(issue_id=issue_id)
     return queryset
@@ -201,14 +227,15 @@ def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> QuerySet[Er
 def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[ErrorTrackingIssueFingerprintV2]:
     """Earliest-created fingerprint per issue (one row per issue), via Postgres DISTINCT ON."""
     return list(
-        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id__in=issue_ids)
-        .order_by("issue_id", "created_at")
+        _fingerprint_queryset(team_id)
+        .filter(issue_id__in=issue_ids)
+        .order_by("issue_id", "created_at", "id")
         .distinct("issue_id")
     )
 
 
 def get_fingerprint(team_id: int, fingerprint_id: UUID) -> ErrorTrackingIssueFingerprintV2 | None:
-    return ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, id=fingerprint_id).first()
+    return _fingerprint_queryset(team_id).filter(id=fingerprint_id).first()
 
 
 def list_external_references(team_id: int) -> QuerySet[ErrorTrackingExternalReference]:
