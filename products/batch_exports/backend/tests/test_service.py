@@ -1,8 +1,5 @@
-import re
-import json
 import uuid
 import datetime as dt
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -19,11 +16,8 @@ from products.batch_exports.backend.service import (
     PostgresBatchExportInputs,
     RedshiftBatchExportInputs,
     S3BatchExportInputs,
-    _build_static_summary,
     aget_or_create_batch_export_backfill,
     align_timestamp_to_interval,
-    build_logs_link,
-    humanize_bytes,
 )
 
 DESTINATION_INPUTS = {
@@ -288,69 +282,3 @@ async def test_creates_backfill_without_id_does_not_deduplicate(ateam, batch_exp
 def test_align_timestamp_to_interval(timestamp, interval, interval_offset, timezone, expected):
     batch_export = BatchExport(interval=interval, interval_offset=interval_offset, timezone=timezone)
     assert align_timestamp_to_interval(timestamp, batch_export) == expected
-
-
-def test_build_logs_link_filters_logs_by_workflow_id(settings):
-    settings.TEMPORAL_LOGS_PROJECT_ID = 123
-    settings.SITE_URL = "https://example.com"
-
-    link = build_logs_link("a-workflow-id")
-
-    assert link is not None
-    markdown_match = re.fullmatch(r"\[View logs in PostHog\]\((.+)\)", link)
-    assert markdown_match is not None
-
-    url = urlparse(markdown_match.group(1))
-    assert url.path == "/project/123/logs"
-
-    params = parse_qs(url.query)
-    filter_group = json.loads(params["filterGroup"][0])
-    assert filter_group == {
-        "type": "AND",
-        "values": [
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "key": "workflow_id",
-                        "value": ["a-workflow-id"],
-                        "operator": "exact",
-                        "type": "log_attribute",
-                    }
-                ],
-            }
-        ],
-    }
-    # Without an explicit date range the logs UI only shows the last hour.
-    assert json.loads(params["dateRange"][0]) == {"date_from": "-7d", "date_to": None}
-
-
-def test_build_logs_link_disabled_when_no_project_configured(settings):
-    settings.TEMPORAL_LOGS_PROJECT_ID = 0
-    assert build_logs_link("a-workflow-id") is None
-
-
-@pytest.mark.parametrize(
-    "interval,is_backfill,expected",
-    [
-        ("hour", False, "Batch export events every hour to S3"),
-        ("day", False, "Batch export events every day to S3"),
-        ("every 5 minutes", False, "Batch export events every 5 minutes to S3"),
-        ("hour", True, "Backfill batch export events every hour to S3"),
-    ],
-)
-def test_build_static_summary(interval, is_backfill, expected):
-    assert _build_static_summary("S3", "events", interval, is_backfill=is_backfill) == expected
-
-
-@pytest.mark.parametrize(
-    "num_bytes,expected",
-    [
-        (0, "0 Bytes"),
-        (512, "512 Bytes"),
-        (1024, "1.0 KiB"),
-        (1572864, "1.5 MiB"),
-    ],
-)
-def test_humanize_bytes(num_bytes, expected):
-    assert humanize_bytes(num_bytes) == expected

@@ -16,9 +16,6 @@ from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportModel,
     BatchExportSchema,
-    build_logs_link,
-    build_team_admin_link,
-    humanize_bytes,
 )
 from products.batch_exports.backend.temporal.batch_exports import FinishBatchExportRunInputs, finish_batch_export_run
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
@@ -27,6 +24,12 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from products.batch_exports.backend.temporal.workflow_metadata import (
+    WorkflowDetails,
+    build_logs_link,
+    build_team_admin_link,
+    humanize_bytes,
+)
 
 LOGGER = get_write_only_logger(__name__)
 
@@ -111,14 +114,16 @@ async def execute_batch_export_using_internal_stage(
     model_name = batch_export_inputs.batch_export_model.name if batch_export_inputs.batch_export_model else "events"
     get_export_started_metric(model=model_name).add(1)
 
-    logs_link = build_logs_link(workflow.info().workflow_id)
-    details_suffix = f"\n\n{logs_link}" if logs_link else ""
-    interval_details = (
-        f"Team: {build_team_admin_link(batch_export_inputs.team_id)}"
-        f"\n\nInterval: {interval} `{batch_export_inputs.data_interval_start}` → `{batch_export_inputs.data_interval_end}`"
-        f"\n\nModel: {model_name}"
+    details = (
+        WorkflowDetails(footer=build_logs_link(workflow.info().workflow_id))
+        .add("Team", build_team_admin_link(batch_export_inputs.team_id))
+        .add(
+            "Interval",
+            f"{interval} `{batch_export_inputs.data_interval_start}` → `{batch_export_inputs.data_interval_end}`",
+        )
+        .add("Model", model_name)
     )
-    workflow.set_current_details(f"{interval_details}{details_suffix}")
+    workflow.set_current_details(details.render())
 
     assert batch_export_inputs.batch_export_id is not None
     assert batch_export_inputs.run_id is not None
@@ -197,9 +202,7 @@ async def execute_batch_export_using_internal_stage(
             batch_export_inputs.stage_folder = stage_result.stage_folder
             batch_export_inputs.records_total = stage_result.records_total
             if stage_result.records_total is not None:
-                workflow.set_current_details(
-                    f"{interval_details}\n\nStaged records: {stage_result.records_total}{details_suffix}"
-                )
+                workflow.set_current_details(details.add("Staged records", stage_result.records_total).render())
         else:
             # Pass the activity by name (not the typed callable): `execute_activity` overrides
             # `result_type` with the callable's annotation, which would force the old recorded
@@ -243,14 +246,16 @@ async def execute_batch_export_using_internal_stage(
     finally:
         get_export_finished_metric(status=finish_inputs.status.lower(), model=model_name).add(1)
 
-        final_details = f"{interval_details}\n\nStatus: {finish_inputs.status}"
-        if finish_inputs.records_completed is not None:
-            final_details += f"\n\nRecords completed: {finish_inputs.records_completed}"
-        if finish_inputs.bytes_exported is not None:
-            final_details += f"\n\nBytes exported: {humanize_bytes(finish_inputs.bytes_exported)}"
-        if finish_inputs.latest_error:
-            final_details += f"\n\nError: {finish_inputs.latest_error}"
-        workflow.set_current_details(f"{final_details}{details_suffix}")
+        bytes_exported = (
+            humanize_bytes(finish_inputs.bytes_exported) if finish_inputs.bytes_exported is not None else None
+        )
+        workflow.set_current_details(
+            details.add("Status", finish_inputs.status)
+            .add("Records completed", finish_inputs.records_completed)
+            .add("Bytes exported", bytes_exported)
+            .add("Error", finish_inputs.latest_error)
+            .render()
+        )
 
         await workflow.execute_activity(
             finish_batch_export_run,
