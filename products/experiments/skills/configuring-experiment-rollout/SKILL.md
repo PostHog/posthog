@@ -83,7 +83,7 @@ Both controls live inside `feature_flag.filters`:
 ```
 
 `filters` may also carry `aggregation_group_type_index` (to run the experiment on a group type rather than individual users) and `payloads` (JSON-encoded strings keyed by variant key).
-On a **running** experiment, any flag-config change must also send `update_feature_flag_params: true`, otherwise it saves on the experiment object but never reaches the flag (see "Changing rollout on a running experiment").
+On a **running** experiment, any flag-config change must also send `update_feature_flag_params: true`, otherwise the API rejects the update before it reaches the flag (see "Changing rollout on a running experiment").
 
 ### How they interact
 
