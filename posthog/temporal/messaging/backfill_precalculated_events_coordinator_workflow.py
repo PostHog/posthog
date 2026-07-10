@@ -13,6 +13,7 @@ import temporalio.exceptions
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.messaging.backfill_precalculated_events_workflow import BackfillPrecalculatedEventsInputs
+from posthog.temporal.messaging.constants import BACKFILL_EVENT_SOURCE_PREFIX
 
 
 @dataclasses.dataclass
@@ -52,12 +53,13 @@ async def check_day_already_backfilled_activity(inputs: EventDateCheckInputs) ->
         WHERE team_id = %(team_id)s
           AND date = %(date)s
           AND condition IN %(condition_hashes)s
-          AND source LIKE 'cohort_event_backfill%%'
+          AND source LIKE %(source_prefix)s
     """
     query_params = {
         "team_id": inputs.team_id,
         "date": inputs.date,
         "condition_hashes": inputs.condition_hashes,
+        "source_prefix": f"{BACKFILL_EVENT_SOURCE_PREFIX}%",
     }
 
     with tags_context(
@@ -74,18 +76,19 @@ async def check_day_already_backfilled_activity(inputs: EventDateCheckInputs) ->
     return EventDateCheckResult(date=inputs.date, already_backfilled=already_backfilled)
 
 
-def compute_day_ranges(now: dt.datetime, days_to_backfill: int) -> list[tuple[dt.datetime, dt.datetime]]:
-    """Partition the backfill window into daily [start, end) ranges, most recent first.
+def compute_day_ranges(now: dt.datetime, days_to_backfill: int) -> list[tuple[dt.datetime, dt.datetime, bool]]:
+    """Partition the backfill window into daily [start, end, is_partial) ranges, most recent first.
 
     Today's range is partial: it ends at `now` rather than at the end of the day.
     """
-    day_ranges: list[tuple[dt.datetime, dt.datetime]] = []
+    day_ranges: list[tuple[dt.datetime, dt.datetime, bool]] = []
     for day_offset in range(days_to_backfill):
         day_start = (now - dt.timedelta(days=day_offset)).replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + dt.timedelta(days=1)
-        if day_offset == 0:
+        is_partial = day_offset == 0
+        if is_partial:
             day_end = now
-        day_ranges.append((day_start, day_end))
+        day_ranges.append((day_start, day_end, is_partial))
     return day_ranges
 
 
@@ -99,7 +102,7 @@ class BackfillPrecalculatedEventsCoordinatorInputs:
     condition_hashes: list[str]
     days_to_backfill: int
     concurrent_workflows: int = 5
-    force_reprocess: bool = False
+    ignore_backfilled_dates: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -111,7 +114,7 @@ class BackfillPrecalculatedEventsCoordinatorInputs:
             "days_to_backfill": self.days_to_backfill,
             "concurrent_workflows": self.concurrent_workflows,
             "condition_count": len(self.condition_hashes),
-            "force_reprocess": self.force_reprocess,
+            "ignore_backfilled_dates": self.ignore_backfilled_dates,
         }
 
 
@@ -208,14 +211,13 @@ class BackfillPrecalculatedEventsCoordinatorWorkflow(PostHogWorkflow):
         failed_count = 0
         days_skipped = 0
 
-        for day_start, day_end in day_ranges:
+        for day_start, day_end, is_partial in day_ranges:
             date_str = day_start.strftime("%Y-%m-%d")
 
-            # Check if this day is already backfilled (skippable unless force_reprocess is set).
+            # Check if this day is already backfilled (skippable unless ignore_backfilled_dates is set).
             # Today's partial day is never skipped: existing rows only prove coverage up to an
             # earlier run's start time, not up to now.
-            is_full_day = day_end - day_start >= dt.timedelta(days=1)
-            if not inputs.force_reprocess and is_full_day:
+            if not inputs.ignore_backfilled_dates and not is_partial:
                 check_result = await temporalio.workflow.execute_activity(
                     check_day_already_backfilled_activity,
                     EventDateCheckInputs(

@@ -9,6 +9,7 @@ from posthog.temporal.messaging.backfill_precalculated_events_coordinator_workfl
     check_day_already_backfilled_activity,
     compute_day_ranges,
 )
+from posthog.temporal.messaging.constants import BACKFILL_EVENT_SOURCE_PREFIX
 
 
 class TestEventDateCheckInputs:
@@ -50,7 +51,7 @@ class TestBackfillPrecalculatedEventsCoordinatorInputs:
         )
         assert inputs.concurrent_workflows == 5
 
-    def test_default_force_reprocess(self):
+    def test_default_ignore_backfilled_dates(self):
         inputs = BackfillPrecalculatedEventsCoordinatorInputs(
             team_id=1,
             filter_storage_key="key",
@@ -58,19 +59,19 @@ class TestBackfillPrecalculatedEventsCoordinatorInputs:
             condition_hashes=["hash1"],
             days_to_backfill=7,
         )
-        assert inputs.force_reprocess is False
+        assert inputs.ignore_backfilled_dates is False
 
-    def test_force_reprocess_in_properties_to_log(self):
+    def test_ignore_backfilled_dates_in_properties_to_log(self):
         inputs = BackfillPrecalculatedEventsCoordinatorInputs(
             team_id=1,
             filter_storage_key="key",
             cohort_ids=[1],
             condition_hashes=["hash1"],
             days_to_backfill=7,
-            force_reprocess=True,
+            ignore_backfilled_dates=True,
         )
         props = inputs.properties_to_log
-        assert props["force_reprocess"] is True
+        assert props["ignore_backfilled_dates"] is True
 
 
 class TestCheckDayAlreadyBackfilledActivity:
@@ -135,8 +136,9 @@ class TestCheckDayAlreadyBackfilledActivity:
         ):
             await check_day_already_backfilled_activity(inputs)
 
-        executed_query = mock_client.read_query.call_args[0][0]
-        assert "source LIKE 'cohort_event_backfill%%'" in executed_query
+        executed_query, executed_params = mock_client.read_query.call_args[0]
+        assert "source LIKE %(source_prefix)s" in executed_query
+        assert executed_params["source_prefix"] == f"{BACKFILL_EVENT_SOURCE_PREFIX}%"
 
 
 class TestComputeDayRanges:
@@ -144,7 +146,12 @@ class TestComputeDayRanges:
         now = dt.datetime(2026, 7, 9, 15, 30, 45, tzinfo=dt.UTC)
         ranges = compute_day_ranges(now, 3)
         assert ranges == [
-            (dt.datetime(2026, 7, 9, tzinfo=dt.UTC), now),
-            (dt.datetime(2026, 7, 8, tzinfo=dt.UTC), dt.datetime(2026, 7, 9, tzinfo=dt.UTC)),
-            (dt.datetime(2026, 7, 7, tzinfo=dt.UTC), dt.datetime(2026, 7, 8, tzinfo=dt.UTC)),
+            (dt.datetime(2026, 7, 9, tzinfo=dt.UTC), now, True),
+            (dt.datetime(2026, 7, 8, tzinfo=dt.UTC), dt.datetime(2026, 7, 9, tzinfo=dt.UTC), False),
+            (dt.datetime(2026, 7, 7, tzinfo=dt.UTC), dt.datetime(2026, 7, 8, tzinfo=dt.UTC), False),
         ]
+
+    def test_single_day_backfill_is_partial(self):
+        now = dt.datetime(2026, 7, 9, 15, 30, 45, tzinfo=dt.UTC)
+        ranges = compute_day_ranges(now, 1)
+        assert ranges == [(dt.datetime(2026, 7, 9, tzinfo=dt.UTC), now, True)]
