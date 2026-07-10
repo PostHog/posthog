@@ -44,6 +44,7 @@ from posthog.models.person.sql import (
 )
 from posthog.models.property import Property, PropertyGroup
 from posthog.schema_enums import PersonsOnEventsMode, ProductKey
+from posthog.schema_migrations.upgrade import upgrade
 
 from products.actions.backend.models.action import Action
 from products.actions.backend.models.util import format_action_filter
@@ -328,7 +329,8 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     if not cohort.query:
         raise ValueError("Cohort has no query")
 
-    query_dict = _sanitize_query_for_cohort(cast(dict, cohort.query))
+    # The stored query (and any insight query nested in its source) may predate the current schema
+    query_dict = upgrade(_sanitize_query_for_cohort(cast(dict, cohort.query)))
 
     query = get_query_runner(query_dict, team=team, limit_context=LimitContext.COHORT_CALCULATION).to_query()
 

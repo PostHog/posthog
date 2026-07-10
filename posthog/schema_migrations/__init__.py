@@ -18,6 +18,11 @@ def _discover_migrations():
     if _migrations_discovered:
         return
 
+    # Clear in place (both dicts are imported by reference elsewhere), so a retry
+    # after a failed discovery doesn't see partial state as duplicate targets
+    LATEST_VERSIONS.clear()
+    MIGRATIONS.clear()
+
     migration_dir = os.path.dirname(__file__)
     migration_files = [f for f in os.listdir(migration_dir) if re.match(r"^\d{4}[a-zA-Z_]*\.py$", f)]
 
@@ -29,6 +34,12 @@ def _discover_migrations():
         for kind, version in migration.targets.items():
             if kind not in MIGRATIONS:
                 MIGRATIONS[kind] = {}
+            if version in MIGRATIONS[kind]:
+                # Overwriting would silently drop one of the two transforms at runtime
+                raise ValueError(
+                    f"Duplicate schema migration target: {module_name} targets {kind} version {version}, "
+                    f"which is already targeted by another migration. Bump one of them to the next version."
+                )
             MIGRATIONS[kind][version] = migration
 
             old_version = LATEST_VERSIONS.get(kind, 1)

@@ -1005,7 +1005,9 @@ class InsightSerializer(InsightBasicSerializer):
         tile_filters_override = tile_filters_override_requested_by_client(request, dashboard_tile) if request else {}
 
         if instance.query is not None or instance.query_from_filters is not None:
-            query = instance.query or instance.query_from_filters
+            # Upgrade before applying dashboard filters: the stored query may predate the current
+            # schema, and apply_dashboard_filters_to_dict validates against the latest one
+            query = upgrade(instance.query or instance.query_from_filters)
             if (
                 dashboard is not None
                 or dashboard_filters_override is not None

@@ -20,6 +20,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRIN
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import User
 from posthog.models.team import Team
+from posthog.schema_migrations.upgrade import upgrade
 
 ENDPOINT_BREAKDOWN_LIMIT = 10_000
 
@@ -96,6 +97,9 @@ def convert_insight_query_to_hogql(
 
     if query_kind == "HogQLQuery":
         return query
+
+    # Stored endpoint snapshots may predate the current query schema
+    query = upgrade(query)
 
     query_runner = get_query_runner(
         query=query,
