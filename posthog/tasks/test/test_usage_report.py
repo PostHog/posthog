@@ -4584,6 +4584,83 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         expected = [(self.org_1_team_1.id, expected_credits)] if expected_credits is not None else []
         self.assertEqual(result, expected)
 
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    @patch("posthog.tasks.usage_report._get_posthog_code_seat_covered_distinct_ids")
+    def test_posthog_code_seat_covered_generations_split_between_billed_and_seat_counters(
+        self, mock_seat_covered: MagicMock, mock_region: MagicMock
+    ) -> None:
+        """Generations from a seat-covered distinct_id are excluded from billed credits and counted
+        in the seat-credits counter instead; generations from any other distinct_id stay billed."""
+        from posthog.tasks.usage_report import (
+            get_teams_with_posthog_code_credits_used_in_period,
+            get_teams_with_posthog_code_seat_credits_used_in_period,
+        )
+
+        mock_region.return_value = "US"
+        mock_seat_covered.return_value = {"user_seat_covered"}
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Seat-covered distinct_id (free/pro/alpha PostHog Code seat) — must not be billed.
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_seat_covered",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_seat_covered",
+                "$ai_total_cost_usd": 2.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_code",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+        # Billable distinct_id (usage-plan seat or no seat at all) — must stay billed.
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_billable",
+            timestamp=period_start + relativedelta(hours=2),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_billable",
+                "$ai_total_cost_usd": 3.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_code",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+        flush_persons_and_events()
+
+        billed_result = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
+        seat_result = get_teams_with_posthog_code_seat_credits_used_in_period(period_start, period_end)
+
+        # 3.0 USD * 100 (no markup) = 300 — the seat-covered generation's cost is excluded.
+        self.assertEqual(billed_result, [(self.org_1_team_1.id, 300)])
+        # 2.0 USD * 100 (no markup) = 200 — only the seat-covered generation's cost.
+        self.assertEqual(seat_result, [(self.org_1_team_1.id, 200)])
+
+    @patch("posthog.tasks.usage_report._get_posthog_code_seat_covered_distinct_ids")
+    def test_posthog_code_credits_raises_when_seat_roster_fetch_fails(self, mock_seat_covered: MagicMock) -> None:
+        """A failed roster fetch must raise, not silently bill everyone or no one."""
+        from posthog.tasks.usage_report import get_teams_with_posthog_code_credits_used_in_period
+
+        mock_seat_covered.side_effect = Exception("billing service unavailable")
+        self._setup_teams()
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        with self.assertRaises(Exception):
+            get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
+
     def test_has_non_zero_usage_counts_posthog_code_credits(self) -> None:
         """A posthog_code-only org must survive has_non_zero_usage so its report still reaches billing."""
         import dataclasses
@@ -4594,11 +4671,22 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
         self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "posthog_code_credits_used_in_period": 5})))
+        self.assertTrue(
+            has_non_zero_usage(UsageReportCounters(**{**zero, "posthog_code_seat_credits_used_in_period": 5}))
+        )
 
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+
+        # Licensed tests run the real report path; the billing seat-roster fetch is an external
+        # service call that raises without BILLING_SERVICE_API_KEY, so pin the pre-split default.
+        seat_roster_patcher = patch(
+            "posthog.tasks.usage_report._get_posthog_code_seat_covered_distinct_ids", return_value=set()
+        )
+        seat_roster_patcher.start()
+        self.addCleanup(seat_roster_patcher.stop)
 
         self.team2 = Team.objects.create(organization=self.organization)
 
@@ -4840,6 +4928,13 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        # Licensed tests run the real report path; the billing seat-roster fetch is an external
+        # service call that raises without BILLING_SERVICE_API_KEY, so pin the pre-split default.
+        seat_roster_patcher = patch(
+            "posthog.tasks.usage_report._get_posthog_code_seat_covered_distinct_ids", return_value=set()
+        )
+        seat_roster_patcher.start()
+        self.addCleanup(seat_roster_patcher.stop)
         materialize("events", "$exception_values")
 
     @freeze_time("2021-10-10T23:01:00Z")
@@ -4924,6 +5019,14 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
 
     def setUp(self) -> None:
         super().setUp()
+
+        # Licensed tests run the real report path; the billing seat-roster fetch is an external
+        # service call that raises without BILLING_SERVICE_API_KEY, so pin the pre-split default.
+        seat_roster_patcher = patch(
+            "posthog.tasks.usage_report._get_posthog_code_seat_covered_distinct_ids", return_value=set()
+        )
+        seat_roster_patcher.start()
+        self.addCleanup(seat_roster_patcher.stop)
 
         # Create additional organizations with teams
         self.org2 = Organization.objects.create(name="Org 2")
