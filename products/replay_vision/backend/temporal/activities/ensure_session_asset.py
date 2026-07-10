@@ -4,6 +4,8 @@ from django.utils.timezone import now
 
 from temporalio import activity
 
+from posthog.temporal.common.utils import close_db_connections
+
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.types import EnsureSessionAssetInputs, EnsureSessionAssetOutput
@@ -18,6 +20,7 @@ _ASSET_EXPIRES_AFTER_DAYS = 90
 
 
 @activity.defn
+@close_db_connections
 @track_activity()
 async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> EnsureSessionAssetOutput:
     """Get-or-create the `is_system=True` MP4 ExportedAsset for `(team, session)`; concurrent runs may produce orphaned duplicates that the asset expiry cleans up."""

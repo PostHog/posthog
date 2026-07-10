@@ -3,6 +3,8 @@ from django.utils import timezone
 
 from temporalio import activity
 
+from posthog.temporal.common.utils import close_db_connections
+
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER
 from products.replay_vision.backend.temporal.constants import ESTIMATES_MAX_PER_RUN
@@ -11,6 +13,7 @@ from products.replay_vision.backend.temporal.estimates_types import RefreshScann
 
 
 @activity.defn
+@close_db_connections
 @track_activity()
 def list_stale_scanner_estimates_activity() -> list[RefreshScannerEstimateInputs]:
     """Scanners whose persisted estimate is missing or past the staleness window.

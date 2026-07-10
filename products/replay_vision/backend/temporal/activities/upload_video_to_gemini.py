@@ -15,6 +15,7 @@ from temporalio import activity
 
 from posthog.storage import object_storage
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.utils import close_db_connections
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -30,6 +31,7 @@ _MAX_PROCESSING_WAIT_SECONDS = 300
 
 
 @activity.defn(name="replay_vision_upload_video_to_gemini_activity")
+@close_db_connections
 @track_activity()
 async def upload_video_to_gemini_activity(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
     """Read the asset's MP4 bytes, upload to Gemini, poll until ACTIVE, return the file reference."""
