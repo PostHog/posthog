@@ -9,7 +9,6 @@ import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { PaginatedResponse } from 'lib/api'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
-import { AlertType } from 'lib/components/Alerts/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
@@ -79,6 +78,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'

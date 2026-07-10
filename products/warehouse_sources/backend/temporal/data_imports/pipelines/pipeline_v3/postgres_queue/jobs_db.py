@@ -652,6 +652,34 @@ class BatchQueue:
             return bool(row and row[0])
 
     @staticmethod
+    def verify_group_lease_sync(
+        database_url: str,
+        *,
+        team_id: int,
+        schema_id: str,
+        owner_token: str,
+        connect_timeout_seconds: int = 10,
+    ) -> bool:
+        """Sync counterpart of verify_advisory_lock: the Delta write runs in a worker thread
+        that can't share the group's async connection, so use a short-lived sync one."""
+        with psycopg.connect(database_url, autocommit=True, connect_timeout=connect_timeout_seconds) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT EXISTS (
+                        SELECT 1 FROM {LEASE_TABLE}
+                        WHERE team_id = %(team_id)s
+                          AND schema_id = %(schema_id)s
+                          AND owner_token = %(owner)s
+                          AND expires_at > now()
+                    )
+                    """,
+                    {"team_id": team_id, "schema_id": schema_id, "owner": owner_token},
+                )
+                row = cur.fetchone()
+                return bool(row and row[0])
+
+    @staticmethod
     async def get_stale_executing(
         conn: psycopg.AsyncConnection[Any],
         *,

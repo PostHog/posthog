@@ -23241,7 +23241,8 @@
                 "Vellum",
                 "Vultr",
                 "Windmill",
-                "Zep"
+                "Zep",
+                "Hex"
             ],
             "type": "string"
         },
