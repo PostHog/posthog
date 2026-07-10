@@ -950,6 +950,15 @@ class IntegrationViewSet(
                 stripe_integration.clear_posthog_secrets()
             except Exception as e:
                 capture_exception(e)
+        if instance.kind in OauthIntegration.supported_kinds:
+            # Disconnecting should sever the grant at the provider too, not just delete our copy
+            # of the tokens — otherwise the provider keeps treating the app as authorized.
+            try:
+                OauthIntegration(instance).revoke_token()
+            except NotImplementedError:
+                pass  # kind not configured on this instance
+            except Exception as e:
+                capture_exception(e)
         if instance.kind == "github" and instance.integration_id:
             # Team integrations own the installation; personal ones are subordinate. When the
             # last team integration for an installation is removed, tear it down everywhere:

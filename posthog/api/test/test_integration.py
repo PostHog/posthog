@@ -3146,6 +3146,92 @@ class TestStripeIntegration:
         assert not Integration.objects.filter(team_id=self.team.pk, kind="stripe").exists()
 
 
+class TestOauthIntegrationRevokeOnDisconnect:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db, settings):
+        settings.SALESFORCE_CONSUMER_KEY = "sf-key"
+        settings.SALESFORCE_CONSUMER_SECRET = "sf-secret"
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def _create_salesforce_integration(self, sensitive_config: dict | None = None) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="salesforce",
+            config={"instance_url": "https://example.my.salesforce.com"},
+            sensitive_config=(
+                {"access_token": "sf-access", "refresh_token": "sf-refresh"}
+                if sensitive_config is None
+                else sensitive_config
+            ),
+            integration_id="https://example.my.salesforce.com",
+            created_by=self.user,
+        )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_salesforce_revokes_token_at_provider(self, mock_post, client: HttpClient):
+        integration = self._create_salesforce_integration()
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_called_once_with(
+            "https://login.salesforce.com/services/oauth2/revoke",
+            data={"token": "sf-refresh"},
+            timeout=10,
+        )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_still_deletes_when_revoke_fails(self, mock_post, client: HttpClient):
+        client.force_login(self.user)
+
+        raising = self._create_salesforce_integration()
+        mock_post.side_effect = Exception("Salesforce is down")
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{raising.id}/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=raising.id).exists()
+
+        rejected = self._create_salesforce_integration()
+        mock_post.side_effect = None
+        mock_post.return_value = MagicMock(status_code=400)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{rejected.id}/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=rejected.id).exists()
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_without_tokens_skips_revoke(self, mock_post, client: HttpClient):
+        integration = self._create_salesforce_integration(sensitive_config={})
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_not_called()
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_kind_without_revoke_url_skips_revoke(self, mock_post, client: HttpClient):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            config={"authed_user": {"id": "U123"}},
+            sensitive_config={"access_token": "xoxb-test"},
+            created_by=self.user,
+        )
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_not_called()
+
+
 class TestStripeIntegrationOAuthTokens:
     @pytest.fixture(autouse=True)
     def setup(self, db):
