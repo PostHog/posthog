@@ -70,6 +70,7 @@ export const manifest: ProductManifest = {
         '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
         '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
         '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
+        '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
         '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     },
     redirects: {
@@ -83,6 +84,7 @@ export const manifest: ProductManifest = {
         replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
         replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
         replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
+        replayVisionScannerSelfDriving: (id: string): string => `/replay-vision/${id}/self-driving`,
         replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
         replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
         replayVisionActionRun: (actionId: string, runId: string): string =>
