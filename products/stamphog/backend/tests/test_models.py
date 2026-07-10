@@ -8,13 +8,16 @@ from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.team import Team
 
 from products.stamphog.backend.models import ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
 
 
 def _make_repo_config(team: Team, repository: str = "PostHog/posthog") -> StamphogRepoConfig:
-    return StamphogRepoConfig.objects.unscoped().create(team=team, repository=repository, github_installation_id="123")
+    return StamphogRepoConfig.objects.unscoped().create(team_id=team.id, repository=repository, installation_id="123")
 
 
-class TestStamphogRepoConfigModel(APIBaseTest):
+class TestStamphogRepoConfigModel(StamphogTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
     def test_duplicate_repository_for_same_team_rejected(self) -> None:
         # Same repo config could otherwise be double-registered by a repeated
         # webhook-driven onboarding flow, silently duplicating gate policy.
@@ -37,14 +40,16 @@ class TestStamphogRepoConfigModel(APIBaseTest):
         assert results == [mine]
 
 
-class TestReviewRunModel(APIBaseTest):
+class TestReviewRunModel(StamphogTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
     def setUp(self) -> None:
         super().setUp()
         self.repo_config = _make_repo_config(self.team)
 
     def _make_run(self, delivery_id: str | None) -> ReviewRun:
         return ReviewRun.objects.unscoped().create(
-            team=self.team,
+            team_id=self.team.id,
             repo_config=self.repo_config,
             pr_number=1,
             pr_url="https://github.com/PostHog/posthog/pull/1",
@@ -71,8 +76,8 @@ class TestReviewRunModel(APIBaseTest):
         # Fail-closed scoping guard: reading ReviewRun outside team_scope()
         # or .for_team() must not silently return every team's runs.
         self._make_run("delivery-2")
-        # The autouse fixture sets team scope for the whole test; clear it
-        # here to exercise the manager's fail-closed default directly.
+        # The mixin holds team scope open for the whole test; clear it here to
+        # exercise the manager's fail-closed default directly.
         token = set_current_team_id(None)
         try:
             with pytest.raises(TeamScopeError):
@@ -85,7 +90,7 @@ class TestReviewRunModel(APIBaseTest):
         other_repo_config = _make_repo_config(other_team, "PostHog/other-repo")
         mine = self._make_run("delivery-3")
         ReviewRun.objects.unscoped().create(
-            team=other_team,
+            team_id=other_team.id,
             repo_config=other_repo_config,
             pr_number=1,
             pr_url="https://github.com/PostHog/other-repo/pull/1",

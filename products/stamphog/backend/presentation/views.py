@@ -33,14 +33,15 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.filter(team_id=self.team_id).order_by("repository")
 
     def perform_create(self, serializer: StamphogRepoConfigSerializer) -> None:
-        # Bind an (installation, repository) pair to the first team that claims it. Without this,
-        # any team could register another team's installation id + repo, and the webhook path would
-        # then resolve the review under the wrong team (cross-tenant policy control + data exposure).
-        installation_id = serializer.validated_data.get("github_installation_id", "")
+        # Bind a (provider, installation, repository) triple to the first team that claims it. Without
+        # this, any team could register another team's installation id + repo, and the webhook path
+        # would then resolve the review under the wrong team (cross-tenant policy control + data exposure).
+        provider = serializer.validated_data.get("provider", "github")
+        installation_id = serializer.validated_data.get("installation_id", "")
         repository = serializer.validated_data.get("repository", "")
         already_claimed = (
             StamphogRepoConfig.objects.unscoped()
-            .filter(github_installation_id=installation_id, repository=repository)
+            .filter(provider=provider, installation_id=installation_id, repository=repository)
             .exclude(team_id=self.team_id)
             .exists()
         )

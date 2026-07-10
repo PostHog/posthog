@@ -17,10 +17,10 @@ def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
     return contracts.RepoConfigDTO(
         id=obj.id,
         team_id=obj.team_id,
+        provider=obj.provider,
         repository=obj.repository,
         enabled=obj.enabled,
-        github_installation_id=obj.github_installation_id,
-        policy_overrides=obj.policy_overrides,
+        installation_id=obj.installation_id,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -35,6 +35,7 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
         pr_number=obj.pr_number,
         pr_url=obj.pr_url,
         head_sha=obj.head_sha,
+        head_branch=obj.head_branch,
         status=ReviewRunStatus(obj.status),
         verdict=ReviewVerdict(obj.verdict),
         delivery_id=obj.delivery_id,

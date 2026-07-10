@@ -27,7 +27,11 @@ from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.policy import load_policy
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.models import ReviewRun
-from products.stamphog.backend.temporal.constants import STAMPHOG_POLICY_PATHS, STAMPHOG_SANDBOX_REPO_DIR
+from products.stamphog.backend.temporal.constants import (
+    STAMPHOG_POLICY_PATHS,
+    STAMPHOG_REVIEW_GUIDANCE_PATH,
+    STAMPHOG_SANDBOX_REPO_DIR,
+)
 from products.tasks.backend.facade.sandbox import SandboxBase, SandboxConfig, get_sandbox_class_for_backend
 
 
@@ -65,7 +69,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     repo_config = run.repo_config
     repo = repo_config.repository
 
-    client = StamphogGitHubClient(repo_config.github_installation_id)
+    client = StamphogGitHubClient(repo_config.installation_id)
     pr = client.get_pr(repo, run.pr_number)
     files = client.get_pr_files(repo, run.pr_number)
 
@@ -93,7 +97,7 @@ def run_gates_activity(input: StamphogReviewInput) -> dict:
     files = output.get("files", [])
     policy_files = output.get("policy_files", {})
 
-    policy = load_policy(policy_files, repo_config.policy_overrides or {})
+    policy = load_policy(policy_files)
     gate_input = GateInput(pr=pr, files=files, policy=policy, is_draft=bool(pr.get("draft", False)))
     result = run_gates(gate_input)
 
@@ -105,8 +109,8 @@ def run_gates_activity(input: StamphogReviewInput) -> dict:
     }
 
     if not result.passed:
-        client = StamphogGitHubClient(repo_config.github_installation_id)
-        client.upsert_sticky_comment(
+        client = StamphogGitHubClient(repo_config.installation_id)
+        comment = client.upsert_sticky_comment(
             repo_config.repository,
             run.pr_number,
             _gate_block_comment(result.tier, result.reason),
@@ -114,7 +118,19 @@ def run_gates_activity(input: StamphogReviewInput) -> dict:
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = ReviewVerdict.WAIT
         run.completed_at = timezone.now()
-        run.save(update_fields=["gate_result", "status", "verdict", "completed_at", "updated_at"])
+        run.verdict_posted_at = run.completed_at
+        run.posted_comment_id = _comment_id(comment)
+        run.save(
+            update_fields=[
+                "gate_result",
+                "status",
+                "verdict",
+                "completed_at",
+                "verdict_posted_at",
+                "posted_comment_id",
+                "updated_at",
+            ]
+        )
         activity.logger.info(f"Gates blocked run {run.id} at tier {result.tier}: {result.reason}")
         return {"passed": False}
 
@@ -133,12 +149,12 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     output = run.output or {}
     pr = output.get("pr", {})
     files = output.get("files", [])
-    guidance = _review_guidance(repo_config.policy_overrides or {})
+    guidance = (output.get("policy_files") or {}).get(STAMPHOG_REVIEW_GUIDANCE_PATH, "")
 
     run.status = ReviewRunStatus.REVIEWING
     run.save(update_fields=["status", "updated_at"])
 
-    client = StamphogGitHubClient(repo_config.github_installation_id)
+    client = StamphogGitHubClient(repo_config.installation_id)
     token = client._get_installation_token()
 
     invocation = build_reviewer_invocation(pr, files, guidance)
@@ -180,17 +196,30 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     raw = output.get("reviewer_raw", "")
 
     parsed = parse_reviewer_output(raw)
-    client = StamphogGitHubClient(repo_config.github_installation_id)
+    client = StamphogGitHubClient(repo_config.installation_id)
 
     if parsed.verdict == ReviewVerdict.APPROVED:
-        client.post_approve_review(repo, run.pr_number, _approve_comment(parsed), run.head_sha)
+        review = client.post_approve_review(repo, run.pr_number, _approve_comment(parsed), run.head_sha)
+        run.posted_review_id = _comment_id(review)
     else:
-        client.upsert_sticky_comment(repo, run.pr_number, _verdict_comment(parsed))
+        comment = client.upsert_sticky_comment(repo, run.pr_number, _verdict_comment(parsed))
+        run.posted_comment_id = _comment_id(comment)
 
     run.status = ReviewRunStatus.COMPLETED
     run.verdict = parsed.verdict
     run.completed_at = timezone.now()
-    run.save(update_fields=["status", "verdict", "completed_at", "updated_at"])
+    run.verdict_posted_at = run.completed_at
+    run.save(
+        update_fields=[
+            "status",
+            "verdict",
+            "completed_at",
+            "verdict_posted_at",
+            "posted_review_id",
+            "posted_comment_id",
+            "updated_at",
+        ]
+    )
 
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
     return {"verdict": str(parsed.verdict)}
@@ -269,9 +298,10 @@ def _place_reviewer_files(sandbox: SandboxBase, reviewer_files: dict[str, str]) 
         sandbox.write_file(path, content.encode())
 
 
-def _review_guidance(policy_overrides: dict) -> str:
-    guidance = policy_overrides.get("review_guidance", "")
-    return guidance if isinstance(guidance, str) else ""
+def _comment_id(obj: dict) -> int | None:
+    """Pull the numeric id out of a GitHub review/comment response, or None."""
+    value = obj.get("id") if isinstance(obj, dict) else None
+    return value if isinstance(value, int) else None
 
 
 def _gate_block_comment(tier: str, reason: str) -> str:

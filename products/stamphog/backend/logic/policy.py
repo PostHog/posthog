@@ -72,22 +72,6 @@ def _require(condition: bool, message: str) -> None:
         raise PolicyError(message)
 
 
-def _deep_merge(base: dict, overrides: dict) -> dict:
-    """Recursively merge `overrides` onto `base`; overrides win on scalars/lists.
-
-    Used to apply a team's `StamphogRepoConfig.policy_overrides` on top of the
-    parsed global policy.yml before validation, so a team can only tune the
-    declared shape (e.g. bump size_gate.max_lines), never invent new keys.
-    """
-    merged = dict(base)
-    for key, value in overrides.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = _deep_merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
-
-
 def _parse_deny(raw: Any) -> dict[str, DenyCategory]:
     _require(isinstance(raw, dict) and bool(raw), "deny: must be a non-empty mapping")
     deny: dict[str, DenyCategory] = {}
@@ -204,15 +188,13 @@ def _parse_folder_overrides(files: dict[str, str], max_files_ceiling: int | None
     return overrides
 
 
-def load_policy(files: dict[str, str], overrides: dict) -> Policy:
+def load_policy(files: dict[str, str]) -> Policy:
     """Parse `.stamphog/policy.yml` from fetched default-branch content.
 
     `files` maps repo-relative path -> file content, fetched from the target
     repo's default branch (never PR head) - this keeps the policy itself
-    immune to a PR editing its own gate. `overrides` is the team's
-    `StamphogRepoConfig.policy_overrides`, deep-merged on top of the parsed
-    YAML before validation. Raises PolicyError on any malformed input -
-    fail closed, the caller must not gate on a half-loaded policy.
+    immune to a PR editing its own gate. Raises PolicyError on any malformed
+    input - fail closed, the caller must not gate on a half-loaded policy.
     """
     raw_text = files.get(POLICY_PATH)
     _require(raw_text is not None, f"policy: {POLICY_PATH} not found in fetched files")
@@ -221,9 +203,6 @@ def load_policy(files: dict[str, str], overrides: dict) -> Policy:
     except yaml.YAMLError as exc:
         raise PolicyError(f"policy: could not parse {POLICY_PATH}: {exc}") from exc
     _require(isinstance(raw, dict), "policy root: must be a mapping")
-
-    if overrides:
-        raw = _deep_merge(raw, overrides)
 
     for required in ("deny", "allow", "size_gate", "tiers"):
         _require(required in raw, f"policy root: missing required section {required!r}")

@@ -19,10 +19,15 @@ STAMPHOG_TASK_QUEUE = "stamphog-task-queue"
 STAMPHOG_SANDBOX_REPO_DIR = "/tmp/stamphog/target"
 STAMPHOG_SANDBOX_WORKSPACE_DIR = "/tmp/stamphog/workspace"
 
-# Policy files pulled from the target repo's DEFAULT branch (never PR head) and fed
-# into load_policy. Folder overrides referenced by the root policy are resolved by
-# the policy layer itself; this is just the entrypoint file.
-STAMPHOG_POLICY_PATHS: tuple[str, ...] = (".stamphog/policy.yml",)
+# Trusted review-norms prose fed to the reviewer as its system guidance. Read from
+# the target repo's DEFAULT branch (never PR head) so a PR can't rewrite the norms
+# it is judged against.
+STAMPHOG_REVIEW_GUIDANCE_PATH = ".stamphog/review-guidance.md"
+
+# Files pulled from the target repo's DEFAULT branch (never PR head) onto the run.
+# The policy entrypoint feeds load_policy (folder overrides referenced by it are
+# resolved by the policy layer itself); the guidance file feeds the reviewer prompt.
+STAMPHOG_POLICY_PATHS: tuple[str, ...] = (".stamphog/policy.yml", STAMPHOG_REVIEW_GUIDANCE_PATH)
 
 # Per-activity start-to-close timeouts.
 FETCH_CONTEXT_TIMEOUT = timedelta(minutes=5)

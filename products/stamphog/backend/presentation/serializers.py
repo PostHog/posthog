@@ -9,11 +9,6 @@ from ..models import ReviewRun, StamphogRepoConfig
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
-class _PolicyOverridesField(serializers.JSONField):
-    pass
-
-
-@extend_schema_field(OpenApiTypes.OBJECT)
 class _GateResultField(serializers.JSONField):
     pass
 
@@ -24,29 +19,26 @@ class _ReviewOutputField(serializers.JSONField):
 
 
 class StamphogRepoConfigSerializer(serializers.ModelSerializer):
-    policy_overrides = _PolicyOverridesField(
-        required=False,
-        help_text="Per-repo overrides merged on top of the repo's .stamphog/policy.yml at review time.",
-    )
-
     class Meta:
         model = StamphogRepoConfig
         fields = [
             "id",
+            "provider",
             "repository",
             "enabled",
-            "github_installation_id",
-            "policy_overrides",
+            "installation_id",
             "created_at",
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
         extra_kwargs = {
-            "repository": {"help_text": "GitHub repository full name, e.g. 'PostHog/posthog'."},
-            "enabled": {"help_text": "Whether stamphog actively reviews pull requests for this repo."},
-            "github_installation_id": {
-                "help_text": "GitHub App installation ID that authorizes API calls for this repo."
+            "provider": {
+                "required": False,
+                "help_text": "SCM provider this config talks to. Defaults to 'github'.",
             },
+            "repository": {"help_text": "Repository full name, e.g. 'PostHog/posthog'."},
+            "enabled": {"help_text": "Whether stamphog actively reviews pull requests for this repo."},
+            "installation_id": {"help_text": "Provider app installation ID that authorizes API calls for this repo."},
         }
 
 
@@ -83,6 +75,7 @@ class ReviewRunSerializer(serializers.ModelSerializer):
             "pr_number",
             "pr_url",
             "head_sha",
+            "head_branch",
             "delivery_id",
             "status",
             "verdict",
@@ -98,6 +91,7 @@ class ReviewRunSerializer(serializers.ModelSerializer):
             "pr_number": {"help_text": "Pull request number on GitHub."},
             "pr_url": {"help_text": "Full URL to the pull request on GitHub."},
             "head_sha": {"help_text": "Commit SHA of the PR head at the time this run started."},
+            "head_branch": {"help_text": "Branch name of the PR head at the time this run started."},
             "delivery_id": {"help_text": "GitHub webhook delivery ID that triggered this run, used for deduplication."},
             "error": {"help_text": "Error message if the run failed, blank otherwise."},
             "created_at": {"help_text": "When the review run was created."},

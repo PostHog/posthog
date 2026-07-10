@@ -97,7 +97,7 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # the one genuinely cross-team read on this path; everything after it is for_team-scoped.
     repo_config = (
         StamphogRepoConfig.objects.unscoped()
-        .filter(github_installation_id=installation_id, repository=repo)
+        .filter(provider="github", installation_id=installation_id, repository=repo)
         .order_by("created_at", "id")
         .first()
     )
@@ -112,12 +112,14 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     try:
         with transaction.atomic():
             _supersede_prior_runs(repo_config, pr_number)
+            head = pr.get("head") or {}
             review_run = ReviewRun.objects.for_team(team_id).create(
-                team=repo_config.team,
+                team_id=team_id,
                 repo_config=repo_config,
                 pr_number=pr_number,
                 pr_url=pr.get("html_url", ""),
-                head_sha=(pr.get("head") or {}).get("sha", ""),
+                head_sha=head.get("sha", ""),
+                head_branch=head.get("ref", ""),
                 delivery_id=delivery_id or None,
                 status=ReviewRunStatus.QUEUED,
             )

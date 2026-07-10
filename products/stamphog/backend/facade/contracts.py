@@ -25,10 +25,10 @@ class RepoConfigDTO:
 
     id: UUID
     team_id: int
+    provider: str
     repository: str
     enabled: bool
-    github_installation_id: str
-    policy_overrides: dict = Field(default_factory=dict)
+    installation_id: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -44,6 +44,7 @@ class ReviewRunDTO:
     pr_number: int
     pr_url: str
     head_sha: str
+    head_branch: str
     status: ReviewRunStatus
     verdict: ReviewVerdict
     delivery_id: str | None = None

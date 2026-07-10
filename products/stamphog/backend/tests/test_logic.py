@@ -41,14 +41,14 @@ def _make_file(path: str, additions: int = 1, deletions: int = 0) -> dict:
 
 class LoadPolicyTests(SimpleTestCase):
     def test_parses_minimal_valid_policy(self) -> None:
-        policy = load_policy({".stamphog/policy.yml": MINIMAL_POLICY_YAML}, {})
+        policy = load_policy({".stamphog/policy.yml": MINIMAL_POLICY_YAML})
 
         assert policy.size_gate.max_lines == 500
         assert "secrets" in policy.deny
 
     def test_missing_policy_file_fails_closed(self) -> None:
         with self.assertRaises(PolicyError):
-            load_policy({}, {})
+            load_policy({})
 
     @parameterized.expand(
         [
@@ -101,18 +101,7 @@ tiers:
     )
     def test_malformed_section_fails_closed(self, _name: str, broken_yaml: str) -> None:
         with self.assertRaises(PolicyError):
-            load_policy({".stamphog/policy.yml": broken_yaml}, {})
-
-    def test_team_overrides_bump_size_gate_ceiling(self) -> None:
-        # StamphogRepoConfig.policy_overrides deep-merges onto the parsed YAML,
-        # so a team can raise its own ceiling without editing policy.yml.
-        policy = load_policy(
-            {".stamphog/policy.yml": MINIMAL_POLICY_YAML},
-            {"size_gate": {"max_lines": 900}},
-        )
-
-        assert policy.size_gate.max_lines == 900
-        assert policy.size_gate.max_files == 20
+            load_policy({".stamphog/policy.yml": broken_yaml})
 
     def test_folder_override_ignored_without_a_declared_ceiling(self) -> None:
         approvals = "---\nstamphog:\n  size_gate:\n    max_files: 15\n---\n"
@@ -120,8 +109,7 @@ tiers:
             {
                 ".stamphog/policy.yml": MINIMAL_POLICY_YAML,
                 "products/foo/AGENT_APPROVALS.md": approvals,
-            },
-            {},
+            }
         )
 
         # No declared overrides ceiling in the base policy means folder grants
@@ -135,8 +123,7 @@ tiers:
             {
                 ".stamphog/policy.yml": policy_with_ceiling,
                 "products/foo/AGENT_APPROVALS.md": approvals_with_extra_key,
-            },
-            {},
+            }
         )
 
         assert policy.folder_max_files == {}
@@ -148,8 +135,7 @@ tiers:
             {
                 ".stamphog/policy.yml": policy_with_ceiling,
                 "products/foo/AGENT_APPROVALS.md": approvals_over_ceiling,
-            },
-            {},
+            }
         )
 
         # A folder can't grant itself more files than the policy's own ceiling allows.
@@ -157,7 +143,7 @@ tiers:
 
 
 def _policy() -> Policy:
-    return load_policy({".stamphog/policy.yml": MINIMAL_POLICY_YAML}, {})
+    return load_policy({".stamphog/policy.yml": MINIMAL_POLICY_YAML})
 
 
 class RunGatesTests(SimpleTestCase):
@@ -269,8 +255,7 @@ class RunGatesTests(SimpleTestCase):
             {
                 ".stamphog/policy.yml": policy_with_ceiling,
                 "products/foo/AGENT_APPROVALS.md": approvals,
-            },
-            {},
+            }
         )
         # 22 files under products/foo would fail the global 20-file ceiling, but
         # the folder's delegated 30-file grant covers files scoped under it.
@@ -289,8 +274,7 @@ class RunGatesTests(SimpleTestCase):
             {
                 ".stamphog/policy.yml": policy_with_ceiling,
                 "products/foo/AGENT_APPROVALS.md": approvals,
-            },
-            {},
+            }
         )
         # A folder's leniency must not leak to files outside it - 22 ungoverned
         # files should still trip the base 20-file global ceiling.

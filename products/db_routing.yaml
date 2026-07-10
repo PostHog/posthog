@@ -1,4 +1,6 @@
 routes:
+    - app_label: stamphog
+      database: stamphog
     - app_label: visual_review
       database: visual_review
     - app_label: warehouse_sources_queue
