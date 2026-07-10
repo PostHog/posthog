@@ -706,6 +706,64 @@ class TestExports(APIBaseTest):
 
     @parameterized.expand(
         [
+            # A recorded exception (e.g. a query error) is surfaced verbatim.
+            (
+                "recorded_exception",
+                "boom: the query blew up",
+                5,
+                status.HTTP_400_BAD_REQUEST,
+                "boom: the query blew up",
+            ),
+            # A silent timeout (empty well past the query-timeout budget, no exception) is surfaced
+            # as a failure rather than a bare 404 - this is the SQL-editor / killed-worker case.
+            (
+                "silent_timeout",
+                None,
+                2 * HOGQL_INCREASED_MAX_EXECUTION_TIME,
+                status.HTTP_400_BAD_REQUEST,
+                "Export failed without throwing an exception",
+            ),
+        ]
+    )
+    def test_content_download_surfaces_failure_instead_of_bare_not_found(
+        self, _name, exception, created_seconds_ago, expected_status, expected_detail_substring
+    ) -> None:
+        with freeze_time(now() - timedelta(seconds=created_seconds_ago)):
+            export = ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.dashboard.id,
+                export_format="text/csv",
+                created_by=self.user,
+                content=None,
+                content_location=None,
+                exception=exception,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{export.id}/content")
+
+        self.assertEqual(response.status_code, expected_status)
+        body = response.json()
+        self.assertEqual(body["code"], "export_failed")
+        self.assertIn(expected_detail_substring, body["detail"])
+
+    def test_content_download_of_in_progress_export_is_not_ready_not_found(self) -> None:
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard_id=self.dashboard.id,
+            export_format="text/csv",
+            created_by=self.user,
+            content=None,
+            content_location=None,
+            exception=None,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{export.id}/content")
+
+        self.assertEqual(response.status_code, status.HTTP_425_TOO_EARLY)
+        self.assertEqual(response.json()["code"], "export_not_ready")
+
+    @parameterized.expand(
+        [
             ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
             ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
         ]

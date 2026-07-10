@@ -25,7 +25,6 @@ from posthog.models.organization import Organization
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.security.url_validation import is_url_allowed
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
@@ -33,7 +32,12 @@ from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
-from products.exports.backend.models.exported_asset import ExportedAsset, get_content_response
+from products.exports.backend.models.exported_asset import (
+    STUCK_EXPORT_MESSAGE,
+    ExportedAsset,
+    get_content_response,
+    is_export_stuck,
+)
 from products.product_analytics.backend.models.insight import Insight
 
 # Full video exports per team per calendar month, tiered by plan.
@@ -80,17 +84,10 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         """Override to show stuck exports as having an exception."""
         data = super().to_representation(instance)
 
-        # Check if this export is stuck (created over HOGQL_INCREASED_MAX_EXECUTION_TIME seconds ago,
-        # has no content, and has no recorded exception)
-        timeout_threshold = now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 30)
-        if (
-            timeout_threshold
-            and instance.created_at < timeout_threshold
-            and not instance.has_content
-            and not instance.exception
-        ):
-            timeout_message = f"Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
-            data["exception"] = timeout_message
+        # A stuck export (empty well past its timeout budget, no recorded exception) is a silent
+        # failure - surface it as an exception so the UI shows a real error instead of a spinner.
+        if is_export_stuck(instance):
+            data["exception"] = STUCK_EXPORT_MESSAGE
 
             distinct_id = (
                 self.context["request"].user.distinct_id
@@ -102,7 +99,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                 event="export timeout error returned",
                 properties={
                     **instance.get_analytics_metadata(),
-                    "timeout_message": timeout_message,
+                    "timeout_message": STUCK_EXPORT_MESSAGE,
                     "stuck_duration_seconds": (now() - instance.created_at).total_seconds(),
                 },
                 groups=groups(instance.team.organization, instance.team),
