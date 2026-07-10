@@ -137,7 +137,9 @@ jobs:
                   file: Dockerfile.ml-mirror-image-scrub
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
-                  platforms: linux/amd64
+                  # Both arches: the charts-side Karpenter NodePool defaults to arm64 (Graviton), and an
+                  # amd64-only manifest fails there with "no match for platform in manifest".
+                  platforms: linux/amd64,linux/arm64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
 

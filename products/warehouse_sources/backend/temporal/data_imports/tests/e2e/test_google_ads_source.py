@@ -1,7 +1,5 @@
 import os
-import sys
 import json
-import subprocess
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -629,32 +627,17 @@ class TestGoogleAdsClientStaleConnection:
         mock_close_old_connections.assert_not_called()
 
 
-# Runs in a clean interpreter — this test module imports the google-ads SDK itself, so we can't
-# inspect this process's sys.modules.
-_SDK_LEAK_CHECK = """
-import os, sys
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-import django
-django.setup()
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-SourceRegistry._ensure_loaded()
-print("\\n".join(sorted(m for m in sys.modules if m.startswith("google.ads"))))
-"""
-
-
-def test_source_registration_does_not_import_google_ads_sdk() -> None:
+def test_source_registration_does_not_import_google_ads_sdk(google_ads_sdk_leak_check) -> None:
     # google-ads has a circular module graph that is only safe to import single-threaded; importing
     # it from concurrent worker threads deadlocks or duplicate-registers its protobuf descriptors.
     # So registering sources (load_all_sources, which any sync triggers via SourceRegistry) must NOT
     # import the SDK — it loads lazily only when a google-ads sync actually runs. This guards the
     # split between configs.py (lightweight, registered) and google_ads.py (SDK, deferred).
-    # Hand the child our import paths so `import posthog` / `products.*` resolves regardless of the
-    # working directory (the product test job runs pytest from products/warehouse_sources/, not the
-    # repo root, so a bare `python -c` wouldn't find the repo packages on cwd alone).
-    env = {**os.environ, "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)}
-    result = subprocess.run(
-        [sys.executable, "-c", _SDK_LEAK_CHECK], capture_output=True, text=True, timeout=120, env=env
-    )
-    assert result.returncode == 0, result.stderr[-2000:]
-    leaked = [m for m in result.stdout.splitlines() if m]
+    # The clean-interpreter subprocess doing the check is launched at session start by the
+    # google_ads_sdk_leak_check fixture (products/warehouse_sources/backend/conftest.py) so its
+    # interpreter boot overlaps the rest of the suite; this test just collects its verdict.
+    assert google_ads_sdk_leak_check is not None
+    returncode, stdout, stderr = google_ads_sdk_leak_check.result(timeout=120)
+    assert returncode == 0, stderr[-2000:]
+    leaked = [m for m in stdout.splitlines() if m]
     assert not leaked, f"google-ads SDK imported during source registration: {leaked[:5]}"

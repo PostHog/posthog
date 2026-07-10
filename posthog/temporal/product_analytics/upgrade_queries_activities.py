@@ -7,7 +7,7 @@ from django.db import connection
 from structlog import get_logger
 from temporalio import activity
 
-from posthog.schema_migrations import LATEST_VERSIONS
+from posthog.schema_migrations import LATEST_VERSIONS, _discover_migrations
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.product_analytics.backend.models.insight import Insight
@@ -42,7 +42,13 @@ class GetInsightsToMigrateActivityResult:
 
 @activity.defn
 def get_insights_to_migrate(inputs: GetInsightsToMigrateActivityInputs) -> GetInsightsToMigrateActivityResult:
+    _discover_migrations()  # Populate LATEST_VERSIONS; this is the first activity in the workflow
+
     clauses = [_clause(k, v) for k, v in sorted(LATEST_VERSIONS.items())]
+    if not clauses:
+        # No migrations registered — guard against emitting `WHERE ()`, which Postgres rejects
+        return GetInsightsToMigrateActivityResult(insight_ids=[], last_id=inputs.after_id)
+
     after_clause = "" if inputs.after_id is None else f"\nAND id > {inputs.after_id}"
     where_body = ("\n   OR  ").join(clauses)
     sql = f"""
