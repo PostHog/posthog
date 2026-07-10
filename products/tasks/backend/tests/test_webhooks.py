@@ -83,6 +83,7 @@ class TestGitHubPRWebhook(TestCase):
 
         payload = {
             "action": "closed",
+            "repository": {"full_name": "posthog/posthog", "private": True},
             "pull_request": {
                 "html_url": "https://github.com/posthog/posthog/pull/123",
                 "merged": True,
@@ -100,6 +101,7 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(call_kwargs["properties"]["task_id"], str(self.task.id))
         self.assertEqual(call_kwargs["properties"]["run_id"], str(self.task_run.id))
         self.assertEqual(call_kwargs["properties"]["pr_source"], "task")
+        self.assertIs(call_kwargs["properties"]["pr_repo_private"], True)
 
         self.task_run.refresh_from_db()
         assert self.task_run.output is not None
@@ -621,7 +623,7 @@ class TestExternalPRWebhook(TestCase):
         return {
             "action": action,
             "installation": {"id": 555000},
-            "repository": {"full_name": "acme/widgets"},
+            "repository": {"full_name": "acme/widgets", "private": False},
             "pull_request": {
                 "html_url": "https://github.com/acme/widgets/pull/7",
                 "number": 7,
@@ -663,6 +665,7 @@ class TestExternalPRWebhook(TestCase):
         self.assertEqual(props["pr_source"], "external")
         self.assertEqual(props["team_id"], self.team.id)
         self.assertEqual(props["repository"], "acme/widgets")
+        self.assertIs(props["pr_repo_private"], False)
         self.assertEqual(props["pr_number"], 7)
         self.assertEqual(props["pr_author"], "octocat")
         self.assertEqual(props["pr_base_ref"], "main")

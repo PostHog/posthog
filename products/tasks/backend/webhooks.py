@@ -261,6 +261,9 @@ def _pr_payload_properties(payload: dict) -> dict:
         "pr_deletions": pull_request.get("deletions"),
         "pr_changed_files": pull_request.get("changed_files"),
         "pr_commits": pull_request.get("commits"),
+        # Read from the top-level payload.repository (not pull_request) so downstream
+        # consumers can distinguish public vs private repos before following the PR link.
+        "pr_repo_private": (payload.get("repository") or {}).get("private"),
     }
 
 
