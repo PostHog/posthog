@@ -24,6 +24,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
@@ -108,6 +109,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         user: Optional[User] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
+        self._use_new_events_schema = use_new_events_schema(team.pk)
         self.actors_query = self.query.source
         self.funnels_query = self.actors_query.source
 
@@ -246,6 +248,11 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             query=query,
             team=self.team,
             user=self.user,
+            context=HogQLContext(
+                team_id=self.team.pk,
+                user=self.user,
+                use_new_events_schema=self._use_new_events_schema,
+            ),
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -612,7 +619,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             # for every non-string value (numbers, bools, objects), and those properties should still
             # show up in correlation results.
             properties_pairs = "JSONExtractKeysAndValues(event_table.properties, 'String')"
-            if use_new_events_schema(self.team.pk):
+            if self._use_new_events_schema:
                 properties_pairs = f"arrayFilter(prop -> prop.2 != '', {properties_pairs})"
             event_property_array_query = f"""
                 if(

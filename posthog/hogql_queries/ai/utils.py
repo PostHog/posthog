@@ -10,8 +10,6 @@ from posthog.caching.utils import ThresholdMode, is_stale
 # These are stripped from the properties JSON by the MV and stored in dedicated columns.
 # Derived from AI_PROPERTY_TO_COLUMN to avoid drift between the two mappings.
 from posthog.hogql_queries.ai.ai_property_rewriter import AI_PROPERTY_TO_COLUMN
-from posthog.models.event.new_events_schema import use_new_events_schema
-from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.models.team.team import Team
 
 _HEAVY_PROPERTIES: frozenset[str] = frozenset(
@@ -62,7 +60,7 @@ _NUMERIC_AI_PROPERTIES: frozenset[str] = frozenset(
 )
 
 
-def parse_ai_property_value(value: Any, team_id: int | None = None, new_events_schema: bool | None = None) -> Any:
+def parse_ai_property_value(value: Any) -> Any:
     if value is None or value == "":
         return None
 
@@ -73,43 +71,20 @@ def parse_ai_property_value(value: Any, team_id: int | None = None, new_events_s
         return value
 
     try:
-        parsed = orjson.loads(value)
+        return orjson.loads(value)
     except orjson.JSONDecodeError:
         return value
 
-    # Reconstructed new-schema blobs can double-encode list elements as JSON strings; legacy
-    # blobs must keep list elements exactly as stored.
-    if isinstance(parsed, list):
-        if new_events_schema is None:
-            new_events_schema = use_new_events_schema(team_id)
-        if new_events_schema:
-            return [parse_ai_property_value(item, team_id, new_events_schema=True) for item in parsed]
 
-    return parsed
-
-
-def parse_ai_properties(
-    properties: Any, team_id: int | None = None, new_events_schema: bool | None = None
-) -> dict[str, Any]:
-    if new_events_schema is None:
-        new_events_schema = use_new_events_schema(team_id)
-
-    parsed = parse_ai_property_value(properties, team_id, new_events_schema=new_events_schema)
+def parse_ai_properties(properties: Any) -> dict[str, Any]:
+    parsed = parse_ai_property_value(properties)
     if not isinstance(parsed, dict):
         return {}
-
-    # New-schema blob reconstruction materializes subcolumn keys even when absent from the
-    # original event; drop the resulting ""/None placeholders. Legacy blobs only contain keys
-    # that were actually ingested, so an empty value there is real data.
-    if new_events_schema:
-        for prop_key in EVENTS_PROPERTIES_JSON_SUBCOLUMNS:
-            if parsed.get(prop_key) in ("", None):
-                parsed.pop(prop_key, None)
 
     for prop_key in _NUMERIC_AI_PROPERTIES:
         value = parsed.get(prop_key)
         if isinstance(value, str):
-            parsed_value = parse_ai_property_value(value, team_id, new_events_schema=new_events_schema)
+            parsed_value = parse_ai_property_value(value)
             if type(parsed_value) in (int, float):
                 parsed[prop_key] = parsed_value
 
@@ -119,8 +94,6 @@ def parse_ai_properties(
 def merge_heavy_properties(
     properties_json: Any,
     heavy_columns: dict[str, Any],
-    team_id: int | None = None,
-    new_events_schema: bool | None = None,
 ) -> dict[str, Any]:
     """Take an ai_events row's properties JSON and heavy column values, return a complete properties dict.
 
@@ -132,20 +105,16 @@ def merge_heavy_properties(
     ClickHouse).  Empty strings are skipped (the column default when the
     property was absent).
 
-    When ``new_events_schema`` is None it is resolved via ``use_new_events_schema(team_id)``,
-    which may read an instance setting from Postgres — async callers must resolve the flag in
-    a sync context (e.g. under ``database_sync_to_async``) and pass it in explicitly.
+    Both source tables return JSON strings at this boundary, so values are decoded exactly once.
     """
-    if new_events_schema is None:
-        new_events_schema = use_new_events_schema(team_id)
-    props = parse_ai_properties(properties_json, team_id, new_events_schema=new_events_schema)
+    props = parse_ai_properties(properties_json)
     for column_name, raw_value in heavy_columns.items():
         if not raw_value:
             continue
         prop_key = HEAVY_COLUMN_TO_PROPERTY.get(column_name)
         if prop_key is None:
             continue
-        props[prop_key] = parse_ai_property_value(raw_value, team_id, new_events_schema=new_events_schema)
+        props[prop_key] = parse_ai_property_value(raw_value)
     return props
 
 

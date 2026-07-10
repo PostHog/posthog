@@ -19,6 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.utils import (
@@ -103,6 +104,11 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             self._event_query(),
             team=self.team,
             user=self.user,
+            context=HogQLContext(
+                team_id=self.team.pk,
+                user=self.user,
+                use_new_events_schema=self._use_new_events_schema,
+            ),
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -119,6 +125,10 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         if self.query.is_column or self.query.property_key.startswith("$virt_"):
             return False
         return self.query.property_key in self._restricted_event_property_names
+
+    @cached_property
+    def _use_new_events_schema(self) -> bool:
+        return use_new_events_schema(self.team.pk)
 
     @cached_property
     def _restricted_event_property_names(self) -> set[str]:
@@ -252,7 +262,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         values: list[object] = []
         for row in rows:
             raw = row[0]
-            if use_new_events_schema(self.team.pk):
+            if self._use_new_events_schema:
                 values.append(_parse_jsonish_property_value(raw))
             elif isinstance(raw, float | int | bool | uuid.UUID):
                 values.append(raw)
@@ -274,7 +284,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         values: list[object] = []
         for row in rows:
             raw = row[0]
-            if use_new_events_schema(self.team.pk):
+            if self._use_new_events_schema:
                 values.append(_parse_jsonish_property_value(raw))
             else:
                 try:

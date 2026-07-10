@@ -252,7 +252,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         event_uuid, event_name, event_timestamp, event_properties, *heavy = event_tuple
         heavy_columns = dict(zip(("input", "output", "output_choices", "input_state", "output_state", "tools"), heavy))
         event_id = str(event_uuid)
-        properties = merge_heavy_properties(event_properties, heavy_columns, self.team.pk)
+        properties = merge_heavy_properties(event_properties, heavy_columns)
         generation: dict[str, Any] = {
             "id": event_id,
             "event": event_name,
@@ -277,7 +277,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             "created_at": created_at.isoformat(),
             "events": generations,
         }
-        trace_properties = parse_ai_properties(trace_dict.get("trace_properties"), self.team.pk)
+        trace_properties = parse_ai_properties(trace_dict.get("trace_properties"))
         sentiment = sentiment_lookup.by_trace_id.get(str(result["id"]))
         if sentiment is not None:
             trace_dict["sentiment"] = sentiment
@@ -288,7 +288,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             raw = trace_dict.get(raw_key) or trace_properties.get(prop_key) or None
             trace_dict[raw_key] = raw
             if raw is not None:
-                trace_dict[parsed_key] = parse_ai_property_value(raw, self.team.pk)
+                trace_dict[parsed_key] = parse_ai_property_value(raw)
         trace = LLMTrace.model_validate(
             {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
         )

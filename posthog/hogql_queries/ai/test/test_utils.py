@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
+from django.test import override_settings
 from django.utils import timezone
 
 import orjson
@@ -80,3 +81,14 @@ class TestMergeHeavyProperties(BaseTest):
     )
     def test_parse_ai_property_value_preserves_invalid_json_strings(self, value):
         self.assertEqual(parse_ai_property_value(value), value)
+
+    def test_parse_ai_property_value_preserves_json_strings_inside_lists(self):
+        value = '["true", "123", "null", "{\\"role\\":\\"user\\"}"]'
+
+        self.assertEqual(parse_ai_property_value(value), ["true", "123", "null", '{"role":"user"}'])
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_merge_preserves_empty_properties_independently_of_events_schema(self):
+        result = merge_heavy_properties('{"$browser":"","$ai_model":null}', {})
+
+        self.assertEqual(result, {"$browser": "", "$ai_model": None})

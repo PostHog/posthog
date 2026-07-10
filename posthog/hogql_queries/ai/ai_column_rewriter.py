@@ -19,7 +19,6 @@ from posthog.hogql import ast
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.hogql_queries.ai.ai_property_rewriter import AI_PROPERTY_TO_COLUMN
-from posthog.models.event.new_events_schema import use_new_events_schema
 
 # Invert AI_PROPERTY_TO_COLUMN: column_name -> property_name
 AI_COLUMN_TO_PROPERTY: dict[str, str] = {col: prop for prop, col in AI_PROPERTY_TO_COLUMN.items()}
@@ -63,7 +62,7 @@ _BOOLEAN_COLUMNS: frozenset[str] = frozenset({"is_error"})
 _RAW_JSON_COLUMNS: frozenset[str] = frozenset(
     {"input", "output", "output_choices", "input_state", "output_state", "tools"}
 )
-_EVENTS_RESULT_ALIAS = "__ai_events_result_events"
+_EVENTS_TABLE_ALIAS = "__ai_events_fallback"
 
 
 class AiColumnToPropertyRewriter(CloningVisitor):
@@ -76,10 +75,9 @@ class AiColumnToPropertyRewriter(CloningVisitor):
     like placeholders that will be substituted into ai_events-scoped queries).
     """
 
-    def __init__(self, force_rewrite: bool = False, team_id: int | None = None):
+    def __init__(self, force_rewrite: bool = False):
         super().__init__()
         self._in_ai_events_scope = force_rewrite
-        self._team_id = team_id
         self._table_qualifier: str = "ai_events"
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
@@ -101,8 +99,6 @@ class AiColumnToPropertyRewriter(CloningVisitor):
                 ast.Alias(alias=name, expr=item) if name and not isinstance(item, ast.Alias) else item
                 for name, item in zip(natural_names, result.select)
             ]
-            if use_new_events_schema(self._team_id):
-                result.select = [_rename_events_result_alias(item) for item in result.select]
         self._in_ai_events_scope = was_in_scope
         self._table_qualifier = old_qualifier
         return result
@@ -118,10 +114,10 @@ class AiColumnToPropertyRewriter(CloningVisitor):
             col_name = chain[1]
             if isinstance(col_name, str) and col_name in AI_COLUMN_TO_PROPERTY:
                 prop_name = AI_COLUMN_TO_PROPERTY[col_name]
-                new_chain: list[str | int] = ["events", "properties", prop_name, *chain[2:]]
-                return _wrap_for_events_type(col_name, new_chain, self._team_id)
+                new_chain: list[str | int] = [_EVENTS_TABLE_ALIAS, "properties", prop_name, *chain[2:]]
+                return _wrap_for_events_type(col_name, new_chain)
             # Native column (timestamp, event, distinct_id, etc.) — just swap table prefix
-            return ast.Field(chain=["events", *chain[1:]])
+            return ast.Field(chain=[_EVENTS_TABLE_ALIAS, *chain[1:]])
 
         # Bare column: ["column_name", ...]
         if len(chain) >= 1:
@@ -129,7 +125,7 @@ class AiColumnToPropertyRewriter(CloningVisitor):
             if isinstance(col_name, str) and col_name in AI_COLUMN_TO_PROPERTY:
                 prop_name = AI_COLUMN_TO_PROPERTY[col_name]
                 new_chain = ["properties", prop_name, *chain[1:]]
-                return _wrap_for_events_type(col_name, new_chain, self._team_id)
+                return _wrap_for_events_type(col_name, new_chain)
 
         return super().visit_field(node)
 
@@ -142,7 +138,7 @@ class AiColumnToPropertyRewriter(CloningVisitor):
         # nosemgrep: hogql-no-string-table-chain
         if isinstance(new_node.table, ast.Field) and new_node.table.chain == ["posthog", "ai_events"]:
             new_node.table = ast.Field(chain=["events"])
-            new_node.alias = None
+            new_node.alias = _EVENTS_TABLE_ALIAS
         return new_node
 
 
@@ -168,23 +164,6 @@ def _select_item_natural_name(item: ast.Expr, table_qualifier: str) -> str | Non
     return None
 
 
-def _rename_events_result_alias(item: ast.Expr) -> ast.Expr:
-    if isinstance(item, ast.Alias) and item.alias == "events":
-        return ast.Alias(
-            alias=_EVENTS_RESULT_ALIAS,
-            expr=item.expr,
-            hidden=item.hidden,
-            from_asterisk=item.from_asterisk,
-        )
-    return item
-
-
-def restore_events_result_alias(columns: list[str] | None) -> list[str] | None:
-    if columns is None:
-        return None
-    return ["events" if column == _EVENTS_RESULT_ALIAS else column for column in columns]
-
-
 def _has_ai_events_from(query: ast.SelectQuery) -> bool:
     """Check if a SELECT query has FROM posthog.ai_events.
 
@@ -200,7 +179,7 @@ def _has_ai_events_from(query: ast.SelectQuery) -> bool:
     )
 
 
-def _wrap_for_events_type(col_name: str, chain: list[str | int], team_id: int | None = None) -> ast.Expr:
+def _wrap_for_events_type(col_name: str, chain: list[str | int]) -> ast.Expr:
     """Wrap a rewritten property reference to preserve the ai_events column type.
 
     On the events table, properties are strings (JSON extraction). Aggregate functions
@@ -221,18 +200,23 @@ def _wrap_for_events_type(col_name: str, chain: list[str | int], team_id: int | 
         )
     if col_name in _NUMERIC_COLUMNS:
         return ast.Call(name="toFloat", args=[ast.Field(chain=chain)])
-    if col_name in _RAW_JSON_COLUMNS and use_new_events_schema(team_id):
-        return ast.Call(name="toJSONString", args=[ast.Field(chain=chain)])
+    if col_name in _RAW_JSON_COLUMNS:
+        properties_index = chain.index("properties")
+        return ast.Call(
+            name="JSONExtractRaw",
+            args=[
+                ast.Field(chain=chain[: properties_index + 1]),
+                *[ast.Constant(value=key) for key in chain[properties_index + 1 :]],
+            ],
+        )
     return ast.Field(chain=chain)
 
 
-def rewrite_query_for_events_table(
-    query: ast.SelectQuery | ast.SelectSetQuery, team_id: int | None = None
-) -> ast.SelectQuery | ast.SelectSetQuery:
+def rewrite_query_for_events_table(query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
     """Rewrite a query written against `ai_events` to target the `events` table."""
-    return AiColumnToPropertyRewriter(force_rewrite=False, team_id=team_id).visit(query)
+    return AiColumnToPropertyRewriter(force_rewrite=False).visit(query)
 
 
-def rewrite_expr_for_events_table(expr: ast.Expr, team_id: int | None = None) -> ast.Expr:
+def rewrite_expr_for_events_table(expr: ast.Expr) -> ast.Expr:
     """Rewrite a standalone expression (e.g. a placeholder value) for the events table."""
-    return AiColumnToPropertyRewriter(force_rewrite=True, team_id=team_id).visit(expr)
+    return AiColumnToPropertyRewriter(force_rewrite=True).visit(expr)

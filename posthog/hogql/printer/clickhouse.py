@@ -18,7 +18,12 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
-from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
+from posthog.hogql.escape_sql import (
+    escape_clickhouse_identifier,
+    escape_clickhouse_string,
+    quote_clickhouse_identifier,
+    safe_identifier,
+)
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
@@ -1104,6 +1109,16 @@ class ClickHousePrinter(BasePrinter):
             expr = super().visit_field_type(node.expr.type)
         else:
             expr = self.visit(node.expr)
+
+        if any("%" in key for key in node.keys):
+            if node.access_type == "sub_object":
+                for key in node.keys:
+                    subcolumn = f"^{quote_clickhouse_identifier(key)}"
+                    expr = f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
+                return expr
+            subcolumn = ".".join(node.keys)
+            return f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
+
         for index, key in enumerate(node.keys):
             separator = ".^" if node.access_type == "sub_object" and index == 0 else "."
             expr = f"{expr}{separator}{escape_clickhouse_identifier(key)}"

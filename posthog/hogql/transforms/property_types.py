@@ -16,6 +16,7 @@ from posthog.hogql.database.schema.events import (
 )
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
@@ -30,7 +31,6 @@ from posthog.clickhouse.materialized_columns import (
     get_materialized_column_for_property,
 )
 from posthog.models import Team
-from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.models.property import PropertyName, TableColumn
 
 _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
@@ -40,8 +40,6 @@ _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
     "JSONExtractFloat": ("Float64", 0.0),
     "JSONExtractBool": ("Bool", 0),
 }
-
-_JSON_EXTRACT_COMPLEX_TYPE_FAMILIES = {"array", "map", "tuple"}
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
@@ -338,7 +336,9 @@ class PropertySwapper(CloningVisitor):
         leaf values reliably, but not every object/array path round-trips as a standalone subcolumn value.
         """
         property_path = self._simple_json_extract_property_path(node)
-        if property_path is None:
+        if node.name not in ("JSONExtract", "JSONExtractRaw", *_JSON_EXTRACT_SCALAR_CASTS):
+            return None
+        if not node.args:
             return None
 
         # Unwrap Alias if present (resolver wraps fields in Alias nodes)
@@ -378,8 +378,14 @@ class PropertySwapper(CloningVisitor):
                 "person_properties",
             )
         ):
+            if property_path is None:
+                if self._json_extract_has_runtime_path(node):
+                    raise QueryError("JSONExtract over native event properties requires a constant first key")
+                return None
             return self._json_extract_subcolumn_expr(node, field_arg, field_type, property_path)
 
+        if property_path is None:
+            return None
         if len(property_path) != 1:
             return None
         property_name = property_path[0]
@@ -404,7 +410,7 @@ class PropertySwapper(CloningVisitor):
         )
 
     @staticmethod
-    def _simple_json_extract_property_path(node: ast.Call) -> list[str] | None:
+    def _simple_json_extract_property_path(node: ast.Call) -> list[str | int] | None:
         if node.name == "JSONExtract":
             if len(node.args) < 3:
                 return None
@@ -420,151 +426,86 @@ class PropertySwapper(CloningVisitor):
         if not path_args:
             return None
 
-        property_path: list[str] = []
+        property_path: list[str | int] = []
         for path_arg in path_args:
-            if not isinstance(path_arg, ast.Constant) or not isinstance(path_arg.value, str):
+            if not isinstance(path_arg, ast.Constant) or not isinstance(path_arg.value, str | int):
                 return None
             property_path.append(path_arg.value)
         return property_path
+
+    @staticmethod
+    def _json_extract_has_runtime_path(node: ast.Call) -> bool:
+        if node.name == "JSONExtract":
+            path_args = node.args[1:-1]
+        elif node.name in _JSON_EXTRACT_SCALAR_CASTS or node.name == "JSONExtractRaw":
+            path_args = node.args[1:]
+        else:
+            return False
+        return any(not isinstance(arg, ast.Constant) for arg in path_args)
 
     def _json_extract_subcolumn_expr(
         self,
         node: ast.Call,
         field_arg: ast.Field,
         field_type: ast.FieldType,
-        property_path: list[str],
+        property_path: list[str | int],
     ) -> ast.Expr | None:
-        property_field = ast.JsonSubcolumnAccess(
+        first_key = property_path[0]
+        if not isinstance(first_key, str):
+            return ast.Call(
+                start=node.start,
+                end=node.end,
+                type=node.type,
+                name=node.name,
+                args=[ast.Constant(value="{}"), *node.args[1:]],
+                params=node.params,
+                distinct=node.distinct,
+                within_group=node.within_group,
+                order_by=node.order_by,
+                filter_expr=node.filter_expr,
+            )
+        if first_key in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+            return ast.Call(
+                start=node.start,
+                end=node.end,
+                type=node.type,
+                name=node.name,
+                args=[ast.Constant(value="{}"), *node.args[1:]],
+                params=node.params,
+                distinct=node.distinct,
+                within_group=node.within_group,
+                order_by=node.order_by,
+                filter_expr=node.filter_expr,
+            )
+        property_field = ast.Field(
             start=node.start,
             end=node.end,
-            expr=ast.Field(chain=[field_type.name], type=field_type),
-            keys=property_path,
-            type=ast.StringType(nullable=True),
+            chain=[*field_arg.chain, first_key],
+            type=ast.PropertyType(chain=[first_key], field_type=field_type),
         )
-
-        if node.name == "JSONExtractString":
-            if property_path[0] in restricted_property_keys_for_table_type(field_type.table_type, self.context):
-                return ast.Constant(value=None)
-            if len(property_path) == 1:
-                return ast.Field(
-                    start=node.start,
-                    end=node.end,
-                    chain=[*field_arg.chain, property_path[0]],
-                    type=ast.PropertyType(chain=[property_path[0]], field_type=field_type),
-                )
-            return ast.Call(
-                name="ifNull",
-                args=[
-                    ast.Call(name="toString", args=[property_field], type=ast.StringType(nullable=False)),
-                    ast.Constant(value="", inline_sentinel=True),
-                ],
-                type=ast.StringType(nullable=False),
-            )
-
-        if node.name == "JSONExtractRaw":
-            # Raw text of one key never needs the whole blob: serialize just that subcolumn. The
-            # resolver lowers toJSONString(properties.k) to the raw-JSON subcolumn read; a missing
-            # key reads NULL there, while JSONExtractRaw's missing-key result is ''. Typed
-            # subcolumns are left on the blob fallback — their reads stringify scalars without
-            # JSON quoting, which would change JSONExtractRaw's output.
-            if len(property_path) != 1:
-                return None
-            typed_subcolumns = (
-                EVENTS_PROPERTIES_JSON_SUBCOLUMNS
-                if field_type.name == "properties"
-                else PERSON_PROPERTIES_JSON_SUBCOLUMNS
-            )
-            if property_path[0] in typed_subcolumns:
-                return None
-            if property_path[0] in restricted_property_keys_for_table_type(field_type.table_type, self.context):
-                return ast.Constant(value="")
-            return ast.Call(
-                name="ifNull",
-                args=[
-                    ast.Call(
-                        name="toJSONString",
-                        args=[
-                            ast.Field(
-                                start=node.start,
-                                end=node.end,
-                                chain=[*field_arg.chain, property_path[0]],
-                                type=ast.PropertyType(chain=[property_path[0]], field_type=field_type),
-                            )
-                        ],
-                    ),
-                    ast.Constant(value="", inline_sentinel=True),
-                ],
-                type=ast.StringType(nullable=False),
-            )
-
-        if scalar_cast := _JSON_EXTRACT_SCALAR_CASTS.get(node.name):
-            cast_type, default_value = scalar_cast
-            if property_path[0] in restricted_property_keys_for_table_type(field_type.table_type, self.context):
-                return ast.Constant(value=default_value)
-            return ast.Call(
-                name="ifNull",
-                args=[
-                    ast.Call(
-                        name="accurateCastOrNull",
-                        args=[property_field, ast.Constant(value=cast_type)],
-                    ),
-                    ast.Constant(value=default_value),
-                ],
-            )
-
-        if node.name != "JSONExtract" or len(node.args) < 3:
-            return None
-
-        type_arg = node.args[-1]
-        if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
-            return None
-
-        requested_type = parse_sql_runtime_type(type_arg.value)
-        if requested_type.family == "unknown":
-            return None
-        if requested_type.family in _JSON_EXTRACT_COMPLEX_TYPE_FAMILIES:
-            # Extract the complex value from just this subcolumn's raw JSON, not the whole blob.
-            # The resolver rewrites JSONExtract(ifNull(properties.k, ''), type) to the raw-JSON
-            # subcolumn read; JSONExtract('') keeps the type's default for missing keys.
-            if len(property_path) != 1:
-                return None
-            if property_path[0] in restricted_property_keys_for_table_type(field_type.table_type, self.context):
-                if requested_type.nullable:
-                    return ast.Constant(value=None)
-                return ast.Call(name="defaultValueOfTypeName", args=[type_arg])
-            return ast.Call(
-                name="JSONExtract",
-                args=[
-                    ast.Call(
-                        name="ifNull",
-                        args=[
-                            ast.Field(
-                                start=node.start,
-                                end=node.end,
-                                chain=[*field_arg.chain, property_path[0]],
-                                type=ast.PropertyType(chain=[property_path[0]], field_type=field_type),
-                            ),
-                            ast.Constant(value="", inline_sentinel=True),
-                        ],
-                    ),
-                    type_arg,
-                ],
-            )
-
-        if property_path[0] in restricted_property_keys_for_table_type(field_type.table_type, self.context):
-            if requested_type.nullable:
-                return ast.Constant(value=None)
-            return ast.Call(name="defaultValueOfTypeName", args=[type_arg])
-
-        casted = ast.Call(name="accurateCastOrNull", args=[property_field, type_arg])
-        if requested_type.nullable:
-            return casted
-        return ast.Call(
+        serialized_property = ast.Call(
             name="ifNull",
             args=[
-                casted,
-                ast.Call(name="defaultValueOfTypeName", args=[type_arg]),
+                ast.Call(name="toJSONString", args=[property_field], type=ast.StringType(nullable=True)),
+                ast.Constant(value="", inline_sentinel=True),
             ],
+            type=ast.StringType(nullable=False),
+        )
+
+        # Keep ClickHouse's JSONExtract implementation as the source of truth for coercion and
+        # default-value semantics. Only replace the full document with the first requested
+        # property's serialized value, then apply any remaining path components unchanged.
+        return ast.Call(
+            start=node.start,
+            end=node.end,
+            type=node.type,
+            name=node.name,
+            args=[serialized_property, *node.args[2:]],
+            params=node.params,
+            distinct=node.distinct,
+            within_group=node.within_group,
+            order_by=node.order_by,
+            filter_expr=node.filter_expr,
         )
 
     @staticmethod

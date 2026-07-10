@@ -15,6 +15,9 @@ from django.utils import timezone
 
 from posthog.schema import CachedEventTaxonomyQueryResponse, EventTaxonomyQuery
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
+
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.models import PropertyDefinition
 
@@ -24,6 +27,23 @@ from products.event_definitions.backend.models.property_definition import Proper
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_targeted_properties_read_individual_json_subcolumns(self):
+        runner = EventTaxonomyQueryRunner(
+            team=self.team,
+            query=EventTaxonomyQuery(event="event1", properties=["$host", "custom_property"]),
+        )
+
+        sql, _ = prepare_and_print_ast(
+            runner.to_query(),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
+            "clickhouse",
+        )
+
+        self.assertIn("events.properties.`$host`", sql)
+        self.assertIn("events.properties.custom_property", sql)
+        self.assertNotIn("JSONExtractKeysAndValuesRaw", sql)
+
     @snapshot_clickhouse_queries
     def test_event_taxonomy_query_runner(self):
         _create_person(

@@ -1262,7 +1262,6 @@ class TestPrinter(BaseTest):
             "JSONHas(properties, 'dynamic_key')": "or(isNotNull(events.properties.dynamic_key), notEquals(toJSONString(events.properties.^dynamic_key), '{}'))",
             "JSONHas(properties, '$ai_trace_id')": "isNotNull(events.properties.`$ai_trace_id`)",
             "JSONHas(properties, '$browser')": "isNotNull(events.properties.`$browser`)",
-            "JSONHas(properties, 'metadata', 'score')": "or(isNotNull(events.properties.metadata.score), notEquals(toJSONString(events.properties.^metadata.score), '{}'))",
         }
         for expression, expected in expected_by_expr.items():
             context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -1271,8 +1270,16 @@ class TestPrinter(BaseTest):
             self.assertNotIn("JSONExtractKeysAndValuesRaw", printed)
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        with pytest.raises(QueryError, match="constant string property keys"):
-            self._expr("JSONHas(properties, 'items', 1)", context)
+        printed = self._expr("JSONHas(properties, 'metadata', 'score')", context)
+        self.assertIn("JSONHas(ifNull(", printed)
+        self.assertIn("events.properties.^metadata", printed)
+        self.assertNotIn("JSONExtractKeysAndValuesRaw", printed)
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._expr("JSONHas(properties, 'items', 1)", context)
+        self.assertIn("JSONHas(ifNull(", printed)
+        self.assertIn("events.properties.items", printed)
+        self.assertNotIn("JSONExtractKeysAndValuesRaw", printed)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_keyed_json_extracts_avoid_blob_reconstruction(self) -> None:
@@ -1281,10 +1288,11 @@ class TestPrinter(BaseTest):
         for expression in (
             "JSONExtract(properties, 'cart_items', 'Array(String)')",
             "JSONExtractRaw(properties, 'custom_key')",
+            "JSONExtractRaw(properties, 'items', 1)",
         ):
             printed = self._expr(expression, HogQLContext(team_id=self.team.pk, enable_select_queries=True))
             self.assertNotIn("JSONExtractKeysAndValuesRaw", printed, expression)
-            self.assertIn("events.properties.^", printed, expression)
+            self.assertIn("events.properties.", printed, expression)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_to_json_string_scrubs_absent_typed_paths(self) -> None:
@@ -1315,11 +1323,21 @@ class TestPrinter(BaseTest):
                 self._select("SELECT event FROM events")
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_json_has_rejects_percent_property_key(self) -> None:
+    def test_new_events_schema_percent_property_keys_use_bound_subcolumns(self) -> None:
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
 
-        with pytest.raises(QueryError, match="%"):
-            self._expr("JSONHas(properties, 'bad%key')", context)
+        for expression in ("JSONHas(properties, 'bad%key')", "JSONExtractRaw(properties, 'bad%key')"):
+            printed = self._expr(expression, context)
+            self.assertIn("getSubcolumn(events.properties,", printed)
+            self.assertNotIn("JSONExtractKeysAndValuesRaw", printed)
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_runtime_first_property_keys_fail_fast(self) -> None:
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        for expression in ("JSONHas(properties, event)", "JSONExtractRaw(properties, event)"):
+            with pytest.raises(QueryError, match="constant first key"):
+                self._expr(expression, context)
 
     def test_property_groups_optimized_in_comparisons(self) -> None:
         # The IN operator works much like equality when the right hand side of the expression is all constants. Like

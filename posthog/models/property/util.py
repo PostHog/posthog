@@ -397,8 +397,6 @@ def prop_filter_json_extract(
 
     target_table = "events" if use_event_column else property_table(prop)
     is_events_json = use_new_events_schema and target_table == "events"
-    # JSONHas/visitParamExtractRaw below need a String document; on the JSON schema serialize the column.
-    blob_var = f"toJSONString({prop_var})" if is_events_json else prop_var
 
     property_expr, is_denormalized = get_property_string_expr(
         target_table,
@@ -410,6 +408,16 @@ def prop_filter_json_extract(
         materialised_table_column=use_event_column if use_event_column else "properties",
         use_new_events_schema=is_events_json,
     )
+    events_json_property_exists_expr: str | None = None
+    events_json_column = use_event_column or "properties"
+    if is_events_json and events_json_column in ("properties", "person_properties"):
+        table_prefix = f"{table_name}." if table_name else ""
+        events_json_property_exists_expr = _json_events_property_exists_expr(
+            prop.key,
+            f"%(k{prepend}_{idx})s",
+            f"{table_prefix}{prop_var}",
+            events_json_column,
+        )
 
     if is_denormalized and transform_expression:
         property_expr = transform_expression(property_expr)
@@ -489,6 +497,11 @@ def prop_filter_json_extract(
             "k{}_{}".format(prepend, idx): prop.key,
             "v{}_{}".format(prepend, idx): prop.value,
         }
+        if events_json_property_exists_expr is not None:
+            return (
+                f" {property_operator} {events_json_property_exists_expr}",
+                params,
+            )
         if is_denormalized:
             return (
                 " {property_operator} {left} != ''".format(left=property_expr, property_operator=property_operator),
@@ -498,7 +511,7 @@ def prop_filter_json_extract(
             " {property_operator} JSONHas({prop_var}, %(k{prepend}_{idx})s)".format(
                 idx=idx,
                 prepend=prepend,
-                prop_var=blob_var,
+                prop_var=prop_var,
                 property_operator=property_operator,
             ),
             params,
@@ -508,6 +521,11 @@ def prop_filter_json_extract(
             "k{}_{}".format(prepend, idx): prop.key,
             "v{}_{}".format(prepend, idx): prop.value,
         }
+        if events_json_property_exists_expr is not None:
+            return (
+                f" {property_operator} NOT ({events_json_property_exists_expr})",
+                params,
+            )
         if is_denormalized:
             return (
                 " {property_operator} {left} = ''".format(left=property_expr, property_operator=property_operator),
@@ -517,7 +535,7 @@ def prop_filter_json_extract(
             " {property_operator} (isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
                 idx=idx,
                 prepend=prepend,
-                prop_var=blob_var,
+                prop_var=prop_var,
                 left=property_expr,
                 property_operator=property_operator,
             ),
@@ -592,7 +610,10 @@ def prop_filter_json_extract(
         )
     else:
         if is_json(prop.value) and not is_denormalized:
-            clause = " {property_operator} has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"
+            if is_events_json:
+                clause = " {property_operator} has(%(v{prepend}_{idx})s, replaceRegexpAll({left}, ' ', ''))"
+            else:
+                clause = " {property_operator} has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"
             params = {
                 "k{}_{}".format(prepend, idx): prop.key,
                 "v{}_{}".format(prepend, idx): box_value(prop.value, remove_spaces=True),
@@ -608,7 +629,7 @@ def prop_filter_json_extract(
                 left=property_expr,
                 idx=idx,
                 prepend=prepend,
-                prop_var=blob_var,
+                prop_var=prop_var,
                 property_operator=property_operator,
             ),
             params,
@@ -688,19 +709,65 @@ def _json_events_property_expr(
     """Property value read against the native-JSON events schema.
 
     Typed subcolumns read like non-nullable materialized columns (missing reads ''), so callers'
-    denormalized-column handling applies unchanged. Dynamic properties extract from the serialized
-    blob with the parameterized key, preserving legacy JSONExtractRaw semantics for any key
-    (dotted, %-containing) at the cost of serializing the document per row.
+    denormalized-column handling applies unchanged. Dynamic properties combine the scalar path and
+    sub-object path for that key, preserving the logical JSON string without rebuilding the document.
     """
     subcolumns = (
         EVENTS_PROPERTIES_JSON_SUBCOLUMNS
         if materialised_table_column == "properties"
         else PERSON_PROPERTIES_JSON_SUBCOLUMNS
     )
+    scalar_value = _json_events_subcolumn_expr(property_name, var, column_ref)
     if property_name in subcolumns:
-        escaped = escape_clickhouse_identifier(property_name)
-        return f"ifNull({column_ref}.{escaped}, '')", True
-    return trim_quotes_expr(f"JSONExtractRaw(toJSONString({column_ref}), {var})"), False
+        if subcolumns[property_name].startswith(("Array(", "Map(")):
+            return f"if(empty({scalar_value}), '', toJSONString({scalar_value}))", True
+        return f"ifNull({scalar_value}, '')", True
+
+    object_value = f"toJSONString({_json_events_subcolumn_expr(property_name, var, column_ref, sub_object=True)})"
+    # dynamicType only chooses scalar versus container formatting; both branches cast the
+    # whole Dynamic value rather than selecting one physical variant.
+    dynamic_type = f"dynamicType({scalar_value})"
+    is_container = " OR ".join(f"startsWith({dynamic_type}, '{family}')" for family in ("Array", "Map", "Tuple"))
+    scalar_string = f"toString({scalar_value})"
+    formatted_scalar = (
+        f"if(startsWith({dynamic_type}, 'DateTime'), replaceOne({scalar_string}, ' ', 'T'), {scalar_string})"
+    )
+    raw_value = (
+        f"if({object_value} != '{{}}', {object_value}, "
+        f"if({is_container}, toJSONString({scalar_value}), {formatted_scalar}))"
+    )
+    return trim_quotes_expr(f"ifNull({raw_value}, '')"), False
+
+
+def _json_events_property_exists_expr(
+    property_name: PropertyName, var: str, column_ref: str, materialised_table_column: str
+) -> str:
+    subcolumns = (
+        EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+        if materialised_table_column == "properties"
+        else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+    )
+    scalar_value = _json_events_subcolumn_expr(property_name, var, column_ref)
+    if property_name in subcolumns:
+        if subcolumns[property_name].startswith(("Array(", "Map(")):
+            return f"notEmpty({scalar_value})"
+        return f"isNotNull({scalar_value})"
+
+    object_value = f"toJSONString({_json_events_subcolumn_expr(property_name, var, column_ref, sub_object=True)})"
+    return f"(isNotNull({scalar_value}) OR {object_value} != '{{}}')"
+
+
+def _json_events_subcolumn_expr(
+    property_name: PropertyName, var: str, column_ref: str, *, sub_object: bool = False
+) -> str:
+    if "%" not in property_name:
+        separator = ".^" if sub_object else "."
+        return f"{column_ref}{separator}{escape_clickhouse_identifier(property_name)}"
+
+    escaped_backticks = f"replaceAll({var}, char(96), concat(char(96), char(96)))"
+    quoted_subcolumn = f"concat(char(96), {escaped_backticks}, char(96))"
+    subcolumn = f"concat('^', {quoted_subcolumn})" if sub_object else var
+    return f"getSubcolumn({column_ref}, {subcolumn})"
 
 
 def box_value(value: Any, remove_spaces=False) -> list[Any]:

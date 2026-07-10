@@ -1664,6 +1664,35 @@ def test_prop_filter_json_extract(test_events, clean_up_materialised_columns, pr
     assert uuids == expected
 
 
+@pytest.mark.parametrize(
+    "property_filter,expected_fragment",
+    [
+        (
+            Property(key="dynamic_empty", operator="is_set", value="is_set"),
+            "isNotNull(properties.dynamic_empty)",
+        ),
+        (
+            Property(key="dynamic_datetime", operator="exact", value="2024-01-02T03:04:05"),
+            "replaceOne(toString(properties.dynamic_datetime), ' ', 'T')",
+        ),
+        (
+            Property(key="a%.b", operator="exact", value="value"),
+            "getSubcolumn(properties, %(k_0)s)",
+        ),
+    ],
+)
+def test_prop_filter_json_extract_native_json_dynamic_values(property_filter: Property, expected_fragment: str) -> None:
+    query, _ = prop_filter_json_extract(
+        property_filter,
+        0,
+        allow_denormalized_props=False,
+        use_new_events_schema=True,
+    )
+
+    assert expected_fragment in query
+    assert "JSONExtractRaw(toJSONString(properties)" not in query
+
+
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 @freeze_time("2021-04-01T01:00:00.000Z")
 def test_prop_filter_json_extract_materialized(

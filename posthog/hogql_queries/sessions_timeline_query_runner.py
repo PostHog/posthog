@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import cast
 
 from posthog.schema import (
@@ -9,6 +10,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -41,11 +43,15 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
     query: SessionsTimelineQuery
     cached_response: CachedSessionsTimelineQueryResponse
 
+    @cached_property
+    def _use_new_events_schema(self) -> bool:
+        return use_new_events_schema(self.team.pk)
+
     def _get_events_subquery(self) -> ast.SelectQuery:
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
         before = relative_date_parse(self.query.before or "-0h", self.team.timezone_info)
         with self.timings.measure("build_events_subquery"):
-            event_field_prefix = ["event_source"] if use_new_events_schema(self.team.pk) else []
+            event_field_prefix = ["event_source"] if self._use_new_events_schema else []
             event_conditions: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Gt,
@@ -66,7 +72,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                         op=ast.CompareOperationOp.Eq,
                     )
                 )
-            if use_new_events_schema(self.team.pk):
+            if self._use_new_events_schema:
                 select_query = parse_select(
                     """
                     SELECT
@@ -150,9 +156,48 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
             )
         return cast(ast.SelectQuery, select_query)
 
-    def to_actors_query(self):
-        return parse_select(
-            """SELECT DISTINCT person_id FROM {events_subquery}""", {"events_subquery": self._get_events_subquery()}
+    def to_actors_query(self) -> ast.SelectQuery:
+        after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
+        before = relative_date_parse(self.query.before or "-0h", self.team.timezone_info)
+        event_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=after),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=before),
+            ),
+        ]
+        if self.query.personId:
+            event_conditions.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["person_id"]),
+                    right=ast.Constant(value=self.query.personId),
+                    op=ast.CompareOperationOp.Eq,
+                )
+            )
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT DISTINCT person_id
+                FROM (
+                    SELECT person_id
+                    FROM events
+                    WHERE {event_conditions}
+                    ORDER BY timestamp DESC
+                    LIMIT {event_limit_with_more}
+                )
+                """,
+                placeholders={
+                    "event_conditions": ast.And(exprs=event_conditions),
+                    "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
+                },
+            ),
         )
 
     def _calculate(self) -> SessionsTimelineQueryResponse:
@@ -160,6 +205,11 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
             query=self.to_query(),
             team=self.team,
             user=self.user,
+            context=HogQLContext(
+                team_id=self.team.pk,
+                user=self.user,
+                use_new_events_schema=self._use_new_events_schema,
+            ),
             query_type="SessionsTimelineQuery",
             timings=self.timings,
             modifiers=self.modifiers,

@@ -9,6 +9,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr
@@ -37,6 +38,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
     def __init__(self, *args, settings: HogQLGlobalSettings | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.settings = settings
+        self._use_new_events_schema = use_new_events_schema(self.team.pk)
         self.paginator = HogQLHasMorePaginator(
             limit=self.query.limit or DEFAULT_LIMIT,
             offset=self.query.offset or 0,
@@ -55,6 +57,11 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
+                context=HogQLContext(
+                    team_id=self.team.pk,
+                    user=self.user,
+                    use_new_events_schema=self._use_new_events_schema,
+                ),
             )
 
         results: list[EventTaxonomyItem] = []
@@ -139,7 +146,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
         )
 
     def _properties_document_expr(self) -> ast.Expr:
-        if use_new_events_schema(self.team.pk):
+        if self._use_new_events_schema:
             return ast.Call(name="toJSONString", args=[ast.Field(chain=["properties"])])
         return ast.Field(chain=["properties"])
 
@@ -167,7 +174,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                         ast.CompareOperation(
                             left=ast.Call(
                                 name="JSONExtractString",
-                                args=[self._properties_document_expr(), ast.Constant(value=prop)],
+                                args=[ast.Field(chain=["properties"]), ast.Constant(value=prop)],
                             ),
                             op=ast.CompareOperationOp.NotEq,
                             right=ast.Constant(value=""),
@@ -208,7 +215,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                                     ast.Constant(value=prop),
                                     ast.Call(
                                         name="JSONExtractString",
-                                        args=[self._properties_document_expr(), ast.Constant(value=prop)],
+                                        args=[ast.Field(chain=["properties"]), ast.Constant(value=prop)],
                                     ),
                                 ]
                             )

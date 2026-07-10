@@ -321,7 +321,7 @@ def _materialized_head_expr(
             field_type,
             [first_key],
             source=source,
-            as_json=not is_single,
+            as_json=not is_single or _is_json_container_column(source),
             materialization_mode=materialization_mode,
         )
 
@@ -377,6 +377,8 @@ def _json_subcolumn_access(
 
 
 def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
+    # Inspect the per-row variant only to choose its string format. Every branch casts the
+    # whole Dynamic value, so mixed numeric variants are never filtered by a typed projection.
     dynamic_type = ast.Call(name="dynamicType", args=[clone_expr(value)], type=ast.StringType(nullable=False))
     datetime_string = ast.Call(
         name="replaceOne",
@@ -397,6 +399,36 @@ def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.E
     else:
         datetime_expr = datetime_string
 
+    json_value = ast.Call(
+        name="toJSONString",
+        args=[clone_expr(value)],
+        type=ast.StringType(nullable=False),
+    )
+    scalar_expr: ast.Expr = json_value
+    if not as_json:
+        scalar_expr = ast.Call(
+            name="if",
+            args=[
+                ast.Or(
+                    exprs=[
+                        ast.Call(
+                            name="startsWith",
+                            args=[clone_expr(dynamic_type), _const(family)],
+                            type=ast.BooleanType(nullable=False),
+                        )
+                        for family in ("Array", "Map", "Tuple")
+                    ]
+                ),
+                json_value,
+                ast.Call(
+                    name="toString",
+                    args=[clone_expr(value)],
+                    type=ast.StringType(nullable=False),
+                ),
+            ],
+            type=ast.StringType(nullable=False),
+        )
+
     return ast.Call(
         name="if",
         args=[
@@ -404,11 +436,7 @@ def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.E
                 name="startsWith", args=[dynamic_type, _sentinel("DateTime")], type=ast.BooleanType(nullable=False)
             ),
             datetime_expr,
-            ast.Call(
-                name="toJSONString" if as_json else "toString",
-                args=[clone_expr(value)],
-                type=ast.StringType(nullable=False),
-            ),
+            scalar_expr,
         ],
         type=ast.StringType(nullable=False),
     )
@@ -466,8 +494,21 @@ def _json_subcolumn_value_expr(
             ],
             type=ast.StringType(nullable=True),
         )
-    if as_json and _is_string_array_column(source):
-        return ast.Call(name="toJSONString", args=[value], type=ast.StringType(nullable=False))
+    if as_json:
+        serialized = ast.Call(
+            name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=source.is_nullable)
+        )
+        if _is_json_container_column(source) and not source.is_nullable:
+            return ast.Call(
+                name="if",
+                args=[
+                    ast.Call(name="empty", args=[value], type=ast.BooleanType(nullable=False)),
+                    ast.Constant(value=None, type=ast.StringType(nullable=True)),
+                    serialized,
+                ],
+                type=ast.StringType(nullable=True),
+            )
+        return serialized
     if not _is_string_column(source) or not source.scrub_empty:
         return value
 
@@ -526,10 +567,6 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
             if not deeper_keys:
                 return map_head
             return ast.PropertyAccess(expr=map_head, keys=deeper_keys, type=ast.StringType(nullable=True))
-        _record_property_usage(context, None)
-        return None
-
-    if source.kind == "json_subcolumn" and any(isinstance(key, str) and "%" in key for key in node.keys):
         _record_property_usage(context, None)
         return None
 
@@ -636,6 +673,10 @@ def _is_string_array_column(source: MaterializedPropertySource) -> bool:
         and runtime_type.item_type is not None
         and runtime_type.item_type.family in ("string", "fixed_string", "enum")
     )
+
+
+def _is_json_container_column(source: MaterializedPropertySource) -> bool:
+    return parse_sql_runtime_type(source.column_type or "String").family in ("array", "map", "tuple")
 
 
 def _is_dynamic_json_source(source: MaterializedPropertySource) -> bool:
@@ -984,7 +1025,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         )
 
     def _optimize_json_has_on_events_json(self, node: ast.Call) -> ast.Expr | None:
-        if not self.context.uses_new_events_schema() or node.name != "JSONHas" or len(node.args) == 0:
+        if not self.context.uses_new_events_schema() or node.name != "JSONHas":
             return None
 
         field_type = resolve_field_type(node.args[0])
@@ -1001,27 +1042,54 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
 
         if len(node.args) < 2:
-            raise QueryError("JSONHas on events JSON properties requires at least one property key")
+            return None
 
-        keys: list[str] = []
-        for arg in node.args[1:]:
-            if not isinstance(arg, ast.Constant):
-                return None
-            if not isinstance(arg.value, str):
-                raise QueryError("JSONHas on events JSON properties only supports constant string property keys")
-            keys.append(arg.value)
+        first_key_arg = node.args[1]
+        if not isinstance(first_key_arg, ast.Constant):
+            raise QueryError("JSONHas over native event properties requires a constant first key")
+        if not isinstance(first_key_arg.value, str):
+            return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
+        first_key = first_key_arg.value
+        if first_key in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+            return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
+
         source = resolve_json_subcolumn_source(
-            field_type, table_type.table.to_printed_clickhouse(self.context), field.name, keys[0], self.context
+            field_type, table_type.table.to_printed_clickhouse(self.context), field.name, first_key, self.context
         )
         if source is None:
             return None
 
-        if len(keys) > 1 and not _is_dynamic_json_source(source):
-            raise QueryError("JSONHas cannot traverse a typed events JSON subcolumn")
+        if len(node.args) > 2:
+            json_value = _json_subcolumn_value_expr(
+                field_type,
+                [first_key],
+                source=source,
+                as_json=True,
+                materialization_mode=self.context.modifiers.materializationMode,
+            )
+            return ast.Call(
+                start=node.start,
+                end=node.end,
+                type=node.type,
+                name=node.name,
+                args=[
+                    ast.Call(
+                        name="ifNull",
+                        args=[json_value, _sentinel("")],
+                        type=ast.StringType(nullable=False),
+                    ),
+                    *[self.visit(arg) for arg in node.args[2:]],
+                ],
+                params=node.params,
+                distinct=node.distinct,
+                within_group=node.within_group,
+                order_by=node.order_by,
+                filter_expr=node.filter_expr,
+            )
 
-        subcolumn = _json_subcolumn_access(field_type, keys, source=source, is_nullable=source.is_nullable)
+        subcolumn = _json_subcolumn_access(field_type, [first_key], source=source, is_nullable=source.is_nullable)
         if _is_dynamic_json_source(source):
-            object_value = _dynamic_json_object_string_expr(field_type, keys, source=source)
+            object_value = _dynamic_json_object_string_expr(field_type, [first_key], source=source)
             return _call(
                 "or",
                 [
@@ -1039,7 +1107,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                 args=[_call("length", [subcolumn]), _const(0)],
                 type=ast.BooleanType(nullable=False),
             )
-        raise QueryError("JSONHas cannot test existence for this events JSON subcolumn type")
+        return None
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         # Try each skip-index comparison rewrite in order. Each one consumes the property operand and returns the

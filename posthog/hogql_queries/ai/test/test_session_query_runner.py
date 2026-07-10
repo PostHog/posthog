@@ -270,7 +270,7 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         select_queries = _select_queries_without_metadata(queries)
         self.assertEqual(len(select_queries), 2)
         self.assertIn("ai_events", select_queries[0])
-        self.assertIn("events.timestamp", select_queries[1])
+        self.assertIn("__ai_events_fallback.timestamp", select_queries[1])
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace-date-from")
         self.assertEqual(response.results[0].events[0].properties["$ai_output_choices"][0]["content"], "hi")
