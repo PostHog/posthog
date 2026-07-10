@@ -123,6 +123,9 @@ async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
     # exclusion is per-source, not the old wholesale team-level skip.
     monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: ["created_at"])
     monkeypatch.setattr(ducklake_module, "is_dev_mode", lambda: False)
+    # get_duckgres_server_by_team_org resolves the staging URI via its own module-level
+    # is_dev_mode, so it needs the same override or it short-circuits to None in tests.
+    monkeypatch.setattr("posthog.ducklake.common.is_dev_mode", lambda: False)
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.feature_enabled_or_false",
         lambda *args, **kwargs: True,  # duckgres-batch-sink on
