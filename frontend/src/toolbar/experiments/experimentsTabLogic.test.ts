@@ -7,6 +7,11 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },
 }))
 
+// The failure-path tests intentionally exercise toolbarLogger, which logs to the console by design
+jest.mock('~/toolbar/toolbarLogger', () => ({
+    toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -14,6 +19,12 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 import { experimentsLogic } from './experimentsLogic'
 import { experimentsTabLogic } from './experimentsTabLogic'
+
+// The toolbar logger mirrors intentional error/auth paths to the console (its job on
+// customer pages); tests exercise those paths on purpose, so stub the boundary.
+jest.mock('~/toolbar/toolbarLogger', () => ({
+    toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
 
 const web_experiments = [
     {

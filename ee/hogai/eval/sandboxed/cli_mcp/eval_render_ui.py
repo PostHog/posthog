@@ -33,11 +33,9 @@ Not exercised here (sandbox/scope limits, not prompt gaps):
   side effects against the shared demo project.
 * **Surveys** — the hedgebox demo seeds none.
 
-``render-ui`` is registered only in ``cli`` mode AND when the ``mcp-render-ui``
-feature flag is on. The eval forces the flag on for the MCP server via the
-dev/test-only ``FEATURE_FLAG_OVERRIDES`` seam (see ``conftest.py:_mcp_server``),
-so the only remaining gate here is the mode: all cases skip under
-``--mcp-mode=tools`` (see ``conftest.py:_apply_mcp_mode``).
+``render-ui`` is registered only in ``cli`` mode and for MCP Apps hosts (the
+sandboxed eval client presents as one), so the only remaining gate here is the
+mode: all cases skip under ``--mcp-mode=tools`` (see ``conftest.py:_apply_mcp_mode``).
 
 To run a single eval:
     pytest ee/hogai/eval/sandboxed/cli_mcp/eval_render_ui.py::eval_renders_entity_ui --mcp-mode=cli

@@ -168,30 +168,45 @@ describe('aiObservabilityAIDataLogic', () => {
 
     it('degrades gracefully to the passed-in values when the lookup throws', async () => {
         jest.spyOn(mockApi, 'queryHogQL').mockRejectedValue(new Error('network down'))
+        // The logic warns (by design) once per failed source before falling back.
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
 
-        const logic = aiObservabilityAIDataLogic()
-        logic.mount()
+        try {
+            const logic = aiObservabilityAIDataLogic()
+            logic.mount()
 
-        await expectLogic(logic, () => {
-            logic.actions.loadAIDataForEvent({
-                eventId: 'event-1',
-                input: 'fallback-input',
-                output: undefined,
-                tools: undefined,
-                traceId: 'trace-1',
-                timestamp: '2026-04-30T10:00:00Z',
+            await expectLogic(logic, () => {
+                logic.actions.loadAIDataForEvent({
+                    eventId: 'event-1',
+                    input: 'fallback-input',
+                    output: undefined,
+                    tools: undefined,
+                    traceId: 'trace-1',
+                    timestamp: '2026-04-30T10:00:00Z',
+                })
             })
-        })
-            .toFinishAllListeners()
-            .toMatchValues({
-                aiDataCache: {
-                    'event-1': {
-                        input: 'fallback-input',
-                        output: undefined,
-                        tools: undefined,
+                .toFinishAllListeners()
+                .toMatchValues({
+                    aiDataCache: {
+                        'event-1': {
+                            input: 'fallback-input',
+                            output: undefined,
+                            tools: undefined,
+                        },
                     },
-                },
-            })
+                })
+
+            expect(warnSpy).toHaveBeenCalledWith(
+                '[aiObservabilityAIDataLogic] failed to load heavy AI props from ai_events',
+                expect.any(Error)
+            )
+            expect(warnSpy).toHaveBeenCalledWith(
+                '[aiObservabilityAIDataLogic] failed to load heavy AI props from events',
+                expect.any(Error)
+            )
+        } finally {
+            warnSpy.mockRestore()
+        }
     })
 
     it.each([

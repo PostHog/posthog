@@ -1,5 +1,5 @@
 //! Routes each parsed rrweb event to the right scrubber by type/source, and walks a whole parsed
-//! message (`{ windowId: Event[] }`). Mirrors `anonymize/anonymize-event.ts` (`routeEvent`).
+//! message (`{ windowId: Event[] }`).
 
 use anyhow::{bail, Context, Result};
 use simd_json::borrowed::{Object, Value};
@@ -9,6 +9,7 @@ use simd_json::StaticNode;
 use crate::allow_lists::AllowLists;
 use crate::canvas::scrub_canvas_mutation;
 use crate::context::Ctx;
+use crate::css::{scrub_adopted_style_sheet, scrub_style_declaration, scrub_style_sheet_rule};
 use crate::cv::{scrub_compressed_full_snapshot, scrub_compressed_mutation};
 use crate::dom::{scrub_full_snapshot, scrub_mutation};
 use crate::json::{
@@ -29,7 +30,10 @@ pub const TYPE_PLUGIN: u8 = 6;
 // RRWebEventSource (incremental)
 pub const SOURCE_MUTATION: u8 = 0;
 pub const SOURCE_INPUT: u8 = 5;
+pub const SOURCE_STYLESHEET_RULE: u8 = 8;
 pub const SOURCE_CANVAS_MUTATION: u8 = 9;
+pub const SOURCE_STYLE_DECLARATION: u8 = 13;
+pub const SOURCE_ADOPTED_STYLESHEET: u8 = 15;
 
 pub const NETWORK_PLUGIN: &str = "rrweb/network@1";
 pub const CONSOLE_PLUGIN: &str = "rrweb/console@1";
@@ -128,6 +132,15 @@ pub fn route_data(
                     "text",
                 )),
                 Some(SOURCE_CANVAS_MUTATION) => Ok(scrub_canvas_mutation(ctx, data)),
+                Some(SOURCE_STYLESHEET_RULE) => {
+                    Ok(scrub_style_sheet_rule(ctx, as_object_mut(data).unwrap()))
+                }
+                Some(SOURCE_STYLE_DECLARATION) => {
+                    Ok(scrub_style_declaration(ctx, as_object_mut(data).unwrap()))
+                }
+                Some(SOURCE_ADOPTED_STYLESHEET) => {
+                    Ok(scrub_adopted_style_sheet(ctx, as_object_mut(data).unwrap()))
+                }
                 _ => Ok(false),
             }
         }
@@ -139,7 +152,7 @@ pub fn route_data(
             let Some(href) = data.get("href").and_then(as_str) else {
                 return Ok(false);
             };
-            match scrub_url_opts(ctx.allow, href, true) {
+            match scrub_url_opts(ctx, href, true) {
                 Some(v) => {
                     data.insert(key("href"), string_value(v));
                     Ok(true)
@@ -148,7 +161,7 @@ pub fn route_data(
             }
         }
         Some(TYPE_CUSTOM) => match as_object_mut(data) {
-            Some(data) => Ok(scrub_generic_field(ctx.allow, data, "payload")),
+            Some(data) => Ok(scrub_generic_field(ctx, data, "payload")),
             None => Ok(false),
         },
         Some(TYPE_PLUGIN) => {
@@ -157,9 +170,9 @@ pub fn route_data(
             };
             let plugin = data.get("plugin").and_then(as_str).map(str::to_string);
             Ok(match plugin.as_deref() {
-                Some(NETWORK_PLUGIN) => scrub_network_plugin(ctx.allow, data, "payload"),
-                Some(CONSOLE_PLUGIN) => scrub_console_plugin(ctx.allow, data, "payload"),
-                _ => scrub_generic_field(ctx.allow, data, "payload"),
+                Some(NETWORK_PLUGIN) => scrub_network_plugin(ctx, data, "payload"),
+                Some(CONSOLE_PLUGIN) => scrub_console_plugin(ctx, data, "payload"),
+                _ => scrub_generic_field(ctx, data, "payload"),
             })
         }
         // DomContentLoaded, Load, unknown types: pass-through.

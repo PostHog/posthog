@@ -3,7 +3,6 @@ import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { urls } from 'scenes/urls'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -11,6 +10,7 @@ import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionDraftType, ActionForm } from '~/toolbar/types'
+import { urls } from '~/toolbar/urls'
 import {
     actionStepToActionStepFormItem,
     elementToActionStep,
@@ -20,7 +20,7 @@ import {
 import { AccessControlLevel, ActionType, ElementType } from '~/types'
 
 import type { actionsTabLogicType } from './actionsTabLogicType'
-import { ActionStepPropertyKey } from './ActionStep'
+import type { ActionStepPropertyKey } from './ActionStep'
 
 function newAction(
     element: HTMLElement | null,

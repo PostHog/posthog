@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -17,6 +17,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { ComparisonBar } from './components/Comparison/ComparisonBar'
 import { FacetRail } from './components/FacetRail/FacetRail'
 import { TracingSetupPrompt } from './components/SetupPrompt/SetupPrompt'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
@@ -28,7 +29,7 @@ import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TracingDisplayBar } from './TracingDisplayBar'
 import { TracingFilterBar } from './TracingFilterBar'
-import { tracingFiltersLogic } from './tracingFiltersLogic'
+import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingSceneLogic } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
 import type { Span } from './types'
@@ -45,10 +46,19 @@ export const scene: SceneExport = {
 export default function TracingScene(): JSX.Element {
     const sceneLogic = tracingSceneLogic()
     // Keep filters + data logic alive across React unmounts by attaching them to the scene root.
-    useAttachedLogic(tracingFiltersLogic(), sceneLogic)
-    useAttachedLogic(tracingDataLogic(), sceneLogic)
+    useAttachedLogic(tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
+    useAttachedLogic(tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
 
-    return <TracingSceneContents />
+    // Bind the scene's keyed instances so nested components (filter bar, sparkline, ...)
+    // resolve them from context — the same components work inside an embedded viewer
+    // bound to a different id.
+    return (
+        <BindLogic logic={tracingFiltersLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
+            <BindLogic logic={tracingDataLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
+                <TracingSceneContents />
+            </BindLogic>
+        </BindLogic>
+    )
 }
 
 function TracingSceneContents(): JSX.Element {
@@ -80,6 +90,7 @@ function TracingSceneContents(): JSX.Element {
         visibleRowDurationRange,
         isDurationMode,
         activeTracingTab,
+        compareActive,
     } = useValues(tracingSceneLogic())
     const { featureFlags } = useValues(featureFlagLogic)
     const {
@@ -87,7 +98,7 @@ function TracingSceneContents(): JSX.Element {
         closeTrace,
         selectSpan,
         setDateRange,
-        setOverlayWindows,
+        updateComparisonWindows,
         openCompareFlame,
         closeCompareFlame,
         fetchNextPage,
@@ -97,13 +108,12 @@ function TracingSceneContents(): JSX.Element {
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
-    const compareMode = filters.compareMode
     const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
     // Use sparklineWindowMs which correctly resolves relative date strings (e.g. '-1h').
-    const { sparklineWindowMs } = useValues(tracingFiltersLogic())
+    const { sparklineWindowMs } = useValues(tracingFiltersLogic)
     const operationsWindowMs = sparklineWindowMs.endMs - sparklineWindowMs.startMs
 
     const onDocsLinkClick = (): void => {
@@ -119,18 +129,23 @@ function TracingSceneContents(): JSX.Element {
 
     // Anchor the overlay's coordinate space to the *fetched* sparkline data so overlay
     // drags never shift the canvas underfoot. The sparkline only refetches when dateRange
-    // changes (via the DateFilter), never via overlay interaction.
+    // changes (via the DateFilter), never via overlay interaction. Only the 'custom' preset
+    // shows draggable windows — named presets compare the full range, whose baseline window
+    // sits outside the visible sparkline anyway.
     const sparklineFirstMs = sparklineData.dates.length > 0 ? new Date(sparklineData.dates[0]).valueOf() : null
     const sparklineLastMs =
         sparklineData.dates.length > 0 ? new Date(sparklineData.dates[sparklineData.dates.length - 1]).valueOf() : null
     const compareConfig =
-        compareMode && sparklineFirstMs !== null && sparklineLastMs !== null
+        filters.comparison?.mode === 'time' &&
+        filters.comparison.preset === 'custom' &&
+        sparklineFirstMs !== null &&
+        sparklineLastMs !== null
             ? {
                   fullStartMs: sparklineFirstMs,
                   fullEndMs: sparklineLastMs,
                   currentWindow: currentWindowMs,
                   previousWindow: previousWindowMs,
-                  onChange: setOverlayWindows,
+                  onChange: updateComparisonWindows,
               }
             : undefined
 
@@ -187,6 +202,9 @@ function TracingSceneContents(): JSX.Element {
                     {facetRailEnabled && !facetRailCollapsed && <FacetRail />}
                     <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                         <TracingDisplayBar />
+                        {compareActive && (!operationsViewEnabled || activeTracingTab !== 'operations') && (
+                            <ComparisonBar />
+                        )}
                         {operationsViewEnabled && activeTracingTab === 'operations' ? (
                             <OperationsTable
                                 rows={aggregation.current}
@@ -196,7 +214,7 @@ function TracingSceneContents(): JSX.Element {
                                     router.actions.push(urls.tracingOperation(row.service_name, row.name))
                                 }
                             />
-                        ) : compareMode ? (
+                        ) : compareActive ? (
                             <TraceCompareTable
                                 current={aggregation.current}
                                 previous={aggregation.previous}

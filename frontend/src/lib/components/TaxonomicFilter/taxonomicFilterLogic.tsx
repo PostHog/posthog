@@ -477,7 +477,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (_, p) => [p.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
-        eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
+        // Prop-derived reference selectors below carry `resultEqualityCheck: objectsEqual` so that a
+        // consumer passing an equal-but-freshly-allocated object/array prop on every render does not
+        // churn the selector's output reference. Without this, taxonomicGroups (which depends on them)
+        // recomputes on every render, minting new group objects and inline option arrays that cascade
+        // through group → rawLocalItems → fuse → localItems → items → selectedItem, and hand react-window
+        // new rowProps on every tick — driving its layout-effect setState past React's update limit
+        // (error #185). Deep-equal costs less than a full taxonomicGroups rebuild plus that cascade.
+        eventNames: [
+            () => [(_, props) => props.eventNames],
+            (eventNames) => eventNames ?? [],
+            { resultEqualityCheck: objectsEqual },
+        ],
         // Combined selector that returns both event names and the distinct primary properties
         // for those events. Combined into a single selector so taxonomicGroups stays under
         // kea's 16-dep tuple type limit; consumers destructure both fields.
@@ -502,15 +513,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     primaryPropertiesForContextEvents: Array.from(distinct),
                 }
             },
+            { resultEqualityCheck: objectsEqual },
         ],
-        schemaColumns: [() => [(_, props) => props.schemaColumns], (schemaColumns) => schemaColumns ?? []],
+        schemaColumns: [
+            () => [(_, props) => props.schemaColumns],
+            (schemaColumns) => schemaColumns ?? [],
+            { resultEqualityCheck: objectsEqual },
+        ],
         maxContextOptions: [
             () => [(_, props) => props.maxContextOptions],
             (maxContextOptions) => maxContextOptions ?? [],
+            { resultEqualityCheck: objectsEqual },
         ],
         dataWarehousePopoverFields: [
             () => [(_, props) => props.dataWarehousePopoverFields],
             (dataWarehousePopoverFields) => dataWarehousePopoverFields ?? [],
+            { resultEqualityCheck: objectsEqual },
         ],
         suggestedFiltersLabel: [
             () => [(_, props) => props.suggestedFiltersLabel],
@@ -520,22 +538,27 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.metadataSource],
             (metadataSource): AnyDataNode =>
                 metadataSource ?? { kind: NodeKind.HogQLQuery, query: 'select event from events' },
+            { resultEqualityCheck: objectsEqual },
         ],
         excludedProperties: [
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => (excludedProperties ?? {}) as ExcludedProperties,
+            { resultEqualityCheck: objectsEqual },
         ],
         selectedProperties: [
             () => [(_, props) => props.selectedProperties],
             (selectedProperties) => (selectedProperties ?? {}) as SelectedProperties,
+            { resultEqualityCheck: objectsEqual },
         ],
         propertyAllowList: [
             () => [(_, props) => props.propertyAllowList],
             (propertyAllowList) => propertyAllowList as TaxonomicFilterLogicProps['propertyAllowList'],
+            { resultEqualityCheck: objectsEqual },
         ],
         propertyFilters: [
             (s) => [s.excludedProperties, s.propertyAllowList],
             (excludedProperties, propertyAllowList) => ({ excludedProperties, propertyAllowList }),
+            { resultEqualityCheck: objectsEqual },
         ],
         allowNonCapturedEvents: [
             () => [(_, props) => props.allowNonCapturedEvents],
@@ -554,10 +577,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 globals: hogQLGlobals,
                 showBreakdownLabelHint: showBreakdownLabelHint ?? false,
             }),
+            { resultEqualityCheck: objectsEqual },
         ],
         endpointFilters: [
             () => [(_, props) => props.endpointFilters],
             (endpointFilters: Record<string, any>) => endpointFilters,
+            { resultEqualityCheck: objectsEqual },
         ],
         // Combined selector so taxonomicGroups stays under kea's 16-dep tuple type limit.
         metadataPropertyDefinitionsByType: [
@@ -566,6 +591,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 event: PropertyDefinition[],
                 person: PropertyDefinition[]
             ): { event: PropertyDefinition[]; person: PropertyDefinition[] } => ({ event, person }),
+            { resultEqualityCheck: objectsEqual },
         ],
         taxonomicGroups: [
             (s) => [
@@ -1032,6 +1058,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Resource attributes',
                     },
                     {
+                        name: 'Metric attributes',
+                        searchPlaceholder: 'attributes',
+                        type: TaxonomicFilterGroupType.MetricAttributes,
+                        endpoint: combineUrl(`api/environments/${projectId}/metrics/attributes`, {
+                            ...endpointFilters,
+                        }).url,
+                        valuesEndpoint: (key) =>
+                            combineUrl(`api/environments/${projectId}/metrics/attribute_values`, {
+                                key: key,
+                                ...endpointFilters,
+                            }).url,
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopoverHeader: () => 'Metric attributes',
+                    },
+                    {
                         name: 'Spans',
                         searchPlaceholder: 'spans',
                         type: TaxonomicFilterGroupType.Spans,
@@ -1051,19 +1093,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                       ...endpointFilters,
                                   }).url
                                 : undefined,
-                        localItemsSearch: (items: any[], q: string): any[] => {
-                            if (!q) {
-                                return items
-                            }
-                            return [
-                                {
-                                    key: 'message',
-                                    name: 'Search span message for "' + q + '"',
-                                    value: q,
-                                    propertyFilterType: 'span',
-                                },
-                            ].concat(items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase())))
-                        },
                         getName: (option: { key: string; name: string }) => option.name,
                         getValue: (option: { key: string; name: string }) => option.key,
                         getPopoverHeader: () => 'Span attributes',
@@ -1649,6 +1678,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
 
                 return filtered
             },
+            { resultEqualityCheck: objectsEqual },
         ],
         groupAnalyticsTaxonomicGroupNames: [
             (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],

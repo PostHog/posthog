@@ -18,8 +18,11 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import (
     Account,
+    AccountRelationship,
+    AccountRelationshipDefinition,
     CustomerJourney,
     CustomerProfileConfig,
     CustomPropertyDefinition,
@@ -1541,6 +1544,26 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
         payload.update(overrides)
         return self.client.post(self.endpoint_base, payload, format="json")
 
+    def test_values_returns_suggestions_envelope(self):
+        created = self._create(
+            name="Tier",
+            display_type="select",
+            is_big_number=False,
+            options=[
+                {"label": "Enterprise", "color": "preset-1"},
+                {"label": "Startup", "color": "preset-2"},
+            ],
+        )
+        definition_id = created.json()["id"]
+
+        response = self.client.get(f"{self.endpoint_base}values/?key={definition_id}&value=ent")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [{"name": "Enterprise"}], "refreshing": False})
+
+        missing_key = self.client.get(f"{self.endpoint_base}values/")
+        self.assertEqual(missing_key.status_code, status.HTTP_200_OK)
+        self.assertEqual(missing_key.json(), {"results": [], "refreshing": False})
+
     def test_create_success(self):
         response = self._create()
 
@@ -2016,12 +2039,42 @@ class TestAccountNotesViewSet(APIBaseTest):
             ("account_id", "not-a-uuid"),
             ("created_by", "alice"),
             ("created_by", "alice,bob"),
+            ("assigned_to", "alice"),
         ]
     )
     def test_list_rejects_malformed_filter(self, param, value):
         response = self.client.get(f"{self.endpoint_base}?{param}={value}")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_filter_by_assigned_to(self):
+        # "My accounts" on the Notes tab: notes on accounts where the user is CSM or AE.
+        # account_owner is deliberately not treated as "assigned" (mirrors the accounts list).
+        csm_account = Account.objects.unscoped().create(
+            team=self.team, name="CSM Co", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
+        )
+        ae_account = Account.objects.unscoped().create(
+            team=self.team,
+            name="AE Co",
+            _properties={"account_executive": {"id": self.user.id, "email": self.user.email}},
+        )
+        owner_account = Account.objects.unscoped().create(
+            team=self.team,
+            name="Owner Co",
+            _properties={"account_owner": {"id": self.user.id, "email": self.user.email}},
+        )
+        other_account = Account.objects.unscoped().create(
+            team=self.team, name="Other Co", _properties={"csm": {"id": 999999, "email": "someone@x.com"}}
+        )
+        self._link_note(title="CSM note", account=csm_account)
+        self._link_note(title="AE note", account=ae_account)
+        self._link_note(title="Owner note", account=owner_account)
+        self._link_note(title="Other note", account=other_account)
+
+        response = self.client.get(f"{self.endpoint_base}?assigned_to={self.user.id}")
+
+        titles = {n["title"] for n in response.json()["results"]}
+        self.assertEqual(titles, {"CSM note", "AE note"})
 
     @parameterized.expand(
         [
@@ -2079,3 +2132,213 @@ class TestAccountNotesViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
         short_ids = [n["short_id"] for n in response.json()["results"]]
         self.assertEqual(short_ids, [visible.short_id])
+
+
+class TestAccountRelationshipDefinitionViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.endpoint_base = f"/api/projects/{self.team.id}/account_relationship_definitions/"
+
+    def _create(self, **overrides):
+        payload = {"name": "CSM", "description": "Customer success manager"}
+        payload.update(overrides)
+        return self.client.post(self.endpoint_base, payload, format="json")
+
+    def test_create_and_list_roundtrip(self):
+        response = self._create()
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual(data["name"], "CSM")
+        self.assertEqual(data["description"], "Customer success manager")
+        self.assertTrue(data["is_single_holder"])
+
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        definition = AccountRelationshipDefinition.objects.unscoped().get(id=data["id"])
+        self.assertEqual(definition.team, self.team)
+        self.assertEqual(definition.created_by, self.user)
+
+        listed = self.client.get(self.endpoint_base)
+        self.assertEqual(status.HTTP_200_OK, listed.status_code, listed.json())
+        self.assertEqual([d["id"] for d in listed.json()["results"]], [data["id"]])
+
+    def test_create_duplicate_name_returns_conflict(self):
+        self._create()
+        response = self._create()
+
+        self.assertEqual(status.HTTP_409_CONFLICT, response.status_code, response.json())
+
+    def test_patch_renames_and_toggles_cardinality(self):
+        definition_id = self._create(name="FDE").json()["id"]
+
+        response = self.client.patch(
+            f"{self.endpoint_base}{definition_id}/",
+            {"name": "Field engineer", "is_single_holder": False},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["name"], "Field engineer")
+        self.assertFalse(response.json()["is_single_holder"])
+
+    def test_retrieve_returns_definition_and_404_for_unknown(self):
+        definition_id = self._create().json()["id"]
+
+        response = self.client.get(f"{self.endpoint_base}{definition_id}/")
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["name"], "CSM")
+
+        missing = self.client.get(f"{self.endpoint_base}00000000-0000-0000-0000-000000000000/")
+        self.assertEqual(status.HTTP_404_NOT_FOUND, missing.status_code)
+
+    def test_patch_unknown_id_returns_404(self):
+        response = self.client.patch(
+            f"{self.endpoint_base}00000000-0000-0000-0000-000000000000/", {"name": "X"}, format="json"
+        )
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+    def test_delete_removes_definition_and_cascades_history(self):
+        definition_id = self._create().json()["id"]
+        account = create_account(team_id=self.team.id, name="Acme")
+        # nosemgrep: idor-lookup-without-team (test setup)
+        definition = AccountRelationshipDefinition.objects.unscoped().get(id=definition_id)
+        relationships_logic.assign(
+            team_id=self.team.id, account=account, definition=definition, user=self.user, created_by=self.user
+        )
+
+        response = self.client.delete(f"{self.endpoint_base}{definition_id}/")
+
+        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
+        self.assertFalse(AccountRelationshipDefinition.objects.unscoped().filter(id=definition_id).exists())
+        self.assertFalse(AccountRelationship.objects.unscoped().filter(definition_id=definition_id).exists())
+
+    def test_viewer_access_can_list_but_not_write(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        viewer = User.objects.create_and_join(self.organization, "rel-viewer@posthog.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=OrganizationMembership.objects.get(user=viewer, organization=self.organization),
+        )
+        self.client.force_login(viewer)
+
+        self.assertEqual(self.client.get(self.endpoint_base).status_code, status.HTTP_200_OK)
+        self.assertEqual(self._create().status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestAccountRelationshipViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id)
+        self.endpoint = f"/api/projects/{self.team.id}/accounts/{self.account.id}/relationships/"
+
+    def _create_relationship_definition(self, name="CSM"):
+        return AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name=name, created_by=self.user
+        )
+
+    def test_lists_active_relationships_by_default(self):
+        csm = self._create_relationship_definition("CSM")
+        fde = self._create_relationship_definition("FDE")
+        active = relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=csm, user=self.user, created_by=self.user
+        )
+        ended = relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=fde, user=self.user, created_by=self.user
+        )
+        relationships_logic.end_relationship(
+            team_id=self.team.id, account_id=self.account.id, relationship_id=str(ended.id)
+        )
+
+        response = self.client.get(self.endpoint)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        rows = response.json()
+        self.assertEqual([str(active.id)], [row["id"] for row in rows])
+        self.assertEqual(rows[0]["definition"]["id"], str(csm.id))
+        self.assertEqual(rows[0]["definition"]["name"], "CSM")
+        self.assertEqual(rows[0]["user"], {"id": self.user.id, "email": self.user.email})
+        self.assertIsNone(rows[0]["ended_at"])
+
+    def test_include_history_returns_full_timeline(self):
+        definition = self._create_relationship_definition()
+        successor = User.objects.create_and_join(self.organization, "successor@posthog.com", "testtest")
+        relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
+        )
+        relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=definition, user=successor, created_by=self.user
+        )
+
+        response = self.client.get(f"{self.endpoint}?include_history=true")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        rows = response.json()
+        self.assertEqual(2, len(rows))
+        self.assertEqual(rows[0]["user"]["id"], successor.id)
+        self.assertIsNone(rows[0]["ended_at"])
+        self.assertEqual(rows[1]["user"]["id"], self.user.id)
+        self.assertIsNotNone(rows[1]["ended_at"])
+
+    def test_account_from_another_team_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_account = create_account(team_id=other_team.id)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/accounts/{other_account.id}/relationships/")
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+    def test_assign_and_end_roundtrip(self):
+        definition = self._create_relationship_definition()
+
+        created = self.client.post(self.endpoint, {"definition": str(definition.id), "user": self.user.id})
+        self.assertEqual(status.HTTP_201_CREATED, created.status_code, created.json())
+        self.assertEqual(created.json()["definition"]["id"], str(definition.id))
+        self.assertEqual(created.json()["user"]["id"], self.user.id)
+        self.assertIsNone(created.json()["ended_at"])
+
+        ended = self.client.post(f"{self.endpoint}{created.json()['id']}/end/")
+        self.assertEqual(status.HTTP_200_OK, ended.status_code, ended.json())
+        self.assertIsNotNone(ended.json()["ended_at"])
+        self.assertEqual([], self.client.get(self.endpoint).json())
+
+    def test_assign_with_unknown_definition_returns_400(self):
+        response = self.client.post(
+            self.endpoint, {"definition": "00000000-0000-0000-0000-000000000000", "user": self.user.id}
+        )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual(data["attr"], "definition")
+        self.assertEqual(data["type"], "validation_error")
+
+    def test_assign_to_user_outside_organization_returns_400(self):
+        definition = self._create_relationship_definition()
+        outsider = User.objects.create_user("outsider@example.com", None, "")
+
+        response = self.client.post(self.endpoint, {"definition": str(definition.id), "user": outsider.id})
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual(data["attr"], "user")
+        self.assertEqual(data["type"], "validation_error")
+
+    def test_end_already_ended_relationship_returns_404(self):
+        definition = self._create_relationship_definition()
+        rel = relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
+        )
+        relationships_logic.end_relationship(
+            team_id=self.team.id, account_id=self.account.id, relationship_id=str(rel.id)
+        )
+
+        response = self.client.post(f"{self.endpoint}{rel.id}/end/")
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)

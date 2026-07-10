@@ -16,6 +16,7 @@ from posthog.utils import relative_date_parse
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
+    FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
     PRCostSummary,
@@ -25,6 +26,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     RunFailureLogs,
     WorkflowCost,
     WorkflowHealthItem,
+    WorkflowHealthRunScope,
     WorkflowJob,
     WorkflowJobAggregate,
     WorkflowRunActivity,
@@ -41,6 +43,7 @@ from products.engineering_analytics.backend.logic.queries.ci_failure_logs import
     query_ci_failure_logs,
     query_run_failure_logs,
 )
+from products.engineering_analytics.backend.logic.queries.flaky_tests import query_flaky_tests
 from products.engineering_analytics.backend.logic.queries.job_aggregates import query_job_aggregates
 from products.engineering_analytics.backend.logic.queries.master_failures import query_master_failures
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
@@ -74,6 +77,15 @@ _DEFAULT_WORKFLOW_WINDOW = "-24h"
 # workflow_health zero-fills one daily entry per workflow per day in the window, so an
 # unbounded range would materialize an enormous response. A year is plenty for trends.
 _MAX_WINDOW_DAYS = 366
+
+# Flaky-test leaderboard defaults: a week of signal is the triage window, a month the ceiling
+# (per-test spans are high-volume and the short Traces retention makes older data spotty anyway).
+_DEFAULT_FLAKY_WINDOW = "-7d"
+_MAX_FLAKY_WINDOW_DAYS = 30
+_DEFAULT_FLAKY_MIN_RERUN_PASSES = 1
+_DEFAULT_FLAKY_MIN_FAILED_PRS = 3
+_DEFAULT_FLAKY_LIMIT = 50
+_MAX_FLAKY_LIMIT = 200
 
 
 # Each builder operates on an already-resolved CuratedGitHubSource: source selection and per-source
@@ -225,24 +237,77 @@ def build_workflow_health(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
 ) -> list[WorkflowHealthItem]:
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
-    return query_workflow_health(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=branch)
+    return query_workflow_health(
+        curated=curated,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_run_scope(run_scope),
+    )
+
+
+def build_flaky_tests(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    min_rerun_passes: int | None = None,
+    min_failed_prs: int | None = None,
+    limit: int | None = None,
+) -> FlakyTestList:
+    parsed_from, parsed_to = _parse_window(
+        curated.team, date_from, date_to, default=_DEFAULT_FLAKY_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
+    )
+    min_rerun_passes = min_rerun_passes if min_rerun_passes is not None else _DEFAULT_FLAKY_MIN_RERUN_PASSES
+    min_failed_prs = min_failed_prs if min_failed_prs is not None else _DEFAULT_FLAKY_MIN_FAILED_PRS
+    # A zero threshold would make its HAVING arm trivially true and silently qualify every
+    # test with any signal span — require an explicit positive bar instead.
+    if min_rerun_passes < 1 or min_failed_prs < 1:
+        raise ValueError("min_rerun_passes and min_failed_prs must be at least 1")
+    limit = limit if limit is not None else _DEFAULT_FLAKY_LIMIT
+    if not 1 <= limit <= _MAX_FLAKY_LIMIT:
+        raise ValueError(f"limit must be between 1 and {_MAX_FLAKY_LIMIT}")
+    return query_flaky_tests(
+        curated=curated,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        min_rerun_passes=min_rerun_passes,
+        min_failed_prs=min_failed_prs,
+        limit=limit,
+    )
 
 
 def _parse_date(team: Team, value: str) -> datetime:
     return relative_date_parse(value, team.timezone_info)
 
 
+def _parse_run_scope(value: str | None) -> WorkflowHealthRunScope:
+    """Absent/blank selects 'all'; anything else must be an exact enum value (ValueError → 400)."""
+    normalized = value.strip() if value else ""
+    if not normalized:
+        return WorkflowHealthRunScope.ALL
+    try:
+        return WorkflowHealthRunScope(normalized)
+    except ValueError:
+        raise ValueError(
+            f"run_scope must be one of: {', '.join(scope.value for scope in WorkflowHealthRunScope)}"
+        ) from None
+
+
 def _parse_window(
-    team: Team, date_from: str | None, date_to: str | None, *, default: str
+    team: Team, date_from: str | None, date_to: str | None, *, default: str, max_days: int = _MAX_WINDOW_DAYS
 ) -> tuple[datetime, datetime | None]:
-    """Resolve a caller's date window against the team timezone, capping the span at _MAX_WINDOW_DAYS."""
+    """Resolve a caller's date window against the team timezone, capping the span at max_days."""
     parsed_from = _parse_date(team, date_from or default)
     parsed_to = _parse_date(team, date_to) if date_to else None
     span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
-    if span_days > _MAX_WINDOW_DAYS:
-        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
+    if span_days < 0:
+        raise ValueError("date_to must be on or after date_from")
+    if span_days > max_days:
+        raise ValueError(f"date window spans {span_days} days; the maximum is {max_days}")
     return parsed_from, parsed_to
 
 

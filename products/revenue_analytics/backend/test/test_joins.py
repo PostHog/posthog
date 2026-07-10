@@ -67,6 +67,27 @@ class TestEnsurePersonJoin(BaseTest):
             team=self.team, source_table_name="stripe.customer_revenue_view", deleted=True
         ).exists()
 
+    def test_tolerates_preexisting_duplicates(self):
+        # There's no unique constraint, so a get_or_create race between the sync-time and
+        # config-toggle paths can leave two identical un-deleted joins; ensure_person_join must
+        # not raise MultipleObjectsReturned (previously a 500 during Stripe source setup).
+        join_attrs = {
+            "team_id": self.team.pk,
+            "deleted": False,
+            "source_table_name": "stripe.customer_revenue_view",
+            "source_table_key": "JSONExtractString(metadata, 'posthog_person_distinct_id')",
+            "joining_table_name": "persons",
+            "joining_table_key": "pdi.distinct_id",
+            "field_name": "persons",
+        }
+        DataWarehouseJoin.objects.create(**join_attrs)
+        DataWarehouseJoin.objects.create(**join_attrs)
+        assert self._get_active_joins().count() == 2
+
+        ensure_person_join(self.team.pk, "")
+
+        assert self._get_active_joins().count() == 2
+
 
 class TestRemovePersonJoin(BaseTest):
     def _get_active_joins(self):

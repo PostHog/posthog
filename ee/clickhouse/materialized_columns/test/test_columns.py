@@ -21,8 +21,10 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.settings import CLICKHOUSE_DATABASE
 
 from ee.clickhouse.materialized_columns.columns import (
+    MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
     MaterializedColumnDetails,
+    _clear_materialized_columns_cache,
     backfill_materialized_columns,
     drop_column,
     get_bloom_filter_index_name,
@@ -91,6 +93,9 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         super().tearDown()
 
     def recreate_database(self):
+        # Dropping the database removes materialized columns behind the metadata cache's back.
+        for table in MATERIALIZATION_VALID_TABLES:
+            _clear_materialized_columns_cache(table)
         sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
         create_clickhouse_tables()

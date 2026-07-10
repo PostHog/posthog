@@ -112,12 +112,14 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             // Batch insert personless distinct IDs after prefetch (uses prefetch cache).
             // This step awaits its DB write, so retry transient persons-Postgres failures
             // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
-            .pipeBatchWithRetry(
+            .pipeBatch(
                 processPersonlessDistinctIdsBatchStep(personsPrefetchEnabled, flagCalledPersonlessDefaultTeams),
                 {
-                    tries: 5,
-                    sleepMs: 100,
-                    name: 'personless_distinct_ids',
+                    retry: {
+                        tries: 5,
+                        sleepMs: 100,
+                        name: 'personless_distinct_ids',
+                    },
                 }
             )
             // Prefetch hog functions for all teams in the batch
