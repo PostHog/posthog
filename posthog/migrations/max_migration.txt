@@ -1,1 +1,1 @@
-1249_duckgressinkschemastate_consecutive_failures_and_more
+1250_duckgresserver_sink_max_concurrency
