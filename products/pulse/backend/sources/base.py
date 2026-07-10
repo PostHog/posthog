@@ -7,10 +7,12 @@ from posthog.models.team import Team
 from products.pulse.backend.models import BriefConfig
 
 
+# Kept in sync with models.ResourceType (same members) — a cited evidence ref becomes a ResourceLink.
 class EvidenceType(StrEnum):
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
     ANNOTATION = "annotation"
+    EXPERIMENT = "experiment"
     EVENT = "event"
 
 
