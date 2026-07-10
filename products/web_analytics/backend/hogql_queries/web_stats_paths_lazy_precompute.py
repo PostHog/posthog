@@ -477,7 +477,7 @@ def ensure_web_stats_paths_precomputed(
         query_type="web_stats_paths_lazy_insert",
         spill_to_disk=True,  # high-cardinality path breakdown GROUP BY; can build a large hash table
         wait_timeout_seconds=wait_timeout,
-        serve_stale_grace_seconds=None if is_background else PATHS_USER_STALE_GRACE_SECONDS,
+        stale_while_revalidate_seconds=None if is_background else PATHS_USER_STALE_GRACE_SECONDS,
     )
 
 

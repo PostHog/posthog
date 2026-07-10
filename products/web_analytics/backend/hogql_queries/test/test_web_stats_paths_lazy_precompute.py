@@ -797,7 +797,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 )
 
         budget = ensure_mock.call_args.kwargs["wait_timeout_seconds"]
-        grace = ensure_mock.call_args.kwargs["serve_stale_grace_seconds"]
+        grace = ensure_mock.call_args.kwargs["stale_while_revalidate_seconds"]
         if trigger is None:
             assert budget == mod.PATHS_USER_ENSURE_WAIT_SECONDS
             assert grace == mod.PATHS_USER_STALE_GRACE_SECONDS
