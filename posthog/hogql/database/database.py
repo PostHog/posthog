@@ -148,6 +148,7 @@ from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.ph_client import feature_enabled_or_false
+from posthog.rbac.team_default_access import TeamDefaultAccess, for_shared_link_user
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
 from posthog.scopes import APIScopeObject
@@ -217,6 +218,9 @@ class HogQLDatabaseSources:
     # Access-control decision, computed from a warmed UserAccessControl so build does no AC queries.
     user_access_control: Optional["UserAccessControl"]
     denied_system_table_names: set[str]  # node names under the "system" node to remove during build
+    # Default warehouse rules, preloaded for shared-link viewers - they resolve these instead of
+    # member/role rules (None for every other principal).
+    team_default_access: Optional["TeamDefaultAccess"]
     group_types: list[dict[str, Any]]
     saved_queries: list["DataWarehouseSavedQuery"]
     endpoint_saved_queries: list["DataWarehouseSavedQuery"]
@@ -537,6 +541,7 @@ class Database(BaseModel):
         self._data_warehouse_sync_warnings = {}
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
+        self.team_default_access: Optional[TeamDefaultAccess] = None
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
@@ -780,12 +785,17 @@ class Database(BaseModel):
     def _is_warehouse_table_denied(self, table: "DataWarehouseTable") -> bool:
         """
         Returns True if the user can't query this warehouse table.
-        Userless context (no UserAccessControl) fails closed - every table is denied.
+        Shared-link viewers resolve the table's default access (member/role rules don't bind an
+        anonymous viewer). Userless context (no UserAccessControl) fails closed - every table is denied.
         """
-        uac = self.user_access_control
-        if uac is not None and (
-            uac.is_organization_admin or uac.check_access_level_for_object(table, required_level="viewer")
-        ):
+        if self.team_default_access is not None:
+            allowed = not self.team_default_access.is_denied("warehouse_table", str(table.id))
+        else:
+            uac = self.user_access_control
+            allowed = uac is not None and (
+                uac.is_organization_admin or uac.check_access_level_for_object(table, required_level="viewer")
+            )
+        if allowed:
             return False
 
         # Add table names to denied tables so the query raises "You don't have access" instead of "Unknown table"
@@ -802,10 +812,14 @@ class Database(BaseModel):
         through a non-materialized view that references it.
         Userless context (no UserAccessControl) fails closed - every view is denied.
         """
-        uac = self.user_access_control
-        if uac is not None and (
-            uac.is_organization_admin or uac.check_access_level_for_object(saved_query, required_level="viewer")
-        ):
+        if self.team_default_access is not None:
+            allowed = not self.team_default_access.is_denied("warehouse_view", str(saved_query.id))
+        else:
+            uac = self.user_access_control
+            allowed = uac is not None and (
+                uac.is_organization_admin or uac.check_access_level_for_object(saved_query, required_level="viewer")
+            )
+        if allowed:
             return False
 
         # Add view names to denied tables so the query raises "You don't have access" instead of "Unknown table"
@@ -1317,6 +1331,15 @@ class Database(BaseModel):
                     except DataWarehouseSavedQuery.DoesNotExist:
                         event_modifier_saved_queries[name] = None
 
+        # Shared-link viewers resolve warehouse access against the team's default rules (no
+        # member/role rules to match). The snapshot is memoized on the principal, so a dashboard's
+        # tiles and their cache fingerprints all share one load per request.
+        team_default_access = (
+            for_shared_link_user(user, team)
+            if isinstance(user, SharedLinkUser) and is_hogql_warehouse_access_control_enabled
+            else None
+        )
+
         return HogQLDatabaseSources(
             team=team,
             user=user,
@@ -1324,15 +1347,13 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
-            # Principals that skip warehouse access control by design:
-            # - synthetic users (project-wide service tokens, bypass object-level RBAC)
-            # - shared-link users (publishing is the explicit access grant).
-            # System tables stay gated for both.
-            bypass_warehouse_access_control=bypass_warehouse_access_control
-            or isinstance(user, SyntheticUser | SharedLinkUser),
+            # Synthetic users (project-wide service tokens) bypass object-level RBAC by design, so
+            # they skip warehouse access control too. System tables stay gated for them.
+            bypass_warehouse_access_control=bypass_warehouse_access_control or isinstance(user, SyntheticUser),
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
             denied_system_table_names=denied_system_table_names,
+            team_default_access=team_default_access,
             group_types=group_types,
             saved_queries=saved_queries,
             endpoint_saved_queries=endpoint_saved_queries,
@@ -1374,6 +1395,7 @@ class Database(BaseModel):
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
+            database.team_default_access = sources.team_default_access
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():
