@@ -34,6 +34,7 @@ import {
     Experiment,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
+    FeatureFlagBasicType,
     FeatureFlagType,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -100,6 +101,15 @@ export function getExperimentVariants(experiment: Partial<Experiment> | null | u
         experiment?.feature_flag_config?.filters?.multivariate?.variants ??
         []
     )
+}
+
+/**
+ * Variants for a standalone feature flag (no experiment in hand). Reads the flag's saved config only.
+ */
+export function getFlagVariants(
+    flag: FeatureFlagBasicType | FeatureFlagType | null | undefined
+): MultivariateFlagVariant[] {
+    return flag?.filters?.multivariate?.variants ?? []
 }
 
 export function formatUnitByQuantity(value: number, unit: string): string {
@@ -372,8 +382,9 @@ export function getViewRecordingFiltersLegacy(
 }
 
 export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): true {
-    if (featureFlag.filters.multivariate?.variants?.length && featureFlag.filters.multivariate.variants.length > 1) {
-        if (featureFlag.filters.multivariate.variants[0].key !== 'control') {
+    const variants = getFlagVariants(featureFlag)
+    if (variants.length > 1) {
+        if (variants[0].key !== 'control') {
             throw new Error('Feature flag must have control as the first variant.')
         }
         return true

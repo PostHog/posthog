@@ -212,17 +212,19 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
         // up" chart. The backend delivers a trailing rolling ratio, so a null only means the whole
         // trailing window shipped nothing; plotted as 0 to keep the axis anchored. Null when the series
         // is empty (job source unsynced), so the section falls back to its existing empty state.
+        // Labels stay ISO — the quill time-series chart owns tick/tooltip date formatting.
         costPerMergeSeries: [
             (s) => [s.overview],
-            (overview): { values: number[]; labels: string[] } | null => {
+            (overview): { values: number[]; labels: string[]; interval: 'hour' | 'day' | 'week' } | null => {
                 const series = overview?.cost_series ?? []
                 if (!series.length) {
                     return null
                 }
-                const fmt = overview?.cost_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
+                const granularity = overview?.cost_series_granularity
                 return {
                     values: series.map((bucket) => bucket.cost_per_merge_usd ?? 0),
-                    labels: series.map((bucket) => dayjs(bucket.bucket_start).format(fmt)),
+                    labels: series.map((bucket) => bucket.bucket_start),
+                    interval: granularity === 'hour' ? 'hour' : granularity === 'week' ? 'week' : 'day',
                 }
             },
         ],
