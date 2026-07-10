@@ -12,11 +12,11 @@ import {
 
 import {
     IconDatabase,
+    IconExternal,
     IconEye,
     IconGraph,
     IconHide,
     IconList,
-    IconOpenInNew,
     IconPencil,
     IconPeople,
     IconTrash,
@@ -342,7 +342,7 @@ export function NotebookComponentShell({
                             <LemonButton
                                 aria-label="Open in new tab"
                                 size="xsmall"
-                                icon={<IconOpenInNew />}
+                                icon={<IconExternal />}
                                 tooltip="Open in new tab"
                                 to={href}
                                 targetBlank
