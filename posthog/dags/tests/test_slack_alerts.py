@@ -2,6 +2,7 @@ from unittest import mock
 
 import dagster
 from dagster import DagsterRunStatus
+from slack_sdk.errors import SlackApiError
 
 from posthog.dags.common import JobOwners
 from posthog.dags.slack_alerts import (
@@ -221,27 +222,51 @@ class TestSendSlackAlert:
         )
         context.log.info.assert_called()
 
+    def _block_rejection(self, code="invalid_blocks"):
+        return SlackApiError(message=code, response={"ok": False, "error": code})
+
     def test_blocks_rejected_falls_back_to_text_only(self):
         context = mock.MagicMock()
         client = mock.MagicMock()
-        # First call (with blocks) fails; the text-only retry succeeds.
-        client.chat_postMessage.side_effect = [Exception("invalid_blocks"), {"ok": True}]
+        # Slack rejected the block payload outright, so the message did not post; retry text-only.
+        client.chat_postMessage.side_effect = [self._block_rejection(), {"ok": True}]
 
-        send_slack_alert(context, client, "#alerts-clickhouse", self._blocks(), "fallback")
+        send_slack_alert(context, client, "#test-channel", self._blocks(), "fallback")
 
         assert client.chat_postMessage.call_count == 2
         # The retry must be text-only (no blocks) so a formatting/size issue can't suppress it.
         retry_kwargs = client.chat_postMessage.call_args_list[1].kwargs
-        assert retry_kwargs == {"channel": "#alerts-clickhouse", "text": "fallback"}
-        context.log.exception.assert_called()
+        assert retry_kwargs == {"channel": "#test-channel", "text": "fallback"}
 
-    def test_both_attempts_failing_does_not_raise(self):
+    def test_ambiguous_api_error_does_not_retry(self):
         context = mock.MagicMock()
         client = mock.MagicMock()
-        client.chat_postMessage.side_effect = Exception("slack down")
+        # A non-rejection API error (e.g. rate limited) may mean the blocks posted — don't duplicate.
+        client.chat_postMessage.side_effect = self._block_rejection("ratelimited")
 
-        # Must not raise — a failed alert should never crash the sensor tick.
-        send_slack_alert(context, client, "#alerts-clickhouse", self._blocks(), "fallback")
+        send_slack_alert(context, client, "#test-channel", self._blocks(), "fallback")
+
+        assert client.chat_postMessage.call_count == 1
+        context.log.exception.assert_called()
+
+    def test_non_api_exception_does_not_retry(self):
+        context = mock.MagicMock()
+        client = mock.MagicMock()
+        # A raise while reading/parsing the response is ambiguous — the message may have posted.
+        client.chat_postMessage.side_effect = ConnectionError("read timeout")
+
+        send_slack_alert(context, client, "#test-channel", self._blocks(), "fallback")
+
+        assert client.chat_postMessage.call_count == 1
+        context.log.exception.assert_called()
+
+    def test_text_only_fallback_failing_does_not_raise(self):
+        context = mock.MagicMock()
+        client = mock.MagicMock()
+        # Blocks rejected, then the text-only retry also fails — must not crash the sensor tick.
+        client.chat_postMessage.side_effect = [self._block_rejection(), Exception("slack down")]
+
+        send_slack_alert(context, client, "#test-channel", self._blocks(), "fallback")
 
         assert client.chat_postMessage.call_count == 2
-        assert context.log.exception.call_count == 2
+        context.log.exception.assert_called()

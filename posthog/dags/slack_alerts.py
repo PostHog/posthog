@@ -5,6 +5,7 @@ from django.conf import settings
 import dagster
 import dagster_slack
 from dagster import DagsterRunStatus, RunsFilter
+from slack_sdk.errors import SlackApiError
 
 from posthog.dags.common import JobOwners
 
@@ -55,23 +56,43 @@ def _truncate_for_slack(text: str, limit: int) -> str:
     return f"{text[:head]}{marker}{text[-tail:]}" if tail else f"{text[:head]}{marker}"
 
 
+# Slack API error codes that mean the block payload itself was rejected, so the message was NOT
+# posted and a plain-text retry is safe. Any other failure (network, rate limit, a raise while
+# reading the response) is ambiguous — the blocks may have posted, so retrying there would double up.
+SLACK_BLOCK_REJECTION_ERRORS = frozenset(
+    {"invalid_blocks", "invalid_blocks_format", "blocks_too_long", "msg_too_long", "metadata_too_large"}
+)
+
+
 def send_slack_alert(context, client, channel: str, blocks: list, fallback_text: str) -> None:
     """Post an alert, falling back to a plain-text message if the rich blocks are rejected.
 
     A block-formatting or size error (e.g. an oversized error field exceeding Slack's 3000-char
     section limit) previously suppressed the alert entirely because the exception was only logged.
-    Always retry text-only so a run failure can never go silently un-alerted.
+    Retry text-only when Slack rejected the blocks outright so a run failure can't go silently
+    un-alerted, but only then — retrying on an ambiguous failure risks posting the alert twice.
     """
     try:
         client.chat_postMessage(channel=channel, blocks=blocks, text=fallback_text)
         context.log.info(f"Sent Slack notification to {channel}")
+        return
+    except SlackApiError as e:
+        error_code = e.response.get("error") if e.response is not None else None
+        if error_code not in SLACK_BLOCK_REJECTION_ERRORS:
+            # The message may have posted (rate limit, transient read error, ...) — don't duplicate it.
+            context.log.exception(f"Failed to send Slack notification to {channel}: {str(e)}")
+            return
+        context.log.warning(f"Slack rejected blocks ({error_code}) for {channel}, retrying text-only")
     except Exception as e:
-        context.log.exception(f"Failed to send Slack notification with blocks to {channel}: {str(e)}")
-        try:
-            client.chat_postMessage(channel=channel, text=fallback_text)
-            context.log.info(f"Sent text-only Slack fallback to {channel}")
-        except Exception as e2:
-            context.log.exception(f"Failed to send text-only Slack fallback to {channel}: {str(e2)}")
+        # Non-API failure: the outcome is ambiguous, so log and stop rather than risk a duplicate.
+        context.log.exception(f"Failed to send Slack notification to {channel}: {str(e)}")
+        return
+
+    try:
+        client.chat_postMessage(channel=channel, text=fallback_text)
+        context.log.info(f"Sent text-only Slack fallback to {channel}")
+    except Exception as e:
+        context.log.exception(f"Failed to send text-only Slack fallback to {channel}: {str(e)}")
 
 
 def get_job_owner_for_alert(failed_run: dagster.DagsterRun, error_message: str) -> str:
