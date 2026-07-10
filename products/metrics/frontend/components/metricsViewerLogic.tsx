@@ -175,6 +175,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         addToDashboard: true,
         openAddToDashboardModal: true,
         closeAddToDashboardModal: true,
+        setLastSavedQueryNode: (query: MetricsQuery) => ({ query }),
         // AbortController plumbing mirrors logsViewerDataLogic: a `cancelInProgress`
         // action aborts the previous controller before storing the new one.
         setQueryAbortController: (controller: AbortController | null) => ({ controller }),
@@ -222,6 +223,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 closeAddToDashboardModal: () => false,
             },
         ],
+        // The query node exactly as the last successful save sent it. The reuse
+        // check compares against this, not the server-returned insight.query —
+        // the API may normalize the stored node (injected defaults, version
+        // stamps), and a comparison against that would never match and would
+        // save a duplicate insight on every click.
+        lastSavedQueryNode: [null as MetricsQuery | null, { setLastSavedQueryNode: (_, { query }) => query }],
         // Armed while an addToDashboard-initiated save is in flight, so the success
         // path opens the modal instead of the "View insight" toast. Not reset on
         // success by a reducer — the success listener must still read it as armed.
@@ -278,7 +285,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             }
             // Re-clicking with an unchanged query reuses the saved insight instead
             // of littering saved insights with duplicates.
-            if (values.savedInsight && objectsEqual(values.savedInsight.query, values.metricsQueryNode)) {
+            if (values.savedInsight && objectsEqual(values.lastSavedQueryNode, values.metricsQueryNode)) {
                 actions.openAddToDashboardModal()
                 return
             }
@@ -391,6 +398,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         query,
                         saved: true,
                     })
+                    actions.setLastSavedQueryNode(query)
                     // The add-to-dashboard flow opens the dashboard picker instead of a toast.
                     if (!values.pendingAddToDashboard) {
                         lemonToast.success('Insight saved', {

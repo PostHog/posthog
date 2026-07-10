@@ -146,9 +146,13 @@ describe('metricsViewerLogic', () => {
 
     // "Add to dashboard" must not create a fresh insight on every click — repeated
     // clicks for an unchanged query would litter saved insights with duplicates.
+    // The mock normalizes the echoed query (like the API can: injected defaults,
+    // version stamps), so reuse must not depend on the server round-tripping the
+    // node byte-for-byte.
     it('add to dashboard saves the insight once, then reuses it while the query is unchanged', async () => {
         jest.mocked(insightsApi.create).mockImplementation(
-            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+            async (insight: any) =>
+                ({ id: 1, short_id: 'abc123', ...insight, query: { ...insight.query, version: 1 } }) as any
         )
         logic.actions.setMetricName('queue_depth')
 

@@ -108,9 +108,19 @@ describe('metricsUsageTrackingLogic', () => {
         ],
         ['metrics add to dashboard clicked', () => metricsViewerLogic.actions.addToDashboard(), { aggregation: 'sum' }],
         [
+            // Reports the aggregation persisted on the insight, not the viewer's
+            // current one — those diverge when the user changes the aggregation
+            // while the save request is in flight (viewer state here is 'sum').
             'metrics insight saved',
-            () => metricsViewerLogic.actions.saveAsInsightSuccess({ short_id: 'abc123' } as any, {} as any),
-            { aggregation: 'sum' },
+            () =>
+                metricsViewerLogic.actions.saveAsInsightSuccess(
+                    {
+                        short_id: 'abc123',
+                        query: { kind: 'MetricsQuery', clauses: [{ name: 'a', aggregation: 'quantile' }] },
+                    } as any,
+                    {} as any
+                ),
+            { aggregation: 'p95' },
         ],
     ])('%s fires with enum/count properties only', (event, dispatch, expectedProperties) => {
         dispatch()
