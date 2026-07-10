@@ -63,6 +63,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     stack = build_stack(backend, args)
     url = stack.bring_up()
     print(f"box_id={backend.box_id}")
+    print(f"pen_id={backend.pen_id}")
     print(f"url={url}")
     if args.destroy:
         backend.destroy()

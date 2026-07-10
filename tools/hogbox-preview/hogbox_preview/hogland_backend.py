@@ -336,6 +336,12 @@ class HoglandBackend(PreviewBackend):
     def box_id(self) -> str | None:
         return self._box_id
 
+    @property
+    def pen_id(self) -> str | None:
+        # The pen's stable id (e.g. pen-aa47b706211f) once the pen is ensured.
+        # Used to build the hogland admin/console link for the preview.
+        return self._pen.id if self._pen is not None else None
+
     def destroy(self) -> None:
         # PR-close teardown: drop the live box, then release the stable identity.
         # delete_pen does NOT cascade, so the box must go first. Each step is
