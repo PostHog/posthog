@@ -24,15 +24,16 @@ interface TileSpec {
     format: (n: number) => string
     color: string
     loading: boolean
-    // Overrides the default "vs. prior" comparison line — used to flag a tile
-    // whose value isn't scoped by the dashboard filters.
+    // What the resting headline summarizes ('Total' | 'Avg'), like the metric insight's subtitle.
+    summaryLabel: string
+    // Overrides the summary caption — used to flag a tile whose value isn't
+    // scoped by the dashboard filters.
     subtitle?: string
 }
 
 function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.Element {
     const { metric } = tile
     const hasSparkline = metric.sparkline.length > 0
-    const hasComparison = metric.deltaPct !== null
 
     return (
         <Link to={tile.href} subtle className="group/tile flex h-full">
@@ -56,11 +57,17 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
                         color={tile.color}
                         goodDirection={metric.goodDirection}
                         formatValue={tile.format}
-                        // Resting caption only — hovering a sparkline point swaps in that bucket's label.
-                        restingSubtitle={
-                            tile.subtitle ??
-                            (hasComparison ? `vs. ${tile.format(metric.previousValue)} prior` : undefined)
+                        // Window-over-window pill (suppressed without prior-window data); hovering a
+                        // point swaps it for the point-vs-previous delta, like the metric insight.
+                        change={metric.deltaPct !== null ? { value: metric.deltaPct } : null}
+                        changeTooltip={
+                            metric.deltaPct !== null
+                                ? `vs. ${tile.format(metric.previousValue)} in the previous period`
+                                : undefined
                         }
+                        hoverChangeFromPreviousPoint
+                        // Resting caption only — hovering a sparkline point swaps in that bucket's label.
+                        restingSubtitle={tile.subtitle ?? tile.summaryLabel}
                         sparklineHeight={50}
                     >
                         <MetricHeader>
@@ -101,6 +108,7 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[2],
             loading: usersLoading,
+            summaryLabel: 'Total',
         },
         {
             label: 'Sessions',
@@ -109,6 +117,7 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            summaryLabel: 'Total',
         },
         {
             label: 'Tool calls',
@@ -117,6 +126,7 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            summaryLabel: 'Total',
         },
         {
             label: 'Error rate',
@@ -125,6 +135,7 @@ export function KpiTiles({
             format: (n) => formatPercentage(n, { compact: true }),
             color: theme.colors[4],
             loading: kpisLoading,
+            summaryLabel: 'Avg',
         },
         {
             label: 'p95 latency',
@@ -133,6 +144,7 @@ export function KpiTiles({
             format: formatMs,
             color: theme.colors[0],
             loading: kpisLoading,
+            summaryLabel: 'Avg',
         },
         {
             label: 'Intent clusters',
@@ -141,6 +153,7 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[6],
             loading: false,
+            summaryLabel: 'Total',
             // Clusters come from the latest clustering snapshot across all sessions, so
             // unlike the other tiles this count isn't scoped by the date or test-account
             // filters. Label it so the grid doesn't read as a single consistent scope.

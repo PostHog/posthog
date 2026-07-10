@@ -406,15 +406,21 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
     const current = rows.filter((r) => r.bucket >= currentStartBucket).sort((a, b) => a.bucket.localeCompare(b.bucket))
     const previous = rows.filter((r) => r.bucket < currentStartBucket)
 
+    // Average of the buckets that have latency data — the tile's resting caption says "Avg".
+    const avgP95 = (rows_: BucketRow[]): number => {
+        const values = rows_.map((r) => r.p95).filter((v) => v > 0)
+        return values.length ? values.reduce((acc, v) => acc + v, 0) / values.length : 0
+    }
+
     const curSessions = current.reduce((acc, r) => acc + r.sessions, 0)
     const curCalls = current.reduce((acc, r) => acc + r.tool_calls, 0)
     const curErrors = current.reduce((acc, r) => acc + r.errors, 0)
-    const curP95 = current.length ? Math.max(...current.map((r) => r.p95)) : 0
+    const curP95 = avgP95(current)
 
     const prevSessions = previous.reduce((acc, r) => acc + r.sessions, 0)
     const prevCalls = previous.reduce((acc, r) => acc + r.tool_calls, 0)
     const prevErrors = previous.reduce((acc, r) => acc + r.errors, 0)
-    const prevP95 = previous.length ? Math.max(...previous.map((r) => r.p95)) : 0
+    const prevP95 = avgP95(previous)
 
     const curErrorRate = curCalls ? (curErrors / curCalls) * 100 : 0
     const prevErrorRate = prevCalls ? (prevErrors / prevCalls) * 100 : 0
