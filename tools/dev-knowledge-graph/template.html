@@ -45,8 +45,10 @@
 const GRAPH = /*__GRAPH_DATA__*/null;
 const LAYERS = GRAPH.layers;
 const KIND_COLORS = { learning: "#e0407b", skill: "#bfb6cc", task: "#5a83a8" };
-const ROW_H = 30;
-const COL_W = 230;
+const CARD_W = 178;
+const CARD_H = 42;
+const ROW_H = 54;
+const COL_W = 240;
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -165,15 +167,16 @@ function placeSubtree(n, col, sign, row, rows) {
 }
 layout();
 
-function radiusOf(n) {
-  if (n.kind === "root") return 9;
-  if (n.kind === "concept") return n.col === 1 ? 8 : 6;
-  return { learning: 6, skill: 5, task: 3.5 }[n.kind] || 5;
-}
 function colorOf(n) {
   if (n.kind === "root") return "#888";
   if (n.kind === "concept") return (LAYERS[n.layer] || {}).color || "#888";
   return KIND_COLORS[n.kind];
+}
+function categoryOf(n) {
+  if (n.kind === "root") return "system";
+  if (n.kind === "concept") return (LAYERS[n.layer] || {}).label || n.layer;
+  if (n.kind === "skill") return n.status === "proposed" ? "skill · proposed" : "skill";
+  return n.kind;
 }
 
 // --- render ---
@@ -190,55 +193,77 @@ function drawNodes() {
     n.x += (n.tx - n.x) * 0.25;
     n.y += (n.ty - n.y) * 0.25;
   }
-  // edges as horizontal beziers parent -> child
+  // edges as horizontal beziers between card edges
   ctx.lineWidth = 1 / zoom;
   for (const n of laidOut) {
     const p = n.treeParent && byId.get(n.treeParent) && laidOut.includes(byId.get(n.treeParent)) ? byId.get(n.treeParent) : root;
     const dim = searchTerm && !matches(n) && !subtreeHasMatch(n);
     ctx.strokeStyle = dim ? "#ffffff10" : "#ffffff2e";
-    const x1 = p.x + Math.sign(n.tx - p.tx || 1) * radiusOf(p);
-    const x2 = n.x - Math.sign(n.tx - p.tx || 1) * (radiusOf(n) + 2);
+    const sign = Math.sign(n.tx - p.tx || 1);
+    const x1 = p.x + sign * (CARD_W / 2 + 2);
+    const x2 = n.x - sign * (CARD_W / 2 + 3);
     const mx = (x1 + x2) / 2;
     ctx.beginPath();
     ctx.moveTo(x1, p.y);
     ctx.bezierCurveTo(mx, p.y, mx, n.y, x2, n.y);
     ctx.stroke();
   }
+  const fitText = (text, maxW) => {
+    if (ctx.measureText(text).width <= maxW) return text;
+    let lo = 0, hi = text.length;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (ctx.measureText(text.slice(0, mid) + "…").width <= maxW) lo = mid; else hi = mid - 1;
+    }
+    return text.slice(0, lo) + "…";
+  };
   for (const n of drawn) {
-    const r = radiusOf(n);
     const isMatch = searchTerm && matches(n);
     const dim = searchTerm && !isMatch;
-    ctx.globalAlpha = dim ? 0.25 : n.kind === "skill" && n.status === "proposed" ? 0.8 : 1;
+    const accent = colorOf(n);
+    const x = n.x - CARD_W / 2, y = n.y - CARD_H / 2;
+    ctx.globalAlpha = dim ? 0.25 : 1;
+    // card body
     ctx.beginPath();
-    ctx.arc(n.x, n.y, r, 0, 7);
-    ctx.fillStyle = colorOf(n);
+    ctx.roundRect(x, y, CARD_W, CARD_H, 7);
+    ctx.fillStyle = "#1f1b24";
     ctx.fill();
-    if (n.kind === "skill" && n.status === "proposed") {
-      ctx.setLineDash([3 / zoom, 3 / zoom]);
-      ctx.strokeStyle = KIND_COLORS.skill; ctx.lineWidth = 1.2 / zoom;
-      ctx.stroke(); ctx.setLineDash([]);
-    }
+    // accent strip on the hierarchy-facing edge
+    ctx.save();
+    ctx.clip();
+    ctx.fillStyle = accent;
+    ctx.fillRect(n.side < 0 ? x + CARD_W - 4 : x, y, 4, CARD_H);
+    ctx.restore();
+    // border: selection/search > proposed-skill dashed > default
+    ctx.beginPath();
+    ctx.roundRect(x, y, CARD_W, CARD_H, 7);
     if (n === selected || isMatch) {
-      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5 / zoom;
-      ctx.beginPath(); ctx.arc(n.x, n.y, r + 1.5, 0, 7); ctx.stroke();
-    }
-    // label, side-aware; collapsed nodes get a muted +N suffix
-    const bold = n.kind === "root" || (n.kind === "concept" && n.col === 1);
-    const size = bold ? 12.5 : 11.5;
-    ctx.font = `${bold ? "600 " : ""}${size}px -apple-system, sans-serif`;
-    const text = n.label.length > 46 ? n.label.slice(0, 45) + "…" : n.label;
-    const extra = expandableCount(n) > 0 && !expanded.has(n.id) ? ` +${expandableCount(n)}` : "";
-    const rightSide = n.side >= 0;
-    ctx.fillStyle = n.kind === "concept" || n.kind === "root" ? "#eee" : "#b9b3c2";
-    if (rightSide) {
-      ctx.textAlign = "left";
-      ctx.fillText(text, n.x + r + 5, n.y + 3.5);
-      if (extra) { ctx.fillStyle = "#8a8494"; ctx.fillText(extra, n.x + r + 5 + ctx.measureText(text).width, n.y + 3.5); }
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.6 / zoom;
+    } else if (n.kind === "skill" && n.status === "proposed") {
+      ctx.setLineDash([4 / zoom, 3 / zoom]);
+      ctx.strokeStyle = KIND_COLORS.skill; ctx.lineWidth = 1.2 / zoom;
     } else {
-      ctx.textAlign = "right";
-      if (extra) { ctx.fillStyle = "#8a8494"; ctx.fillText(extra, n.x - r - 5, n.y + 3.5); }
-      ctx.fillStyle = n.kind === "concept" ? "#eee" : "#b9b3c2";
-      ctx.fillText(text, n.x - r - 5 - (extra ? ctx.measureText(extra).width : 0), n.y + 3.5);
+      ctx.strokeStyle = "#3a3540"; ctx.lineWidth = 1 / zoom;
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // title + category
+    const pad = n.side < 0 ? 10 : 14;
+    const textX = x + (n.side < 0 ? 10 : 14);
+    const maxW = CARD_W - pad - 14;
+    const bold = n.kind === "root" || (n.kind === "concept" && n.col === 1);
+    ctx.textAlign = "left";
+    ctx.font = `${bold ? "600" : "500"} 11.5px -apple-system, sans-serif`;
+    ctx.fillStyle = n.kind === "concept" || n.kind === "root" ? "#eee" : "#cfc9d6";
+    ctx.fillText(fitText(n.label, maxW), textX, n.y - 3);
+    ctx.font = "600 8.5px -apple-system, sans-serif";
+    ctx.fillStyle = accent;
+    const extra = expandableCount(n) > 0 && !expanded.has(n.id) ? `  ·  +${expandableCount(n)}` : "";
+    const cat = categoryOf(n).toUpperCase();
+    ctx.fillText(fitText(cat, maxW - (extra ? ctx.measureText(extra).width : 0)), textX, n.y + 11);
+    if (extra) {
+      ctx.fillStyle = "#8a8494";
+      ctx.fillText(extra, textX + ctx.measureText(fitText(cat, maxW - ctx.measureText(extra).width)).width, n.y + 11);
     }
     ctx.textAlign = "start";
     ctx.globalAlpha = 1;
@@ -256,10 +281,9 @@ function pick(mx, my) {
   const x = (mx - panX) / zoom, y = (my - panY) / zoom;
   let best = null, bestD = 1e9;
   for (const n of [root, ...laidOut]) {
+    const inside = Math.abs(x - n.x) <= CARD_W / 2 + 2 && Math.abs(y - n.y) <= CARD_H / 2 + 2;
     const d = Math.hypot(n.x - x, n.y - y);
-    // generous horizontal hit area over the label too
-    const labelHit = Math.abs(n.y - y) < ROW_H / 2 && (n.side >= 0 ? x >= n.x - 8 && x <= n.x + 170 : x <= n.x + 8 && x >= n.x - 170);
-    if ((d < radiusOf(n) + 8 || labelHit) && d < bestD) { best = n; bestD = d; }
+    if (inside && d < bestD) { best = n; bestD = d; }
   }
   return best;
 }
