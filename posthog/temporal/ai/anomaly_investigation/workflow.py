@@ -44,7 +44,7 @@ logger = structlog.get_logger(__name__)
 
 # (source_product, source_type) identifiers for the emitted signal. The signals taxonomy, payload
 # contract, and inbox support for this pair are added in a separate PR; this module only emits.
-SIGNAL_SOURCE_PRODUCT = "alerts"
+SIGNAL_SOURCE_PRODUCT = "analytics"
 SIGNAL_SOURCE_TYPE = "anomaly_investigation"
 
 

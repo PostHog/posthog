@@ -137,7 +137,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
 
         mock_emit.assert_awaited_once()
         kwargs = mock_emit.await_args.kwargs
-        assert kwargs["source_product"] == "alerts"
+        assert kwargs["source_product"] == "analytics"
         assert kwargs["source_type"] == "anomaly_investigation"
         assert kwargs["source_id"] == str(self.alert_check.id)
         assert kwargs["extra"]["verdict"] == "true_positive"
