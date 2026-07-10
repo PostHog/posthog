@@ -287,6 +287,18 @@ async function queryGenerationInputs(
     return inputs
 }
 
+async function safeQueryGenerationInputs(
+    generations: SentimentGeneration[],
+    source: GenerationInputQuerySource
+): Promise<Map<string, unknown>> {
+    try {
+        return await queryGenerationInputs(generations, source)
+    } catch (error) {
+        console.warn(`[sentimentQueries] failed to load generation inputs from ${source.from}`, error)
+        return new Map()
+    }
+}
+
 async function fetchGenerationInputs(generations: SentimentGeneration[]): Promise<Record<string, unknown>> {
     const inputsByGenerationKey: Record<string, unknown> = {}
     const missingInputs = generations.filter((generation) => {
@@ -301,7 +313,9 @@ async function fetchGenerationInputs(generations: SentimentGeneration[]): Promis
         return inputsByGenerationKey
     }
 
-    const aiEventsInputs = await queryGenerationInputs(missingInputs, AI_EVENTS_SOURCE)
+    // Input lookup is best-effort enrichment: a failure here must not take down the whole
+    // sentiment page load, since cards render off sentiment and fall back to generation.aiInput.
+    const aiEventsInputs = await safeQueryGenerationInputs(missingInputs, AI_EVENTS_SOURCE)
     for (const [uuid, aiInput] of aiEventsInputs) {
         inputsByGenerationKey[uuid] = aiInput
     }
@@ -311,7 +325,7 @@ async function fetchGenerationInputs(generations: SentimentGeneration[]): Promis
         return inputsByGenerationKey
     }
 
-    const eventsInputs = await queryGenerationInputs(fallbackGenerations, EVENTS_SOURCE)
+    const eventsInputs = await safeQueryGenerationInputs(fallbackGenerations, EVENTS_SOURCE)
     for (const [uuid, aiInput] of eventsInputs) {
         inputsByGenerationKey[uuid] = aiInput
     }
