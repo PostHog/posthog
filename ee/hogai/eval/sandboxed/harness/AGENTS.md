@@ -47,6 +47,7 @@ Bootstrap registers teardown on an `ExitStack` as each resource comes up, so a f
 `atexit` hooks plus the subprocess manager's signal handlers cover Ctrl-C, where neither stack unwinds.
 
 After any change, a Ctrl-C mid-run must leave no listeners on 18000 / 13308 / 18787 / 14040, no `task-sandbox-*` containers, and no Temporal dev server.
+A finished case terminates its own sandbox; `provider.cleanup()` (via `atexit`) is the end-of-run safety net, sweeping any that a timeout, crash, or Ctrl-C left behind — leftover Docker containers by name, and leftover Modal sandboxes under the eval app (so they don't idle to their TTL).
 
 ## Providers
 
