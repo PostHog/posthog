@@ -4,6 +4,11 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
+def default_period() -> dict:
+    # Default lookback: the brief covers the last 7 days, compared against the 7 days before.
+    return {"type": "last_n_days", "days": 7}
+
+
 class PulseModel(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """Abstract base for pulse models: fail-closed team scoping + lock-free hot-table FKs."""
 
@@ -31,6 +36,8 @@ class BriefConfig(PulseModel):
     focus_prompt = models.TextField(blank=True, default="", max_length=2000)
     # Shape: BriefAnchorsSerializer (api/brief.py) — {"dashboards": [int], "insights": [short_id str]}
     anchors = models.JSONField(default=dict)
+    # Per-config tunables overriding config.py defaults; shape/ranges: config.BriefSettings.
+    settings = models.JSONField(default=dict)
     enabled = models.BooleanField(default=True)
     # Soft delete: configs are recoverable and brief history keeps pointing at them.
     deleted = models.BooleanField(default=False)
@@ -47,13 +54,14 @@ class ProductBrief(PulseModel):
         ON_DEMAND = "on_demand"
         SCHEDULED = "scheduled"
 
-    # Configs soft-delete in normal operation; SET_NULL is the backstop for hard deletes
-    # (e.g. via admin) so brief history survives those too.
-    config = models.ForeignKey(BriefConfig, on_delete=models.SET_NULL, null=True, blank=True)
+    # Configs soft-delete in normal operation; a hard delete (e.g. via admin) is deliberate and
+    # cascades to the briefs generated for that config rather than orphaning them.
+    config = models.ForeignKey(BriefConfig, on_delete=models.CASCADE, null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.GENERATING)
     trigger = models.CharField(max_length=20, choices=Trigger.choices)
-    # Lookback window: the brief covers the last N days, compared against the N days before.
-    period_days = models.IntegerField(default=7)
+    # Period spec resolved to explicit dates in-activity; shape: {"type": "last_n_days", "days": 7}
+    # or {"type": "since_last_run"}. See temporal/activities.resolve_period.
+    period = models.JSONField(default=default_period)
     # Shape: list[SectionOut] — see generation/schemas.py (the LLM structured-output schema).
     sections = models.JSONField(default=list)
     sources_used = models.JSONField(default=list)
@@ -84,7 +92,8 @@ class Opportunity(PulseModel):
         ACTED = "acted"
         RESOLVED = "resolved"
 
-    first_seen_brief = models.ForeignKey(ProductBrief, on_delete=models.SET_NULL, null=True, blank=True)
+    # persist always sets this; a hard-deleted brief cascades to the opportunities it first surfaced.
+    first_seen_brief = models.ForeignKey(ProductBrief, on_delete=models.CASCADE)
     kind = models.CharField(max_length=20, choices=Kind.choices)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
     title = models.CharField(max_length=400)
