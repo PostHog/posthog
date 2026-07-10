@@ -106,4 +106,8 @@ def _canonicalize_value(value: Any) -> str:
     # mixed-case strings like "True" stay untouched since string comparison in ClickHouse is case-sensitive
     if isinstance(value, bool):
         return "true" if value else "false"
+    # Pydantic parses JSON numbers as floats, while the filter UI stores them as strings ("1"),
+    # so integral floats need their trailing .0 stripped to match
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
     return str(value)
