@@ -1381,6 +1381,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
+                // Only read the removal experiment flag on the analytics tab, where the tile actually renders.
+                // allTiles is also built for the bot-analytics tab (then discarded), so an unconditional read
+                // there would enroll users neither variant affects and dilute the experiment metrics.
+                const removeReplayTile =
+                    productTab === ProductTab.ANALYTICS &&
+                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REMOVE_REPLAY_TILE] === 'test'
+
                 const includeHostMenuItem: LemonMenuItem | null =
                     useTileHeaderV2 && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST]
                         ? {
@@ -2343,7 +2350,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REMOVE_REPLAY_TILE] !== 'test'
+                    !conversionGoal && !removeReplayTile
                         ? {
                               kind: 'replay',
                               tileId: TileId.REPLAY,
