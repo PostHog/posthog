@@ -13429,6 +13429,22 @@ export namespace Schemas {
       clustering_job_id?: string | null;
     }
 
+    /**
+     * * `tool_not_found` - tool_not_found
+     * * `tool_needs_approval` - tool_needs_approval
+     * * `tool_blocked` - tool_blocked
+     * * `upstream_error` - upstream_error
+     */
+    export type CodeEnum = typeof CodeEnum[keyof typeof CodeEnum];
+
+
+    export const CodeEnum = {
+      ToolNotFound: 'tool_not_found',
+      ToolNeedsApproval: 'tool_needs_approval',
+      ToolBlocked: 'tool_blocked',
+      UpstreamError: 'upstream_error',
+    } as const;
+
     export interface CodeInviteRedeemRequest {
       /** @maxLength 50 */
       code: string;
@@ -25776,6 +25792,133 @@ export namespace Schemas {
       readonly updated: number;
     }
 
+    export interface GatewayCallError {
+      /** Machine-readable error code.
+       *
+       * * `tool_not_found` - tool_not_found
+       * * `tool_needs_approval` - tool_needs_approval
+       * * `tool_blocked` - tool_blocked
+       * * `upstream_error` - upstream_error */
+      code: CodeEnum;
+      /** Human-readable error description. */
+      detail: string;
+      /** Settings URL where the tool can be approved (tool_needs_approval only). */
+      approval_url?: string;
+      /** Upstream failure category (upstream_error only): e.g. unreachable, timeout, auth_failed. */
+      error_type?: string;
+    }
+
+    /**
+     * Arguments passed to the tool, matching its input_schema.
+     */
+    export type GatewayCallRequestArguments = { [key: string]: unknown };
+
+    export interface GatewayCallRequest {
+      /** Namespaced tool name to execute: {server_slug}/{tool_name}. */
+      tool: string;
+      /** Arguments passed to the tool, matching its input_schema. */
+      arguments?: GatewayCallRequestArguments;
+      /** Optional consumer identifier for analytics attribution (e.g. 'tasks', 'max'). */
+      consumer?: string;
+    }
+
+    export type GatewayCallResponseContentItem = { [key: string]: unknown };
+
+    /**
+     * Structured result payload, when the tool provides one.
+     * @nullable
+     */
+    export type GatewayCallResponseStructuredContent = { [key: string]: unknown } | null;
+
+    export interface GatewayCallResponse {
+      /** MCP CallToolResult content blocks (e.g. {type: 'text', text: ...}). */
+      content: GatewayCallResponseContentItem[];
+      /** True when the tool itself reported an execution error. */
+      is_error: boolean;
+      /**
+         * Structured result payload, when the tool provides one.
+         * @nullable
+         */
+      structured_content?: GatewayCallResponseStructuredContent;
+      /** Slug of the server that executed the tool. */
+      server_slug: string;
+      /** The tool's name on the upstream server (not namespaced). */
+      tool_name: string;
+      /** Upstream execution time in milliseconds. */
+      duration_ms: number;
+    }
+
+    /**
+     * * `personal` - Personal
+     * * `shared` - Shared
+     */
+    export type MCPServerScopeEnum = typeof MCPServerScopeEnum[keyof typeof MCPServerScopeEnum];
+
+
+    export const MCPServerScopeEnum = {
+      Personal: 'personal',
+      Shared: 'shared',
+    } as const;
+
+    export interface GatewayServer {
+      /** URL-safe server identifier, unique within the caller's resolved set. */
+      slug: string;
+      /** Human-readable server name. */
+      display_name: string;
+      /** UUID of the MCP server installation backing this server. */
+      installation_id: string;
+      /** 'personal' is the caller's own installation; 'shared' is team-wide.
+       *
+       * * `personal` - Personal
+       * * `shared` - Shared */
+      scope: MCPServerScopeEnum;
+    }
+
+    /**
+     * JSON Schema describing the tool's arguments.
+     */
+    export type GatewayToolInputSchema = { [key: string]: unknown };
+
+    /**
+     * * `approved` - Approved
+     * * `needs_approval` - Needs approval
+     * * `do_not_use` - Do not use
+     */
+    export type MCPToolApprovalStateEnum = typeof MCPToolApprovalStateEnum[keyof typeof MCPToolApprovalStateEnum];
+
+
+    export const MCPToolApprovalStateEnum = {
+      Approved: 'approved',
+      NeedsApproval: 'needs_approval',
+      DoNotUse: 'do_not_use',
+    } as const;
+
+    export interface GatewayTool {
+      /** Namespaced tool name: {server_slug}/{tool_name}. */
+      name: string;
+      /** The connected server this tool belongs to. */
+      server: GatewayServer;
+      /** The tool's name on the upstream server (not namespaced). */
+      tool_name: string;
+      /** Tool description from the upstream server. */
+      description: string;
+      /** JSON Schema describing the tool's arguments. */
+      input_schema: GatewayToolInputSchema;
+      /** Per-tool approval state. 'needs_approval' tools are listed but blocked at call time.
+       *
+       * * `approved` - Approved
+       * * `needs_approval` - Needs approval
+       * * `do_not_use` - Do not use */
+      approval_state: MCPToolApprovalStateEnum;
+    }
+
+    export interface GatewayToolsResponse {
+      /** The page of matching tools. */
+      results: GatewayTool[];
+      /** Total number of matching tools before pagination. */
+      count: number;
+    }
+
     export type GenerateRequestStepsItem = { [key: string]: unknown };
 
     export interface GenerateRequest {
@@ -31656,18 +31799,6 @@ export namespace Schemas {
       blocked?: boolean;
     }
 
-    /**
-     * * `personal` - Personal
-     * * `shared` - Shared
-     */
-    export type MCPServerInstallationScopeEnum = typeof MCPServerInstallationScopeEnum[keyof typeof MCPServerInstallationScopeEnum];
-
-
-    export const MCPServerInstallationScopeEnum = {
-      Personal: 'personal',
-      Shared: 'shared',
-    } as const;
-
     export interface MCPServerInstallation {
       readonly id: string;
       /** @nullable */
@@ -31682,7 +31813,7 @@ export namespace Schemas {
       description?: string;
       auth_type?: MCPAuthTypeEnum;
       is_enabled?: boolean;
-      readonly scope: MCPServerInstallationScopeEnum;
+      readonly scope: MCPServerScopeEnum;
       /** True when the requesting user owns this installation. Lets clients gate owner-only controls instead of surfacing 403s. */
       readonly is_owner: boolean;
       readonly needs_reauth: boolean;
@@ -31695,27 +31826,13 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
-    /**
-     * * `approved` - Approved
-     * * `needs_approval` - Needs approval
-     * * `do_not_use` - Do not use
-     */
-    export type MCPServerInstallationToolApprovalStateEnum = typeof MCPServerInstallationToolApprovalStateEnum[keyof typeof MCPServerInstallationToolApprovalStateEnum];
-
-
-    export const MCPServerInstallationToolApprovalStateEnum = {
-      Approved: 'approved',
-      NeedsApproval: 'needs_approval',
-      DoNotUse: 'do_not_use',
-    } as const;
-
     export interface MCPServerInstallationTool {
       readonly id: string;
       readonly tool_name: string;
       readonly display_name: string;
       readonly description: string;
       readonly input_schema: unknown;
-      approval_state?: MCPServerInstallationToolApprovalStateEnum;
+      approval_state?: MCPToolApprovalStateEnum;
       readonly last_seen_at: string;
       /** @nullable */
       readonly removed_at: string | null;
@@ -63225,6 +63342,38 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsMcpGatewayMcpCreateBodyOne = { [key: string]: unknown };
+
+    export type EnvironmentsMcpGatewayMcpCreateBodyTwo = { [key: string]: unknown };
+
+    export type EnvironmentsMcpGatewayMcpCreateBodyThree = { [key: string]: unknown };
+
+    export type EnvironmentsMcpGatewayMcpCreate200 = { [key: string]: unknown };
+
+    export type EnvironmentsMcpGatewayToolsRetrieveParams = {
+    /**
+     * Maximum number of tools to return.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Exact namespaced tool name ({server_slug}/{tool_name}).
+     * @minLength 1
+     */
+    name?: string;
+    /**
+     * Number of tools to skip (for pagination).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Substring search over tool name and description; name matches rank first.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type EnvironmentsMcpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
@@ -70628,6 +70777,38 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    };
+
+    export type McpGatewayMcpCreateBodyOne = { [key: string]: unknown };
+
+    export type McpGatewayMcpCreateBodyTwo = { [key: string]: unknown };
+
+    export type McpGatewayMcpCreateBodyThree = { [key: string]: unknown };
+
+    export type McpGatewayMcpCreate200 = { [key: string]: unknown };
+
+    export type McpGatewayToolsRetrieveParams = {
+    /**
+     * Maximum number of tools to return.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Exact namespaced tool name ({server_slug}/{tool_name}).
+     * @minLength 1
+     */
+    name?: string;
+    /**
+     * Number of tools to skip (for pagination).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Substring search over tool name and description; name matches rank first.
+     * @minLength 1
+     */
+    search?: string;
     };
 
     export type McpServerInstallationsListParams = {

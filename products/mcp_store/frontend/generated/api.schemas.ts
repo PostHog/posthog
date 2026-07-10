@@ -8,6 +8,146 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * Arguments passed to the tool, matching its input_schema.
+ */
+export type GatewayCallRequestApiArguments = { [key: string]: unknown }
+
+export interface GatewayCallRequestApi {
+    /** Namespaced tool name to execute: {server_slug}/{tool_name}. */
+    tool: string
+    /** Arguments passed to the tool, matching its input_schema. */
+    arguments?: GatewayCallRequestApiArguments
+    /** Optional consumer identifier for analytics attribution (e.g. 'tasks', 'max'). */
+    consumer?: string
+}
+
+export type GatewayCallResponseApiContentItem = { [key: string]: unknown }
+
+/**
+ * Structured result payload, when the tool provides one.
+ * @nullable
+ */
+export type GatewayCallResponseApiStructuredContent = { [key: string]: unknown } | null
+
+export interface GatewayCallResponseApi {
+    /** MCP CallToolResult content blocks (e.g. {type: 'text', text: ...}). */
+    content: GatewayCallResponseApiContentItem[]
+    /** True when the tool itself reported an execution error. */
+    is_error: boolean
+    /**
+     * Structured result payload, when the tool provides one.
+     * @nullable
+     */
+    structured_content?: GatewayCallResponseApiStructuredContent
+    /** Slug of the server that executed the tool. */
+    server_slug: string
+    /** The tool's name on the upstream server (not namespaced). */
+    tool_name: string
+    /** Upstream execution time in milliseconds. */
+    duration_ms: number
+}
+
+/**
+ * * `tool_not_found` - tool_not_found
+ * * `tool_needs_approval` - tool_needs_approval
+ * * `tool_blocked` - tool_blocked
+ * * `upstream_error` - upstream_error
+ */
+export type CodeEnumApi = (typeof CodeEnumApi)[keyof typeof CodeEnumApi]
+
+export const CodeEnumApi = {
+    ToolNotFound: 'tool_not_found',
+    ToolNeedsApproval: 'tool_needs_approval',
+    ToolBlocked: 'tool_blocked',
+    UpstreamError: 'upstream_error',
+} as const
+
+export interface GatewayCallErrorApi {
+    /** Machine-readable error code.
+     *
+     * * `tool_not_found` - tool_not_found
+     * * `tool_needs_approval` - tool_needs_approval
+     * * `tool_blocked` - tool_blocked
+     * * `upstream_error` - upstream_error */
+    code: CodeEnumApi
+    /** Human-readable error description. */
+    detail: string
+    /** Settings URL where the tool can be approved (tool_needs_approval only). */
+    approval_url?: string
+    /** Upstream failure category (upstream_error only): e.g. unreachable, timeout, auth_failed. */
+    error_type?: string
+}
+
+/**
+ * * `personal` - Personal
+ * * `shared` - Shared
+ */
+export type MCPServerScopeEnumApi = (typeof MCPServerScopeEnumApi)[keyof typeof MCPServerScopeEnumApi]
+
+export const MCPServerScopeEnumApi = {
+    Personal: 'personal',
+    Shared: 'shared',
+} as const
+
+export interface GatewayServerApi {
+    /** URL-safe server identifier, unique within the caller's resolved set. */
+    slug: string
+    /** Human-readable server name. */
+    display_name: string
+    /** UUID of the MCP server installation backing this server. */
+    installation_id: string
+    /** 'personal' is the caller's own installation; 'shared' is team-wide.
+     *
+     * * `personal` - Personal
+     * * `shared` - Shared */
+    scope: MCPServerScopeEnumApi
+}
+
+/**
+ * * `approved` - Approved
+ * * `needs_approval` - Needs approval
+ * * `do_not_use` - Do not use
+ */
+export type MCPToolApprovalStateEnumApi = (typeof MCPToolApprovalStateEnumApi)[keyof typeof MCPToolApprovalStateEnumApi]
+
+export const MCPToolApprovalStateEnumApi = {
+    Approved: 'approved',
+    NeedsApproval: 'needs_approval',
+    DoNotUse: 'do_not_use',
+} as const
+
+/**
+ * JSON Schema describing the tool's arguments.
+ */
+export type GatewayToolApiInputSchema = { [key: string]: unknown }
+
+export interface GatewayToolApi {
+    /** Namespaced tool name: {server_slug}/{tool_name}. */
+    name: string
+    /** The connected server this tool belongs to. */
+    server: GatewayServerApi
+    /** The tool's name on the upstream server (not namespaced). */
+    tool_name: string
+    /** Tool description from the upstream server. */
+    description: string
+    /** JSON Schema describing the tool's arguments. */
+    input_schema: GatewayToolApiInputSchema
+    /** Per-tool approval state. 'needs_approval' tools are listed but blocked at call time.
+     *
+     * * `approved` - Approved
+     * * `needs_approval` - Needs approval
+     * * `do_not_use` - Do not use */
+    approval_state: MCPToolApprovalStateEnumApi
+}
+
+export interface GatewayToolsResponseApi {
+    /** The page of matching tools. */
+    results: GatewayToolApi[]
+    /** Total number of matching tools before pagination. */
+    count: number
+}
+
+/**
  * * `api_key` - API Key
  * * `oauth` - OAuth
  */
@@ -16,18 +156,6 @@ export type MCPAuthTypeEnumApi = (typeof MCPAuthTypeEnumApi)[keyof typeof MCPAut
 export const MCPAuthTypeEnumApi = {
     ApiKey: 'api_key',
     Oauth: 'oauth',
-} as const
-
-/**
- * * `personal` - Personal
- * * `shared` - Shared
- */
-export type MCPServerInstallationScopeEnumApi =
-    (typeof MCPServerInstallationScopeEnumApi)[keyof typeof MCPServerInstallationScopeEnumApi]
-
-export const MCPServerInstallationScopeEnumApi = {
-    Personal: 'personal',
-    Shared: 'shared',
 } as const
 
 export interface MCPServerInstallationApi {
@@ -44,7 +172,7 @@ export interface MCPServerInstallationApi {
     description?: string
     auth_type?: MCPAuthTypeEnumApi
     is_enabled?: boolean
-    readonly scope: MCPServerInstallationScopeEnumApi
+    readonly scope: MCPServerScopeEnumApi
     /** True when the requesting user owns this installation. Lets clients gate owner-only controls instead of surfacing 403s. */
     readonly is_owner: boolean
     readonly needs_reauth: boolean
@@ -72,27 +200,13 @@ export interface PatchedMCPServerInstallationUpdateApi {
     is_enabled?: boolean
 }
 
-/**
- * * `approved` - Approved
- * * `needs_approval` - Needs approval
- * * `do_not_use` - Do not use
- */
-export type MCPServerInstallationToolApprovalStateEnumApi =
-    (typeof MCPServerInstallationToolApprovalStateEnumApi)[keyof typeof MCPServerInstallationToolApprovalStateEnumApi]
-
-export const MCPServerInstallationToolApprovalStateEnumApi = {
-    Approved: 'approved',
-    NeedsApproval: 'needs_approval',
-    DoNotUse: 'do_not_use',
-} as const
-
 export interface MCPServerInstallationToolApi {
     readonly id: string
     readonly tool_name: string
     readonly display_name: string
     readonly description: string
     readonly input_schema: unknown
-    approval_state?: MCPServerInstallationToolApprovalStateEnumApi
+    approval_state?: MCPToolApprovalStateEnumApi
     readonly last_seen_at: string
     /** @nullable */
     readonly removed_at: string | null
@@ -239,6 +353,38 @@ export interface PaginatedMCPServerTemplateListApi {
     /** @nullable */
     previous?: string | null
     results: MCPServerTemplateApi[]
+}
+
+export type McpGatewayMcpCreateBodyOne = { [key: string]: unknown }
+
+export type McpGatewayMcpCreateBodyTwo = { [key: string]: unknown }
+
+export type McpGatewayMcpCreateBodyThree = { [key: string]: unknown }
+
+export type McpGatewayMcpCreate200 = { [key: string]: unknown }
+
+export type McpGatewayToolsRetrieveParams = {
+    /**
+     * Maximum number of tools to return.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Exact namespaced tool name ({server_slug}/{tool_name}).
+     * @minLength 1
+     */
+    name?: string
+    /**
+     * Number of tools to skip (for pagination).
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Substring search over tool name and description; name matches rank first.
+     * @minLength 1
+     */
+    search?: string
 }
 
 export type McpServerInstallationsListParams = {

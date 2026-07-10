@@ -9,10 +9,18 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    GatewayCallRequestApi,
+    GatewayCallResponseApi,
+    GatewayToolsResponseApi,
     InstallCustomApi,
     InstallTemplateApi,
     MCPServerInstallationApi,
     MCPServerInstallationToolApi,
+    McpGatewayMcpCreate200,
+    McpGatewayMcpCreateBodyOne,
+    McpGatewayMcpCreateBodyThree,
+    McpGatewayMcpCreateBodyTwo,
+    McpGatewayToolsRetrieveParams,
     McpServerInstallationsAuthorizeRetrieveParams,
     McpServerInstallationsListParams,
     McpServersListParams,
@@ -40,6 +48,78 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getMcpGatewayCallCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_gateway/call/`
+}
+
+/**
+ * Execute a namespaced tool ({server_slug}/{tool_name}) on the connected server that owns it.
+ * @summary Call a gateway tool
+ */
+export const mcpGatewayCallCreate = async (
+    projectId: string,
+    gatewayCallRequestApi: GatewayCallRequestApi,
+    options?: RequestInit
+): Promise<GatewayCallResponseApi> => {
+    return apiMutator<GatewayCallResponseApi>(getMcpGatewayCallCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(gatewayCallRequestApi),
+    })
+}
+
+export const getMcpGatewayMcpCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_gateway/mcp/`
+}
+
+/**
+ * Stateless JSON-RPC (MCP streamable HTTP) over the caller's connected MCP servers. Supports initialize, notifications/initialized, ping, tools/list, and tools/call with {server_slug}/{tool_name} tool names. Batch requests are rejected.
+ * @summary Aggregated MCP endpoint
+ */
+export const mcpGatewayMcpCreate = async (
+    projectId: string,
+    mcpGatewayMcpCreateBody?: McpGatewayMcpCreateBodyOne | McpGatewayMcpCreateBodyTwo | McpGatewayMcpCreateBodyThree,
+    options?: RequestInit
+): Promise<McpGatewayMcpCreate200> => {
+    return apiMutator<McpGatewayMcpCreate200>(getMcpGatewayMcpCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: JSON.stringify(mcpGatewayMcpCreateBody),
+    })
+}
+
+export const getMcpGatewayToolsRetrieveUrl = (projectId: string, params?: McpGatewayToolsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/mcp_gateway/tools/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_gateway/tools/`
+}
+
+/**
+ * The merged, namespaced tool catalog across the caller's connected MCP servers.
+ * @summary List gateway tools
+ */
+export const mcpGatewayToolsRetrieve = async (
+    projectId: string,
+    params?: McpGatewayToolsRetrieveParams,
+    options?: RequestInit
+): Promise<GatewayToolsResponseApi> => {
+    return apiMutator<GatewayToolsResponseApi>(getMcpGatewayToolsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getMcpServerInstallationsListUrl = (projectId: string, params?: McpServerInstallationsListParams) => {
     const normalizedParams = new URLSearchParams()

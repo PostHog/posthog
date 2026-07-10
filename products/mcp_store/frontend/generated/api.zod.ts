@@ -9,6 +9,30 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Execute a namespaced tool ({server_slug}/{tool_name}) on the connected server that owns it.
+ * @summary Call a gateway tool
+ */
+export const mcpGatewayCallCreateBodyConsumerDefault = ``
+
+export const McpGatewayCallCreateBody = /* @__PURE__ */ zod.object({
+    tool: zod.string().describe('Namespaced tool name to execute: {server_slug}\/{tool_name}.'),
+    arguments: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Arguments passed to the tool, matching its input_schema.'),
+    consumer: zod
+        .string()
+        .default(mcpGatewayCallCreateBodyConsumerDefault)
+        .describe("Optional consumer identifier for analytics attribution (e.g. 'tasks', 'max')."),
+})
+
+/**
+ * Stateless JSON-RPC (MCP streamable HTTP) over the caller's connected MCP servers. Supports initialize, notifications/initialized, ping, tools/list, and tools/call with {server_slug}/{tool_name} tool names. Batch requests are rejected.
+ * @summary Aggregated MCP endpoint
+ */
+export const McpGatewayMcpCreateBody = /* @__PURE__ */ zod.record(zod.string(), zod.unknown())
+
 export const mcpServerInstallationsCreateBodyDisplayNameMax = 200
 
 export const mcpServerInstallationsCreateBodyUrlMax = 2048
