@@ -3277,7 +3277,8 @@ class ScaleAISourceConfig(config.Config):
 
 @config.config
 class ScalewaySourceConfig(config.Config):
-    pass
+    secret_key: str
+    organization_id: str
 
 
 @config.config

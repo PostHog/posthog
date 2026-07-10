@@ -325,6 +325,7 @@ the row lists both.
 | salesflare              | HTTP                        | requests                                                        | ✅                          |
 | salesloft               | HTTP                        | requests                                                        | ✅                          |
 | savvycal                | HTTP                        | requests                                                        | ✅                          |
+| scaleway                | HTTP                        | requests                                                        | ✅                          |
 | secoda                  | HTTP                        | requests                                                        | ✅                          |
 | segment                 | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                | HTTP                        | requests                                                        | ✅                          |
@@ -750,7 +751,6 @@ doesn't conflict with concurrent PRs.
 - sap_successfactors
 - savvycal
 - scale_ai
-- scaleway
 - search_ads_360
 - sendpulse
 - senseforce
