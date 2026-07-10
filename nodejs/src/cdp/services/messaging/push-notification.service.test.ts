@@ -212,6 +212,27 @@ describe('PushNotificationService', () => {
             expect(result.error).toBeTruthy()
         })
 
+        it('puts an iOS subtitle in the APNS alert, not the FCM notification (FCM rejects notification.subtitle)', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('fcm-token'),
+            })
+            invocation.queueParameters = {
+                ...invocation.queueParameters,
+                payload: { title: 'T', body: 'B', apns: { subtitle: 'Sub' } },
+            } as any
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            expect(body.message.notification.subtitle).toBeUndefined()
+            expect(body.message.apns.payload.aps.alert).toEqual({ title: 'T', body: 'B', subtitle: 'Sub' })
+        })
+
         it('returns error when integration not found', async () => {
             const invocation = createSendPushNotificationInvocation({
                 '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),

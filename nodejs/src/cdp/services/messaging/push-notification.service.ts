@@ -471,8 +471,13 @@ export class PushNotificationService {
                 aps['relevance-score'] = payload.apns.relevanceScore
             }
             if (payload.apns.subtitle) {
-                // Subtitle goes in the alert object
-                notification.subtitle = payload.apns.subtitle
+                // FCM's message.notification has no `subtitle`. For an iOS device delivered via FCM the
+                // subtitle must live in the APNS alert; include title/body so overriding the alert keeps them.
+                aps.alert = {
+                    title: payload.title,
+                    ...(payload.body ? { body: payload.body } : {}),
+                    subtitle: payload.apns.subtitle,
+                }
             }
             if (payload.apns.mutableContent) {
                 aps['mutable-content'] = 1
