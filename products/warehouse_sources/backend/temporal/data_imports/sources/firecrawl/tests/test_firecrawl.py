@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -69,7 +69,9 @@ class TestFetchRetryClassification:
     def test_client_errors_raise_immediately(self, _name: str, status_code: int) -> None:
         # A 4xx credential/permission error can never be fixed by retrying, so it must surface at once.
         response = _make_response(status_code)
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError(
+            f"{status_code} Client Error", response=cast(requests.Response, response)
+        )
         session = MagicMock()
         session.get.return_value = response
 
@@ -120,7 +122,7 @@ class TestValidateCredentials:
 
 
 class TestCursorPagination:
-    def _patch_fetch(self, monkeypatch: Any, pages_by_cursor: dict[Any, dict]) -> list[Any]:
+    def _patch_fetch(self, monkeypatch: Any, pages_by_cursor: dict[Any, Any]) -> list[Any]:
         seen_cursors: list[Any] = []
 
         def fake_fetch(session: Any, url: str, headers: Any, params: Any, logger: Any) -> dict:

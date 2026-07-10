@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.firecrawl import FirecrawlResumeConfig
@@ -24,6 +24,7 @@ class TestFirecrawlSourceConfig:
         # A non-secret / non-password api_key field would render in plaintext and leak the credential.
         fields = {f.name: f for f in FirecrawlSource().get_source_config.fields}
         api_key = fields["api_key"]
+        assert isinstance(api_key, SourceFieldInputConfig)
         assert api_key.required is True
         assert api_key.secret is True
         assert api_key.type == SourceFieldInputConfigType.PASSWORD

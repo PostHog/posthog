@@ -87,7 +87,9 @@ def validate_credentials(api_key: str) -> bool:
     # revoked one 401. We only confirm the token itself here (see FirecrawlSource.validate_credentials).
     url = f"{FIRECRAWL_BASE_URL}/v2/team/credit-usage"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        # Redact the bearer token from tracked logs/samples in case Firecrawl reflects it back
+        # (redirect URL, error body, or a non-denylisted field).
+        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -98,7 +100,9 @@ def _fetch_single(
 ) -> list[dict]:
     """Unpaginated endpoints: one request, return the whole row array."""
     data = _fetch(session, f"{FIRECRAWL_BASE_URL}{cfg.path}", headers, None, logger)
-    return data.get(cfg.data_selector, []) or []
+    # Index (not .get) so a renamed/missing selector fails the sync loudly instead of silently
+    # replacing warehouse data with zero rows on a full refresh.
+    return data[cfg.data_selector] or []
 
 
 def _iter_cursor_pages(
@@ -121,7 +125,8 @@ def _iter_cursor_pages(
             params["cursor"] = cursor
         data = _fetch(session, url, headers, params, logger)
 
-        yield data.get(cfg.data_selector, []) or []
+        # Index (not .get) so a renamed/missing selector fails loudly rather than truncating the sync.
+        yield data[cfg.data_selector] or []
 
         next_cursor = data.get("cursor")
         if not data.get("has_more") or not next_cursor:
@@ -152,7 +157,8 @@ def _iter_offset_pages(
     url = f"{FIRECRAWL_BASE_URL}{path}"
     for _ in range(MAX_PAGE_ITERATIONS):
         data = _fetch(session, url, headers, {"limit": PAGE_SIZE, "offset": offset}, logger)
-        items = data.get(data_selector, []) or []
+        # Index (not .get) so a renamed/missing selector fails loudly rather than truncating the sync.
+        items = data[data_selector] or []
 
         yield items
 
@@ -166,7 +172,9 @@ def _iter_offset_pages(
 def _iter_monitor_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> list[str]:
     monitor_ids: list[str] = []
     for page in _iter_offset_pages(session, headers, FIRECRAWL_ENDPOINTS["monitors"].path, "data", logger):
-        monitor_ids.extend(item["id"] for item in page if "id" in item)
+        # Index (not a guarded skip) so a monitor row missing its id fails loudly rather than
+        # silently dropping every check for that monitor.
+        monitor_ids.extend(item["id"] for item in page)
     return monitor_ids
 
 
@@ -215,8 +223,9 @@ def get_rows(
 ) -> Iterator[list[dict]]:
     cfg = FIRECRAWL_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across every page so urllib3 keeps the connection alive. Redact the bearer
+    # token from tracked logs/samples in case Firecrawl reflects it back in a URL or response body.
+    session = make_tracked_session(redact_values=(api_key,))
 
     if cfg.fan_out_over_monitors:
         yield from _iter_monitor_checks(session, headers, cfg, resumable_source_manager, logger)
