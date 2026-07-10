@@ -154,7 +154,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     triggered_by = serializers.ChoiceField(
         choices=ObservationTrigger.choices,
         read_only=True,
-        help_text="Whether this observation came from the schedule or an on-demand request.",
+        help_text="Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.",
     )
     triggered_by_user = UserBasicSerializer(
         read_only=True,
@@ -640,7 +640,10 @@ class ReplayObservationViewSet(
         # Free the UNIQUE(scanner, session_id) slot; the usage ledger is immutable, so the failed attempt stays counted.
         observation.delete()
         workflow_id, outcome = start_apply_scanner_workflow(
-            scanner, session_id, triggered_by_user_id=cast(User, request.user).id
+            scanner,
+            session_id,
+            triggered_by_user_id=cast(User, request.user).id,
+            trigger=ObservationTrigger.RETRY,
         )
         if outcome is WorkflowStartOutcome.ALREADY_RUNNING:
             # The prior run is still closing, so its deterministic id blocks the restart and no new row will appear.

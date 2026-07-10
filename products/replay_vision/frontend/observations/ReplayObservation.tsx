@@ -159,7 +159,12 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const reasoningSegments = result?.reasoning_segments
     const scannerType = snapshot?.scanner_type
     const scannerName = snapshot?.name || 'Scanner'
-    const triggerLabel = observation.triggered_by === 'on_demand' ? 'On demand' : 'Schedule'
+    const triggerLabel =
+        observation.triggered_by === 'on_demand'
+            ? 'On demand'
+            : observation.triggered_by === 'retry'
+              ? 'Retry'
+              : 'Schedule'
     const snapshotConfig = configFromSnapshot(snapshot)
     const prompt = snapshotConfig?.prompt ?? null
     const summarizerConfig = scannerType === 'summarizer' ? (snapshotConfig as SummarizerScannerConfig | null) : null

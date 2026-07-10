@@ -453,12 +453,14 @@ export interface ScannerResultApi {
 /**
  * * `schedule` - Schedule
  * * `on_demand` - On demand
+ * * `retry` - Retry
  */
 export type ObservationTriggerEnumApi = (typeof ObservationTriggerEnumApi)[keyof typeof ObservationTriggerEnumApi]
 
 export const ObservationTriggerEnumApi = {
     Schedule: 'schedule',
     OnDemand: 'on_demand',
+    Retry: 'retry',
 } as const
 
 /**
@@ -496,10 +498,11 @@ export interface ReplayObservationApi {
     readonly scanner_snapshot: ScannerSnapshotApi | null
     /** Result data persisted on success; null until the observation succeeds. */
     readonly scanner_result: ScannerResultApi | null
-    /** Whether this observation came from the schedule or an on-demand request.
+    /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.
      *
      * * `schedule` - Schedule
-     * * `on_demand` - On demand */
+     * * `on_demand` - On demand
+     * * `retry` - Retry */
     readonly triggered_by: ObservationTriggerEnumApi
     /** User who triggered an on-demand observation; null for scheduled observations. */
     readonly triggered_by_user: UserBasicApi | null

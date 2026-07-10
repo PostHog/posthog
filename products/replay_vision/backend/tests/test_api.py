@@ -1565,7 +1565,7 @@ class TestRetryActions(_VisionAPITestCase):
         args, kwargs = start_workflow.call_args
         self.assertEqual(kwargs["id"], expected_workflow_id)
         inputs = args[1]
-        self.assertEqual(inputs.triggered_by, ObservationTrigger.ON_DEMAND)
+        self.assertEqual(inputs.triggered_by, ObservationTrigger.RETRY)
         self.assertEqual(inputs.triggered_by_user_id, self.user.id)
 
     def test_retry_rejects_non_failed_statuses(

@@ -33,7 +33,14 @@ const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
 const TRIGGERED_BY_OPTIONS: { value: ObservationTriggeredByValue; label: string }[] = [
     { value: 'on_demand', label: 'On demand' },
     { value: 'schedule', label: 'Schedule' },
+    { value: 'retry', label: 'Retry' },
 ]
+
+const TRIGGERED_BY_TAG: Record<ObservationTriggeredByValue, { label: string; type: LemonTagType }> = {
+    schedule: { label: 'Schedule', type: 'default' },
+    on_demand: { label: 'On demand', type: 'highlight' },
+    retry: { label: 'Retry', type: 'completion' },
+}
 
 const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'yes', label: 'Yes' },
@@ -207,8 +214,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             title: 'Triggered by',
             key: 'triggered_by',
             render: (_, obs) => (
-                <LemonTag type={obs.triggered_by === 'on_demand' ? 'highlight' : 'default'}>
-                    {obs.triggered_by === 'on_demand' ? 'On demand' : 'Schedule'}
+                <LemonTag type={TRIGGERED_BY_TAG[obs.triggered_by].type}>
+                    {TRIGGERED_BY_TAG[obs.triggered_by].label}
                 </LemonTag>
             ),
         },
