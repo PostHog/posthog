@@ -167,7 +167,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         [clickDeps]
     )
 
-    const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom, interval)
+    const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {

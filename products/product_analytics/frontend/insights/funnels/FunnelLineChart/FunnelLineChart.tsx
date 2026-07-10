@@ -212,7 +212,7 @@ export function FunnelLineChart({
         [clickDeps]
     )
 
-    const onDateRangeZoom = useDateRangeZoom(annotationDates, context?.onDateRangeZoom, interval)
+    const onDateRangeZoom = useDateRangeZoom(annotationDates, context?.onDateRangeZoom)
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<FunnelSeriesMeta>): JSX.Element => {
