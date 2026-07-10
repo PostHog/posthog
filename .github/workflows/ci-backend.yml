@@ -793,7 +793,7 @@ jobs:
                   # turbo runs each product's backend:test with the product dir as CWD, so --cov=backend
                   # scopes coverage to that product and writes products/<name>/coverage.xml — works for
                   # bin-packed buckets (each product writes its own file) and split products (unioned later).
-                  # sysmon: Python 3.12's low-overhead coverage backend, ~a few % vs ~20% for the C tracer.
+                  # sysmon: Python 3.12+'s low-overhead coverage backend, ~a few % vs ~20% for the C tracer.
                   COVERAGE_CORE: sysmon
               run: |
                   set +e
@@ -2470,6 +2470,11 @@ jobs:
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: |
                   set +e
+                  # Unrebased branches predate .github/coverage-core.cfg; an explicit --cov-config
+                  # pointing at a missing file is a hard error, so drop coverage rather than fail.
+                  if [[ -n "$COV_ARGS" && ! -f .github/coverage-core.cfg ]]; then
+                      COV_ARGS=""
+                  fi
                   # Pick the split algorithm and granularity at runtime: optimal_chunks +
                   # file granularity only when the installed pytest-split offers them, else
                   # duration_based_chunks / item. A workflow edit runs merged with master, so
@@ -3178,10 +3183,9 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  # Patch coverage diffs the PR head against the merge-base with master, so we need
-                  # the head SHA (line numbers match the coverage run) and full history. blob:none
-                  # keeps it light — only the commit graph, file blobs are fetched on demand.
-                  ref: ${{ github.event.pull_request.head.sha }}
+                  # Default pull_request checkout = the synthetic merge ref — the same tree the
+                  # coverage runs measured, so diff line numbers match. Full history for diff-cover;
+                  # blob:none keeps it light (commit graph only, blobs fetched on demand).
                   fetch-depth: 0
                   filter: blob:none
             - name: Check for coverage reporter
@@ -3222,7 +3226,12 @@ jobs:
               run: |
                   mkdir -p cov-artifacts core-artifacts
                   git fetch --no-tags --filter=blob:none --quiet origin master
-                  uv run --script scripts/coverage_report.py \
+                  # Run the reporter from master, not the PR: this step holds a token with
+                  # pull-requests:write, so PR-controlled code must not execute here. Checkout
+                  # fallback covers only the bootstrap window before the script lands on master.
+                  git show origin/master:scripts/coverage_report.py > /tmp/coverage_report.py 2>/dev/null \
+                      || cp scripts/coverage_report.py /tmp/coverage_report.py
+                  uv run --script /tmp/coverage_report.py \
                       --artifacts cov-artifacts \
                       --core-artifacts core-artifacts \
                       --combined-out combined-coverage.xml \

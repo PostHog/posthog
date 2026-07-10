@@ -7,7 +7,7 @@
 
 Reads the coverage.xml files produced by the turbo-tests product matrix (one per
 product, written into each product's working dir by `--cov=backend`), computes a
-line-coverage percentage per touched product, and renders an ASCII-bar summary.
+line-coverage percentage per touched product, and renders a bar-chart summary.
 
 Only touched products run in CI, so whatever coverage.xml files are present *are*
 the touched set — no need to be told which products changed.
@@ -27,6 +27,7 @@ stdlib only — mirrors scripts/test_analyze.py.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import json
 import argparse
@@ -41,6 +42,11 @@ from xml.etree import ElementTree
 
 MARKER = "<!-- posthog-backend-coverage -->"
 BAR_WIDTH = 20
+
+
+def sanitize_path(path: str) -> str:
+    """Keep artifact-derived paths inert in markdown/HTML-comment contexts."""
+    return re.sub(r"[^A-Za-z0-9_./\- ]", "_", path).replace("--", "-")
 
 
 @dataclass
@@ -295,7 +301,7 @@ def render_patch_section(data: dict) -> str:
         missing = format_line_ranges(src[path].get("violation_lines", []))
         if not missing:
             continue
-        rows.append(f"| `{path}` | {float(src[path].get('percent_covered', 0)):.1f}% | {missing} |")
+        rows.append(f"| `{sanitize_path(path)}` | {float(src[path].get('percent_covered', 0)):.1f}% | {missing} |")
     return header + "\n" + "\n".join(rows)
 
 
@@ -349,7 +355,7 @@ def build_machine_block(patch_data: dict, results: list[ProductCoverage], baseli
             "uncovered": int(patch_data.get("total_num_violations", 0)),
         },
         "uncovered_lines": {
-            path: [[a, b] for a, b in compress_ranges(stats.get("violation_lines", []))]
+            sanitize_path(path): [[a, b] for a, b in compress_ranges(stats.get("violation_lines", []))]
             for path, stats in src.items()
             if stats.get("violation_lines")
         },
@@ -432,7 +438,7 @@ def gh_request(method: str, url: str, token: str, payload: dict | None = None) -
     req.add_header("X-GitHub-Api-Version", "2022-11-28")
     if data is not None:
         req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=30) as resp:
         return resp.read()
 
 
@@ -444,6 +450,8 @@ def find_sticky_comment(repo: str, pr: int, token: str) -> int | None:
         if not comments:
             return None
         for comment in comments:
+            if comment.get("user", {}).get("login") != "github-actions[bot]":
+                continue
             if MARKER in (comment.get("body") or ""):
                 return comment["id"]
         page += 1
@@ -535,6 +543,8 @@ def main() -> int:
             sys.stderr.write(f"No uncovered changed product-backend lines — {state}\n")
     except urllib.error.HTTPError as exc:
         sys.stderr.write(f"::warning::coverage comment update failed: {exc} {exc.read().decode(errors='replace')}\n")
+    except urllib.error.URLError as exc:
+        sys.stderr.write(f"::warning::coverage comment update failed: {exc}\n")
     return 0
 
 
