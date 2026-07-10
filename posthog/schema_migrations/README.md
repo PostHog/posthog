@@ -19,11 +19,11 @@ Read/execute-time (always-on):
 - Insight serializers upgrade on read; caching, alerts, exports, and subscriptions go through `upgrade_query`.
 - Endpoints upgrade their immutable `EndpointVersion.query` snapshots at execution/materialization time; cohorts upgrade their saved `query` when compiling.
 
-Write-time (backfill): a Temporal schedule (`upgrade-queries-schedule`, every 6 hours, see `posthog/temporal/product_analytics/`) rewrites stored **insights** whose queries are below the latest versions. Other stores (endpoint snapshots, notebook content, dashboard templates, cohort queries) are *not* rewritten and rely on read-time upgrades forever.
+Write-time (backfill): a Temporal schedule (`upgrade-queries-schedule`, every 6 hours, see `posthog/temporal/product_analytics/`) rewrites stored **insights** whose queries are below the latest versions. Other stores (endpoint snapshots, notebook content, dashboard templates, cohort queries) are _not_ rewritten and rely on read-time upgrades forever.
 
 ## Adding a migration
 
-1. Create `NNNN_description.py` (next free number, must match `^\d{4}[a-zA-Z_]*\.py$`) with a `Migration(SchemaMigration)` class. Target the *current* latest version of each kind (see `LATEST_VERSIONS` or `frontend/src/queries/latest-versions.json`).
+1. Create `NNNN_description.py` (next free number, must match `^\d{4}[a-zA-Z_]*\.py$`) with a `Migration(SchemaMigration)` class. Target the _current_ latest version of each kind (see `LATEST_VERSIONS` or `frontend/src/queries/latest-versions.json`).
 2. Add a test in `test/` covering the transform, including the no-op cases below.
 3. Regenerate the frontend versions file: `python bin/build-schema-latest-versions.py` (part of `hogli build:schema` / `pnpm run schema:build`) and commit `frontend/src/queries/latest-versions.json` **in the same PR**, otherwise `test_discovery.py::test_frontend_latest_versions_file_in_sync` fails. A stale file makes the frontend stamp outdated versions on new queries, which double-applies your migration to already-new-shape queries.
 4. Keep the schema backward compatible: leave the old field in `frontend/src/queries/schema/*.ts` (and thus `posthog/schema.py`) until the backfill has completed and no writer emits it anymore. Removing it immediately breaks validation of not-yet-upgraded JSON everywhere.
