@@ -1,7 +1,9 @@
 import time
 import base64
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Optional
+from urllib.parse import parse_qs
 
 import pytest
 from freezegun import freeze_time
@@ -211,10 +213,35 @@ class TestOauthIntegrationModel(BaseTest):
     def test_authorize_url(self):
         with self.settings(**self.mock_settings):
             url = OauthIntegration.authorize_url("salesforce", token="state_token", next="/projects/test")
-            assert (
-                url
-                == "https://login.salesforce.com/services/oauth2/authorize?client_id=salesforce-client-id&scope=full+refresh_token&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fsalesforce%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token"
+            base, _, query = url.partition("?")
+            params = {k: v[0] for k, v in parse_qs(query).items()}
+            assert base == "https://login.salesforce.com/services/oauth2/authorize"
+            assert params == {
+                "client_id": "salesforce-client-id",
+                "scope": "full refresh_token",
+                "redirect_uri": "https://localhost:8010/integrations/salesforce/callback",
+                "response_type": "code",
+                "state": "next=%2Fprojects%2Ftest&token=state_token",
+                "code_challenge": params["code_challenge"],
+                "code_challenge_method": "S256",
+            }
+
+    def test_authorize_url_pkce_challenge_matches_cached_verifier(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("salesforce", token="pkce_state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            verifier = cache.get("oauth_pkce_verifier/pkce_state_token")
+            assert verifier
+            expected_challenge = (
+                base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
             )
+            assert params["code_challenge"] == expected_challenge
+
+    def test_authorize_url_without_pkce_has_no_challenge(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("hubspot", token="no_pkce_state_token", next="/projects/test")
+            assert "code_challenge" not in url
+            assert cache.get("oauth_pkce_verifier/no_pkce_state_token") is None
 
     def test_authorize_url_with_additional_authorize_params(self):
         with self.settings(**self.mock_settings):
@@ -259,6 +286,36 @@ class TestOauthIntegrationModel(BaseTest):
                 "refresh_token": "FAKE_REFRESH_TOKEN",
                 "id_token": None,
             }
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_sends_pkce_verifier(self, mock_post):
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKES_ACCESS_TOKEN",
+                "instance_url": "https://fake.salesforce.com",
+                "expires_in": 3600,
+            }
+
+            # authorize_url caches the verifier; the exchange must send that exact value and consume it
+            url = OauthIntegration.authorize_url("salesforce", token="exchange_state_token", next="/projects/test")
+            challenge = parse_qs(url.partition("?")[2])["code_challenge"][0]
+            verifier = cache.get("oauth_pkce_verifier/exchange_state_token")
+
+            OauthIntegration.integration_from_oauth_response(
+                "salesforce",
+                self.team.id,
+                self.user,
+                {"code": "code", "state": "next=%2Fprojects%2Ftest&token=exchange_state_token"},
+            )
+
+            sent = mock_post.call_args.kwargs["data"]
+            assert sent["code_verifier"] == verifier
+            assert (
+                base64.urlsafe_b64encode(hashlib.sha256(sent["code_verifier"].encode()).digest()).rstrip(b"=").decode()
+                == challenge
+            )
+            assert cache.get("oauth_pkce_verifier/exchange_state_token") is None
 
     @parameterized.expand(
         [

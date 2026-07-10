@@ -4,11 +4,12 @@ import json
 import time
 import base64
 import hashlib
+import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional, Self
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
     from stripe import StripeClient
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import Q
 from django.dispatch import receiver
@@ -353,6 +355,8 @@ class OauthConfig:
     token_info_graphql_query: str | None = None
     token_info_config_fields: list[str] | None = None
     additional_authorize_params: dict[str, str] | None = None
+    # When true, the authorize/token-exchange flow uses PKCE (RFC 7636, S256)
+    pkce: bool = False
 
 
 # Slack accepts comma-separated scopes on the OAuth authorize URL. The canonical list is the
@@ -440,6 +444,7 @@ class OauthIntegration:
                 scope="full refresh_token",
                 id_path="instance_url",
                 name_path="instance_url",
+                pkce=True,
             )
         elif kind == "salesforce-sandbox":
             if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
@@ -453,6 +458,7 @@ class OauthIntegration:
                 scope="full refresh_token",
                 id_path="instance_url",
                 name_path="instance_url",
+                pkce=True,
             )
         elif kind == "hubspot":
             if not settings.HUBSPOT_APP_CLIENT_ID or not settings.HUBSPOT_APP_CLIENT_SECRET:
@@ -760,6 +766,17 @@ class OauthIntegration:
                 **(oauth_config.additional_authorize_params or {}),
             }
 
+            if oauth_config.pkce:
+                # The verifier is cached against the state token so the token exchange —
+                # a separate request via the frontend callback — can retrieve it.
+                code_verifier = secrets.token_urlsafe(64)
+                code_challenge = (
+                    base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest()).rstrip(b"=").decode()
+                )
+                query_params["code_challenge"] = code_challenge
+                query_params["code_challenge_method"] = "S256"
+                cache.set(f"oauth_pkce_verifier/{token}", code_verifier, timeout=60 * 5)
+
         return f"{oauth_config.authorize_url}?{urlencode(query_params)}"
 
     @classmethod
@@ -767,6 +784,14 @@ class OauthIntegration:
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
     ) -> Integration:
         oauth_config = cls.oauth_config_for_kind(kind)
+
+        code_verifier: str | None = None
+        if oauth_config.pkce:
+            state_token = parse_qs(params.get("state", "")).get("token", [""])[0]
+            if state_token:
+                verifier_cache_key = f"oauth_pkce_verifier/{state_token}"
+                code_verifier = cache.get(verifier_cache_key)
+                cache.delete(verifier_cache_key)  # single-use, per RFC 7636
 
         # Reddit uses HTTP Basic Auth https://github.com/reddit-archive/reddit/wiki/OAuth2 and requires a User-Agent header
         if kind == "reddit-ads":
@@ -828,6 +853,7 @@ class OauthIntegration:
                     "code": params["code"],
                     "redirect_uri": redirect_uri,
                     "grant_type": "authorization_code",
+                    **({"code_verifier": code_verifier} if code_verifier else {}),
                 },
                 timeout=10,
             )
@@ -858,6 +884,7 @@ class OauthIntegration:
                         "code": params["code"],
                         "redirect_uri": OauthIntegration.redirect_uri(kind),
                         "grant_type": "authorization_code",
+                        **({"code_verifier": code_verifier} if code_verifier else {}),
                     },
                     timeout=10,
                 )
