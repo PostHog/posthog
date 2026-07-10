@@ -5109,6 +5109,12 @@ export interface DateRange {
      * @default false
      * */
     explicitDate?: boolean | null
+    /**
+     * Restrict the query to events occurring on these ISO days of week
+     * (1=Monday to 7=Sunday), evaluated in the project timezone.
+     * Omit or empty for all days. Only applied by insight queries.
+     */
+    daysOfWeek?: (1 | 2 | 3 | 4 | 5 | 6 | 7)[] | null
 }
 
 export interface ResolvedDateRangeResponse {
