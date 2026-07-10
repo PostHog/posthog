@@ -61,3 +61,16 @@ class TestDeltaTableUri(SimpleTestCase):
         uri = delta_table_uri(schema)
 
         assert uri == f"s3://test-bucket/dlt/{schema.folder_path()}/{schema.normalized_name}"
+
+    def test_injected_url_pattern_leaf_cannot_escape_schema_prefix(self) -> None:
+        # url_pattern is a user-writable field. A leaf crafted with encoded
+        # separators (percent-encoded slashes survive split("/") as one segment)
+        # must not let the backfill target a prefix outside the schema's folder.
+        schema = self._schema("public.posthog_hogfunction", leaf="..%2f..%2fteam_2_postgres_secret%2fusers")
+
+        uri = delta_table_uri(schema)
+
+        prefix = f"s3://test-bucket/dlt/{schema.folder_path()}/"
+        assert uri.startswith(prefix)
+        leaf = uri[len(prefix) :]
+        assert "/" not in leaf and "." not in leaf and "%" not in leaf
