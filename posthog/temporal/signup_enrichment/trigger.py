@@ -35,7 +35,7 @@ def _domain_from_email(email: str) -> str | None:
     return domain or None
 
 
-def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str, email: str) -> None:
+def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str | None, email: str) -> None:
     """Dispatch enrichment for a freshly signed-up org, once the request transaction commits."""
     if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED or not settings.HARMONIC_API_KEY:
         return
@@ -49,10 +49,10 @@ def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str, 
 
     work_email = not _generic_emails.is_generic(email)
     _record_work_email(organization_id=str(organization_id), work_email=work_email)
-    if not work_email:
+    if not work_email or not distinct_id:
         return
 
-    inputs = SignupEnrichmentInputs(organization_id=str(organization_id), distinct_id=str(distinct_id), domain=domain)
+    inputs = SignupEnrichmentInputs(organization_id=str(organization_id), distinct_id=distinct_id, domain=domain)
     # on_commit so the worker never reads the org/enrichment rows before they are committed;
     # fires inline when no transaction is open.
     transaction.on_commit(lambda: _dispatch(inputs))

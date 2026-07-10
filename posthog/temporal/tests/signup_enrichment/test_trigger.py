@@ -60,6 +60,15 @@ def test_personal_email_records_work_email_false_without_provider_dispatch():
 
 
 @override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+def test_missing_distinct_id_records_work_email_but_never_dispatches():
+    on_commit, connect, run, region, record = _dispatch_mocks()
+    with on_commit, connect as connect_mock, run, region, record as record_mock:
+        start_signup_enrichment_workflow(organization_id="org-1", distinct_id=None, email="founder@stripe.com")
+    connect_mock.assert_not_called()
+    record_mock.assert_called_once_with(organization_id="org-1", work_email=True)
+
+
+@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
 def test_work_email_write_failure_does_not_block_dispatch():
     on_commit, connect, run, region, record = _dispatch_mocks()
     with on_commit, connect as connect_mock, run, region, record as record_mock:
