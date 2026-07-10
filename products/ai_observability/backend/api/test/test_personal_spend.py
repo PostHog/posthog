@@ -138,6 +138,16 @@ class TestPersonalSpendValidation(APIBaseTest):
         response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-7d&date_to=-30d")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @parameterized.expand(
+        [
+            ("within_cap", "-7d", status.HTTP_200_OK),
+            ("over_cap", "-30d", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_hourly_window_cap(self, _label: str, date_from: str, expected: int) -> None:
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from={date_from}&hourly=true")
+        assert response.status_code == expected
+
     def test_product_too_long_rejected(self) -> None:
         response = self.client.get(f"{ENDPOINT}?product={'x' * 100}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -206,6 +216,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         output_tokens: int = 500,
         event_name: str = "$ai_generation",
         timestamp: datetime | None = None,
+        extra_props: dict | None = None,
     ) -> None:
         props: dict = {
             "$ai_input_tokens": input_tokens,
@@ -218,6 +229,8 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             props["$ai_total_cost_usd"] = cost
         if tool is not None:
             props["$ai_tools_called"] = tool
+        if extra_props:
+            props.update(extra_props)
         kwargs: dict = {}
         if timestamp is not None:
             kwargs["timestamp"] = timestamp
@@ -459,6 +472,105 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-10&date_to=2026-06-16")
         assert [r["day"] for r in response.json()["by_day"]["items"]] == ["2026-06-15"]
+
+    def test_by_hour_absent_unless_requested(self) -> None:
+        response = self.client.get(ENDPOINT_OK)
+        assert response.status_code == status.HTTP_200_OK
+        assert "by_hour" not in response.json()
+
+    def test_by_hour_groups_cost_components_per_utc_hour(self) -> None:
+        warm = datetime(2026, 6, 15, 9, 30, tzinfo=UTC)
+        cold = datetime(2026, 6, 15, 11, 5, tzinfo=UTC)
+        # Warm turn: most of the prompt served from cache.
+        self._create_generation(
+            cost=1.0,
+            trace_id="warm",
+            timestamp=warm,
+            input_tokens=1000,
+            output_tokens=500,
+            extra_props={
+                "$ai_input_cost_usd": 0.1,
+                "$ai_output_cost_usd": 0.2,
+                "$ai_cache_read_cost_usd": 0.6,
+                "$ai_cache_creation_cost_usd": 0.1,
+                "$ai_cache_read_input_tokens": 400000,
+                "$ai_cache_creation_input_tokens": 20000,
+            },
+        )
+        # Cold-revival turn: the whole context re-written to cache, nothing read back.
+        self._create_generation(
+            cost=3.0,
+            trace_id="cold",
+            timestamp=cold,
+            input_tokens=2000,
+            output_tokens=800,
+            extra_props={
+                "$ai_input_cost_usd": 0.2,
+                "$ai_output_cost_usd": 0.3,
+                "$ai_cache_read_cost_usd": 0.0,
+                "$ai_cache_creation_cost_usd": 2.5,
+                "$ai_cache_read_input_tokens": 0,
+                "$ai_cache_creation_input_tokens": 500000,
+            },
+        )
+        # Same hour, another product: must not leak into the scoped series.
+        self._create_generation(ai_product="background_agents", cost=99.0, timestamp=cold)
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16&hourly=true")
+        by_hour = response.json()["by_hour"]
+        assert by_hour["truncated"] is False
+        assert by_hour["items"] == [
+            {
+                "hour": "2026-06-15T09:00:00Z",
+                "event_count": 1,
+                "cost_usd": 1.0,
+                "input_cost_usd": 0.1,
+                "output_cost_usd": 0.2,
+                "cache_read_cost_usd": 0.6,
+                "cache_creation_cost_usd": 0.1,
+                "input_tokens": 1000,
+                "output_tokens": 500,
+                "cache_read_input_tokens": 400000,
+                "cache_creation_input_tokens": 20000,
+            },
+            {
+                "hour": "2026-06-15T11:00:00Z",
+                "event_count": 1,
+                "cost_usd": 3.0,
+                "input_cost_usd": 0.2,
+                "output_cost_usd": 0.3,
+                "cache_read_cost_usd": 0.0,
+                "cache_creation_cost_usd": 2.5,
+                "input_tokens": 2000,
+                "output_tokens": 800,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 500000,
+            },
+        ]
+
+    def test_by_hour_defaults_components_to_zero_when_breakdown_missing(self) -> None:
+        # Fallback-priced events carry only $ai_total_cost_usd — components must be 0, not an error.
+        self._create_generation(cost=1.5, timestamp=datetime(2026, 6, 15, 9, 30, tzinfo=UTC))
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16&hourly=true")
+        items = response.json()["by_hour"]["items"]
+        assert len(items) == 1
+        assert items[0]["cost_usd"] == 1.5
+        assert items[0]["input_cost_usd"] == 0.0
+        assert items[0]["cache_creation_cost_usd"] == 0.0
+        assert items[0]["cache_read_input_tokens"] == 0
+
+    def test_cache_key_includes_hourly(self) -> None:
+        # Without `hourly` in the cache key, this second call would be served the
+        # cached non-hourly payload and silently drop `by_hour`.
+        with patch("products.ai_observability.backend.api.personal_spend.execute_hogql_query") as mock_exec:
+            mock_exec.return_value.results = []
+            self.client.get(ENDPOINT_OK)
+            response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&hourly=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert "by_hour" in response.json()
 
     def test_by_day_counts_embeddings_and_costless_events(self) -> None:
         day_one = datetime(2026, 6, 13, 9, 0, tzinfo=UTC)

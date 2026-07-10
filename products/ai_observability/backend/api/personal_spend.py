@@ -7,7 +7,7 @@ analytics team. Scoped to a single `ai_product` via the required `product`
 query param; see `SUPPORTED_PRODUCTS` for the currently accepted values.
 
 Endpoint:
-- GET /api/llm_analytics/@me/spend/?product=<ai_product>&date_from=-30d&date_to=&limit=50&refresh=false
+- GET /api/llm_analytics/@me/spend/?product=<ai_product>&date_from=-30d&date_to=&limit=50&refresh=false&hourly=false
 """
 
 from __future__ import annotations
@@ -63,6 +63,11 @@ DEFAULT_DATE_FROM = "-30d"
 MAX_WINDOW_DAYS = 90
 # The most calendar days a MAX_WINDOW_DAYS window can touch: partial days at both edges.
 BY_DAY_MAX_ROWS = MAX_WINDOW_DAYS + 1
+# Hourly series are only useful (and cheap) over short windows; a "last 24h" or
+# "last few days" view is the intended consumer.
+BY_HOUR_MAX_WINDOW_DAYS = 8
+# Partial hours at both edges, same reasoning as BY_DAY_MAX_ROWS.
+BY_HOUR_MAX_ROWS = BY_HOUR_MAX_WINDOW_DAYS * 24 + 1
 _RELATIVE_DATE_RE = re.compile(r"^-?\d+[hdwmqyHDWMQY](Start|End)?$")
 
 MIN_LIMIT = 1
@@ -78,9 +83,9 @@ def _internal_team_id() -> int:
     return settings.LLM_ANALYTICS_INTERNAL_TEAM_ID
 
 
-def _cache_key(email: str, date_from: str, date_to: str | None, product: str, limit: int) -> str:
+def _cache_key(email: str, date_from: str, date_to: str | None, product: str, limit: int, hourly: bool) -> str:
     to_slot = date_to or "_now"
-    return f"personal_spend:{email}:{date_from}:{to_slot}:{product}:{limit}"
+    return f"personal_spend:{email}:{date_from}:{to_slot}:{product}:{limit}:{int(hourly)}"
 
 
 def _parse_date_param(value: str, field: str, now: datetime.datetime) -> datetime.datetime:
@@ -158,6 +163,16 @@ class _SpendQueryParamsSerializer(serializers.Serializer):
         default=False,
         help_text="If true, bypass the result cache and re-run the underlying queries against ClickHouse.",
     )
+    hourly = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "If true, additionally return a `by_hour` breakdown: an hour-ascending UTC cost series for the "
+            "scoped product, with per-hour cost split into uncached input / output / cache read / cache "
+            "creation components plus the matching token sums. Only allowed for windows of "
+            f"{BY_HOUR_MAX_WINDOW_DAYS} days or less."
+        ),
+    )
 
     def validate_product(self, value: str) -> str:
         if value not in SUPPORTED_PRODUCTS:
@@ -224,6 +239,42 @@ class _DayBreakdownRowSerializer(serializers.Serializer):
         help_text="Number of $ai_generation + $ai_embedding events on this day for the scoped product."
     )
     cost_usd = serializers.FloatField(help_text="Total cost in USD on this day for the scoped product.")
+
+
+class _HourBreakdownRowSerializer(serializers.Serializer):
+    hour = serializers.DateTimeField(help_text="UTC hour bucket the events fall in (`toStartOfHour(timestamp)`).")
+    event_count = serializers.IntegerField(
+        help_text="Number of $ai_generation + $ai_embedding events in this hour for the scoped product."
+    )
+    cost_usd = serializers.FloatField(
+        help_text=(
+            "Total cost in USD in this hour (sum of `$ai_total_cost_usd`). Authoritative: the component "
+            "columns below can sum to less than this when the cost breakdown was unavailable for some "
+            "events — render any remainder as uncategorized rather than assuming the components reconcile."
+        )
+    )
+    input_cost_usd = serializers.FloatField(
+        help_text="Cost of uncached (full-price) input tokens in USD (sum of `$ai_input_cost_usd`)."
+    )
+    output_cost_usd = serializers.FloatField(help_text="Cost of output tokens in USD (sum of `$ai_output_cost_usd`).")
+    cache_read_cost_usd = serializers.FloatField(
+        help_text="Cost of prompt-cache reads in USD (sum of `$ai_cache_read_cost_usd`)."
+    )
+    cache_creation_cost_usd = serializers.FloatField(
+        help_text=(
+            "Cost of prompt-cache writes in USD (sum of `$ai_cache_creation_cost_usd`). A spike here with "
+            "near-zero cache reads is the signature of a cold session being revived: the full conversation "
+            "context is re-written to the cache at the cache-write rate instead of being read back cheaply."
+        )
+    )
+    input_tokens = serializers.IntegerField(help_text="Sum of uncached `$ai_input_tokens` in this hour.")
+    output_tokens = serializers.IntegerField(help_text="Sum of `$ai_output_tokens` in this hour.")
+    cache_read_input_tokens = serializers.IntegerField(
+        help_text="Sum of `$ai_cache_read_input_tokens` (prompt tokens served from cache) in this hour."
+    )
+    cache_creation_input_tokens = serializers.IntegerField(
+        help_text="Sum of `$ai_cache_creation_input_tokens` (prompt tokens written to cache) in this hour."
+    )
 
 
 class _TopTraceRowSerializer(serializers.Serializer):
@@ -310,6 +361,23 @@ class _DayBreakdownSerializer(serializers.Serializer):
     )
 
 
+class _HourBreakdownSerializer(serializers.Serializer):
+    items = _HourBreakdownRowSerializer(
+        many=True,
+        help_text=(
+            "One row per UTC hour that has events, ordered by hour ascending. Hours with no events are "
+            "omitted — zero-fill client-side when rendering a continuous series."
+        ),
+    )
+    truncated = serializers.BooleanField(
+        help_text=(
+            "Effectively always false: `by_hour` ignores `limit` because truncating a time series by "
+            f"cost would be meaningless, and the {BY_HOUR_MAX_WINDOW_DAYS}-day window cap already bounds "
+            "the series length."
+        )
+    )
+
+
 class _TopTracesSerializer(serializers.Serializer):
     items = _TopTraceRowSerializer(many=True, help_text="Rows of top traces by cost, ordered by cost descending.")
     truncated = serializers.BooleanField(
@@ -328,6 +396,13 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
     by_model = _ModelBreakdownSerializer(help_text="Spend grouped by `$ai_model`. Scoped to `product` when set.")
     by_day = _DayBreakdownSerializer(
         help_text="Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`."
+    )
+    by_hour = _HourBreakdownSerializer(
+        required=False,
+        help_text=(
+            "Spend grouped by UTC hour with per-hour cost/token components, ordered ascending. Scoped to "
+            "`product`. Only present when the request set `hourly=true`."
+        ),
     )
     top_traces = _TopTracesSerializer(
         help_text=(
@@ -623,6 +698,76 @@ def _fetch_by_day(
     return _truncate(rows, BY_DAY_MAX_ROWS)
 
 
+def _fetch_by_hour(
+    team: Team,
+    email: str,
+    from_dt: datetime.datetime,
+    to_dt: datetime.datetime,
+    product: str,
+) -> dict[str, Any]:
+    # Cost components come from LiteLLM's cost_breakdown forwarded by the LLM gateway
+    # ($ai_input_cost_usd is uncached input only — cache read/creation are priced
+    # separately). Events that went through the token-estimation fallback carry only
+    # $ai_total_cost_usd, so the components can undershoot cost_usd; the serializer
+    # help_text tells clients to render the remainder as uncategorized.
+    query = parse_select(
+        """
+        SELECT
+            toStartOfHour(timestamp) AS hour,
+            count() AS event_count,
+            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
+            round(sum(toFloat(properties.$ai_input_cost_usd)), 6) AS input_cost_usd,
+            round(sum(toFloat(properties.$ai_output_cost_usd)), 6) AS output_cost_usd,
+            round(sum(toFloat(properties.$ai_cache_read_cost_usd)), 6) AS cache_read_cost_usd,
+            round(sum(toFloat(properties.$ai_cache_creation_cost_usd)), 6) AS cache_creation_cost_usd,
+            sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
+            sum(toFloat(properties.$ai_output_tokens)) AS output_tokens,
+            sum(toFloat(properties.$ai_cache_read_input_tokens)) AS cache_read_input_tokens,
+            sum(toFloat(properties.$ai_cache_creation_input_tokens)) AS cache_creation_input_tokens
+        FROM events
+        WHERE {event_in}
+            AND {product_filter}
+            AND {email_filter}
+            AND {timestamp_filter}
+        GROUP BY hour
+        ORDER BY hour ASC
+        LIMIT {limit}
+        """
+    )
+    result = execute_hogql_query(
+        query=query,
+        placeholders={
+            "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
+            "product_filter": _product_filter(product),
+            "email_filter": _email_filter(email),
+            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
+            # Not the request `limit` — same reasoning as by_day. +1 is the truncation probe row.
+            "limit": ast.Constant(value=BY_HOUR_MAX_ROWS + 1),
+        },
+        team=team,
+        # Hours are documented as UTC; pin them like by_day does.
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        query_type="PersonalSpendByHour",
+    )
+    rows = [
+        {
+            "hour": row[0],
+            "event_count": int(row[1] or 0),
+            "cost_usd": float(row[2] or 0.0),
+            "input_cost_usd": float(row[3] or 0.0),
+            "output_cost_usd": float(row[4] or 0.0),
+            "cache_read_cost_usd": float(row[5] or 0.0),
+            "cache_creation_cost_usd": float(row[6] or 0.0),
+            "input_tokens": int(row[7] or 0),
+            "output_tokens": int(row[8] or 0),
+            "cache_read_input_tokens": int(row[9] or 0),
+            "cache_creation_input_tokens": int(row[10] or 0),
+        }
+        for row in (result.results or [])
+    ]
+    return _truncate(rows, BY_HOUR_MAX_ROWS)
+
+
 def _compute_spend_analysis(
     *,
     email: str,
@@ -631,12 +776,17 @@ def _compute_spend_analysis(
     product: str,
     limit: int,
     refresh: bool,
+    hourly: bool,
 ) -> dict[str, Any]:
     """Cached, email-scoped spend analysis shared by the US viewset and the
     cross-region receiver. Expects already-validated params."""
     from_dt, to_dt = _resolve_window(date_from, date_to)
+    if hourly and (to_dt - from_dt).total_seconds() > BY_HOUR_MAX_WINDOW_DAYS * 86400:
+        raise exceptions.ValidationError(
+            {"hourly": f"Hourly breakdown is only available for windows of {BY_HOUR_MAX_WINDOW_DAYS} days or less."}
+        )
 
-    cache_key = _cache_key(email, date_from, date_to, product, limit)
+    cache_key = _cache_key(email, date_from, date_to, product, limit, hourly)
 
     if not refresh:
         cached = cache.get(cache_key)
@@ -669,6 +819,7 @@ def _compute_spend_analysis(
             "by_tool": by_tool,
             "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
             "by_day": _fetch_by_day(team, email, from_dt, to_dt, product),
+            **({"by_hour": _fetch_by_hour(team, email, from_dt, to_dt, product)} if hourly else {}),
             # Deprecated — trace IDs are opaque and unactionable in the UI. Returned empty so
             # existing consumers don't crash while they remove the rendering. Drop the field
             # entirely once no consumer reads it.
@@ -754,7 +905,10 @@ class PersonalSpendViewSet(_PersonalSpendUserViewSet):
             "query param is required and scopes the tool / model / day / trace breakdowns to a single "
             f"product; supported values: {', '.join(sorted(SUPPORTED_PRODUCTS))}. `by_product` is "
             "always returned for cross-product visibility. `by_day` returns a day-ascending spend "
-            "series for the scoped product. Use `refresh=true` to bypass the 5-minute response cache."
+            "series for the scoped product. Pass `hourly=true` (windows of "
+            f"{BY_HOUR_MAX_WINDOW_DAYS} days or less) to additionally get `by_hour`, an hour-ascending "
+            "series with per-hour cost split into uncached input / output / cache read / cache creation "
+            "components. Use `refresh=true` to bypass the 5-minute response cache."
         ),
         tags=["AI observability"],
     )
@@ -769,7 +923,7 @@ class PersonalSpendViewSet(_PersonalSpendUserViewSet):
 
 
 _EU_REDIRECT_TARGET = "https://us.posthog.com/api/llm_analytics/@me/spend/"
-_EU_REDIRECT_FORWARDED_PARAMS = frozenset({"date_from", "date_to", "product", "limit", "refresh"})
+_EU_REDIRECT_FORWARDED_PARAMS = frozenset({"date_from", "date_to", "product", "limit", "refresh", "hourly"})
 
 
 def personal_spend_eu_redirect(request: HttpRequest) -> HttpResponseRedirect:
@@ -902,7 +1056,9 @@ class PersonalSpendEUProxyViewSet(_PersonalSpendUserViewSet):
         data = params.validated_data
 
         # Same cache as the US compute path, so repeat loads skip the cross-region hop.
-        cache_key = _cache_key(email, data["date_from"], data["date_to"], data["product"], data["limit"])
+        cache_key = _cache_key(
+            email, data["date_from"], data["date_to"], data["product"], data["limit"], data["hourly"]
+        )
         if not data["refresh"]:
             cached = cache.get(cache_key)
             if cached is not None:
