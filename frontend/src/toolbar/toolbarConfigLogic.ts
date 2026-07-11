@@ -662,14 +662,16 @@ function verifyUiHostReachability(
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
             const errorType = classifyFetchError(error)
-            // An HTTP error or network/CORS rejection is the expected outcome for a
+            // http_error, network_or_cors, and timeout are all expected outcomes for a
             // misconfigured or reverse-proxied uiHost that doesn't route
             // /toolbar_oauth/check to PostHog (the resolved uiHost fell back to the
-            // customer's own origin). That path is already handled by surfacing the
-            // config modal, so it must not spam error tracking. The `toolbar ui host
-            // check` analytics event below still records every failure for measuring
-            // reachability. Only genuinely unexpected failures are promoted to exceptions.
-            if (errorType !== 'http_error' && errorType !== 'network_or_cors') {
+            // customer's own origin), or for ordinary browser-level noise (offline, ad
+            // blocker, strict CSP, CORS-blocked HEAD). That path is already handled by
+            // surfacing the config modal, so it must not spam error tracking. The
+            // `toolbar ui host check` analytics event below still records every failure
+            // for measuring reachability. Only genuinely unexpected failures (unknown)
+            // are promoted to exceptions.
+            if (errorType === 'unknown') {
                 captureToolbarException(error, 'ui_host_check', {
                     error_type: errorType,
                 })

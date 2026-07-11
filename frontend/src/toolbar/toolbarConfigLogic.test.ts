@@ -359,15 +359,15 @@ describe('toolbar toolbarConfigLogic', () => {
             captureExceptionSpy.mockRestore()
         })
 
-        // http_error (a non-2xx from a uiHost that doesn't route the check to PostHog) and
-        // network_or_cors are the expected "misconfigured or reverse-proxied uiHost" path —
-        // already handled by surfacing the config modal — so they must flip authStatus to
-        // error WITHOUT being promoted into an error-tracking issue. timeout / unknown are
-        // genuinely unexpected and must still be captured.
+        // http_error (a non-2xx from a uiHost that doesn't route the check to PostHog),
+        // network_or_cors, and timeout are the expected "misconfigured / reverse-proxied
+        // uiHost or browser noise" path — already handled by surfacing the config modal —
+        // so they must flip authStatus to error WITHOUT being promoted into an
+        // error-tracking issue. Only genuinely unexpected (unknown) failures are captured.
         it.each([
             ['http_error', () => Promise.resolve({ ok: false, status: 404 } as Response), false],
             ['network_or_cors', () => Promise.reject(new TypeError('Failed to fetch')), false],
-            ['timeout', () => Promise.reject(new DOMException('aborted', 'AbortError')), true],
+            ['timeout', () => Promise.reject(new DOMException('aborted', 'AbortError')), false],
             ['unknown', () => Promise.reject(new Error('something odd')), true],
         ])('%s failure captured as exception: %s', async (errorType, fetchImpl, shouldCapture) => {
             ;(global.fetch as jest.Mock).mockImplementation(fetchImpl as any)
@@ -376,15 +376,12 @@ describe('toolbar toolbarConfigLogic', () => {
 
             await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
 
-            const uiHostCheckCalls = captureExceptionSpy.mock.calls.filter(
-                (c) => (c[1] as any)?.toolbar_context === 'ui_host_check'
-            )
-            if (shouldCapture) {
-                expect(uiHostCheckCalls).toHaveLength(1)
-                expect(uiHostCheckCalls[0][1]).toMatchObject({ error_type: errorType })
-            } else {
-                expect(uiHostCheckCalls).toHaveLength(0)
-            }
+            // Assert the captured error_types unconditionally: [errorType] when it should be
+            // captured, [] when it must be suppressed.
+            const capturedErrorTypes = captureExceptionSpy.mock.calls
+                .filter((c) => (c[1] as any)?.toolbar_context === 'ui_host_check')
+                .map((c) => (c[1] as any).error_type)
+            expect(capturedErrorTypes).toEqual(shouldCapture ? [errorType] : [])
         })
     })
 
