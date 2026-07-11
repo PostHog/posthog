@@ -6,15 +6,15 @@ Query the canonical `$`-prefixed event name. Servers instrumented with the `@pos
 
 **For a single tool, prefer the typed tools.** Each takes a `toolName` plus a `dateRange`, runs the same query runner the tool-detail UI uses, and is gated behind the `mcp-analytics` flag, so results match the UI exactly and you don't re-derive the SQL below. `toolName` is the effective name (resolved server-side — the inner tool of a single-exec wrapper call) for all of them, including `posthog:query-mcp-tool-failures`:
 
-| question about one tool                                             | tool                                                     |
-| ------------------------------------------------------------------- | -------------------------------------------------------- |
-| headline numbers (calls, errors, p50/p95, users, sessions, intents) | `posthog:query-mcp-tool-stats`                           |
-| day-by-day trend                                                    | `posthog:query-mcp-tool-daily-stats`                     |
-| top failure buckets, by harness                                     | `posthog:query-mcp-tool-failures`                        |
-| top callers (incl. person email/name)                               | `posthog:query-mcp-tool-top-users`                       |
-| tools called before/after it (`neighborDirection: before`/`after`)  | `posthog:query-mcp-tool-neighbors`                       |
-| recent agent intents                                                | `posthog:query-mcp-tool-sample-intents`                  |
-| distinct descriptions seen                                          | `posthog:query-mcp-tool-descriptions`                    |
+| question about one tool                                             | tool                                    |
+| ------------------------------------------------------------------- | --------------------------------------- |
+| headline numbers (calls, errors, p50/p95, users, sessions, intents) | `posthog:query-mcp-tool-stats`          |
+| day-by-day trend                                                    | `posthog:query-mcp-tool-daily-stats`    |
+| top failure buckets, by harness                                     | `posthog:query-mcp-tool-failures`       |
+| top callers (incl. person email/name)                               | `posthog:query-mcp-tool-top-users`      |
+| tools called before/after it (`neighborDirection: before`/`after`)  | `posthog:query-mcp-tool-neighbors`      |
+| recent agent intents                                                | `posthog:query-mcp-tool-sample-intents` |
+| distinct descriptions seen                                          | `posthog:query-mcp-tool-descriptions`   |
 
 And `posthog:query-mcp-harness-breakdown` for the cross-tool harness cut (see below).
 
@@ -22,19 +22,19 @@ And `posthog:query-mcp-harness-breakdown` for the cross-tool harness cut (see be
 
 ## Key properties
 
-| Property                   | Meaning                                                                                                                                  |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `$mcp_tool_name`           | Registered tool name.                                                                                                                    |
-| `$mcp_exec_tool_call_name` | Inner tool name when the call went through the new-SDK single-exec wrapper. See effective-tool-name note below.                          |
-| `$mcp_is_error`            | Whether the call failed. Always read via `toBool(properties.$mcp_is_error)`.                                                             |
+| Property                   | Meaning                                                                                                                                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `$mcp_tool_name`           | Registered tool name.                                                                                                                                                                                  |
+| `$mcp_exec_tool_call_name` | Inner tool name when the call went through the new-SDK single-exec wrapper. See effective-tool-name note below.                                                                                        |
+| `$mcp_is_error`            | Whether the call failed. Always read via `toBool(properties.$mcp_is_error)`.                                                                                                                           |
 | `$mcp_error_type`          | Semantic failure bucket when `$mcp_is_error` is true (`internal`, `validation`, `api_4xx`, `api_5xx`, `permission`, `timeout`, `rate_limited`, `missing_context`). Only newer SDK/server paths set it. |
-| `$mcp_error_status`        | HTTP status code for an errored call, when the failure came from an HTTP call.                                                           |
-| `$mcp_duration_ms`         | Wall-clock duration; cast with `toFloat(...)`.                                                                                           |
-| `$session_id`              | Session/conversation id — the grouping key for a single agent run. Use the bare `$session_id` field, not `properties.$session_id`.       |
-| `$mcp_intent`              | The agent's stated intent for the call, when supplied.                                                                                   |
-| `$mcp_client_name`         | Raw client string (e.g. `claude-code/1.2.3`). The dashboard buckets these into harnesses in the frontend; there is no `category` column. |
-| `$mcp_tool_category`       | Tool category, when tagged.                                                                                                              |
-| `$mcp_tool_description`    | Tool description as seen by the agent (revisions over time).                                                                             |
+| `$mcp_error_status`        | HTTP status code for an errored call, when the failure came from an HTTP call.                                                                                                                         |
+| `$mcp_duration_ms`         | Wall-clock duration; cast with `toFloat(...)`.                                                                                                                                                         |
+| `$session_id`              | Session/conversation id — the grouping key for a single agent run. Use the bare `$session_id` field, not `properties.$session_id`.                                                                     |
+| `$mcp_intent`              | The agent's stated intent for the call, when supplied.                                                                                                                                                 |
+| `$mcp_client_name`         | Raw client string (e.g. `claude-code/1.2.3`). The dashboard buckets these into harnesses in the frontend; there is no `category` column.                                                               |
+| `$mcp_tool_category`       | Tool category, when tagged.                                                                                                                                                                            |
+| `$mcp_tool_description`    | Tool description as seen by the agent (revisions over time).                                                                                                                                           |
 
 **Effective tool name.** New-SDK events wrap the real tool in a single-exec call, so to filter/group by the tool the agent actually invoked, use:
 

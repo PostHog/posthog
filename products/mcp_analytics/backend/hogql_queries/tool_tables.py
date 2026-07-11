@@ -81,6 +81,8 @@ _HARNESS_LABELS_AGG = f"arraySort(arrayDistinct(groupArray({mcp_harness.harness_
 # validation, api_4xx, api_5xx, permission, timeout, rate_limited, missing_context) plus an
 # optional HTTP status ($mcp_error_status). We compose the two into one label, falling back to
 # "unknown" when neither is present (older SDKs / server paths that only set $mcp_is_error).
+# Both properties are event-supplied and unbounded, so the query caps the label at 200 chars
+# before grouping on it.
 _FAILURE_LABEL = (
     "concat("
     "coalesce(nullIf(toString(properties.$mcp_error_type), ''), 'unknown'), "
@@ -230,7 +232,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
                 {_HARNESS_LABELS_AGG} AS harnesses
             FROM (
                 SELECT
-                    {_FAILURE_LABEL} AS message,
+                    substring({_FAILURE_LABEL}, 1, 200) AS message,
                     timestamp,
                     {token} AS h
                 FROM events

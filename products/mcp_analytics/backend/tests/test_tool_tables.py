@@ -174,6 +174,9 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
             ("type_and_status", "api_5xx", "500", "api_5xx (HTTP 500)"),
             ("type_only", "validation", None, "validation"),
             ("neither_falls_back_to_unknown", None, None, "unknown"),
+            # Event-supplied fields are unbounded; the label must be capped so an attacker
+            # emitting huge unique values can't inflate the grouping key and response size.
+            ("long_type_truncated_to_200_chars", "x" * 300, None, "x" * 200),
         ]
     )
     def test_composes_failure_label(
