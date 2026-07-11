@@ -48,6 +48,8 @@ META_ADS_APP_CLIENT_SECRET = get_from_env("META_ADS_APP_CLIENT_SECRET", "")
 
 BING_ADS_CLIENT_ID = get_from_env("BING_ADS_CLIENT_ID", "")
 BING_ADS_CLIENT_SECRET = get_from_env("BING_ADS_CLIENT_SECRET", "")
+BING_ADS_CLIENT_ID_FALLBACK = get_from_env("BING_ADS_CLIENT_ID_FALLBACK", "")
+BING_ADS_CLIENT_SECRET_FALLBACK = get_from_env("BING_ADS_CLIENT_SECRET_FALLBACK", "")
 BING_ADS_DEVELOPER_TOKEN = get_from_env("BING_ADS_DEVELOPER_TOKEN", "")
 
 REDDIT_ADS_CLIENT_ID = get_from_env("REDDIT_ADS_CLIENT_ID", "")
@@ -121,3 +123,13 @@ HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")
 HEATMAP_BROWSERLESS_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_TIMEOUT_MS", 180000, type_cast=int)
 HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS", 30000, type_cast=int)
 HEATMAP_BROWSERLESS_BLOCK_ADS = get_from_env("HEATMAP_BROWSERLESS_BLOCK_ADS", False, type_cast=str_to_bool)
+
+# Legacy OAuth client credentials kept alive during an app or secret rotation.
+# Refreshes fall back to these when the primary credentials fail, so tokens issued
+# by a since-migrated app keep working until users reconnect.
+OAUTH_CLIENT_FALLBACKS: dict[str, dict[str, str]] = {
+    "bing-ads": {
+        "client_id": BING_ADS_CLIENT_ID_FALLBACK,
+        "client_secret": BING_ADS_CLIENT_SECRET_FALLBACK,
+    },
+}

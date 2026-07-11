@@ -537,6 +537,51 @@ class TestOauthIntegrationModel(BaseTest):
 
         mock_reload.assert_not_called()
 
+    def _mock_token_response(self, status_code: int, token: Optional[str]) -> MagicMock:
+        response = MagicMock()
+        response.status_code = status_code
+        response.json.return_value = {"access_token": token, "expires_in": 1000} if token else {}
+        response.text = "error"
+        return response
+
+    @parameterized.expand(
+        [
+            # Primary works: the fallback must not fire, even when configured.
+            ("primary_ok", True, [(200, "primary-token")], "primary-token", "", 1),
+            # A token issued by the previous app only refreshes with the fallback pair.
+            ("fallback_rescues", True, [(401, None), (200, "fallback-token")], "fallback-token", "", 2),
+            # Both credentials failing still marks the integration errored so the reconnect banner shows.
+            ("both_fail", True, [(401, None), (401, None)], None, "TOKEN_REFRESH_FAILED", 2),
+            # Without a fallback configured, behavior is identical to before: a single attempt, no retry.
+            ("no_fallback_no_retry", False, [(401, None)], None, "TOKEN_REFRESH_FAILED", 1),
+        ]
+    )
+    def test_refresh_falls_back_to_previous_credentials(
+        self, _name, has_fallback, responses, expected_token, expected_errors, expected_calls
+    ):
+        fallbacks = {"bing-ads": {"client_id": "old-app-id", "client_secret": "old-app-secret"}} if has_fallback else {}
+        integration = self.create_integration(kind="bing-ads", config={"expires_in": 1000})
+
+        with (
+            self.settings(
+                BING_ADS_CLIENT_ID="new-app-id",
+                BING_ADS_CLIENT_SECRET="new-app-secret",
+                OAUTH_CLIENT_FALLBACKS=fallbacks,
+            ),
+            patch("posthog.models.integration.reload_integrations_on_workers"),
+            patch(
+                "posthog.models.integration.requests.post",
+                side_effect=[self._mock_token_response(status, token) for status, token in responses],
+            ) as mock_post,
+        ):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert mock_post.call_count == expected_calls
+        assert integration.errors == expected_errors
+        if expected_token is not None:
+            assert integration.sensitive_config["access_token"] == expected_token
+
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
     def test_refresh_access_token_resets_errors(self, mock_post, mock_reload):
