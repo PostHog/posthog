@@ -32,20 +32,24 @@ export class PersonPropertyService {
     }
 
     async updateProperties(): Promise<[InternalPerson, Promise<void>]> {
-        const [person, propertiesHandled] = await this.createOrGetPerson()
+        const [person, propertiesHandled, createKafkaAck] = await this.createOrGetPerson()
         if (propertiesHandled) {
-            return [person, Promise.resolve()]
+            return [person, createKafkaAck]
         }
-        return await this.updatePersonProperties(person)
+        const [updatedPerson, updateKafkaAck] = await this.updatePersonProperties(person)
+        return [updatedPerson, Promise.all([createKafkaAck, updateKafkaAck]).then(() => undefined)]
     }
 
     /**
-     * @returns [Person, boolean that indicates if properties were already handled or not]
+     * @returns [Person, boolean that indicates if properties were already handled or not, and the
+     * Kafka ack for a creation's messages. The produce is started here but not awaited — the ack
+     * rides the pipeline's side effects so a backpressured producer can't stall the sequential
+     * per-distinct-id lane.]
      */
-    private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
+    private async createOrGetPerson(): Promise<[InternalPerson, boolean, Promise<void>]> {
         const person = await this.context.personStore.fetchForUpdate(this.context.team.id, this.context.distinctId)
         if (person) {
-            return [person, false]
+            return [person, false, Promise.resolve()]
         }
 
         let properties = {}
@@ -55,7 +59,7 @@ export class PersonPropertyService {
             propertiesOnce = this.context.eventProperties['$set_once']
         }
 
-        return await this.personCreateService.createPerson(
+        const [createdPerson, created, kafkaMessages] = await this.personCreateService.createPerson(
             this.context.timestamp,
             properties || {},
             propertiesOnce || {},
@@ -66,6 +70,12 @@ export class PersonPropertyService {
             this.context.event.uuid,
             { distinctId: this.context.distinctId }
         )
+
+        const kafkaAck = this.context.produceMessages(kafkaMessages)
+        // Mark handled in case the retry loop in handleUpdate discards this attempt's ack —
+        // consumers that do receive the ack still observe a rejection.
+        kafkaAck.catch(() => {})
+        return [createdPerson, created, kafkaAck]
     }
 
     async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {

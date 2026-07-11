@@ -254,18 +254,26 @@ export class PersonMergeService {
                 }
             })()
 
-            return await this.context.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
-                // See comment above about `distinctIdVersion`
-                const insertedDistinctId = await tx.addPersonlessDistinctIdForMerge(
-                    this.context.team.id,
-                    distinctIdToAdd
-                )
-                const distinctIdVersion = insertedDistinctId ? 0 : 1
+            const kafkaMessages = await this.context.personStore.inTransaction(
+                'mergeDistinctIds-OneExists',
+                async (tx) => {
+                    // See comment above about `distinctIdVersion`
+                    const insertedDistinctId = await tx.addPersonlessDistinctIdForMerge(
+                        this.context.team.id,
+                        distinctIdToAdd
+                    )
+                    const distinctIdVersion = insertedDistinctId ? 0 : 1
 
-                const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
-                await this.context.produceMessages(kafkaMessages)
-                return mergeSuccess(existingPerson, Promise.resolve(), true)
-            })
+                    return await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
+                }
+            )
+
+            // Produce-after-commit (see mergePeople): awaiting the delivery report inside the
+            // transaction held the connection and row locks for the produce duration, and stalled
+            // the sequential per-distinct-id lane under producer backpressure. The ack rides the
+            // pipeline's side effects instead.
+            const kafkaAck = this.context.produceMessages(kafkaMessages)
+            return mergeSuccess(existingPerson, kafkaAck, true)
         } else if (otherPerson && mergeIntoPerson) {
             // Both Distinct IDs point at an existing Person
 
@@ -288,58 +296,72 @@ export class PersonMergeService {
             let distinctId1 = mergeIntoDistinctId
             let distinctId2 = otherPersonDistinctId
 
-            return await this.context.personStore.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
-                // See comment above about `distinctIdVersion`
-                const insertedDistinctId1 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId1)
+            const [person, needsPersonUpdate, kafkaMessages] = await this.context.personStore.inTransaction(
+                'mergeDistinctIds-NeitherExist',
+                async (tx) => {
+                    // See comment above about `distinctIdVersion`
+                    const insertedDistinctId1 = await tx.addPersonlessDistinctIdForMerge(
+                        this.context.team.id,
+                        distinctId1
+                    )
 
-                // See comment above about `distinctIdVersion`
-                const insertedDistinctId2 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId2)
+                    // See comment above about `distinctIdVersion`
+                    const insertedDistinctId2 = await tx.addPersonlessDistinctIdForMerge(
+                        this.context.team.id,
+                        distinctId2
+                    )
 
-                // `createPerson` uses the first Distinct ID provided to generate the Person
-                // UUID. That means the first Distinct ID definitely doesn't need an override,
-                // and can always use version 0. Below, we exhaust all of the options to decide
-                // whether we can optimize away an override by doing a swap, or whether we
-                // need to actually write an override. (But mostly we're being verbose for
-                // documentation purposes)
-                let distinctId2Version = 0
-                if (insertedDistinctId1 && insertedDistinctId2) {
-                    // We were the first to insert both (neither was used for Personless), so we
-                    // can use either as the primary Person UUID and create no overrides.
-                } else if (insertedDistinctId1 && !insertedDistinctId2) {
-                    // We created 1, but 2 was already used for Personless. Let's swap so
-                    // that 2 can be the primary Person UUID and no override is needed.
-                    ;[distinctId1, distinctId2] = [distinctId2, distinctId1]
-                } else if (!insertedDistinctId1 && insertedDistinctId2) {
-                    // We created 2, but 1 was already used for Personless, so we want to
-                    // use 1 as the primary Person UUID so that no override is needed.
-                } else if (!insertedDistinctId1 && !insertedDistinctId2) {
-                    // Both were used in Personless mode, so there is no more-correct choice of
-                    // primary Person UUID to make here, and we need to drop an override by
-                    // using version = 1 for Distinct ID 2.
-                    distinctId2Version = 1
+                    // `createPerson` uses the first Distinct ID provided to generate the Person
+                    // UUID. That means the first Distinct ID definitely doesn't need an override,
+                    // and can always use version 0. Below, we exhaust all of the options to decide
+                    // whether we can optimize away an override by doing a swap, or whether we
+                    // need to actually write an override. (But mostly we're being verbose for
+                    // documentation purposes)
+                    let distinctId2Version = 0
+                    if (insertedDistinctId1 && insertedDistinctId2) {
+                        // We were the first to insert both (neither was used for Personless), so we
+                        // can use either as the primary Person UUID and create no overrides.
+                    } else if (insertedDistinctId1 && !insertedDistinctId2) {
+                        // We created 1, but 2 was already used for Personless. Let's swap so
+                        // that 2 can be the primary Person UUID and no override is needed.
+                        ;[distinctId1, distinctId2] = [distinctId2, distinctId1]
+                    } else if (!insertedDistinctId1 && insertedDistinctId2) {
+                        // We created 2, but 1 was already used for Personless, so we want to
+                        // use 1 as the primary Person UUID so that no override is needed.
+                    } else if (!insertedDistinctId1 && !insertedDistinctId2) {
+                        // Both were used in Personless mode, so there is no more-correct choice of
+                        // primary Person UUID to make here, and we need to drop an override by
+                        // using version = 1 for Distinct ID 2.
+                        distinctId2Version = 1
+                    }
+
+                    // The first Distinct ID is used to create the new Person's UUID, and so it
+                    // never needs an override.
+                    const distinctId1Version = 0
+
+                    const [createdPerson, wasCreated, messages] = await this.personCreateService.createPerson(
+                        timestamp,
+                        this.context.eventProperties['$set'] || {},
+                        this.context.eventProperties['$set_once'] || {},
+                        teamId,
+                        null,
+                        true,
+                        this.context.event.uuid,
+                        { distinctId: distinctId1, version: distinctId1Version },
+                        [{ distinctId: distinctId2, version: distinctId2Version }],
+                        tx
+                    )
+                    // If person was not created (creation conflict) and is not identified,
+                    // we need to update it later
+                    return [createdPerson, !wasCreated && !createdPerson.is_identified, messages] as const
                 }
+            )
 
-                // The first Distinct ID is used to create the new Person's UUID, and so it
-                // never needs an override.
-                const distinctId1Version = 0
-
-                const [person, wasCreated] = await this.personCreateService.createPerson(
-                    timestamp,
-                    this.context.eventProperties['$set'] || {},
-                    this.context.eventProperties['$set_once'] || {},
-                    teamId,
-                    null,
-                    true,
-                    this.context.event.uuid,
-                    { distinctId: distinctId1, version: distinctId1Version },
-                    [{ distinctId: distinctId2, version: distinctId2Version }],
-                    tx
-                )
-                // If person was not created (creation conflict) and is not identified,
-                // we need to update it later
-                const needsPersonUpdate = !wasCreated && !person.is_identified
-                return mergeSuccess(person, Promise.resolve(), needsPersonUpdate)
-            })
+            // Produce-after-commit (see mergePeople): the creation's messages must not be produced
+            // inside the transaction, and awaiting the delivery report inline would stall the
+            // sequential per-distinct-id lane. The ack rides the pipeline's side effects.
+            const kafkaAck = this.context.produceMessages(kafkaMessages)
+            return mergeSuccess(person, kafkaAck, needsPersonUpdate)
         }
     }
 
@@ -748,16 +770,6 @@ export class PersonMergeService {
                     `source distinct id: ${sourceDistinctId}, target distinct id: ${targetDistinctId}`
             )
         )
-    }
-
-    public async addDistinctId(
-        person: InternalPerson,
-        distinctId: string,
-        version: number,
-        tx?: PersonsStoreTransactionForBatch
-    ): Promise<void> {
-        const kafkaMessages = await (tx || this.context.personStore).addDistinctId(person, distinctId, version)
-        await this.context.produceMessages(kafkaMessages)
     }
 
     private async refreshPersonData(

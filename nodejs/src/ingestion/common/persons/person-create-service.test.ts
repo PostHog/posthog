@@ -93,7 +93,7 @@ describe('PersonCreateService', () => {
 
             mockPersonStore.createPerson.mockResolvedValue(mockResult)
 
-            const [person, created] = await personCreateService.createPerson(
+            const [person, created, messages] = await personCreateService.createPerson(
                 createdAt,
                 properties,
                 propertiesOnce,
@@ -106,11 +106,12 @@ describe('PersonCreateService', () => {
 
             expect(person).toEqual(mockPerson)
             expect(created).toBe(true)
-            expect(mockOutputs.produce).toHaveBeenCalledWith('persons', {
-                value: Buffer.from('test'),
-                key: null,
-                teamId,
-            })
+            // Messages are returned for the caller to produce outside any wrapping
+            // transaction and without awaiting the delivery report inline — a revert
+            // to producing here would stall sequential lanes on a backpressured
+            // producer and hold merge transactions open.
+            expect(messages).toEqual(mockResult.messages)
+            expect(mockOutputs.produce).not.toHaveBeenCalled()
         })
 
         it('should handle PersonPropertiesSizeViolationError and log ingestion warning', async () => {
@@ -174,7 +175,7 @@ describe('PersonCreateService', () => {
             mockPersonStore.createPerson.mockResolvedValue(conflictResult)
             mockPersonStore.fetchForUpdate.mockResolvedValue(existingPerson)
 
-            const [person, created] = await personCreateService.createPerson(
+            const [person, created, messages] = await personCreateService.createPerson(
                 createdAt,
                 properties,
                 propertiesOnce,
@@ -187,6 +188,7 @@ describe('PersonCreateService', () => {
 
             expect(person).toEqual(existingPerson)
             expect(created).toBe(false)
+            expect(messages).toEqual([])
             expect(mockPersonStore.fetchForUpdate).toHaveBeenCalledWith(teamId, 'test-distinct-id')
         })
 
