@@ -79,6 +79,7 @@ const Component = ({
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic, expanded, sqlV2ReturnVariableUsage } = useValues(nodeLogic)
     const { navigateToNode } = useActions(nodeLogic)
+    const { isShared } = useValues(notebookLogic)
     const notebookShortId = notebookLogic.props.shortId
 
     const dataLogic = notebookNodeSQLV2Logic({
@@ -122,7 +123,10 @@ const Component = ({
         ? pageResult.has_more
         : (result?.has_more ?? (result?.first_page ?? []).length >= SQL_V2_DEFAULT_PAGE_SIZE)
     const cachedResults = useMemo(() => (result ? toCachedResults(result) : null), [result])
-    const activeTab = attributes.outputTab === OutputTab.Visualization ? OutputTab.Visualization : OutputTab.Results
+    // Shared view is pinned to the results table: the viz tab's Query embed and page fetches
+    // need endpoints a sharing token cannot reach.
+    const activeTab =
+        !isShared && attributes.outputTab === OutputTab.Visualization ? OutputTab.Visualization : OutputTab.Results
 
     // The stored viz config wins, but the source always tracks the node's current code.
     const vizQuery = useMemo(
@@ -165,7 +169,10 @@ const Component = ({
                     <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
                 ) : dataframeResult && cachedResults ? (
                     <>
-                        <div className="shrink-0 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
+                        <div
+                            className={isShared ? 'hidden' : 'shrink-0 px-2 pt-1'}
+                            onClick={(event) => event.stopPropagation()}
+                        >
                             <LemonTabs
                                 size="small"
                                 activeKey={activeTab}
@@ -192,7 +199,7 @@ const Component = ({
                                     loading={isRunning || pageLoading}
                                     page={page}
                                     pageSize={pageSize}
-                                    hasMore={hasMorePages}
+                                    hasMore={!isShared && hasMorePages}
                                     // Serialize page fetches: no new page while one is in flight, a run
                                     // is replacing this result, or another cell's operation is running.
                                     paginationDisabledReason={

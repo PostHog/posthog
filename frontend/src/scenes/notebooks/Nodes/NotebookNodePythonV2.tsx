@@ -44,6 +44,7 @@ const Component = ({
 }: NotebookNodeProps<NotebookNodePythonV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic, expanded } = useValues(nodeLogic)
+    const { isShared } = useValues(notebookLogic)
     const notebookShortId = notebookLogic.props.shortId
 
     const dataLogic = notebookNodeSQLV2Logic({
@@ -140,7 +141,7 @@ const Component = ({
                             loading={isRunning || pageLoading}
                             page={page}
                             pageSize={pageSize}
-                            hasMore={hasMorePages}
+                            hasMore={!isShared && hasMorePages}
                             paginationDisabledReason={
                                 pageLoading
                                     ? 'Fetching page…'
