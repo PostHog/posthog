@@ -48,7 +48,7 @@ from products.replay_vision.backend.temporal.types import (
     UploadVideoToGeminiInputs,
 )
 
-# Each session is a full video upload + LLM conversation; four at a time bounds worker load
+# Each session is a full video upload + LLM conversation. Four at a time bounds worker load
 # while keeping a full 100-session run within the workflow execution timeout.
 _EVALUATION_CONCURRENCY = 4
 
@@ -157,9 +157,11 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=_STEP_RETRY,
             )
-            await self._record(inputs, session, after_output=call_output.model_output.model_dump(mode="json"))
+            await self._record(
+                inputs, session, selection, after_output=call_output.model_output.model_dump(mode="json")
+            )
         except Exception as e:
-            await self._record(inputs, session, error=_cause_message(e))
+            await self._record(inputs, session, selection, error=_cause_message(e))
         finally:
             if uploaded is not None:
                 try:
@@ -176,6 +178,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
         self,
         inputs: EvaluatePromptSuggestionInputs,
         session: EvaluationSession,
+        selection: SelectEvaluationSessionsOutput,
         after_output: dict | None = None,
         error: str | None = None,
     ) -> None:
@@ -185,6 +188,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 suggestion_id=inputs.suggestion_id,
                 team_id=inputs.team_id,
                 session=session,
+                model=selection.snapshot.model if selection.snapshot else None,
                 after_output=after_output,
                 error=error,
             ),

@@ -47,7 +47,7 @@ events ──HTTP─────▶│ cymbal                                   
 The contract is intentionally split across two streams:
 
 - **`Resolve`** is bidirectional work traffic. The caller sends independent `ResolveItem`s, each with a per-stream id, `team_id`, serialized exception JSON, JSON `metadata` bytes, and an item deadline. The server emits an `Accepted` outcome when it admits an item, then exactly one terminal `ResolveOutcome` with the same id: `Done`, `Retry`, or `Error`.
-- **`Subscribe`** is endpoint freshness and draining state. The cymbal-side `EndpointPool` opens one long-lived stream per pod and treats the latest `LoadEvent` as a freshness snapshot. `LoadEvent` does not carry overload state or suggested batch sizing.
+- **`Subscribe`** is endpoint freshness, draining, and soft load state. The cymbal-side `EndpointPool` opens one long-lived stream per pod and treats the latest `LoadEvent` as a freshness snapshot plus an `in_flight` / `max_in_flight` routing bias. `LoadEvent` does not carry overload state or suggested batch sizing.
 
 `Error.kind` is the shared control-flow surface:
 
@@ -84,7 +84,15 @@ Remote resolution is opt-in on the cymbal side. There is intentionally **no sile
 
 ### Routing affinity and reroute behavior
 
-Routing is per team. The caller's `EndpointPool` rendezvous-hashes `team:{team_id}` against the pod set so every exception from a given team prefers a single pod, maximizing warm-cache locality without coupling the caller to symbol-set internals.
+Routing is per exception. The caller derives a routing key from the first
+symbol-set reference in the exception's raw frames and rendezvous-hashes
+`team:{team_id}:symbol:{symbol_set_ref}` against the pod set. Exceptions
+without a symbol-set reference fall back to `team:{team_id}`. This keeps work
+that needs the same symbol set sticky to a small, stable part of the pod set
+while preserving the previous team-level fallback for frames that do not use
+symbol stores. The rendezvous score is adjusted by the latest server load
+snapshot and the caller's own local in-flight count, so highly loaded pods
+become less likely to receive new work before they return overload outcomes.
 
 Each endpoint owns one bidirectional Resolve mux with a bounded outbound queue and one waiter per in-flight item. Queue admission failure, stream break, endpoint drain, and endpoint eviction all fail affected items as `ERROR_KIND_OVERLOADED`; the per-item retry layer excludes that endpoint and reroutes only those items. A `Retry` outcome uses the generic retry policy. Cymbal also holds a process-local routing semaphore for items trying to find an accepting pod; a permit is acquired before routing, released on `Accepted`, and otherwise held until routing exhausts or fails terminally. Terminal `ErrorKind`s fail the current all-or-nothing rollout path.
 
@@ -132,7 +140,7 @@ All variables are prefixed `CYMBAL_REMOTE_RESOLUTION_` and live on `cymbal::conf
 | `SYMBOL_RESOLUTION_CONCURRENCY` | `64` | Cap on concurrent symbol-resolution operations across all in-flight items. |
 | `MAX_ITEM_CONCURRENCY` | `64` | Process-wide cap on concurrently processed exception items. Excess items receive `ERROR_KIND_OVERLOADED`. |
 | `SERVICE_INSTANCE_ID` | random UUID | Identifier surfaced to callers via `LoadEvent` on the Subscribe stream. |
-| `SUBSCRIBE_TICK_INTERVAL_MS` | `1000` | Default `LoadEvent` cadence when callers do not suggest one. |
+| `SUBSCRIBE_TICK_INTERVAL_MS` | `1000` | Default `LoadEvent` heartbeat cadence when callers do not suggest one. Load events may be emitted earlier when draining changes or in-flight load crosses coarse thresholds. |
 | `SUBSCRIBE_MIN_TICK_MS` | `100` | Lower bound for the Subscribe tick cadence. |
 | `SUBSCRIBE_MAX_TICK_MS` | `10000` | Upper bound for the Subscribe tick cadence. |
 
@@ -160,7 +168,7 @@ These metric names are exported by the cymbal client unless noted. Definitions l
 - **Reroute shape**: `cymbal_remote_resolution_reroute_depth{outcome}` records how many endpoint changes happened before the terminal item result. The legacy attempts histogram may still be emitted for dashboard continuity, but new alerts should use reroute depth.
 - **Protocol error taxonomy**: client-observed `cymbal_remote_resolution_error_kinds_total{kind}` and server-emitted `cymbal_remote_resolution_server_error_kinds_total{kind}` count `ErrorKind` values with bounded labels.
 - **Overload backpressure**: `cymbal_remote_resolution_overload_escalations_total` counts overloaded item results that are escalated into reroutes. On the server, `grpc_server_load_shed_total{method="Resolve"}` covers gRPC stream admission shedding and `cymbal_remote_resolution_server_in_flight_items` shows active item processing.
-- **Endpoint pool health**: `cymbal_remote_resolution_pool_size`, `cymbal_remote_resolution_endpoint_in_flight{endpoint}`, and `cymbal_remote_resolution_endpoint_mux_in_flight{endpoint}` show discovery health, selected endpoint usage, and active mux waiters.
+- **Endpoint pool health**: `cymbal_remote_resolution_pool_size`, `cymbal_remote_resolution_endpoint_in_flight{endpoint}`, `cymbal_remote_resolution_endpoint_mux_in_flight{endpoint}`, and server-side `cymbal_remote_resolution_server_in_flight_items` show discovery health, selected endpoint usage, active mux waiters, and the load signal used by routing.
 - **Per-endpoint local admission**: `cymbal_remote_resolution_endpoint_admission_rejections_total{endpoint, reason}` counts bounded mux queue and closed-stream rejections before an item leaves the cymbal pod.
 - **Subscribe health**: `cymbal_remote_resolution_load_subscriptions_total{outcome="connected"|"reconnect"}` tracks the freshness/draining stream lifecycle. Sustained reconnects translate into `pool_empty` with `reason="no_fresh_load_snapshots"` because endpoints without fresh snapshots are excluded from selection.
 

@@ -13,6 +13,7 @@ import {
     visionScannersPromptSuggestionsGenerateCreate,
 } from '../generated/api'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { makeQuota } from '../utils/quotaTestUtils'
 import { DEFAULT_TEST_SESSIONS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from './scannerQualityLogic'
 
 jest.mock('../generated/api', () => ({
@@ -76,12 +77,9 @@ describe('scannerQualityLogic', () => {
             ...PENDING_SUGGESTION,
             id: 'sug-2',
         })
-        ;(environmentVisionQuotaRetrieve as jest.Mock).mockResolvedValue({
-            monthly_quota: 3000,
-            usage_this_month: 100,
-            remaining: 2900,
-            exhausted: false,
-        })
+        ;(environmentVisionQuotaRetrieve as jest.Mock).mockResolvedValue(
+            makeQuota({ credits_used: 100, remaining: 9_900 })
+        )
     })
 
     afterEach(() => {

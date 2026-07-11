@@ -35,7 +35,7 @@ exports[`IngestionConsumer error handling should handle explicitly non retriable
       "dlq_offset": "0",
       "dlq_partition": "1",
       "dlq_reason": "test",
-      "dlq_step": "prefetchHogFunctionsStep",
+      "dlq_step": "processGroupsStepWrapper",
       "dlq_timestamp": "2025-01-01T00:00:00.000Z",
       "dlq_topic": "test",
       "event": "$pageview",

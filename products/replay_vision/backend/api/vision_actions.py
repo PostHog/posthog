@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, NoReturn, cast
+from typing import Any, NoReturn, cast, get_args
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
@@ -33,6 +33,7 @@ from products.replay_vision.backend.models.vision_action import (
     VisionActionRunStatus,
 )
 from products.replay_vision.backend.rrule import validate_rrule, validate_timezone
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 
 logger = structlog.get_logger(__name__)
 
@@ -53,43 +54,39 @@ class TriggerConfigSerializer(serializers.Serializer):
 
 
 class SelectionSerializer(serializers.Serializer):
-    """Observation filter applied at synthesis time. All keys optional; this typed shape is the
-    allowlist, so unknown input keys are dropped rather than persisted."""
+    """The action's targeting predicate ("run this on…") applied when gathering observations. All keys
+    optional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted."""
 
-    scanner_type = serializers.CharField(
-        required=False,
-        help_text="Filter observations by scanner type (monitor/classifier/scorer/summarizer).",
-    )
     scanner_ids = serializers.ListField(
         child=serializers.CharField(),
         required=False,
-        help_text="Restrict to observations produced by these scanner IDs.",
+        help_text="Restrict to observations produced by these scanner IDs. Defaults to the bound scanner.",
     )
-    verdict = serializers.CharField(
+    verdict = serializers.ListField(
+        child=serializers.ChoiceField(choices=[(v, v) for v in get_args(MonitorVerdict)]),
         required=False,
-        help_text="Filter to observations with this monitor verdict.",
+        help_text="Only run on monitor observations with one of these verdicts (yes/no/inconclusive).",
     )
     tags = serializers.ListField(
         child=serializers.CharField(),
         required=False,
-        help_text="Filter to observations carrying any of these classifier tags.",
+        help_text="Only run on classifier observations carrying any of these tags (fixed or freeform).",
     )
     min_score = serializers.FloatField(
         required=False,
-        help_text="Lower bound (inclusive) on scorer score.",
+        help_text="Only run on scorer observations with a score at or above this value (inclusive).",
     )
     max_score = serializers.FloatField(
         required=False,
-        help_text="Upper bound (inclusive) on scorer score.",
+        help_text="Only run on scorer observations with a score at or below this value (inclusive).",
     )
-    status = serializers.CharField(
-        required=False,
-        help_text="Filter to observations with this processing status.",
-    )
-    window_days = serializers.IntegerField(
-        required=False,
-        help_text="Lookback window in days for the observations gathered at synthesis time.",
-    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        min_score = attrs.get("min_score")
+        max_score = attrs.get("max_score")
+        if min_score is not None and max_score is not None and min_score > max_score:
+            raise serializers.ValidationError({"min_score": "min_score cannot exceed max_score."})
+        return attrs
 
 
 class SynthesisConfigSerializer(serializers.Serializer):
@@ -131,6 +128,13 @@ class VisionActionSerializer(serializers.ModelSerializer):
         required=False,
         help_text="When false, the scheduler skips this action.",
     )
+    is_scanner_digest = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Marks this action as the scanner's built-in daily digest, the one summary surfaced on the "
+            "scanner overview. At most one digest per scanner."
+        ),
+    )
     trigger_type = serializers.ChoiceField(
         choices=TriggerType.choices,
         required=False,
@@ -147,7 +151,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
     )
     selection = SelectionSerializer(
         required=False,
-        help_text="Observation filter applied at synthesis time.",
+        help_text="Targeting predicate: which of the scanner's observations this action runs on.",
     )
     synthesis_config = SynthesisConfigSerializer(
         required=False,
@@ -187,6 +191,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
             "name",
             "scanner",
             "enabled",
+            "is_scanner_digest",
             "trigger_type",
             "mode",
             "trigger_config",
@@ -236,6 +241,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         self._validate_schedule(attrs)
         self._validate_unique_name(attrs)
+        self._validate_unique_digest(attrs)
         return attrs
 
     def _validate_schedule(self, attrs: dict[str, Any]) -> None:
@@ -267,6 +273,20 @@ class VisionActionSerializer(serializers.ModelSerializer):
         if duplicates.exists():
             raise serializers.ValidationError({"name": "An action with this name already exists in this team."})
 
+    def _validate_unique_digest(self, attrs: dict[str, Any]) -> None:
+        # Surface the one-digest-per-scanner constraint as a 400 instead of letting the DB raise 500.
+        if not attrs.get("is_scanner_digest"):
+            return
+        scanner = attrs.get("scanner") or getattr(self.instance, "scanner", None)
+        if scanner is None:
+            return
+        team = self.context["get_team"]()
+        duplicates = VisionAction.objects.for_team(team.id).filter(scanner=scanner, is_scanner_digest=True)
+        if self.instance is not None:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise serializers.ValidationError({"is_scanner_digest": "This scanner already has a daily digest."})
+
     def create(self, validated_data: dict[str, Any]) -> VisionAction:
         team = self.context["get_team"]()
         user = cast(User, self.context["request"].user)
@@ -274,18 +294,20 @@ class VisionActionSerializer(serializers.ModelSerializer):
             # for_team()'s filter doesn't propagate into create(), so team is still passed explicitly.
             return VisionAction.objects.for_team(team.id).create(team=team, created_by=user, **validated_data)
         except IntegrityError as e:
-            self._reraise_unique_name_violation(e)
+            self._reraise_unique_violation(e)
 
     def update(self, instance: VisionAction, validated_data: dict[str, Any]) -> VisionAction:
         try:
             return super().update(instance, validated_data)
         except IntegrityError as e:
-            self._reraise_unique_name_violation(e)
+            self._reraise_unique_violation(e)
 
     @staticmethod
-    def _reraise_unique_name_violation(error: IntegrityError) -> NoReturn:
+    def _reraise_unique_violation(error: IntegrityError) -> NoReturn:
         if "vision_action_unique_team_name" in str(error):
             raise serializers.ValidationError({"name": "An action with this name already exists in this team."})
+        if "vision_action_unique_scanner_digest" in str(error):
+            raise serializers.ValidationError({"is_scanner_digest": "This scanner already has a daily digest."})
         raise error
 
 
@@ -377,8 +399,9 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 _RUN_REASON_LABELS = {
     "skipped_empty": "No new observations in this window to summarize.",
     "skipped_over_budget": "The team is over its AI-credit budget.",
+    # Legacy: the engine no longer skips actions with no delivery_config (digest runs are in-app only).
+    # Keep both keys so historical run rows still display a readable reason rather than the raw enum.
     "no_delivery": "No delivery destination is configured for this action.",
-    # Alias: runs recorded before #66892 stored the old "no_delivery_flow" enum; map it to the same copy.
     "no_delivery_flow": "No delivery destination is configured for this action.",
     "disabled": "The action was disabled when this run was due.",
     "not_found": "The action no longer exists.",
@@ -390,6 +413,13 @@ _RUN_REASON_LABELS = {
 class RunObservationSerializer(serializers.Serializer):
     """One recording an action run included in its summary — the 'recordings included' list on the run detail view."""
 
+    index = serializers.SerializerMethodField(
+        help_text=(
+            "1-based reference number of this observation in the summary, stable across deletions. The "
+            "synthesized report cites observations by this number (rendered like `[3]`), so consumers use "
+            "it to resolve a citation to its observation."
+        ),
+    )
     id = serializers.UUIDField(
         read_only=True,
         help_text="Observation id; links to the observation detail view.",
@@ -410,6 +440,12 @@ class RunObservationSerializer(serializers.Serializer):
         read_only=True,
         help_text="When the observation was produced.",
     )
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_index(self, obs: ReplayObservation) -> int:
+        # Position is supplied by the parent (`get_observations`) via context, keyed by observation id — it
+        # depends on the run's `observation_ids` order, which a single observation can't know on its own.
+        return int(self.context["observation_index_by_id"][str(obs.id)])
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_title(self, obs: ReplayObservation) -> str | None:
@@ -496,8 +532,19 @@ class VisionActionRunSerializer(VisionActionRunListSerializer):
         # Scope to the run's own team (the run itself was fetched team-scoped) so a stray cross-team id
         # in the stored list can never resolve — ReplayObservation isn't fail-closed.
         by_id = {str(o.id): o for o in ReplayObservation.objects.filter(team_id=run.team_id, id__in=ids)}
-        ordered = [by_id[i] for i in ids if i in by_id]
-        return cast(list[dict[str, Any]], RunObservationSerializer(ordered, many=True, context=self.context).data)
+        # Number by original position in `observation_ids` (what the summary's `[obs N]` markers reference),
+        # then drop any deleted ones — so a deletion leaves a gap rather than renumbering the survivors. The
+        # position rides to the serializer via context (keyed by id) rather than a transient attr on the model.
+        ordered = []
+        index_by_id: dict[str, int] = {}
+        for position, i in enumerate(ids, start=1):
+            obs = by_id.get(i)
+            if obs is None:
+                continue
+            index_by_id[str(obs.id)] = position
+            ordered.append(obs)
+        context = {**self.context, "observation_index_by_id": index_by_id}
+        return cast(list[dict[str, Any]], RunObservationSerializer(ordered, many=True, context=context).data)
 
 
 class VisionActionRunViewSet(

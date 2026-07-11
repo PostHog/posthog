@@ -4,6 +4,7 @@ import antigravityLogo from '../harness-logos/antigravity.png'
 import claudeLogo from '../harness-logos/claude.svg'
 import coderabbitLogo from '../harness-logos/coderabbit.svg'
 import cursorLogo from '../harness-logos/cursor.svg'
+import grokLogo from '../harness-logos/grok.svg'
 import librechatLogo from '../harness-logos/librechat.svg'
 import linearLogo from '../harness-logos/linear.svg'
 import lovableLogo from '../harness-logos/lovable.png'
@@ -47,6 +48,7 @@ export const HARNESS_BY_LABEL: Record<string, HarnessDescriptor> = {
     'OpenAI Responses API': { logo: { src: openaiLogo, alt: 'OpenAI Responses API logo' }, colorIndex: 10 },
     OpenAI: { logo: { src: openaiLogo, alt: 'OpenAI logo' }, colorIndex: 1 },
     'OpenAI Codex': { logo: { src: openaiLogo, alt: 'OpenAI Codex logo' }, colorIndex: 13 },
+    Grok: { logo: { src: grokLogo, alt: 'Grok logo' }, colorIndex: 14 },
     Cursor: { logo: { src: cursorLogo, alt: 'Cursor logo' }, colorIndex: 12 },
     'VS Code': { logo: { src: vscodeLogo, alt: 'VS Code logo' }, colorIndex: 11 },
     Windsurf: { logo: { src: windsurfLogo, alt: 'Windsurf logo' } },

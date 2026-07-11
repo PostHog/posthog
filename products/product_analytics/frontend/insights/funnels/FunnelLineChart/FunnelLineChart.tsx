@@ -10,7 +10,7 @@ import type {
     TooltipContext,
 } from '@posthog/quill-charts'
 
-import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -29,6 +29,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { isFunnelsQuery } from '~/queries/utils'
 import { ChartParams, type FlattenedFunnelStepByBreakdown } from '~/types'
 
+import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../../trends/shared/AnnotationsLayer'
@@ -61,6 +62,7 @@ function resolveGroupTypeLabel(
 }
 
 export function FunnelLineChart({
+    context,
     inSharedMode,
     showPersonsModal: showPersonsModalProp = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
@@ -151,6 +153,7 @@ export function FunnelLineChart({
                 showCrosshair: true,
                 tooltip: TOOLTIP_CONFIG,
             }),
+            curve: chartStyleCurve(funnelsFilter?.chartStyle),
             legend: legendConfig,
         }),
         [
@@ -160,6 +163,7 @@ export function FunnelLineChart({
             goalLines,
             incompletenessOffsetFromEnd,
             funnelsFilter?.showTrendLines,
+            funnelsFilter?.chartStyle,
             showValuesOnSeries,
             legendConfig,
             TOOLTIP_CONFIG,
@@ -207,6 +211,8 @@ export function FunnelLineChart({
         },
         [clickDeps]
     )
+
+    const onDateRangeZoom = useDateRangeZoom(annotationDates, context?.onDateRangeZoom)
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<FunnelSeriesMeta>): JSX.Element => {
@@ -279,6 +285,7 @@ export function FunnelLineChart({
             config={chartConfig}
             tooltip={renderTooltip}
             onPointClick={showPersonsModal ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph-funnel"
             onError={handleChartError}

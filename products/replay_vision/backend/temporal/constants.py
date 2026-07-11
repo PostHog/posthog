@@ -82,7 +82,10 @@ VISION_SIGNALS_SOURCE_TYPE = "scanner_finding"
 
 # Hard ceiling on a single scanner's concurrently-running apply-scanner workflows. Bounds one bad config
 # (broad filter on a high-volume team) from monopolising the shared rasterizer queue + provider concurrency.
-MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 50
+MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 150
+# Team-wide ceiling across all of a team's scanners and on-demand triggers, so N scanners can't hold
+# N x 150 rasterizer slots. Fairness only; the rasterizer scales horizontally for total throughput.
+MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
 
 

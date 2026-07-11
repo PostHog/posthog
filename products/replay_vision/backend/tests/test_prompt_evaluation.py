@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -26,7 +27,7 @@ from products.replay_vision.backend.prompt_evaluation import (
     select_evaluation_observations,
     summarize_results,
 )
-from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.quota import MONTHLY_CREDIT_QUOTA, QuotaSnapshot, compute_quota_snapshot
 from products.replay_vision.backend.temporal.activities.evaluate_prompt_suggestion import (
     finalize_evaluation_activity,
     record_evaluation_result_activity,
@@ -100,7 +101,9 @@ class TestPromptEvaluation(_VisionAPITestCase):
             (True, "Verdict: yes", "Verdict: no", "regressed"),
             (False, "Verdict: yes", "Verdict: no", "fixed"),
             (False, "Verdict: yes", "Verdict: yes", "still_wrong"),
-            (True, "Verdict: yes", None, "error"),
+            # An empty outcome (e.g. a classifier with no tags) is valid, not an error.
+            (True, None, None, "kept"),
+            (False, "Tags: bug", None, "fixed"),
         ]
     )
     def test_classify_outcome(self, rated_correct, before, after, expected) -> None:
@@ -118,7 +121,7 @@ class TestPromptEvaluation(_VisionAPITestCase):
         self.assertEqual([o.session_id for o in selected[:2]], [newest_down.session_id, oldest_down.session_id])
         self.assertTrue(all(o.session_id.startswith("up-") for o in selected[2:]))
 
-        # A session_limit lowers the cap and keeps the thumbs-down priority; it can never raise the cap.
+        # A session_limit lowers the cap and keeps the thumbs-down priority. It can never raise the cap.
         limited = select_evaluation_observations(self.scanner, session_limit=1)
         self.assertEqual([o.session_id for o in limited], [newest_down.session_id])
         self.assertEqual(
@@ -163,6 +166,7 @@ class TestPromptEvaluation(_VisionAPITestCase):
             suggestion_id=suggestion.id,
             team_id=self.team.id,
             session=session,
+            model=self.scanner.model,
             after_output={"verdict": "no"},
         )
         record_evaluation_result_activity(inputs)
@@ -179,10 +183,13 @@ class TestPromptEvaluation(_VisionAPITestCase):
             suggestion.evaluation["summary"], {"kept": 0, "regressed": 0, "fixed": 1, "still_wrong": 0, "errors": 0}
         )
         self.assertIsNotNone(suggestion.evaluation["finished_at"])
-        # The retried run charged the org's quota exactly once, inside the current monthly window.
+        # The retried run charged the org's quota exactly once, priced by the re-run's model.
         receipts = ReplayObservationUsage.objects.filter(organization_id=self.team.organization_id)
         self.assertEqual(receipts.count(), 1)
-        self.assertEqual(compute_quota_snapshot(self.team.organization_id).usage_this_month, 1)
+        self.assertEqual(
+            compute_quota_snapshot(self.team.organization_id).credits_used,
+            observation_credits_for_model(self.scanner.model),
+        )
 
     def test_failed_session_run_does_not_charge_quota(self) -> None:
         observation = self._create_rated("sess-1", False)
@@ -206,6 +213,32 @@ class TestPromptEvaluation(_VisionAPITestCase):
         assert suggestion.evaluation is not None
         self.assertEqual(suggestion.evaluation["results"][0]["outcome"], "error")
         self.assertEqual(ReplayObservationUsage.objects.count(), 0)
+
+    def test_empty_after_output_is_a_valid_outcome_and_charges(self) -> None:
+        observation = self._create_rated("sess-1", False)
+        suggestion = self._create_suggestion(evaluation={"status": "running", "results": []})
+
+        record_evaluation_result_activity(
+            RecordEvaluationResultInputs(
+                suggestion_id=suggestion.id,
+                team_id=self.team.id,
+                session=EvaluationSession(
+                    observation_id=observation.id,
+                    session_id="sess-1",
+                    rated_correct=False,
+                    before_outcome="Tags: bug",
+                ),
+                after_output={"tags": []},
+            )
+        )
+
+        suggestion.refresh_from_db()
+        assert suggestion.evaluation is not None
+        result = suggestion.evaluation["results"][0]
+        self.assertEqual(result["outcome"], "fixed")
+        self.assertIsNone(result["after"])
+        self.assertIsNone(result["error"])
+        self.assertEqual(ReplayObservationUsage.objects.count(), 1)
 
     def test_retest_charges_quota_again(self) -> None:
         observation = self._create_rated("sess-1", False)
@@ -288,6 +321,8 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(resp.json()["evaluation"]["status"], "running")
+        # The stub reserves the planned spend so the quota snapshot counts it immediately.
+        self.assertEqual(resp.json()["evaluation"]["total"], 1)
         client.start_workflow.assert_awaited_once()
         self.assertIn(str(suggestion.id), client.start_workflow.await_args.kwargs["id"])
         # Without an explicit session_limit the test runs the small default, not the full cap.
@@ -349,7 +384,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
     def test_evaluate_refuses_when_quota_exhausted(self) -> None:
         self._create_rated()
         suggestion = self._create_pending_suggestion()
-        quota = MagicMock(remaining=0, monthly_quota=100, period_end=timezone.now())
+        quota = MagicMock(remaining=0, credit_limit=100, period_end=timezone.now())
         connect_patch, client = self._mock_temporal()
         with (
             connect_patch,
@@ -366,7 +401,15 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         for i in range(3):
             self._create_rated(f"sess-{i}")
         suggestion = self._create_pending_suggestion()
-        quota = MagicMock(remaining=2, monthly_quota=100, period_end=timezone.now())
+        # Real snapshot: exactly two re-runs' worth of credits left this month.
+        session_credits = observation_credits_for_model(self.scanner.model)
+        quota = QuotaSnapshot(
+            credit_limit=2 * session_credits,
+            credits_used=0,
+            period_start=timezone.now(),
+            period_end=timezone.now(),
+            projected_monthly_credits=0,
+        )
         connect_patch, client = self._mock_temporal()
         with (
             connect_patch,
@@ -381,6 +424,31 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
             resp = self.client.post(self._url(suggestion.id), {"session_limit": 2}, format="json")
             self.assertEqual(resp.status_code, 200, resp.json())
             self.assertEqual(client.start_workflow.await_args.args[1].session_limit, 2)
+
+    def test_running_evaluation_elsewhere_counts_against_quota(self) -> None:
+        # Without in-flight accounting, starting tests on several suggestions could overcommit the month.
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        other_scanner = self._create_scanner(name="other")
+        ReplayScannerPromptSuggestion.objects.create(
+            scanner=other_scanner,
+            team=self.team,
+            suggested_prompt="p",
+            status=SuggestionStatus.PENDING,
+            scanner_version=1,
+            evaluation={
+                "status": "running",
+                "started_at": timezone.now().isoformat(),
+                "results": [],
+                "total": MONTHLY_CREDIT_QUOTA,
+            },
+        )
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 402)
+        client.start_workflow.assert_not_awaited()
 
     @parameterized.expand([("zero", 0), ("above_cap", EVALUATION_SESSION_CAP + 1)])
     def test_evaluate_rejects_out_of_range_session_limit(self, _name: str, limit: int) -> None:

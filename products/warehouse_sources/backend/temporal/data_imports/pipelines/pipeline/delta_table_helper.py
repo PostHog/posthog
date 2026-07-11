@@ -9,12 +9,14 @@ import numpy as np
 import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
+import posthoganalytics
 import deltalake.exceptions
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
+from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -176,19 +178,23 @@ class DeltaTableHelper:
                 settings.OBJECT_STORAGE_ENDPOINT,
             )
 
-            return {
+            options = {
                 "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
                 "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
                 "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
                 "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
                 "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
                 "AWS_ALLOW_HTTP": "true",
-                "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
             }
+        else:
+            options = {}
 
-        return {
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
+        # Conditional puts make a clashing concurrent commit fail loudly instead of
+        # clobbering _delta_log; set explicitly so a library default change can't undo it.
+        options["conditional_put"] = "etag"
+        if settings.DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME:
+            options["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"
+        return options
 
     async def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention.normalize_identifier(self._resource_name)
@@ -234,9 +240,14 @@ class DeltaTableHelper:
                     deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options
                 )
             except Exception as e:
-                # Temp fix for bugged tables
                 capture_exception(e)
-                if "parse decimal overflow" in "".join(e.args):
+                error_text = "".join(str(arg) for arg in e.args)
+                # Unrecoverable tables (bugged decimals, or an orphaned _delta_log missing its
+                # metadata action — impossible on a healthy table): wipe so the sync starts fresh.
+                if "parse decimal overflow" in error_text or "No table metadata or protocol found" in error_text:
+                    await self._logger.aerror(
+                        f"get_delta_table: deleting unrecoverable delta table for a fresh sync: {error_text}"
+                    )
                     async with aget_s3_client() as s3:
                         await s3._rm(delta_uri, recursive=True)
                 else:
@@ -733,6 +744,23 @@ class DeltaTableHelper:
             f"vacuum_if_stale: {commits_since} commits since last vacuum (>= {commit_threshold}), vacuuming"
         )
         await self.vacuum_table()
+        try:
+            # Observability for the maintenance path — how often tables vacuum and how much log churn
+            # accrued between vacuums. Best-effort: telemetry must never break the sync.
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="warehouse_delta_vacuumed",
+                properties={
+                    "team_id": self._job.team_id,
+                    "schema_id": str(self._job.schema_id),
+                    "source_id": str(self._job.pipeline_id),
+                    "resource_name": self._resource_name,
+                    "commits_since_last_vacuum": commits_since,
+                    "delta_version": version,
+                },
+            )
+        except Exception as e:
+            capture_exception(e)
         return version
 
     async def compact_if_fragmented(

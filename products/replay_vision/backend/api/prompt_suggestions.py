@@ -26,6 +26,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 
 from products.replay_vision.backend.api.scanners import _scanner_config_error_message
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.feature_flag import (
     ReplayVisionEnabledPermission,
     ReplayVisionQualityEnabledPermission,
@@ -65,7 +66,9 @@ class PromptEvaluationResultSerializer(serializers.Serializer):
     rated_correct = serializers.BooleanField(help_text="The team's rating of the original output (thumbs up = true).")
     before = serializers.CharField(allow_null=True, help_text="The original output's primary outcome.")
     after = serializers.CharField(
-        allow_null=True, help_text="The suggested prompt's outcome for the same session; null when the run errored."
+        allow_null=True,
+        help_text="The suggested prompt's outcome for the same session. Null when the run errored or "
+        "returned no discrete outcome (e.g. a classifier with no tags).",
     )
     outcome = serializers.CharField(
         help_text="kept (up, unchanged), regressed (up, changed), fixed (down, changed), "
@@ -91,7 +94,7 @@ class PromptSuggestionEvaluationSerializer(serializers.Serializer):
     labels_fingerprint = serializers.CharField(help_text="The rated set the evaluation ran against.")
     results = PromptEvaluationResultSerializer(many=True, help_text="Per-session outcomes, in completion order.")
     summary = PromptEvaluationSummarySerializer(
-        allow_null=True, help_text="Outcome counts; null while the evaluation is running."
+        allow_null=True, help_text="Outcome counts. Null while the evaluation is running."
     )
 
 
@@ -113,7 +116,7 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
     @extend_schema_field(PromptSuggestionEvaluationSerializer(allow_null=True))
     def get_evaluation(self, suggestion: ReplayScannerPromptSuggestion) -> dict[str, Any] | None:
         evaluation = suggestion.evaluation
-        # A workflow killed before finalizing leaves "running" behind forever; serve it as failed
+        # A workflow killed before finalizing leaves "running" behind forever. Serve it as failed
         # so the UI stops polling and the test can be re-run.
         if (
             isinstance(evaluation, dict)
@@ -159,8 +162,8 @@ class EvaluatePromptSuggestionRequestSerializer(serializers.Serializer):
         min_value=1,
         max_value=EVALUATION_SESSION_CAP,
         help_text=(
-            "How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run consumes one "
-            f"observation of the monthly Replay Vision quota. Defaults to {EVALUATION_SESSION_DEFAULT}. "
+            "How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges "
+            f"credits like a normal observation of the same model. Defaults to {EVALUATION_SESSION_DEFAULT}. "
             "The maximum is `evaluation_session_cap`."
         ),
     )
@@ -178,8 +181,8 @@ class CurrentPromptSuggestionSerializer(serializers.Serializer):
         help_text="Number of rated (thumbs up or down) succeeded observations available to generate from."
     )
     evaluation_session_cap = serializers.IntegerField(
-        help_text="Maximum rated sessions one suggestion test re-runs. Each successful re-run consumes "
-        "one observation of the monthly Replay Vision quota."
+        help_text="Maximum rated sessions one suggestion test re-runs. Each successful re-run charges "
+        "credits like a normal observation of the same model."
     )
 
 
@@ -333,11 +336,12 @@ class ReplayScannerPromptSuggestionViewSet(
         description=(
             "Test this suggestion before applying it: re-run the scanner with the suggested prompt against "
             "already-rated sessions in the background and compare each fresh output with the stored one. "
-            "Results land on the suggestion's `evaluation` field; poll `current` while status is running. "
+            "Results land on the suggestion's `evaluation` field. Poll `current` while status is running. "
             "`session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to "
-            "`evaluation_session_cap`). Each successful re-run consumes one observation of the monthly "
-            "Replay Vision quota; the request is refused with 402 when the planned re-runs exceed what is "
-            "left. Only monitor and classifier scanners are supported. Requires session recording edit access."
+            "`evaluation_session_cap`). Each successful re-run charges credits like a normal observation of "
+            "the same model. The request is refused with 402 when the planned credits exceed what is left of "
+            "the monthly limit. Only monitor and classifier scanners are supported. Requires session "
+            "recording edit access."
         ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
@@ -354,27 +358,29 @@ class ReplayScannerPromptSuggestionViewSet(
             raise ValidationError("Testing is available for monitor and classifier scanners.")
         rated_count = self._rated_count(scanner)
         if rated_count == 0:
-            raise ValidationError("Rate some results first; they are what the suggestion is tested against.")
+            raise ValidationError("Rate some results first. They are what the suggestion is tested against.")
         # A test already in flight keeps reporting its state even if quota ran out meanwhile.
         if evaluation_in_flight(suggestion.evaluation):
             return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
-        # The workflow writes a usage receipt per re-run session, so refuse to start a test that would
-        # spend more than what is left. The user can lower session_limit instead.
+        # Each re-run session charges credits like a normal observation, so refuse a test that would
+        # overspend the month. An uncapped org (no credit limit) never trips this.
         planned = min(session_limit, rated_count)
+        planned_credits = planned * observation_credits_for_model(scanner.model)
         quota = compute_quota_snapshot(organization_id=self.team.organization_id)
-        if planned > quota.remaining:
+        if quota.would_exceed(planned_credits):
             raise QuotaLimitExceeded(
                 detail=(
-                    f"This test would use {planned} observations but only {quota.remaining:,} of the monthly "
-                    f"Replay Vision quota of {quota.monthly_quota:,} remain. Lower the test session count or "
-                    f"wait for the reset on {quota.period_end.strftime('%b')} {quota.period_end.day}."
+                    f"This test would use {planned_credits:,} credits but only {quota.remaining or 0:,} of the "
+                    f"monthly Replay Vision credit limit of {quota.credit_limit or 0:,} remain. Lower the test "
+                    f"session count or wait for the reset on "
+                    f"{quota.period_end.strftime('%b')} {quota.period_end.day}."
                 )
             )
 
-        # Stamp running before starting the workflow so the UI never sees a gap. The select activity
-        # replaces this stub with the real total and fingerprint.
+        # Stamp running first so the UI never sees a gap and the planned spend counts against quota
+        # right away. The select activity replaces this stub with the real total and fingerprint.
         previous_evaluation = suggestion.evaluation
-        suggestion.evaluation = build_running_evaluation(total=0, labels_fingerprint="")
+        suggestion.evaluation = build_running_evaluation(total=planned, labels_fingerprint="")
         suggestion.save(update_fields=["evaluation"])
         try:
             client = sync_connect()

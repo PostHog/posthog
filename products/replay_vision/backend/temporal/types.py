@@ -200,8 +200,7 @@ class CallScannerProviderInputs(BaseModel, frozen=True):
     observation_id: UUID  # locates the ScannerLlmInputs blob in Redis AND the scanner_snapshot on the row
     file_uri: str
     mime_type: str
-    # When set, use this snapshot instead of the observation row's (evaluation re-runs a rated
-    # session with the suggested prompt without touching the original observation).
+    # When set, replaces the observation row's snapshot (evaluations re-run rated sessions with the suggested prompt).
     snapshot_override: ScannerSnapshot | None = None
 
 

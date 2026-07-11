@@ -10,7 +10,7 @@ from products.replay_vision.backend.temporal.types import ScannerSnapshot
 class EvaluatePromptSuggestionInputs(BaseModel, frozen=True):
     suggestion_id: UUID
     team_id: int
-    # How many rated sessions to re-run; None means the cap. Can lower the cap, never raise it.
+    # How many rated sessions to re-run. None means the cap. Can lower the cap, never raise it.
     session_limit: int | None = None
 
 
@@ -39,6 +39,8 @@ class RecordEvaluationResultInputs(BaseModel, frozen=True):
     suggestion_id: UUID
     team_id: int
     session: EvaluationSession
+    # Model that ran the re-run, frozen from the evaluation snapshot; prices the usage receipt.
+    model: str | None = None
     # The fresh scanner output, None when the run errored.
     after_output: dict[str, Any] | None = None
     error: str | None = None

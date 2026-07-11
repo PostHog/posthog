@@ -96,6 +96,7 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             PERSON_MERGE_SYNC_BATCH_SIZE: 0,
             PERSON_MERGE_EVENTS_ENABLED: false,
             PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
+            PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '*',
             PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
             PERSON_PROPERTIES_UPDATE_ALL: false,
             FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',

@@ -246,7 +246,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
     }),
 
     selectors({
-        // How many rated sessions the next test will re-run, and so how many observations it will charge.
+        // How many sessions the next test re-runs and charges.
         plannedTestSessions: [
             (s) => [s.evaluationSessionCap, s.ratedCount, s.testSessionLimit],
             (evaluationSessionCap: number, ratedCount: number, testSessionLimit: number | null): number => {
@@ -359,7 +359,6 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         loadCurrentSuggestionSuccess: async ({ current }, breakpoint, _action, previousState) => {
             const wasRunning = selectors.currentSuggestion(previousState)?.evaluation?.status === 'running'
             const isRunning = current.suggestion?.evaluation?.status === 'running'
-            // Each re-run session spends an observation, so keep the visible quota numbers current.
             if (isRunning || wasRunning) {
                 actions.loadQuota()
             }
