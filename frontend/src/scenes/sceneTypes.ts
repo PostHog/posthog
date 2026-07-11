@@ -169,6 +169,7 @@ export enum Scene {
     EventFiltering = 'EventFiltering',
     Unsubscribe = 'Unsubscribe',
     CodeCanvasLink = 'CodeCanvasLink',
+    CodeChannelLink = 'CodeChannelLink',
     UserInterview = 'UserInterview',
     UserInterviewResponse = 'UserInterviewResponse',
     UserInterviews = 'UserInterviews',
@@ -351,6 +352,10 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
+
+    // Workflows
+    [Scene.Workflow]: AccessControlResourceType.Workflow,
+    [Scene.Workflows]: AccessControlResourceType.Workflow,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,

@@ -9,6 +9,11 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.activities.feature_flags import AGENT_DESIGN_STATE_KEY
+from products.tasks.backend.temporal.process_task.utils import (
+    get_actor_distinct_id,
+    get_task_run_credential_user,
+    is_slack_interaction_state,
+)
 
 logger = get_logger(__name__)
 
@@ -57,7 +62,7 @@ def forward_pending_user_message(run_id: str) -> None:
     from products.tasks.backend.models import TaskRun
 
     try:
-        task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id)
+        task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
     except TaskRun.DoesNotExist:
         logger.warning("forward_pending_message_run_not_found", run_id=run_id)
         return
@@ -93,10 +98,13 @@ def forward_pending_user_message(run_id: str) -> None:
                 raise RuntimeError(f"Pending task artifacts not found on this run: {missing_ids}")
 
         auth_token = None
-        created_by = task_run.task.created_by
-        if created_by and created_by.id:
-            distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-            auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+        actor_user = get_task_run_credential_user(task_run.task, state)
+        if is_slack_interaction_state(state) and actor_user is None:
+            raise RuntimeError("Slack task run is missing an acting user")
+        if actor_user and actor_user.id:
+            auth_token = create_sandbox_connection_token(
+                task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
+            )
 
         result = send_user_message(
             task_run,

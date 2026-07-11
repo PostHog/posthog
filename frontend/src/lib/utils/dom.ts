@@ -104,7 +104,9 @@ export function inStorybookTestRunner(): boolean {
 }
 
 export function inStorybook(): boolean {
-    return '__STORYBOOK_CLIENT_API__' in window
+    // `__STORYBOOK_CLIENT_API__` was removed in Storybook 8; `__STORYBOOK_PREVIEW__` is its
+    // modern counterpart. Keep both so this works across versions.
+    return '__STORYBOOK_CLIENT_API__' in window || '__STORYBOOK_PREVIEW__' in window
 }
 
 export const shouldIgnoreInput = (e: KeyboardEvent): boolean => {

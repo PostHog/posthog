@@ -130,8 +130,18 @@ impl HogValue {
 
         match lit {
             HogLiteral::Object(map) => {
-                let key: &str = chain[0].deref(heap)?.try_as()?;
-                let Some(found) = map.get(key) else {
+                // The reference VM keys objects with whatever scalar the program used (a JS Map),
+                // and integer keys are common (`{96: 'x'}`). We store string keys, so coerce
+                // numbers to their string form for lookup, matching the construction-time coercion.
+                // Any other key type (null included — `props[inputs.x]` with an unset input) is a
+                // plain miss for the reference (Map.get), never an error.
+                let key_lit = chain[0].deref(heap)?;
+                let found = match key_lit {
+                    HogLiteral::String(key) => map.get(key),
+                    HogLiteral::Number(n) => map.get(&num_key_string(n)),
+                    _ => None,
+                };
+                let Some(found) = found else {
                     return Ok(None);
                 };
                 found.get_nested(&chain[1..], heap)
@@ -417,9 +427,15 @@ pub fn compare_values(
         return Num::binary_op(op, &Num::Float(a_secs), &Num::Float(b_secs));
     }
 
-    use HogLiteral::{Boolean, Number, String as HString};
+    use HogLiteral::{Boolean, Null, Number, String as HString};
     match (a, b) {
         (Number(x), Number(y)) => Num::binary_op(op, x, y),
+        // JS relational coercion: null behaves as 0 against numbers and booleans.
+        (Null, Number(y)) => Num::binary_op(op, &Num::Integer(0), y),
+        (Number(x), Null) => Num::binary_op(op, x, &Num::Integer(0)),
+        (Null, Null) => Num::binary_op(op, &Num::Integer(0), &Num::Integer(0)),
+        (Null, Boolean(y)) => Num::binary_op(op, &Num::Integer(0), &bool_to_num(*y)),
+        (Boolean(x), Null) => Num::binary_op(op, &bool_to_num(*x), &Num::Integer(0)),
         (Number(x), HString(s)) => Num::binary_op(op, x, &Num::from_str(s)?),
         (HString(s), Number(y)) => Num::binary_op(op, &Num::from_str(s)?, y),
         (Boolean(x), Number(y)) => Num::binary_op(op, &bool_to_num(*x), y),
@@ -817,6 +833,14 @@ impl Display for Closure {
 /// `ExecutionContext::execute_native_function_call` correctly maps the return
 /// value of the native function call to the VM's memory space, making values
 /// constructed with this method safe to return from native extensions.
+// The string form a numeric object key coerces to, shared by dict construction and lookup.
+pub(crate) fn num_key_string(n: &Num) -> String {
+    match n {
+        Num::Integer(i) => i.to_string(),
+        Num::Float(f) => format!("{f}"),
+    }
+}
+
 pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogValue, VmError> {
     if depth > MAX_JSON_SERDE_DEPTH {
         return Err(VmError::OutOfResource(

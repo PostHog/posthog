@@ -237,7 +237,11 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
 
     return sidePanel ? (
         <>
-            <SidePanelContentContainer contentClassName="flex flex-col flex-1">
+            {/* The new view scrolls internally (virtualized thread, history list), so the ScrollArea
+            content must stay clamped to the panel height — without `min-h-0` its `min-height: auto`
+            grows it to fit the whole thread and no scroller ever engages. The legacy view is the
+            opposite: it relies on this container growing so the outer viewport scrolls it. */}
+            <SidePanelContentContainer contentClassName={cn('flex flex-col flex-1', isNewView && 'min-h-0')}>
                 {header}
                 {content}
             </SidePanelContentContainer>

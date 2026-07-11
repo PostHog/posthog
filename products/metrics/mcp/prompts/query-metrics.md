@@ -13,7 +13,7 @@ All parameters are nested inside a `query` object. Two request forms:
    - `gauge`: `avg` (typical), `p95`, `sum`.
    - `histogram`: `histogram_quantile` with `quantile` (e.g. 0.95). All selected series must share one bucket layout — narrow with `filters` if you get a bounds-mismatch error.
 3. **Narrow with filters.** `filters: [{key, op, value, scope?}]`, ANDed. Ops: `eq`, `neq`, `regex`, `not_regex` (RE2). Leave `scope` at its default `auto` unless you know whether the attribute is per-target (`resource`) or per-datapoint (`attribute`). Negative ops also match rows lacking the key, like Prometheus negative matchers.
-4. **Split with groupBy.** `groupBy: [{key}]` returns one series per label value (capped at the 100 largest). `service_name` is always available; discover other keys from a sample query's labels or ask the user.
+4. **Split with groupBy.** `groupBy: [{key}]` returns one series per label value (capped at the 100 largest). The service name is always available — `service_name` and `service.name` both resolve to it in metrics (logs only accept the dotted `service.name`); discover other keys from a sample query's labels or ask the user.
 5. **Control the grid with `interval`.** One of `second, minute, minute_5, minute_15, hour, hour_6, day, week`. Omit to auto-pick (~60 buckets across the range). Use the same interval when comparing windows.
 
 # Investigating an anomaly ("metric X is rising — why?")

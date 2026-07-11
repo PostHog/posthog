@@ -213,12 +213,23 @@ pub struct FlagsResponse {
     pub request_id: Uuid,
     /// Timestamp when flags were evaluated, in milliseconds since Unix epoch
     pub evaluated_at: i64,
+    /// Set to `true` when the team is gated into slim `$feature_flag_called` events
+    /// (TeamFeatureFlagsConfig.minimal_flag_called_events). Omitted otherwise, so SDKs
+    /// that see no field at all fall back to full events, same as legacy teams.
+    /// Only reaches the wire on this v2 shape: `LegacyFlagsResponse`, `DecideV1Response`,
+    /// and `DecideV2Response` intentionally never carry it over. SDKs old enough to hit
+    /// those response shapes predate this field and have no code path that reads it, so
+    /// there's nothing gained by sending it to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimal_flag_called_events: Option<bool>,
 
     /// Additional configuration data merged into the response at the top level
     #[serde(flatten)]
     pub config: ConfigResponse,
 }
 
+/// Legacy `/flags` response shape. This and the two decide response shapes below never
+/// carry `minimal_flag_called_events`: see the field's doc on `FlagsResponse` for why.
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LegacyFlagsResponse {
@@ -343,6 +354,7 @@ impl FlagsResponse {
             quota_limited,
             request_id,
             evaluated_at: chrono::Utc::now().timestamp_millis(),
+            minimal_flag_called_events: None,
             config: ConfigResponse::default(),
         }
     }
@@ -362,6 +374,7 @@ impl FlagsResponse {
             quota_limited,
             request_id,
             evaluated_at,
+            minimal_flag_called_events: None,
             config: ConfigResponse::default(),
         }
     }
@@ -1157,6 +1170,21 @@ mod tests {
         assert!(obj.contains_key("errorsWhileComputingFlags"));
         assert!(obj.contains_key("flags"));
         assert!(obj.contains_key("requestId"));
+    }
+
+    #[test]
+    fn test_minimal_flag_called_events_round_trips_through_serde() {
+        let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+
+        let json = serde_json::to_value(&response).unwrap();
+        assert!(
+            !json.as_object().unwrap().contains_key("minimalFlagCalledEvents"),
+            "absence must mean full events — SDKs treat a missing key the same as an old cache entry"
+        );
+
+        response.minimal_flag_called_events = Some(true);
+        let json = serde_json::to_value(&response).unwrap();
+        assert_eq!(json.get("minimalFlagCalledEvents"), Some(&json!(true)));
     }
 
     #[test]

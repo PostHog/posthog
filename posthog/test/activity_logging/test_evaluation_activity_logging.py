@@ -1,9 +1,12 @@
 from typing import Any
 
+from django.test import override_settings
+
 from rest_framework import status
 
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
+from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -26,7 +29,14 @@ def _create_evaluation_payload(**overrides: Any) -> dict[str, Any]:
     return payload
 
 
+# The create payloads are keyless llm_judge with enabled=True, which only validates for a
+# grandfathered team.
+@override_settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00")
 class TestEvaluationActivityLogging(ActivityLogTestHelper):
+    def setUp(self) -> None:
+        super().setUp()
+        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
+
     def _create_evaluation(self, **overrides: Any) -> dict[str, Any]:
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",

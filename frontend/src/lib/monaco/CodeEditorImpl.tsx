@@ -13,6 +13,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'
+import { trackFindWidgetVisibility } from 'lib/monaco/findWidgetBodyClass'
 import { initCodeownersLanguage } from 'lib/monaco/languages/codeowners'
 import { initHogLanguage } from 'lib/monaco/languages/hog'
 import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
@@ -416,6 +417,7 @@ export function CodeEditor({
         setMonacoAndEditor([monaco, editor])
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
         remeasureFontsWhenReady(monaco)
+        monacoDisposables.current.push(trackFindWidgetVisibility(editor))
 
         // Override Monaco's suggestion widget styling to prevent truncation
         const styleId = 'monaco-suggestion-widget-fix'
@@ -525,6 +527,8 @@ export function CodeEditor({
             editorRef.current = modifiedEditor
             diffEditorRef.current = diff
             trackEditorModels(modifiedEditor, monaco)
+            monacoDisposables.current.push(trackFindWidgetVisibility(modifiedEditor))
+            monacoDisposables.current.push(trackFindWidgetVisibility(diff.getOriginalEditor()))
             const original = diff.getOriginalEditor().getModel()
             if (original) {
                 editorModelsRef.current.add(original)

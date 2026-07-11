@@ -4,7 +4,13 @@ on:
     push:
         branches:
             - master
+    # paths mirror the changes job's dorny filter, which still gates push events.
     pull_request:
+        paths:
+            - '.github/workflows/cd-sandbox-base-image.yml'
+            - 'products/tasks/backend/sandbox/images/**'
+            - 'products/*/skills/**'
+            - 'products/posthog_ai/scripts/**'
     workflow_dispatch:
 
 jobs:
@@ -27,10 +33,11 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # Keep in sync with the trigger-level pull_request paths above.
                   filters: |
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
@@ -249,6 +256,10 @@ jobs:
 
     # Single required status check for branch protection. Add future sandbox
     # image jobs to `needs` here rather than reconfiguring GitHub.
+    # NOT registered as required yet: the trigger-level pull_request paths
+    # filter means this check never reports on PRs that don't touch sandbox
+    # paths, and a required check that never reports blocks merging forever.
+    # Before registering it in the ruleset, remove that paths filter.
     sandbox_base_image_check:
         needs: [changes, build_skills, sandbox_base_build]
         name: Sandbox Base Image Pass

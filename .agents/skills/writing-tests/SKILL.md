@@ -91,6 +91,22 @@ Escalating to the next rung is the last resort, not the default.
   - testing `transaction.on_commit` side effects → use `TestCase` + `self.captureOnCommitCallbacks(execute=True)`.
   - needing a connection visible across a real separate thread (`thread_sensitive`) → `async_to_sync(...)`, not `asyncio.run(...)`.
     Use `TransactionTestCase` only when the regression genuinely requires committed transaction boundaries that `TestCase` hides.
+- **DRF input-validation belongs in a `SimpleTestCase`, not an `APIBaseTest` round-trip.**
+  A test that posts a malformed body to an endpoint and asserts a 400 pays for `APIBaseTest` to build an Organization + Team + User in Postgres and wrap the test in a transaction — just to exercise validation that runs entirely in memory.
+  DRF field validators (`required`, type coercion, `choices`, `min/max`, regex) and `validate_<field>` methods run inside `Serializer(data=...).is_valid()` with no database and no request: field-level validation happens in `to_internal_value`, _before_ the object-level `validate()` that typically needs `self.context`. So an invalid-field case never reaches the DB-touching code.
+  Test the serializer directly and assert on `.errors`:
+
+  ```python
+  class TestTeamValidation(SimpleTestCase):  # no DB — not APIBaseTest
+      def test_sample_rate_too_many_digits(self) -> None:
+          s = TeamSerializer(data={"session_recording_sample_rate": "30001"}, partial=True)
+          assert not s.is_valid()
+          assert s.errors["session_recording_sample_rate"][0].code == "max_digits"
+  ```
+
+  When you push the case matrix down to the serializer, **keep (or add) one DB-backed endpoint test as a wiring guard** — that the viewset actually invokes this serializer, so a bad request is rejected with a 400. The no-DB serializer test proves the validation logic; it does _not_ prove the viewset is wired to that serializer (a refactor that drops the `serializer_class`, skips `is_valid()`, or stops calling `is_valid(raise_exception=True)` would pass every `SimpleTestCase` and still ship a broken endpoint). One endpoint case closes that gap; the matrix stays in the `SimpleTestCase`. For a query serializer instantiated inline (e.g. `Serializer(data=request.query_params).is_valid(raise_exception=True)`), the wiring guard is a bad-query-param → 400 assertion.
+  Two more caveats. First, `.errors` carries DRF's _raw_ code (`invalid`, `max_digits`); the `{"attr", "code", "detail", "type"}` HTTP envelope is rendered later by `exceptions-hog` (which maps `invalid` → `invalid_input`) — that rendering is framework behavior, so don't re-assert it per case (the wiring-guard test covers the envelope once). Second, validation that genuinely needs the DB stays at the endpoint — uniqueness checks, `PrimaryKeyRelatedField` queryset lookups, related-object existence, permission/team scoping, password-hash checks. Don't force those into a `SimpleTestCase`.
+
 - **Parameterize** repeated assertions with the `parameterized` library — don't copy-paste test bodies.
 - **No doc comments** in Python tests (house rule).
 - Mock only **true boundaries** — network, external APIs, the clock, queues.
@@ -103,6 +119,10 @@ Escalating to the next rung is the last resort, not the default.
 - One top-level `describe` block per file (house rule).
 - Prefer logic tests over component renders (see the ladder above).
 - `test.each` for variations rather than copied test bodies.
+- **Avoid `*ByRole(..., { name: ... })` on components that render a large DOM** (calendars, the taxonomic filter, whole scenes).
+  Role queries walk every element running `getComputedStyle`-based checks and accessible-name computation — seconds per query in jsdom, multiplied by every `waitFor`/`findBy*` retry; this pattern has produced single tests with 40s p95 in CI.
+  Prefer `getByText`, `getByTestId`/`data-attr` selectors, or `getByLabelText`; scope with `within(<small container>)` if a role query is genuinely needed.
+  The `jest-no-byrole-name-queries` semgrep rule flags this.
 - **No huge snapshots.**
   A snapshot over a large rendered tree or serialized blob is a change-detector test that bloats the repo and breaks on every unrelated change.
   Snapshot a small, intentional value, or assert specific fields instead.

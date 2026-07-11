@@ -52,6 +52,8 @@ describe('apiStatusLogic', () => {
         })
 
         it('triggers auto-logout on 401 for non-impersonated users', async () => {
+            // The real logout listener submits a <form>, which jsdom doesn't implement
+            const submitSpy = jest.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation()
             useMocks({
                 get: {
                     '/api/users/@me/': () => [401, {}],
@@ -74,6 +76,7 @@ describe('apiStatusLogic', () => {
 
             expect(logoutSpy).toHaveBeenCalled()
             logoutSpy.mockRestore()
+            submitSpy.mockRestore()
         })
     })
 

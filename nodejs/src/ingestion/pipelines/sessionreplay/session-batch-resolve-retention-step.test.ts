@@ -6,11 +6,11 @@ import {
 import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
+import { SessionReplayHeaders } from './pipeline-types'
+import { SessionBatchContext } from './session-batch-context'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
 import { SessionBatchMetrics } from './sessions/metrics'
-import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
-import { SessionReplayHeaders } from './validate-headers-step'
 
 jest.mock('~/common/utils/logger', () => ({ logger: { warn: jest.fn() } }))
 jest.mock('./sessions/metrics', () => ({
@@ -20,27 +20,20 @@ jest.mock('./sessions/metrics', () => ({
 describe('createResolveRetentionStep', () => {
     let mockRetentionService: jest.Mocked<RetentionService>
     let mockBatch: jest.Mocked<Pick<SessionBatchRecorder, 'getRetention'>>
-    let mockSessionBatchManager: jest.Mocked<Pick<SessionBatchManager, 'getCurrentBatch'>>
 
-    // Minimal element carrying just what the step reads (message offset, team id, session_id header).
+    // Minimal element carrying just what the step reads (team id, session_id header, the recorder).
     const element = (
         teamId: number,
-        sessionId: string,
-        partition = 0,
-        offset = 0
-    ): { message: { partition: number; offset: number }; team: TeamForReplay; headers: SessionReplayHeaders } =>
+        sessionId: string
+    ): { team: TeamForReplay; headers: SessionReplayHeaders } & SessionBatchContext =>
         ({
-            message: { partition, offset },
             team: { teamId, consoleLogIngestionEnabled: false, aiTrainingOptedIn: true },
             headers: { token: 'token', session_id: sessionId, distinct_id: 'distinct-1' },
-        }) as unknown as {
-            message: { partition: number; offset: number }
-            team: TeamForReplay
-            headers: SessionReplayHeaders
-        }
+            // The recorder is tagged onto the element by the pipeline's beforeBatch.
+            sessionBatchRecorder: mockBatch,
+        }) as unknown as { team: TeamForReplay; headers: SessionReplayHeaders } & SessionBatchContext
 
-    const createStep = () =>
-        createResolveRetentionStep(mockRetentionService, mockSessionBatchManager as unknown as SessionBatchManager)
+    const createStep = () => createResolveRetentionStep(mockRetentionService)
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -51,9 +44,6 @@ describe('createResolveRetentionStep', () => {
         mockBatch = { getRetention: jest.fn().mockReturnValue(undefined) } as unknown as jest.Mocked<
             Pick<SessionBatchRecorder, 'getRetention'>
         >
-        mockSessionBatchManager = {
-            getCurrentBatch: jest.fn().mockReturnValue(mockBatch),
-        } as unknown as jest.Mocked<Pick<SessionBatchManager, 'getCurrentBatch'>>
     })
 
     it('resolves the batch in one call (keyed on the session_id header) and attaches retention', async () => {
@@ -121,7 +111,7 @@ describe('createResolveRetentionStep', () => {
         )
         const step = createStep()
 
-        const results = await step([element(999, 'gone', 4, 42), element(2, 'ok')])
+        const results = await step([element(999, 'gone'), element(2, 'ok')])
 
         expect(mockRetentionService.resolveSessionRetentions).toHaveBeenCalledWith(
             new SessionSet().add(999, 'gone').add(2, 'ok')

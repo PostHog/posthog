@@ -119,6 +119,12 @@ export enum GraphSeriesAddedSource {
     Duplicate = 'duplicate',
 }
 
+// GROW-89: both onboarding flows fire the same funnel event names during the transition, told apart
+// by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Stamping properties
+// instead of renaming keeps every existing dashboard and alert on the v1 events working. The
+// redesign's v2 events live in `scenes/onboarding/onboardingEventUsageLogic`.
+const LEGACY_ONBOARDING_EVENT_PROPS = { version: 1, flow_variant: 'legacy' } as const
+
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
     const multiplier = unitToDays[metric.retention_window_unit]
@@ -212,6 +218,22 @@ export function getEventPropertiesForMetric(
     }
 }
 
+/**
+ * The GET projection still echoes flag config into `parameters` (retired in a later cleanup phase).
+ * Keep those flag keys out of telemetry so events carry only experiment-own metadata.
+ */
+function experimentOwnParameters(parameters: Experiment['parameters']): Experiment['parameters'] {
+    const {
+        feature_flag_variants,
+        rollout_percentage,
+        aggregation_group_type_index,
+        feature_flag_payloads,
+        ensure_experience_continuity,
+        ...own
+    } = (parameters ?? {}) as Record<string, unknown>
+    return own as Experiment['parameters']
+}
+
 export function getEventPropertiesForExperiment(experiment: Experiment): object {
     const allMetrics = [
         ...experiment.metrics,
@@ -226,7 +248,7 @@ export function getEventPropertiesForExperiment(experiment: Experiment): object 
         id: experiment.id,
         name: experiment.name,
         type: experiment.type,
-        parameters: experiment.parameters,
+        parameters: experimentOwnParameters(experiment.parameters),
         metrics: allMetrics.map((m) => getEventPropertiesForMetric(m)),
         secondary_metrics: allSecondaryMetrics.map((m) => getEventPropertiesForMetric(m)),
         metrics_count: allMetrics.length,
@@ -408,6 +430,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPropertyGroupFilterRemoved: true,
         reportPropertyGroupFilterDuplicated: true,
         reportInsightDateRangeChanged: (queryKind: string | undefined) => ({ queryKind }),
+        reportInsightDragToZoomed: (queryKind: string | undefined) => ({ queryKind }),
         reportInsightBreakdownChanged: (queryKind: string | undefined) => ({ queryKind }),
         reportInsightCompareChanged: (queryKind: string | undefined) => ({ queryKind }),
         reportChangeOuterPropertyGroupFiltersType: (type: FilterLogicalOperator, groupsLength: number) => ({
@@ -976,8 +999,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportSDKSelected: (sdk: SDK) => ({ sdk }),
-        // Setup wizard sync (CLI ↔ app) funnel. Fired from the onboarding install step's
-        // progress tracker; guards for "once per session" live in that logic.
+        // Setup wizard sync (CLI ↔ app) funnel. Fired from the Installation layer
+        // (installationProgressLogic); guards for "once per session" live in that logic.
         reportWizardSyncSessionDetected: (props: {
             workflowId: string
             skillId: string
@@ -991,18 +1014,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             taskCount: number
             completedTaskCount: number
             elapsedSeconds: number
-        }) => props,
-        reportWizardSyncDismissed: (props: {
-            workflowId: string
-            skillId?: string
-            outcome: string
-            elapsedSeconds: number
-        }) => props,
-        reportWizardSyncProgressExpanded: (props: {
-            workflowId?: string
-            skillId?: string
-            displayState: string
-            progressPct: number
         }) => props,
         reportAccountOwnerClicked: ({ name, email }: { name: string; email: string }) => ({ name, email }),
         // revenue analytics
@@ -1712,7 +1723,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 id: experiment.id,
                 name: experiment.name,
                 type: experiment.type,
-                parameters: experiment.parameters,
+                parameters: experimentOwnParameters(experiment.parameters),
                 ...metadata,
             })
         },
@@ -1927,6 +1938,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportInsightDateRangeChanged: ({ queryKind }) => {
             posthog.capture('insight date range changed', { query_kind: queryKind })
+        },
+        reportInsightDragToZoomed: ({ queryKind }) => {
+            posthog.capture('insight drag to zoomed', { query_kind: queryKind })
         },
         reportInsightBreakdownChanged: ({ queryKind }) => {
             posthog.capture('insight breakdown changed', { query_kind: queryKind })
@@ -2276,6 +2290,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportOnboardingStarted: ({ entrypoint }) => {
             posthog.capture('onboarding started', {
                 entry_point: entrypoint,
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingStepCompleted: ({ stepKey, productKey }) => {
@@ -2284,23 +2299,27 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 // Optional — only set when the caller knows which product owns the step.
                 // Lets dashboards split step funnels by product without joining elsewhere.
                 ...(productKey ? { product_key: productKey } : {}),
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingStepSkipped: ({ stepKey, productKey }) => {
             posthog.capture('onboarding step skipped', {
                 step_key: stepKey,
                 ...(productKey ? { product_key: productKey } : {}),
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingCompleted: ({ productKey }) => {
             posthog.capture('onboarding completed', {
                 product_key: productKey,
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {
             posthog.capture('onboarding use case selected', {
                 use_case: useCase,
                 recommended_products: recommendedProducts,
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingUseCaseSkipped: () => {
@@ -2336,6 +2355,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
                 selected,
                 recommendation_source: recommendationSource,
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportSDKSelected: ({ sdk }) => {
@@ -2366,22 +2386,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 task_count: taskCount,
                 completed_task_count: completedTaskCount,
                 elapsed_seconds: elapsedSeconds,
-            })
-        },
-        reportWizardSyncDismissed: ({ workflowId, skillId, outcome, elapsedSeconds }) => {
-            posthog.capture('setup wizard sync dismissed', {
-                workflow_id: workflowId,
-                skill_id: skillId,
-                outcome,
-                elapsed_seconds: elapsedSeconds,
-            })
-        },
-        reportWizardSyncProgressExpanded: ({ workflowId, skillId, displayState, progressPct }) => {
-            posthog.capture('setup wizard sync progress expanded', {
-                workflow_id: workflowId,
-                skill_id: skillId,
-                display_state: displayState,
-                progress_pct: progressPct,
             })
         },
         // command bar

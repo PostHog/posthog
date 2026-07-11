@@ -85,6 +85,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     }, [action, isSelected, Step])
 
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
+    const hasValidationWarning = Object.keys(actionValidationErrorsById[action.id]?.warnings ?? {}).length > 0
     const isAnimationTarget = mode === 'test' && animatingEdgePair?.endsWith(`->${action.id}`)
 
     return (
@@ -243,7 +244,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     </div>
                 )}
             </div>
-            {hasValidationError ? (
+            {hasValidationError || hasValidationWarning ? (
                 <div className="absolute top-0 right-0 scale-75">
                     <LemonBadge status="warning" size="small" content="!" position="top-right" />
                 </div>
