@@ -56,5 +56,12 @@ export const notebookOperationsLogic = kea<notebookOperationsLogicType>([
                 Object.values(operations)[0] ?? null,
         ],
         isBusy: [(s) => [s.operations], (operations): boolean => Object.keys(operations).length > 0],
+        // Journey 14: runs dispatch concurrently (the backend and sandbox order execution),
+        // so only an in-flight page fetch — which holds a web worker — still gates new runs.
+        activePageOperation: [
+            (s) => [s.operations],
+            (operations: Record<string, NotebookOperation>): NotebookOperation | null =>
+                Object.values(operations).find((operation) => operation.kind === 'page') ?? null,
+        ],
     }),
 ])

@@ -63,6 +63,7 @@ const Component = ({
         pageResult,
         pageLoading,
         operationBlockReason,
+        runBlockReason,
         isStale,
         staleCount,
         isChainRunning,
@@ -107,7 +108,7 @@ const Component = ({
                                     ? 'Stale cells are already being re-run'
                                     : isRunning
                                       ? 'This cell is running'
-                                      : (operationBlockReason ?? undefined)
+                                      : (runBlockReason ?? undefined)
                             }
                         />
                     </div>
@@ -200,7 +201,7 @@ const Settings = ({
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
+    const { isRunning, isInterrupting, runBlockReason } = useValues(dataLogic)
     const { runQuery, interruptRun } = useActions(dataLogic)
 
     const run = (): void => {
@@ -234,7 +235,7 @@ const Settings = ({
                         }
                     }}
                     loading={isInterrupting}
-                    disabledReason={operationBlockReason ?? undefined}
+                    disabledReason={runBlockReason ?? undefined}
                     tooltip={isRunning ? 'Stop the running cell' : 'Run Python (⌘⏎)'}
                 >
                     {isRunning ? 'Cancel' : 'Run'}

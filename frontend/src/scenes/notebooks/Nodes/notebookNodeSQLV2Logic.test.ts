@@ -309,19 +309,55 @@ describe('notebookNodeSQLV2Logic', () => {
         expect(logic.values.isRunning).toBe(true)
     })
 
-    it('blocks a second node while another node has a run in flight', async () => {
-        // Default resultSpy keeps r1 'running', so the notebook stays busy after n1 dispatches.
+    it('a second node dispatches its run while another run is in flight (Journey 14)', async () => {
+        // Default resultSpy keeps r1 'running'; the second run must still be acked and
+        // dispatched — the sandbox, not the UI, orders execution.
         mount()
         const other = notebookNodeSQLV2Logic({ nodeId: 'n2', notebookShortId: 'nb1', updateAttributes })
         other.mount()
         logic.actions.runQuery('select 1')
         await expectLogic(logic).toFinishAllListeners()
+        runSpy.mockResolvedValueOnce({ run_id: 'r2' })
         other.actions.runQuery('select 2')
         await expectLogic(other).toFinishAllListeners()
-        expect(runSpy).toHaveBeenCalledTimes(1)
-        expect(other.values.isRunning).toBe(false)
-        expect(other.values.operationBlockReason).toBeTruthy()
+        expect(runSpy).toHaveBeenCalledTimes(2)
+        expect(logic.values.isRunning).toBe(true)
+        expect(other.values.isRunning).toBe(true)
         other.unmount()
+    })
+
+    it('a run is refused while a page fetch from another node is in flight', async () => {
+        // A page fetch holds a web worker; unlike runs, it still gates new dispatches.
+        let resolvePage: (value: unknown) => void = () => {}
+        jest.spyOn(api.notebooks, 'sqlV2RunPage').mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolvePage = resolve
+                }) as any
+        )
+        const pager = notebookNodeSQLV2Logic({
+            nodeId: 'n2',
+            notebookShortId: 'nb1',
+            updateAttributes,
+            runId: 'r9',
+            hasResult: true,
+        })
+        pager.mount()
+        pager.actions.setPage(2)
+        await expectLogic(pager).toDispatchActions(['setPageLoading'])
+
+        mount()
+        logic.actions.runQuery('select 1')
+        // The refusal dispatches synchronously; toFinishAllListeners would hang on the
+        // deliberately still-pending page fetch.
+        await expectLogic(logic).toDispatchActions(['runQuery', 'setIsRunning'])
+        expect(runSpy).not.toHaveBeenCalled()
+        expect(logic.values.isRunning).toBe(false)
+        expect(logic.values.runBlockReason).toBeTruthy()
+
+        resolvePage({ columns: [], types: [], rows: [], has_more: false })
+        await expectLogic(pager).toFinishAllListeners()
+        pager.unmount()
     })
 
     it('blocks page fetches while another node is busy', async () => {

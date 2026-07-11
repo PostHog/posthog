@@ -98,6 +98,7 @@ const Component = ({
         pageResult,
         pageLoading,
         operationBlockReason,
+        runBlockReason,
         isStale,
         staleCount,
         isChainRunning,
@@ -160,7 +161,7 @@ const Component = ({
                                     ? 'Stale cells are already being re-run'
                                     : isRunning
                                       ? 'This cell is running'
-                                      : (operationBlockReason ?? undefined)
+                                      : (runBlockReason ?? undefined)
                             }
                         />
                     </div>
@@ -299,7 +300,7 @@ const Settings = ({
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
+    const { isRunning, isInterrupting, runBlockReason } = useValues(dataLogic)
     const { runQuery, interruptRun } = useActions(dataLogic)
 
     return (
@@ -311,7 +312,7 @@ const Settings = ({
             // (the only surface with SQLV2 cells) have no tiptap editor at all.
             onRunQuery={(code) => runQuery(code, collectSqlV2Refs(notebookLogic.values.content, nodeId))}
             runQueryLoading={isRunning}
-            runQueryDisabledReason={operationBlockReason ?? undefined}
+            runQueryDisabledReason={runBlockReason ?? undefined}
             runQueryTooltip="Run SQL (v2) query"
             onCancelQuery={interruptRun}
             cancelQueryLoading={isInterrupting}

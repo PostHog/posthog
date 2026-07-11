@@ -279,6 +279,22 @@ def collect_exported_types(body: list[ast.stmt]) -> dict[str, str]:
     return exported_types
 
 
+def find_python_syntax_error(code: str) -> str | None:
+    """User-facing syntax-error message for a python cell, or None when it parses.
+
+    Journey 15: a run with broken syntax must fail at dispatch, before it is accepted and
+    queued behind an in-flight run in the sandbox.
+    """
+    if not code or not code.strip():
+        return None
+    try:
+        ast.parse(code)
+    except SyntaxError as exc:
+        location = f" (line {exc.lineno})" if exc.lineno else ""
+        return f"Python syntax error: {exc.msg}{location}"
+    return None
+
+
 def analyze_python_globals(code: str) -> PythonGlobalsAnalysis:
     if not code or not code.strip():
         return PythonGlobalsAnalysis(used=[], exported_with_types=[])

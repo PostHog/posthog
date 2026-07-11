@@ -70,7 +70,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
         hasResult: true, // an assignment has no result to recover on mount
         getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, runError, operationBlockReason, isChainRunning } = useValues(dataLogic)
+    const { isRunning, runError, runBlockReason, isChainRunning } = useValues(dataLogic)
     const { runQuery } = useActions(dataLogic)
 
     // Text and number commit on blur/Enter, so the draft tracks keystrokes locally.
@@ -94,7 +94,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
         ? 'Stale cells are being re-run'
         : isRunning
           ? 'Applying the previous change'
-          : (operationBlockReason ?? undefined)
+          : (runBlockReason ?? undefined)
     const widgetType = attributes.widgetType ?? 'text'
 
     return (
