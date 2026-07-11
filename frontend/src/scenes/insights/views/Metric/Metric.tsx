@@ -2,7 +2,14 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import { useChartTheme } from '@posthog/quill-charts'
-import { Metric, MetricDelta, MetricSparkline, MetricSubtitle, MetricValue } from '@posthog/quill-components/metric'
+import {
+    Metric,
+    MetricDelta,
+    MetricHeader,
+    MetricSparkline,
+    MetricSubtitle,
+    MetricValue,
+} from '@posthog/quill-components/metric'
 
 import { dayjs } from 'lib/dayjs'
 import { hexToRGBA } from 'lib/utils/colors'
@@ -38,7 +45,7 @@ const makeChangeColor = (hex: string): { background: string; foreground: string 
     foreground: hex,
 })
 
-export function MetricInsight({ inCardView }: ChartParams): JSX.Element {
+export function MetricChart({ inCardView }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { insightData, trendsFilter, interval } = useValues(insightVizDataLogic(insightProps))
     const { incompletenessOffsetFromEnd } = useValues(trendsDataLogic(insightProps))
@@ -112,10 +119,10 @@ export function MetricInsight({ inCardView }: ChartParams): JSX.Element {
                 dataAttr="metric-value"
             >
                 {/* No title — the insight/card header already shows the name; the pill sits inline. */}
-                <div className="flex items-center justify-between gap-2">
+                <MetricHeader className="items-center">
                     <MetricValue />
                     <MetricDelta size="md" />
-                </div>
+                </MetricHeader>
                 <MetricSubtitle className="mt-1" />
                 {/* -mb-2 bleeds through the wrapper's p-2 so the sparkline reaches the tile edges. */}
                 <MetricSparkline className="mt-4 -mx-2 -mb-2" />
