@@ -177,6 +177,14 @@ one sandbox session → zero or more emitted signals.
   `_self_heal_stale_runs`). They join on `run_id`/`task_run_id` and are the event-derived
   (no-warehouse-lag) basis for throughput, stall, and worker-death alerting — a `started`
   with no `finished` is a run that died before finalize; a reaped run emits no `finished`.
+  The report channel adds `signals_scout_report_emitted` / `signals_scout_report_edited`
+  (plus customer-facing `$scout_report_*` copies), stamped with derived classification
+  properties (`report_kind` = `finding`/`self_improvement`, `is_self_improvement_report`)
+  via `_report_classification_props` in `tools/report.py` — classified server-side off the
+  prompt's mandated title prefix (`prompt.SELF_IMPROVEMENT_REPORT_TITLE_PREFIX`), so
+  self-improvement reports are separable without downstream title heuristics. That helper
+  is the single extension point for future derived telemetry dimensions on these events —
+  add new flags there (both events pick them up), not as model columns.
 - Emit happens via the harness's `emit_signal_*` tools, which call `emit_signal()`
   with `source_product="signals_scout"` and `source_type="cross_source_issue"`.
   From there the signal flows through the same emitter → buffer → grouping v2 path

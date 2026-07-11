@@ -45,6 +45,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
     SCOUT_SIGNAL_WEIGHT,
     # Shared harness gates/attribution — the report channel applies the same preflight as emit.
@@ -59,6 +60,7 @@ from products.signals.backend.scout_report import (
     ScoutReportSignal,
     append_report_note,
     create_scout_report,
+    get_scout_report_title,
     record_report_edit,
     set_scout_report_reviewers,
     update_scout_report,
@@ -131,6 +133,10 @@ class EditReportResult:
     updated_fields: list[str]
     note_appended: bool
     reviewers_set: bool = False
+    # The report's effective title after the edit (the rewritten title, or the stored one for a
+    # note/reviewer-only edit) — telemetry-only, so the edited lifecycle event can classify the report
+    # (`_report_classification_props`) even when the edit didn't touch the title.
+    report_title: str | None = None
 
 
 def _surfaced(status: SignalReport.Status) -> bool:
@@ -404,6 +410,27 @@ def _clip(value: str | None, limit: int) -> str | None:
     return value[:limit] if value is not None else None
 
 
+# Values of the `report_kind` classification property on the report-channel lifecycle events.
+REPORT_KIND_SELF_IMPROVEMENT = "self_improvement"
+REPORT_KIND_FINDING = "finding"
+
+
+def _report_classification_props(effective_title: str | None) -> dict[str, Any]:
+    """Derived classification dimensions stamped on both report-channel lifecycle events (and their
+    customer-facing copies): `report_kind` (enum, breakdown-friendly) + `is_self_improvement_report`
+    (bool, filter-friendly). Classified server-side off the title contract the prompt mandates
+    (`SELF_IMPROVEMENT_REPORT_TITLE_PREFIX`) rather than scout-declared, so the flag can't be omitted
+    by the model and needs no tool-schema change. Tolerant of case/whitespace drift in an LLM-authored
+    title, but the prefix itself must match. This helper is the single extension point for future
+    derived telemetry dimensions — add them here so the emit and edit events never drift apart."""
+    normalized = (effective_title or "").strip().lower()
+    is_self_improvement = normalized.startswith(SELF_IMPROVEMENT_REPORT_TITLE_PREFIX.lower())
+    return {
+        "report_kind": REPORT_KIND_SELF_IMPROVEMENT if is_self_improvement else REPORT_KIND_FINDING,
+        "is_self_improvement_report": is_self_improvement,
+    }
+
+
 def _report_event_base(run: SignalScoutRun) -> dict[str, Any]:
     """Shared dimensions for the report-channel lifecycle events, mirroring the `signals_scout_run_*`
     events so the two join on `run_id` / `task_run_id` — a report event sits under the run that authored
@@ -523,7 +550,9 @@ def _capture_report_emitted(
     carries the report's content (`title` / `summary` / `actionability` / `priority` / `repository` /
     `safety_explanation`) — parity with the signal channel's `signal_emitted`, so internal consumers
     (dashboards, alerts, CDP forwards) can act on a report's substance, not just its ids. Content rides
-    every outcome, including `gate_skipped` (it records what would have been authored). Keyed on the team
+    every outcome, including `gate_skipped` (it records what would have been authored). Also stamped
+    with the derived classification dimensions (`_report_classification_props`) so e.g. self-improvement
+    reports are separable from findings without title heuristics downstream. Keyed on the team
     and carrying the run / task ids so it joins to the run lifecycle events. Best-effort: a capture failure
     must never fail or mask the emit. Accesses `team.organization` — call on a sync thread.
 
@@ -538,6 +567,7 @@ def _capture_report_emitted(
         outcome = "suppressed"
     properties = {
         **_report_event_base(run),
+        **_report_classification_props(title),
         "report_id": result.report_id,
         "status": result.status,
         "outcome": outcome,
@@ -589,10 +619,13 @@ def _capture_report_edited(
     `note_appended` / `reviewers_set` distinguish a title/summary rewrite from a note-only append from a
     reviewer (re-routing) change; `title` / `summary` / `note` carry the content the edit applied (each None
     when that field wasn't touched) — parity with the emit event so a consumer sees *what* changed, not just
-    that something did. Best-effort; never fails the edit. Accesses `team.organization` — call on a sync
+    that something did. Classification (`_report_classification_props`) reads `result.report_title` — the
+    report's effective title after the edit — so a note-only append to a self-improvement report still
+    classifies correctly. Best-effort; never fails the edit. Accesses `team.organization` — call on a sync
     thread. Returns the customer-facing fan-out payload for the caller to forward."""
     properties = {
         **_report_event_base(run),
+        **_report_classification_props(result.report_title),
         "report_id": result.report_id,
         "updated_fields": result.updated_fields,
         "note_appended": result.note_appended,
@@ -906,8 +939,16 @@ def _do_edit_report(
             "reviewers_set": reviewers_set,
         },
     )
+    # Resolve the report's effective title for the edited event's classification — the rewritten title
+    # when this edit set one, else the stored title (one indexed read; the edits above already proved
+    # the report exists for this team).
+    report_title = title if title is not None else get_scout_report_title(team_id=team.id, report_id=report_id)
     result = EditReportResult(
-        report_id=report_id, updated_fields=updated_fields, note_appended=note_appended, reviewers_set=reviewers_set
+        report_id=report_id,
+        updated_fields=updated_fields,
+        note_appended=note_appended,
+        reviewers_set=reviewers_set,
+        report_title=report_title,
     )
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
     # title rewrite to its current value) must not claim the run touched the report.
