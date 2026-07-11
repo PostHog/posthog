@@ -171,7 +171,12 @@ class FileSystemAccessLevelSerializerMixin(serializers.Serializer):
             return None
 
         if self._access_levels_by_type_ref is None:
-            instances = self.instance if isinstance(self.instance, list) else [self.instance]
+            # `many=True` can hand us a raw QuerySet (e.g. the shortcut reorder action) rather
+            # than a list, so treat any non-model iterable as the batch instead of wrapping it.
+            if isinstance(self.instance, (list, tuple, QuerySet)):
+                instances = list(self.instance)
+            else:
+                instances = [self.instance]
             entries = [
                 (instance.type, instance.ref, getattr(instance, "created_by_id", None))
                 for instance in instances
