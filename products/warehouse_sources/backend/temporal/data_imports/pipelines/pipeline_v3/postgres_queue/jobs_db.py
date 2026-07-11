@@ -857,6 +857,38 @@ class BatchQueue:
         return float(row[0])
 
     @staticmethod
+    def get_oldest_non_terminal_batch_age_seconds(
+        conn: psycopg.Connection[Any],
+        *,
+        team_id: int,
+        schema_ids: list[str],
+    ) -> float | None:
+        """Age in seconds of the oldest batch still working through the queue for these schemas, or None.
+
+        Non-terminal means unclaimed ('pending', 'waiting') or claimed but unfinished
+        ('executing', 'waiting_retry'), read from the denormalized state columns.
+        Sync because its caller is the CDC producer's backpressure guard, which runs
+        in synchronous activity code. Bounded to the pruning window — older batches
+        are gone anyway.
+        """
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT EXTRACT(EPOCH FROM (now() - min(b.created_at)))
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                  AND b.team_id = %(team_id)s
+                  AND b.schema_id = ANY(%(schema_ids)s)
+                  AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
+                """,
+                {"team_id": team_id, "schema_ids": schema_ids},
+            )
+            row = cur.fetchone()
+        if row is None or row[0] is None:
+            return None
+        return float(row[0])
+
+    @staticmethod
     async def unlock_for_batches(
         conn: psycopg.AsyncConnection[Any],
         *,

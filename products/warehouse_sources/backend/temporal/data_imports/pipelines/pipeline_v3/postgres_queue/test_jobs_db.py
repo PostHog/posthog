@@ -559,6 +559,50 @@ class TestQueueFreshnessProbe:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestOldestNonTerminalBatchAge:
+    @pytest.mark.parametrize(
+        "job_state,expect_pending",
+        [
+            (None, True),  # never claimed
+            ("executing", True),
+            ("waiting_retry", True),
+            ("succeeded", False),
+            ("failed", False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_counts_only_non_terminal_states(self, conn, sync_conn, job_state, expect_pending):
+        bid = await _insert_batch(conn)
+        if job_state is not None:
+            await BatchQueue.update_status(conn, batch_id=bid, job_state=job_state, attempt=1)
+
+        age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=1, schema_ids=["schema-1"])
+
+        if expect_pending:
+            assert age is not None and age >= 0
+        else:
+            assert age is None
+
+    @pytest.mark.asyncio
+    async def test_scoped_to_team_and_schemas(self, conn, sync_conn):
+        await _insert_batch(conn)
+
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=1, schema_ids=["other-schema"])
+            is None
+        )
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=2, schema_ids=["schema-1"]) is None
+        )
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(
+                sync_conn, team_id=1, schema_ids=["schema-1", "other-schema"]
+            )
+            is not None
+        )
+
+
+@pytest.mark.django_db(transaction=True)
 class TestGroupLeaseRecovery:
     @pytest.mark.asyncio
     async def test_absent_lease_orphan_is_recovered(self, conn):
