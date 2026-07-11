@@ -5,7 +5,10 @@ from unittest.mock import MagicMock, patch
 
 import psycopg.errors
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (
+    PostgresCDCAdapter,
+    _slot_setup_error_message,
+)
 
 _ADAPTER = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter"
 _POSTGRES = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
@@ -166,6 +169,23 @@ class TestSetupResourcesPreflight:
         mock_drop_slot.assert_not_called()
         mock_drop_pub.assert_called_once()
         assert mock_drop_pub.call_args.args[1] == "p"
+
+
+class TestSlotSetupErrorMessage:
+    def test_permission_error_suggests_incremental_sync(self) -> None:
+        error = _slot_setup_error_message(
+            psycopg.errors.InsufficientPrivilege("permission denied to create replication slot")
+        )
+        assert "Incremental sync" in error
+        assert "permission denied to create replication slot" in error
+
+    def test_must_be_superuser_message_suggests_incremental_sync(self) -> None:
+        error = _slot_setup_error_message(Exception("ERROR: must be superuser or replication role"))
+        assert "Incremental sync" in error
+
+    def test_non_permission_error_keeps_raw_message_only(self) -> None:
+        error = _slot_setup_error_message(RuntimeError("connection reset"))
+        assert error == "Failed to create replication slot: connection reset"
 
 
 class TestRecreateSlot:
