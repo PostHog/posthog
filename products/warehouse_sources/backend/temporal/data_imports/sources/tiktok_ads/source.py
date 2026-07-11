@@ -5,13 +5,13 @@ from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -25,6 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -36,7 +40,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
     tiktok_ads_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
+    TIKTOK_AUTH_ERROR_CODES,
     TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
+    TikTokAdsListingError,
+    list_advertisers,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -83,19 +90,20 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="advertiser_id",
-                        label="TikTok Ads Advertiser ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="Your TikTok Ads advertiser ID",
-                        secret=False,
-                    ),
+                    # OAuth first: the account dropdown below is populated from this integration.
                     SourceFieldOauthConfig(
                         name="tiktok_integration_id",
                         label="TikTok Ads account",
                         required=True,
                         kind="tiktok-ads",
+                    ),
+                    SourceFieldOauthAccountSelectConfig(
+                        name="advertiser_id",
+                        label="TikTok Ads Advertiser ID",
+                        integrationField="tiktok_integration_id",
+                        integrationKind="tiktok-ads",
+                        required=True,
+                        placeholder="Your TikTok Ads advertiser ID",
                     ),
                 ],
             ),
@@ -110,6 +118,41 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
                 ),
             ],
         )
+
+    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+        try:
+            integration = self.get_oauth_integration(integration_id, team_id)
+        except ValueError as e:
+            raise IntegrationAccountListingError(
+                "The linked TikTok Ads integration could not be found. Please reconnect your TikTok Ads integration."
+            ) from e
+
+        oauth = OauthIntegration(integration)
+        if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
+            oauth.refresh_access_token()
+        if integration.errors == ERROR_TOKEN_REFRESH_FAILED or not integration.access_token:
+            raise IntegrationAccountListingError(
+                "Could not refresh the TikTok Ads credentials. Please reconnect your TikTok Ads integration."
+            )
+
+        try:
+            advertisers = list_advertisers(integration.access_token)
+        except TikTokAdsListingError as e:
+            if e.api_code not in TIKTOK_AUTH_ERROR_CODES:
+                # Not a credential problem the user can fix (e.g. app-config mismatch) — surface it.
+                raise
+            raise IntegrationAccountListingError(
+                "TikTok rejected the credentials for this integration. Please reconnect your TikTok Ads "
+                "integration and make sure the connected account can access your advertiser accounts."
+            ) from e
+
+        return [
+            IntegrationAccount(
+                value=advertiser["advertiser_id"],
+                display_name=advertiser.get("advertiser_name") or "Unnamed account",
+            )
+            for advertiser in advertisers
+        ]
 
     def validate_credentials(
         self, config: TikTokAdsSourceConfig, team_id: int, schema_name: Optional[str] = None

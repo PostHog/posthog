@@ -113,13 +113,15 @@ class TestTikTokAdsSource:
         assert config.releaseStatus == ReleaseStatus.GA
         assert len(config.fields) == 2
 
-        advertiser_field = config.fields[0]
-        assert advertiser_field.name == "advertiser_id"
-        assert hasattr(advertiser_field, "required") and advertiser_field.required is True
-
-        integration_field = config.fields[1]
+        # OAuth field comes first — the account selector below reads from it
+        integration_field = config.fields[0]
         assert integration_field.name == "tiktok_integration_id"
         assert hasattr(integration_field, "kind") and integration_field.kind == "tiktok-ads"
+
+        advertiser_field = config.fields[1]
+        assert advertiser_field.name == "advertiser_id"
+        assert hasattr(advertiser_field, "required") and advertiser_field.required is True
+        assert getattr(advertiser_field, "integrationField", None) == "tiktok_integration_id"
 
     @parameterized.expand(
         [

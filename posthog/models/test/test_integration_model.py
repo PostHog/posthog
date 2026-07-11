@@ -2516,6 +2516,35 @@ class TestS3CompatibleIntegrationModel(BaseTest):
             S3CompatibleIntegration(integration)
 
 
+class TestTikTokAdsIntegrationDisplayName(BaseTest):
+    @parameterized.expand(
+        [
+            # The connecting user's email identifies the integration better than the advertiser ids.
+            (
+                "email",
+                {"advertiser_ids": ["7554133187111469074"], "user_email": "e***g@posthog.com"},
+                "e***g@posthog.com",
+            ),
+            # No email (user/info masked or failed) — fall back to the display name.
+            (
+                "display_name",
+                {"advertiser_ids": ["7554133187111469074"], "user_display_name": "user1140434302514"},
+                "user1140434302514",
+            ),
+            # Neither fetched — fall back to the id (the advertiser ids).
+            ("legacy", {"advertiser_ids": ["7554133187111469074"]}, "7554133187111469074"),
+        ]
+    )
+    def test_display_name_prefers_user_email(self, _name: str, config: dict, expected: str) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="tiktok-ads",
+            config=config,
+            integration_id=",".join(config["advertiser_ids"]),
+        )
+        assert integration.display_name == expected
+
+
 class TestSnowflakeIntegrationModel(BaseTest):
     def test_integration_from_config_with_password_auth(self):
         integration = SnowflakeIntegration.integration_from_config(

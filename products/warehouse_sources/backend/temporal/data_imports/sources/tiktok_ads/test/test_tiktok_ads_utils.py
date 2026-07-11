@@ -5,7 +5,9 @@ from enum import Enum
 from typing import Any, cast
 
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -15,9 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
     TikTokAdsAPIError,
+    TikTokAdsListingError,
     TikTokAdsPaginator,
     TikTokDateRangeManager,
     TikTokReportResource,
+    list_advertisers,
 )
 
 
@@ -815,3 +819,36 @@ class TestHelperFunctions:
         config = TIKTOK_ADS_CONFIG.get(endpoint_name)
         assert config is not None, f"Endpoint {endpoint_name} not found in config"
         assert config.endpoint_type == expected_endpoint_type
+
+
+class TestListAdvertisers:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils"
+
+    @staticmethod
+    def _session_returning(body: dict) -> Mock:
+        response = Mock()
+        response.json.return_value = body
+        session = Mock()
+        session.get.return_value = response
+        return session
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_returns_advertiser_list_on_success(self):
+        session = self._session_returning(
+            {"code": 0, "data": {"list": [{"advertiser_id": "1", "advertiser_name": "Acme"}]}}
+        )
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            result = list_advertisers("token")
+
+        assert result == [{"advertiser_id": "1", "advertiser_name": "Acme"}]
+        # app_id + secret go as query params alongside the user's Access-Token header
+        assert session.get.call_args.kwargs["params"] == {"app_id": "app", "secret": "secret"}
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_non_zero_code_raises_with_api_code(self):
+        session = self._session_returning({"code": 40105, "message": "Access token is invalid"})
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(TikTokAdsListingError) as excinfo:
+                list_advertisers("token")
+
+        assert excinfo.value.api_code == 40105

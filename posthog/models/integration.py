@@ -292,6 +292,10 @@ class Integration(models.Model):
 
     @property
     def display_name(self) -> str:
+        if self.kind == "tiktok-ads":
+            # The OAuth id is the list of advertiser ids (now shown in the source's account picker).
+            # Prefer the connecting user's email fetched at connect time, then their display name.
+            return self.config.get("user_email") or self.config.get("user_display_name") or self.integration_id
         if self.kind in OauthIntegration.supported_kinds:
             oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
             return dot_get(self.config, oauth_config.name_path, self.integration_id)
@@ -1022,6 +1026,21 @@ class OauthIntegration:
             data = config.pop("data", {})
             # Move other data fields to main config for TikTok
             config.update(data)
+            # The OAuth response only carries advertiser ids; fetch the user's email so the
+            # connected integration shows who authorized it rather than a list of numeric ids.
+            # Best-effort: a failure here must not block connecting.
+            try:
+                user_res = requests.get(
+                    "https://business-api.tiktok.com/open_api/v1.3/user/info/",
+                    headers={"Access-Token": config["access_token"]},
+                    timeout=10,
+                )
+                if user_res.status_code == 200:
+                    user = user_res.json().get("data") or {}
+                    config["user_email"] = user.get("email")
+                    config["user_display_name"] = user.get("display_name")
+            except Exception:
+                logger.warning("Failed to fetch TikTok user info for display name")
 
         sensitive_config: dict = {
             "access_token": config.pop("access_token"),

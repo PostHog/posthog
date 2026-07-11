@@ -3,20 +3,62 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
+from django.conf import settings
+
 import structlog
 from dateutil import parser
 from requests import PreparedRequest, Request, Response
 from requests.exceptions import HTTPError, RequestException, Timeout
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.settings import (
+    BASE_URL,
     MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS,
     MAX_TIKTOK_DAYS_TO_QUERY,
     EndpointType,
 )
 
 logger = structlog.get_logger(__name__)
+
+# TikTok replies HTTP 200 even for failures, signalling the outcome in the body `code` (0 = OK).
+# These are the auth/permission codes that only re-authorizing can fix (invalid/revoked token,
+# missing permission); everything else is treated as a bug in our request.
+TIKTOK_AUTH_ERROR_CODES = {40100, 40105, 40110}
+
+
+class TikTokAdsListingError(Exception):
+    """A non-zero `code` from a TikTok listing call. `api_code` lets callers branch on the failure
+    (an auth code is a customer-side credential problem) without parsing the message.
+
+    Deliberately not named `status_code`: drf-exceptions-hog reads that attribute off any escaping
+    exception and would render it as PostHog's HTTP response status.
+    """
+
+    def __init__(self, message: str, api_code: int) -> None:
+        super().__init__(message)
+        self.api_code = api_code
+
+
+def list_advertisers(access_token: str) -> list[dict]:
+    """Every advertiser account the connected TikTok user authorized.
+
+    `oauth2/advertiser/get` needs the app id + secret as query params alongside the user's token,
+    and returns `advertiser_id` + `advertiser_name` only (richer fields need `advertiser/info`,
+    which our granted scope can't read).
+    """
+    session = make_tracked_session(headers={"Access-Token": access_token, "Content-Type": "application/json"})
+    response = session.get(
+        f"{BASE_URL}/oauth2/advertiser/get/",
+        params={"app_id": settings.TIKTOK_ADS_CLIENT_ID, "secret": settings.TIKTOK_ADS_CLIENT_SECRET},
+    )
+    body = response.json()
+    code = body.get("code")
+    if code != 0:
+        raise TikTokAdsListingError(f"TikTok advertiser/get failed ({code}): {body.get('message')}", code)
+    return (body.get("data") or {}).get("list") or []
+
 
 # Prefix for the ValueError raised when TikTok returns a client error code that
 # is not in the retryable set (e.g. 40001 "advertiser doesn't exist or has been

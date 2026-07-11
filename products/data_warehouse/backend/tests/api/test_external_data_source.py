@@ -10746,6 +10746,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
     _BING_LIST_ACCOUNTS = (
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
     )
+    _TIKTOK_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
 
     def setUp(self):
         super().setUp()
@@ -10814,6 +10815,46 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # raises NotImplementedError — it must surface as a 400, not an unhandled 500.
         response = self.client.get(self._url("Salesforce", 1))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_tiktok_ads_maps_advertisers_to_accounts(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="tiktok-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="tiktok_test",
+            created_by=self.user,
+        )
+        advertisers = [
+            {"advertiser_id": "7554133187111469074", "advertiser_name": "Posthog0925"},
+            {"advertiser_id": "7554135782433308688", "advertiser_name": "Posthog Inc"},
+        ]
+        with (
+            patch(f"{self._TIKTOK_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._TIKTOK_ADS_MODULE}.list_advertisers", return_value=advertisers),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("TikTokAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "7554133187111469074",
+                "display_name": "Posthog0925",
+                "is_primary": False,
+                "badges": [],
+                "group": None,
+                "secondary_text": None,
+            },
+            {
+                "value": "7554135782433308688",
+                "display_name": "Posthog Inc",
+                "is_primary": False,
+                "badges": [],
+                "group": None,
+                "secondary_text": None,
+            },
+        ]
 
     def test_gsc_success_maps_sites_to_accounts(self):
         integration = self._gsc_integration()
