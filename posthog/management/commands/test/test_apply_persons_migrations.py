@@ -28,6 +28,8 @@ class TestRecordMigration:
                 _record_migration(cursor, self.SENTINEL)
 
                 cursor.execute(f"SELECT COUNT(*) FROM {TRACKING_TABLE} WHERE filename = %s", [self.SENTINEL])
-                assert cursor.fetchone()[0] == 1
+                row = cursor.fetchone()
+                assert row is not None
+                assert row[0] == 1
         finally:
             self._cleanup()
