@@ -1,14 +1,20 @@
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.web_analytics.backend.achievements import tasks
 from products.web_analytics.backend.achievements.evaluators import EvalContext
-from products.web_analytics.backend.models import WebAnalyticsAchievementProgress, WebAnalyticsUserConfig
+from products.web_analytics.backend.models import (
+    WebAnalyticsAchievementProgress,
+    WebAnalyticsUserConfig,
+    WebAnalyticsVisit,
+)
 from products.web_analytics.backend.test.achievements_test_utils import make_evaluators
 
 
@@ -144,6 +150,80 @@ class TestRecomputeTask(BaseTest):
         self._run_user(make_evaluators(loyal_days=loyal_that_acks))
         progress.refresh_from_db()
         self.assertEqual(progress.state["pending_celebrations"], [])
+
+    def _traffic(self) -> WebAnalyticsAchievementProgress:
+        return WebAnalyticsAchievementProgress.objects.for_team(self.team.id).get(
+            user__isnull=True, track_key="traffic"
+        )
+
+    @parameterized.expand(
+        [
+            # A team with a running total and a cursor adds only the bounded delta to its total.
+            ("seeded_accumulates", {"total": 10_000, "cursor": True}, 10_000, 5_000, True, 15_000),
+            # First touch (no cursor) plants the cursor without counting — no unbounded full scan.
+            ("first_touch_plants_cursor", {}, 0, 0, False, 0),
+            # A backfilled team (progress_value set, cursor but no state total) accumulates on top of
+            # its historical base rather than resetting to zero.
+            ("backfilled_base_preserved", {"cursor": True}, 20_000, 5_000, True, 25_000),
+        ]
+    )
+    def test_cumulative_pageviews_accumulates_bounded_delta(
+        self,
+        _name: str,
+        state_spec: dict,
+        progress_value: int,
+        delta: int,
+        expect_count_called: bool,
+        expected_total: int,
+    ) -> None:
+        yesterday = timezone.now() - timedelta(days=1)
+        state: dict = {}
+        pageviews: dict = {}
+        if "total" in state_spec:
+            pageviews["total"] = state_spec["total"]
+        if state_spec.get("cursor"):
+            pageviews["counted_through"] = yesterday.isoformat()
+        if pageviews:
+            state["pageviews"] = pageviews
+        WebAnalyticsAchievementProgress(
+            team=self.team,
+            user=None,
+            track_key="traffic",
+            current_stage=0,
+            progress_value=progress_value,
+            state=state,
+            last_computed_at=yesterday,
+        ).save()
+
+        with patch.object(tasks, "count_cumulative_pageviews_since", return_value=delta) as mock_count:
+            self._run_team(make_evaluators())
+
+        self.assertEqual(mock_count.called, expect_count_called)
+        traffic = self._traffic()
+        self.assertEqual(traffic.progress_value, expected_total)
+        self.assertEqual(traffic.state["pageviews"]["total"], expected_total)
+        # The cursor always advances so the next run's window starts where this one ended.
+        self.assertGreater(datetime.fromisoformat(traffic.state["pageviews"]["counted_through"]), yesterday)
+
+    @parameterized.expand([("prompt_when_zero", 0, None), ("staggered_when_positive", 300, 300)])
+    def test_enqueue_countdown_controls_apply_async(self, _name: str, countdown: int, expected: int | None) -> None:
+        with (
+            patch.object(tasks.cache, "add", return_value=True),
+            patch.object(tasks.recompute_web_analytics_achievements, "apply_async") as mock_async,
+        ):
+            tasks.enqueue_recompute_web_analytics_achievements_debounced(
+                self.team.id, None, date(2026, 6, 15), countdown=countdown
+            )
+        mock_async.assert_called_once_with(args=[self.team.id], kwargs={"user_id": None}, countdown=expected)
+
+    def test_sweep_staggers_enqueues(self) -> None:
+        WebAnalyticsVisit(team=self.team, user=self.user, visit_date=timezone.now().date()).save()
+        with patch.object(tasks, "enqueue_recompute_web_analytics_achievements_debounced") as mock_enqueue:
+            tasks.sweep_web_analytics_achievement_team_tracks()
+        mock_enqueue.assert_called_once()
+        countdown = mock_enqueue.call_args.kwargs["countdown"]
+        self.assertGreaterEqual(countdown, 0)
+        self.assertLessEqual(countdown, tasks.SWEEP_STAGGER_SECONDS)
 
     def test_control_user_gets_no_compute(self) -> None:
         with (

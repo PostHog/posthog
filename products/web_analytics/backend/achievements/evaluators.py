@@ -1,12 +1,13 @@
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -99,17 +100,43 @@ def _test_account_filter_expr(team: Team) -> ast.Expr:
     return test_account_filter_expr(test_account_filters=filters, team=team)
 
 
-def evaluate_cumulative_pageviews(ctx: EvalContext) -> int:
+def _count_pageviews_window(ctx: EvalContext, since: datetime | None, until: datetime | None) -> int:
+    """Count `$pageview`/`$screen` across all of the project's environment teams. `since`/`until`
+    bound the query to a timestamp window so ClickHouse prunes partitions instead of scanning all of
+    history — an unbounded scan fanned out across every active team exhausts the shared query pool.
+    Both `None` counts all history (used only for the one-time backfill seed)."""
     total = 0
     for team in _project_environment_teams(ctx.team):
+        clauses = ["event IN ('$pageview', '$screen')", "{test}"]
+        placeholders: dict[str, ast.Expr] = {"test": _test_account_filter_expr(team)}
+        if since is not None:
+            clauses.append("timestamp > {since}")
+            placeholders["since"] = ast.Constant(value=since)
+        if until is not None:
+            clauses.append("timestamp <= {until}")
+            placeholders["until"] = ast.Constant(value=until)
         query = parse_select(
-            "SELECT count() FROM events WHERE and(event IN ('$pageview', '$screen'), {test})",
-            placeholders={"test": _test_account_filter_expr(team)},
+            f"SELECT count() FROM events WHERE and({', '.join(clauses)})",
+            placeholders=placeholders,
         )
-        response = execute_hogql_query(query=query, team=team, query_type="web_achievements_pageviews")
+        response = execute_hogql_query(
+            query=query, team=team, query_type="web_achievements_pageviews", workload=Workload.OFFLINE
+        )
         if response.results:
             total += int(response.results[0][0] or 0)
     return total
+
+
+def count_cumulative_pageviews_since(ctx: EvalContext, since: datetime, until: datetime) -> int:
+    """Pageviews in the half-open window `(since, until]` — the incremental delta the periodic sweep
+    adds to a team's running total."""
+    return _count_pageviews_window(ctx, since, until)
+
+
+def evaluate_cumulative_pageviews(ctx: EvalContext) -> int:
+    """Full all-history pageview count. Used only by the manual per-team backfill seed; the periodic
+    recompute accumulates bounded deltas via `count_cumulative_pageviews_since` instead."""
+    return _count_pageviews_window(ctx, None, None)
 
 
 CONVERSIONS_LOOKBACK_DAYS = 90
@@ -136,7 +163,9 @@ def evaluate_conversions(ctx: EvalContext) -> int:
         if not isinstance(query, ast.SelectQuery):
             raise TypeError(f"evaluate_conversions: expected SelectQuery, got {type(query)}")
         query.select = [ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions]
-        response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
+        response = execute_hogql_query(
+            query=query, team=team, query_type="web_achievements_conversions", workload=Workload.OFFLINE
+        )
         if response.results:
             for index, value in enumerate(response.results[0]):
                 per_action_totals[index] += int(value or 0)
