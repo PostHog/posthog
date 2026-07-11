@@ -35,6 +35,8 @@ Fired after the CORS reachability check to the PostHog app.
 | `error_type`       | `string`          | Only on error: `timeout`, `network_or_cors`, `http_error`, `unknown` |
 | `duration_ms`      | `number`          | Time taken for the check                                             |
 
+`http_error` and `network_or_cors` failures are the expected "misconfigured or reverse-proxied uiHost" path — already handled by surfacing the config modal, so they are recorded here but **not** captured as exceptions. Only `timeout`/`unknown` failures are also reported to error tracking.
+
 **File:** `toolbarConfigLogic.ts`
 
 ## Authentication

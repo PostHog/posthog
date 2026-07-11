@@ -359,30 +359,32 @@ describe('toolbar toolbarConfigLogic', () => {
             captureExceptionSpy.mockRestore()
         })
 
-        it('does not report transient network/CORS failures to error tracking', async () => {
-            // A raw "Failed to fetch" is browser-level noise (offline, ad blocker, CORS
-            // block) — it must flip authStatus to error but must NOT be promoted into an
-            // error-tracking issue.
-            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+        // http_error (a non-2xx from a uiHost that doesn't route the check to PostHog) and
+        // network_or_cors are the expected "misconfigured or reverse-proxied uiHost" path —
+        // already handled by surfacing the config modal — so they must flip authStatus to
+        // error WITHOUT being promoted into an error-tracking issue. timeout / unknown are
+        // genuinely unexpected and must still be captured.
+        it.each([
+            ['http_error', () => Promise.resolve({ ok: false, status: 404 } as Response), false],
+            ['network_or_cors', () => Promise.reject(new TypeError('Failed to fetch')), false],
+            ['timeout', () => Promise.reject(new DOMException('aborted', 'AbortError')), true],
+            ['unknown', () => Promise.reject(new Error('something odd')), true],
+        ])('%s failure captured as exception: %s', async (errorType, fetchImpl, shouldCapture) => {
+            ;(global.fetch as jest.Mock).mockImplementation(fetchImpl as any)
             const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
             logic.mount()
 
             await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
-            expect(captureExceptionSpy).not.toHaveBeenCalled()
-        })
 
-        it('reports unexpected (non-network) reachability failures to error tracking', async () => {
-            // A reachable host returning a non-2xx status is a genuine misconfiguration,
-            // not transient noise, so it should still surface as an exception.
-            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 500 }))
-            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
-            logic.mount()
-
-            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
-            expect(captureExceptionSpy).toHaveBeenCalledWith(
-                expect.anything(),
-                expect.objectContaining({ toolbar_context: 'ui_host_check', error_type: 'http_error' })
+            const uiHostCheckCalls = captureExceptionSpy.mock.calls.filter(
+                (c) => (c[1] as any)?.toolbar_context === 'ui_host_check'
             )
+            if (shouldCapture) {
+                expect(uiHostCheckCalls).toHaveLength(1)
+                expect(uiHostCheckCalls[0][1]).toMatchObject({ error_type: errorType })
+            } else {
+                expect(uiHostCheckCalls).toHaveLength(0)
+            }
         })
     })
 
