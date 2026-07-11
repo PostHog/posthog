@@ -5,10 +5,12 @@ import {
     areDatesValidForInterval,
     dateFilterToText,
     dateMapping,
+    dateStringToComponents,
     dateStringToDayJs,
     getDefaultInterval,
     is12HoursOrLess,
     isLessThan2Days,
+    isValidRelativeOrAbsoluteDate,
 } from 'lib/utils/dateFilters'
 
 describe('dateFilters utils', () => {
@@ -327,6 +329,35 @@ describe('dateFilters utils', () => {
         })
         it('should handle explicit dates 12 hours apart', () => {
             expect(getDefaultInterval('2023-10-01T18:00:00', '2023-10-01T6:00:00')).toEqual('hour')
+        })
+        it('should not crash on a non-string date (e.g. numeric URL param)', () => {
+            // A value like "?date_from=7" decodes to a number; it must not reach `.match`.
+            expect(() => getDefaultInterval(7 as unknown as string, null)).not.toThrow()
+            expect(getDefaultInterval(7 as unknown as string, null)).toEqual('day')
+        })
+    })
+
+    describe('dateStringToComponents', () => {
+        it('returns null for non-string values instead of throwing', () => {
+            expect(dateStringToComponents(7 as unknown as string)).toBeNull()
+            expect(dateStringToComponents(null)).toBeNull()
+        })
+        it('parses relative date strings', () => {
+            expect(dateStringToComponents('-30d')).toEqual({ amount: -30, unit: 'day', clip: '' })
+        })
+    })
+
+    describe('isValidRelativeOrAbsoluteDate', () => {
+        it.each([
+            ['-7d', true],
+            ['all', true],
+            ['2023-10-01', true],
+            // bare numbers must be rejected — dayjs() would treat them as epoch timestamps
+            ['7', false],
+            [7 as unknown as string, false],
+            ['not-a-date', false],
+        ])('%s -> %s', (date, expected) => {
+            expect(isValidRelativeOrAbsoluteDate(date)).toEqual(expected)
         })
     })
 

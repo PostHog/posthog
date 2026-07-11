@@ -240,7 +240,9 @@ export type DateComponents = {
 export const isStringDateRegex = /^([-+]?)([0-9]*)([hdwmqyMs])(|Start|End)$/
 
 export function dateStringToComponents(date: string | null): DateComponents | null {
-    if (!date) {
+    // Guard against non-string values (e.g. a numeric URL param or corrupted
+    // persisted filter) reaching `.match` and throwing.
+    if (!date || typeof date !== 'string') {
         return null
     }
     const matches = date.match(isStringDateRegex)
@@ -316,13 +318,22 @@ export function dateStringToDayJs(date: string | null, timezone: string = 'UTC')
 }
 
 export function isValidRelativeOrAbsoluteDate(date: string): boolean {
+    // A non-string (e.g. a numeric URL param) is never a valid date string.
+    if (typeof date !== 'string') {
+        return false
+    }
     if (isStringDateRegex.test(date)) {
         return true
     }
-    if (dayjs(date).isValid()) {
+    if (date === 'all') {
         return true
     }
-    if (date === 'all') {
+    // Reject bare numbers — `dayjs(7)` treats them as an epoch timestamp and
+    // reports them valid, letting a non-date value like "?date_from=7" through.
+    if (/^[-+]?\d+(\.\d+)?$/.test(date.trim())) {
+        return false
+    }
+    if (dayjs(date).isValid()) {
         return true
     }
     return false
