@@ -153,3 +153,45 @@ class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
 
 class NotebookSQLV2CallbackRequestSerializer(serializers.Serializer):
     envelope = NotebookSQLV2EnvelopeSerializer(help_text="The result envelope produced by the sandbox run.")
+
+
+class NotebookSQLV2RunResponseSerializer(serializers.Serializer):
+    run_id = serializers.UUIDField(
+        help_text="Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal."
+    )
+
+
+class NotebookSQLV2RunStatusResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(
+        help_text=(
+            "Run state: 'running' while executing (keep polling), or terminal 'done', 'failed', or "
+            "'interrupted' (user-requested stop)."
+        )
+    )
+    result = NotebookSQLV2EnvelopeSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The result envelope once the run is done or interrupted: columns, a bounded first_page of rows, "
+            "row_count, and for python cells the captured stdout/stderr and any figures. Null while running or failed."
+        ),
+    )
+    error = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Error message when the run failed or was interrupted; null otherwise.",
+    )
+
+
+class NotebookSQLV2InterruptResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(
+        help_text=(
+            "The run's status after the interrupt request: usually still 'running' (the terminal 'interrupted' "
+            "state arrives via the run result endpoint), or already-terminal state when nothing was stopped."
+        )
+    )
+    detail = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Set when nothing was stopped, e.g. the run has not reached the kernel yet; retry shortly.",
+    )

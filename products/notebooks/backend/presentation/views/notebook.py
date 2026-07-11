@@ -74,8 +74,11 @@ from products.notebooks.backend.sql_v2_references import (
     resolve_sql_node_run,
 )
 from products.notebooks.backend.sql_v2_serializers import (
+    NotebookSQLV2InterruptResponseSerializer,
     NotebookSQLV2PageRequestSerializer,
     NotebookSQLV2RunRequestSerializer,
+    NotebookSQLV2RunResponseSerializer,
+    NotebookSQLV2RunStatusResponseSerializer,
 )
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
@@ -917,8 +920,16 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response(data)
 
-    # Experimental, flag-gated slice — kept out of the public OpenAPI schema (no generated FE/MCP types yet).
-    @extend_schema(exclude=True)
+    @extend_schema(
+        request=NotebookSQLV2RunRequestSerializer,
+        responses=NotebookSQLV2RunResponseSerializer,
+        summary="Run a notebook cell",
+        description=(
+            "Dispatch a SQL (HogQL) or Python cell of a revamped notebook to its sandbox kernel. "
+            "Returns a run_id immediately; poll the run result endpoint until the status is terminal. "
+            "Requires the notebook's kernel to be running and the revamped-py-notebooks feature."
+        ),
+    )
     @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
     def sql_v2_run(self, request: Request, **kwargs):
         user = self._current_user()
@@ -1013,7 +1024,23 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response({"run_id": str(run.id)})
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "run_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="The run_id returned by the run endpoint.",
+            )
+        ],
+        responses=NotebookSQLV2RunStatusResponseSerializer,
+        summary="Get a notebook cell run's status and result",
+        description=(
+            "Read a dispatched run's state. Poll until status is 'done', 'failed', or 'interrupted'; "
+            "done and interrupted runs carry the result envelope (columns, first rows, and for python "
+            "cells the captured stdout/stderr and figures)."
+        ),
+    )
     @action(
         methods=["GET"],
         url_path="sql_v2/runs/(?P<run_id>[^/.]+)",
@@ -1136,7 +1163,23 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response(page)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "run_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="The run_id returned by the run endpoint.",
+            )
+        ],
+        request=None,
+        responses=NotebookSQLV2InterruptResponseSerializer,
+        summary="Interrupt a running notebook cell",
+        description=(
+            "Stop a running cell. The terminal 'interrupted' state (with any captured output) arrives "
+            "via the run result endpoint; when no kernel is reachable the run is marked interrupted directly."
+        ),
+    )
     @action(
         methods=["POST"],
         url_path="sql_v2/runs/(?P<run_id>[^/.]+)/interrupt",
