@@ -23,7 +23,7 @@ import {
 } from 'lib/components/TaxonomicFilter/utils/buildGroupAnalyticsGroups'
 import { BuildTaxonomicGroupsContext } from 'lib/components/TaxonomicFilter/utils/buildTaxonomicGroups'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getPrimaryPropertyForEvent } from 'lib/utils/events'
+import { distinctPrimaryPropertiesForEvents } from 'lib/utils/events'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
@@ -97,17 +97,11 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
     // Mirrors the `eventNamesWithPrimaryProperties` selector in
     // taxonomicFilterLogic: the distinct promoted properties for the events in
     // context (taxonomy default first, then team override).
-    const promotedPropertiesForContextEvents = useMemo(() => {
-        const distinct = new Set<string>()
-        for (const eventName of eventNames ?? []) {
-            const primary = getPrimaryPropertyForEvent(eventName, primaryProperties)
-            if (primary) {
-                distinct.add(primary)
-            }
-        }
-        return Array.from(distinct)
+    const promotedPropertiesForContextEvents = useMemo(
+        () => distinctPrimaryPropertiesForEvents(eventNames ?? [], primaryProperties),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [eventNamesKey, primaryProperties])
+        [eventNamesKey, primaryProperties]
+    )
 
     return useMemo<BuildTaxonomicGroupsContext>(() => {
         const propertyFilters = {

@@ -1,5 +1,6 @@
 import {
     autoCaptureEventToDescription,
+    distinctPrimaryPropertiesForEvents,
     eventToDescription,
     getEventsWithPrimaryProperty,
     getPrimaryPropertyForEvent,
@@ -303,6 +304,29 @@ describe('events utils', () => {
                 { event: 'arbitrary_custom', id: 2 },
             ]
             expect(getEventsWithPrimaryProperty(events)).toEqual([])
+        })
+    })
+
+    describe('distinctPrimaryPropertiesForEvents', () => {
+        it('returns the distinct taxonomy defaults for a list of events', () => {
+            expect(distinctPrimaryPropertiesForEvents(['$pageview', '$pageleave', '$screen'])).toEqual([
+                '$pathname',
+                '$screen_name',
+            ])
+        })
+
+        it('includes team overrides for events with no taxonomy default', () => {
+            expect(
+                distinctPrimaryPropertiesForEvents(['$pageview', 'order_placed'], { order_placed: 'order_id' })
+            ).toEqual(['$pathname', 'order_id'])
+        })
+
+        it('returns an empty list for no event names', () => {
+            expect(distinctPrimaryPropertiesForEvents([])).toEqual([])
+        })
+
+        it('returns an empty list when nothing has a primary property', () => {
+            expect(distinctPrimaryPropertiesForEvents(['$autocapture', 'arbitrary_custom'])).toEqual([])
         })
     })
 
