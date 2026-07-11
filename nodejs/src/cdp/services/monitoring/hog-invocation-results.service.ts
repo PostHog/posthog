@@ -82,19 +82,26 @@ const isHogFunctionInvocation = (invocation: CyclotronJobInvocation): invocation
 const isHogFlowInvocation = (invocation: CyclotronJobInvocation): invocation is CyclotronJobInvocationHogFlow =>
     'hogFlow' in invocation
 
-// In-process monotonic counter that breaks ties when consecutive lifecycle
-// rows for the same invocation are produced within the same millisecond.
-// Without this, the 'running' + terminal rows of a fast invocation can share a
-// `version` value, and ReplacingMergeTree keeps one arbitrarily — potentially
-// leaving the runs UI showing a permanently 'running' status. We layer
-// `performance.now()`'s sub-ms fractional component on top of `Date.now()` to
-// stay monotonic within a process; the worst remaining tie window is two
-// rows produced at the exact same `performance.now()` sample, which is below
-// the precision the clock actually delivers.
+// Sub-ms-precision epoch timestamp that stays monotonic within a process, so
+// consecutive lifecycle rows for the same invocation get strictly increasing
+// `version` values. Without monotonicity the 'running' + terminal rows of a
+// fast invocation can share (or invert) a `version`, and ReplacingMergeTree
+// keeps one arbitrarily — potentially leaving the runs UI showing a
+// permanently 'running' status.
+//
+// Both the millisecond and sub-ms parts come from the SAME monotonic source:
+// `performance.timeOrigin` (wall-clock ms at process start) plus
+// `performance.now()` (monotonic ms since then). Deriving the ms part from
+// `Date.now()` instead would not be monotonic — the wall clock can step
+// backward (NTP), and its ms boundary is uncorrelated with `performance.now()`'s
+// sub-ms fraction, so the two clocks could disagree and invert the version. The
+// only remaining tie window is two rows sampled at the exact same
+// `performance.now()`, which is below the precision the clock delivers.
 const microsecondsSinceEpoch = (): string => {
+    const epochMs = performance.timeOrigin + performance.now()
     // BigInt avoids the 53-bit cap so the number lines up with ClickHouse UInt64.
-    const ms = BigInt(Date.now())
-    const subMs = BigInt(Math.floor((performance.now() % 1) * 1000))
+    const ms = BigInt(Math.floor(epochMs))
+    const subMs = BigInt(Math.floor((epochMs % 1) * 1000))
     return (ms * 1000n + subMs).toString()
 }
 
