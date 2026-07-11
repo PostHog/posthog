@@ -953,9 +953,8 @@ def _do_edit_report(
     # the report exists for this team). Telemetry-only and best-effort: the edit has already committed,
     # so a transient read failure here must not fail the call (or skip the tally below) — degrade to an
     # unclassified event instead.
-    if title is not None:
-        report_title = title
-    else:
+    report_title: str | None = title
+    if report_title is None:
         try:
             report_title = get_scout_report_title(team_id=team.id, report_id=report_id)
         except Exception:
@@ -963,7 +962,6 @@ def _do_edit_report(
                 "signals_scout.edit_report: failed to resolve report title for telemetry",
                 extra={"team_id": team.id, "report_id": report_id},
             )
-            report_title = None
     result = EditReportResult(
         report_id=report_id,
         updated_fields=updated_fields,
