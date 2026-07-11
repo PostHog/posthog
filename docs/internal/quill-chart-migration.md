@@ -44,11 +44,13 @@ Logs/tracing drag-select maps to quill's `onDateRangeZoom`; multi-series likely 
 
 ### B. Chart.js via the DataViz `LineGraph` (rides the SQL flag)
 
-These import `~/queries/nodes/DataVisualization/Components/Charts/LineGraph`, so they switch to quill automatically when `PRODUCT_ANALYTICS_QUILL_SQL_CHARTS` rolls out — but each needs parity verification (stacked bars, `goalLines`):
+The `LineGraph` exported from `~/queries/nodes/DataVisualization/Components/Charts/LineGraph.tsx` is itself the flag dispatcher, so **every** importer — not just the SQL editor — switches to quill the moment `PRODUCT_ANALYTICS_QUILL_SQL_CHARTS` is enabled for a user.
+`goalLines` are plumbed through the quill adapters (`sqlLineGraphAdapter.ts` → `schemaGoalLinesToConfigs`), but none of these surfaces have been explicitly tested on the quill path yet — verify each before widening the rollout:
 
 - App metrics: `AppMetricSummary.tsx`, `AppMetricsTrends.tsx` (also used by workflows metrics tabs)
 - Workflows editor panel metrics: `products/workflows/frontend/Workflows/hogflows/panel/HogFlowEditorPanelMetrics.tsx`
-- Error tracking rate limiting: `products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/{RateLimitHistoryChart,RateLimitSimulationChart}.tsx`
+- Error tracking rate limiting: `products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/{RateLimitHistoryChart,RateLimitSimulationChart}.tsx` (uses `goalLines`)
+- Endpoints usage trends: `products/endpoints/frontend/nodes/EndpointsUsageTrendsNode.tsx`
 - Data warehouse editor `OutputPane.tsx`, `DataVisualization.tsx`
 
 ### C. Direct Chart.js (`lib/Chart` + `useChart`) — bespoke, highest effort
@@ -94,7 +96,7 @@ Ordered by leverage per unit of effort; each phase is independently shippable.
 
 ### Phase 1 — finish the SQL rollout and delete the legacy insight path
 
-1. Complete the `PRODUCT_ANALYTICS_QUILL_SQL_CHARTS` rollout, verifying the group-B consumers (app metrics stacked bars, `goalLines` in rate-limit and workflows charts) render correctly on the quill path.
+1. Complete the `PRODUCT_ANALYTICS_QUILL_SQL_CHARTS` rollout, first testing the group-B consumers (app metrics stacked bars, `goalLines` in the error tracking rate-limit charts, workflows panel metrics, endpoints usage trends) on the quill path — they flip with the flag but haven't been individually verified.
 2. Migrate the survey single-choice pie to quill `PieChart` (pattern already exists in `TrendsPieChart` and the sibling survey bar charts).
 3. Delete `LegacyLineGraph` / `LegacyPieChart` from DataViz, then `scenes/insights/views/LineGraph/{LineGraph,PieChart}.tsx` and `AnnotationsOverlay/`.
 4. Retire `PRODUCT_ANALYTICS_QUILL_LEGEND` and `QUILL_CHART_STYLE_REFRESH` once fully rolled out.
