@@ -21,6 +21,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { isMobile } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -57,7 +58,9 @@ export const scene: SceneExport<PersonsLogicProps> = {
     logic: personsLogic,
     paramsToProps: ({ params: { _: rawUrlId } }) => ({
         syncWithUrl: true,
-        urlId: decodeURIComponent(rawUrlId),
+        // A distinct ID with a stray `%` (e.g. `50%off`) makes decodeURIComponent throw
+        // `URIError: URI malformed`. Fall back to the raw id so the scene still renders.
+        urlId: tryDecodeURIComponent(rawUrlId),
     }),
 }
 
