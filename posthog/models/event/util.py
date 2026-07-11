@@ -355,8 +355,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     @extend_schema_field(serializers.DateTimeField())
     def get_timestamp(self, event):
-        dt = event["timestamp"].replace(tzinfo=UTC)
-        return dt.astimezone().isoformat()
+        return event["timestamp"].replace(tzinfo=UTC).isoformat()
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_person(self, event):
