@@ -357,7 +357,6 @@ describe('mcpDashboardOverviewLogic', () => {
                 deltaPct: 500,
                 sparkline: [100, 200],
             })
-            // p95 is the average of buckets with latency data: (200 + 300) / 2 current, 150 prior.
             expect(kpis.p95LatencyMs).toMatchObject({
                 value: 250,
                 previousValue: 150,

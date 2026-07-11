@@ -21,9 +21,7 @@ export interface MetricTileProps {
     labels?: string[]
     color?: string
     goodDirection?: 'up' | 'down'
-    /** Caption at rest ('Total' | 'Avg' | 'Last 7 days'); hovering a sparkline point swaps in its label. */
     restingSubtitle: string
-    /** Resting comparison pill; pass `null` (or omit) to suppress. */
     change?: MetricChange | null
     changeTooltip?: string
     hoverChangeFromPreviousPoint?: boolean
@@ -31,8 +29,6 @@ export interface MetricTileProps {
     className?: string
 }
 
-/** The MCP analytics stat tile — Card + skeleton + composed Metric, shared by the dashboard
- *  KPI grid and the tool detail page. */
 export function MetricTile({
     label,
     value,

@@ -4,8 +4,6 @@ import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 const EMPTY = '—'
 
-// Sparkline hover label for a bucket key ('YYYY-MM-DD' or 'YYYY-MM-DD HH:mm:ss'). Date only,
-// matching the metric insight's hover labels.
 export function formatBucketLabel(bucket: string): string {
     const d = dayjs(bucket)
     return d.isValid() ? d.format('MMM D') : bucket

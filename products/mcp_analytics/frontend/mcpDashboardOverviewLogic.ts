@@ -153,7 +153,6 @@ export interface KPIMetric {
     previousValue: number
     deltaPct: number | null
     sparkline: number[]
-    /** Bucket keys paired with `sparkline`, shown as the tile's subtitle while hovering a point. */
     sparklineLabels: string[]
     goodDirection: 'up' | 'down'
 }
@@ -406,7 +405,7 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
     const current = rows.filter((r) => r.bucket >= currentStartBucket).sort((a, b) => a.bucket.localeCompare(b.bucket))
     const previous = rows.filter((r) => r.bucket < currentStartBucket)
 
-    // Average of the buckets that have latency data — the tile's resting caption says "Avg".
+    // p95 === 0 marks a bucket with no latency data — excluded from the average.
     const avgP95 = (rows_: BucketRow[]): number => {
         const values = rows_.map((r) => r.p95).filter((v) => v > 0)
         return values.length ? values.reduce((acc, v) => acc + v, 0) / values.length : 0

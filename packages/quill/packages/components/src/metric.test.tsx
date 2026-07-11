@@ -2,8 +2,7 @@ import { cleanup, render } from '@testing-library/react'
 
 import { Metric, MetricDelta, MetricValue } from './metric'
 
-// Comma-form rgba, matching what the metric insight passes (hexToRGBA); jsdom can't parse the
-// space-separated `rgb(... / %)` syntax and would drop the style.
+// Comma-form rgba — jsdom can't parse the space-separated `rgb(... / %)` syntax and would drop the style.
 const POSITIVE = { background: 'rgba(139, 92, 246, 0.1)', foreground: 'rgb(139, 92, 246)' }
 const NEGATIVE = { background: 'rgba(219, 55, 7, 0.1)', foreground: 'rgb(219, 55, 7)' }
 
@@ -26,8 +25,6 @@ function renderDelta(change: number, goodDirection: 'up' | 'down'): HTMLElement 
 describe('Metric', () => {
     afterEach(cleanup)
 
-    // Colors follow good/bad (via goodDirection), not up/down — a falling value on a
-    // goodDirection="down" metric must get the positive color.
     it.each([
         ['up', 8.4, POSITIVE],
         ['up', -8.4, NEGATIVE],
@@ -51,8 +48,6 @@ describe('Metric', () => {
         expect(pill?.style.background).toBe('')
     })
 
-    // Badge isn't a forwardRef component, so it must not be the trigger's `render` target — a revert
-    // to `render={badge}` makes the pill the trigger itself and fires React's function-ref error.
     it('changeTooltip anchors the trigger on a span wrapping the pill, without ref errors', () => {
         const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
         const { container } = render(

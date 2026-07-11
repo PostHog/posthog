@@ -15,7 +15,6 @@ interface TileSpec {
     format: (n: number) => string
     color: string
     loading: boolean
-    // What the resting headline summarizes ('Total' | 'Avg'), like the metric insight's subtitle.
     summaryLabel: string
     // Overrides the summary caption — used to flag a tile whose value isn't
     // scoped by the dashboard filters.
@@ -38,8 +37,6 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
                 color={tile.color}
                 goodDirection={metric.goodDirection}
                 formatValue={tile.format}
-                // Window-over-window pill (suppressed without prior-window data); hovering a
-                // point swaps it for the point-vs-previous delta, like the metric insight.
                 change={metric.deltaPct !== null ? { value: metric.deltaPct } : null}
                 changeTooltip={
                     metric.deltaPct !== null
@@ -47,7 +44,6 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
                         : undefined
                 }
                 hoverChangeFromPreviousPoint
-                // Resting caption only — hovering a sparkline point swaps in that bucket's label.
                 restingSubtitle={tile.subtitle ?? tile.summaryLabel}
                 sparklineHeight={50}
             />

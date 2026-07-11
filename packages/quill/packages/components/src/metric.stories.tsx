@@ -310,8 +310,6 @@ export const GridNoSparkline: Story = {
     },
 }
 
-// The metric insight's layout: no title, an inline `size="md"` pill beside the headline, and
-// user-configured `positiveColor`/`negativeColor` overriding the Badge variants.
 export const InsightLayout: Story = {
     render: () => {
         const theme = useChartTheme()

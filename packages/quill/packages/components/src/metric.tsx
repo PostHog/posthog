@@ -31,7 +31,6 @@ interface MetricContextValue {
         positive: boolean
         /** Change is in the desired direction — drives the Badge color (success vs destructive). */
         good: boolean
-        /** Custom pill colors resolved from `positiveColor`/`negativeColor`; overrides the Badge variant. */
         colors?: ChangeColor
         tooltip?: string
     } | null
@@ -91,10 +90,9 @@ export interface MetricProps {
     change?: MetricChange | null
     /** Which direction is "good" — drives the pill color. Defaults to `up`. */
     goodDirection?: 'up' | 'down'
-    /** Custom pill colors for a change in the good direction (e.g. user-configured insight colors).
-     *  Overrides the Badge `success` variant; omit to keep the semantic variants. */
+    /** Custom pill colors for a change in the good direction; overrides the Badge `success` variant. */
     positiveColor?: ChangeColor
-    /** Custom pill colors for a change in the bad direction. Overrides the Badge `destructive` variant. */
+    /** Custom pill colors for a change in the bad direction; overrides the Badge `destructive` variant. */
     negativeColor?: ChangeColor
     /** Tooltip shown on hover over the change pill. */
     changeTooltip?: string
@@ -306,8 +304,7 @@ export function MetricValue({ className, children, ...props }: React.ComponentPr
 
 /** Change pill — a `Badge` (success/destructive by `goodDirection`, or the root's custom
  *  `positiveColor`/`negativeColor`) with a directional chevron. Renders nothing when there is no
- *  resolved delta. Carries its own `TooltipProvider`, so `changeTooltip` needs no app-root setup.
- *  Resize via `className` — e.g. the metric insight passes its own larger-pill classes. */
+ *  resolved delta. */
 export function MetricDelta({ className }: { className?: string }): React.ReactElement | null {
     const { change } = useMetric('MetricDelta')
     if (change == null) {
@@ -375,8 +372,7 @@ export function MetricSparkline({
     // A fixed-height sparkline drops to the bottom of a taller card via `mt-auto`; a filling sparkline
     // grows into the free space itself, so it must not also claim that space with a margin. `-mx-4`/`-mb-4`
     // cancel the card's content padding so the chart reaches the left/right/bottom edges. The 6px shift
-    // pushes the canvas's bottom hover-ring margin past the card edge so the line rests on it —
-    // always applied, so callers overriding `className` only manage margins.
+    // eats the canvas's bottom hover-ring margin so the line rests on the card edge.
     const pinBottom = sparkline.fill ? '' : 'mt-auto'
     return (
         <Sparkline

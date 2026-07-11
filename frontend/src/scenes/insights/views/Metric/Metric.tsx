@@ -118,14 +118,12 @@ export function MetricCard({ inCardView }: ChartParams): JSX.Element {
                 sparklineHeight={120}
                 dataAttr="metric-value"
             >
-                {/* No title — the insight/card header already shows the name; the pill sits inline,
-                    enlarged to match the headline (the ! beats badge.css's fixed icon size). */}
+                {/* No title — the insight/card header already shows the name; the pill sits inline. */}
                 <MetricHeader className="items-center">
                     <MetricValue />
                     <MetricDelta className="h-auto gap-1 px-2.5 py-1 text-sm [&>svg]:size-3!" />
                 </MetricHeader>
                 <MetricSubtitle className="mt-1" />
-                {/* -mb-2 bleeds through the wrapper's p-2 so the sparkline reaches the tile edges. */}
                 <MetricSparkline className="mt-4 -mx-2 -mb-2" />
             </Metric>
         </div>
