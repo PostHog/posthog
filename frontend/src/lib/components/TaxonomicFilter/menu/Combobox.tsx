@@ -232,11 +232,16 @@ export function MenuFilterCombobox({
     // `loadingByType` which is `loading && no-items-yet`). Drives the reveal
     // barrier so kept-previous-data refetches still hold the list.
     const [fetchingByType, setFetchingByType] = useState<Record<string, boolean>>({})
+    // Only engages while actively searching a fetching scope. Recent/Pinned
+    // drills read pre-resolved `drillItems` (no fetch) so they're never gated.
+    const searching = !drillItems && !!searchQuery.trim()
     // Reveal barrier (ported from the legacy `taxonomicFilterLogic`): on a fresh
     // search we hold the result list behind skeletons until every visible group's
     // fetch settles (or a 5s fallback), so slower groups don't render on top of a
     // stale/partial list and rows don't jump around. Mirrors `revealBarrierOpen`.
-    const [revealBarrierOpen, setRevealBarrierOpen] = useState(true)
+    // Starts closed when mounting directly into a search (e.g. a restored query)
+    // so synchronous rows (recents/pinned) can't paint ahead of async-fetched ones.
+    const [revealBarrierOpen, setRevealBarrierOpen] = useState(() => !searching)
     const [barrierQuery, setBarrierQuery] = useState(searchQuery)
     // Seed the highlight with the committed selection so the preview
     // pane shows the right definition before any row hovers fire. Once
@@ -616,9 +621,6 @@ export function MenuFilterCombobox({
     }, [drillItems, targetGroups, loadingByType])
 
     // ---- Reveal barrier ----------------------------------------------------
-    // Only engages while actively searching a fetching scope. Recent/Pinned
-    // drills read pre-resolved `drillItems` (no fetch) so they're never gated.
-    const searching = !drillItems && !!searchQuery.trim()
     // Close synchronously the instant the query changes (React "adjust state
     // while rendering" pattern) so a stale list never paints between keystroke
     // and the fetch starting. Re-opens immediately for empty/drill scopes.
