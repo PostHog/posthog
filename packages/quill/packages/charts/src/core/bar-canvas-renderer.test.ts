@@ -287,13 +287,14 @@ describe('hog-charts canvas-renderer (bars)', () => {
                     return ''
                 },
             })
-            drawBars(drawCtx, series, [
-                bar({ x: 0, dataIndex: 0 }),
-                bar({ x: 60, dataIndex: 1 }),
-                bar({ x: 120, dataIndex: 2 }),
-            ])
-            if (original) {
-                Object.defineProperty(ctx, 'fillStyle', original)
+            try {
+                drawBars(drawCtx, series, [
+                    bar({ x: 0, dataIndex: 0 }),
+                    bar({ x: 60, dataIndex: 1 }),
+                    bar({ x: 120, dataIndex: 2 }),
+                ])
+            } finally {
+                Object.defineProperty(ctx, 'fillStyle', original!)
             }
             expect(typeof fillStyleSeen[0]).not.toBe('string')
             expect(fillStyleSeen[1]).toBe('#55667788')

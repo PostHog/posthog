@@ -93,12 +93,14 @@ describe('HighlightedRange', () => {
 
     it('renders the border box by default and omits it at borderOpacity=0', () => {
         const withBorder = renderOverlayInChart(<HighlightedRange start="Tue" end="Thu" />, makeContext())
-        expect(withBorder.container.querySelectorAll('div')).toHaveLength(2)
+        const borderDiv = withBorder.container.querySelectorAll('div')[1] as HTMLDivElement
+        expect(borderDiv.style.borderWidth).toBe('1px')
+        expect(borderDiv.style.borderColor).toBe('#8f8f8f')
         cleanup()
         const noBorder = renderOverlayInChart(
             <HighlightedRange start="Tue" end="Thu" borderOpacity={0} />,
             makeContext()
         )
-        expect(noBorder.container.querySelectorAll('div')).toHaveLength(1)
+        expect(noBorder.container.querySelectorAll('div')[1]).toBeUndefined()
     })
 })

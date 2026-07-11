@@ -1109,9 +1109,8 @@ export function drawBars(
             !!series.bars?.[bar.dataIndex]?.hatch
         // The hatch keeps the bar's own resolved color (per-bar override included) so a
         // flagged bar still reads as belonging to its series. Pattern lookups are cached.
-        ctx.fillStyle = useHatch
-            ? getHatchPattern(ctx, barColorAt(series, bar.dataIndex))
-            : makeBarFill(ctx, barColorAt(series, bar.dataIndex), bar, fillStyle)
+        const barColor = barColorAt(series, bar.dataIndex)
+        ctx.fillStyle = useHatch ? getHatchPattern(ctx, barColor) : makeBarFill(ctx, barColor, bar, fillStyle)
         ctx.beginPath()
         traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
         ctx.fill()
