@@ -26,11 +26,15 @@ def build_process_vision_action_workflow_id(vision_action_id: UUID) -> str:
 
 SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 
-# Children are ABANDONed and don't count against this budget.
-SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
+# Children are ABANDONed and don't count against this budget, but activities do: this must cover the
+# prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.
+# Overlap SKIP means a slow run absorbs later ticks instead of stacking.
+SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
 
-# One LLM call; generous but bounded so a slow provider can't eat the sweep budget.
-REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(seconds=90)
+# The agentic refresh may run several tool rounds and up to two cold summaries. Its in-process budget
+# (_AGENT_BUDGET_BACKGROUND_S) keeps typical runs well under this, so the activity finishes cleanly and
+# a suggestion lands; this cap is the backstop for a hung provider.
+REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
 
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
 # Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
@@ -107,6 +111,15 @@ REFRESH_SCANNER_ESTIMATE_TIMEOUT = dt.timedelta(seconds=60)
 def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:
     """Deterministic Temporal workflow id for one (scanner, session) application."""
     return f"{APPLY_SCANNER_WORKFLOW_NAME}-{scanner_id}-{session_id}"
+
+
+EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME = "replay-vision-evaluate-prompt-suggestion"
+# The execution timeout lives in prompt_evaluation.py to keep it importable from quota.
+
+
+def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:
+    """Deterministic id: one evaluation per suggestion (WorkflowAlreadyStartedError on a duplicate trigger)."""
+    return f"{EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME}-{suggestion_id}"
 
 
 def replay_vision_distinct_id(team_id: int) -> str:

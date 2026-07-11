@@ -1571,9 +1571,9 @@ jobs:
                   fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
-                      # No --splits/--group (no sharding), and no --reruns in selected mode. The full
-                      # run keeps a reduced --reruns 1 cold-start net, mirroring canonical (which runs
-                      # it until Trunk's quarantine list matures; the shadow strips the gate itself).
+                      # No --splits/--group (no sharding), and no --reruns anywhere, mirroring
+                      # canonical: retries mask the raw flake signal Trunk needs (the shadow
+                      # strips the quarantine gate itself).
                       if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                           targets="$POE_FILES"
                       else
@@ -1604,7 +1604,6 @@ jobs:
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         "${SPLIT_GRANULARITY[@]}" \
-                        --reruns 1 --reruns-delay 1 \
                         -r fEsxX \
                         --junitxml=junit-core.xml \
                         $PYTEST_ARGS
@@ -1673,7 +1672,7 @@ jobs:
                   # The --deselect guards stay on both branches so a selected run can't re-enable them.
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: no sharding, no --reruns — see the core selected branch;
-                      # the full run keeps a reduced --reruns 1 cold-start net mirroring canonical.
+                      # the full run also skips --reruns, mirroring canonical.
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
@@ -1695,7 +1694,6 @@ jobs:
                           --pytest-durations=100 \
                           --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           "${SPLIT_GRANULARITY[@]}" \
-                          --reruns 1 --reruns-delay 1 \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS

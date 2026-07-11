@@ -50,6 +50,9 @@ import { OperandTag } from './OperandTag'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
 export const DEFAULT_TAXONOMIC_GROUP_TYPES = [
+    // Only materializes when the picker is scoped to $mcp_* events (see taxonomicGroups),
+    // leading with the known MCP schema there; a no-op everywhere else.
+    TaxonomicFilterGroupType.MCPProperties,
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.EventFeatureFlags,

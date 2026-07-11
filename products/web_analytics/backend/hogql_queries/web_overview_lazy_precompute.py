@@ -30,7 +30,10 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     test_account_filter_expr,
     user_filter_expr,
 )
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import web_ensure_precomputed
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    handle_stale_served,
+    web_ensure_precomputed,
+)
 
 _FAMILY = "web_overview"
 
@@ -260,6 +263,8 @@ def execute_lazy_precomputed_read(
             time_range_end=time_range_end,
         )
         ensure_duration_ms = int((time.perf_counter() - ensure_started) * 1000)
+        if result.stale:
+            handle_stale_served(runner=runner, family=_FAMILY)
 
         logger.info(
             "web_overview_lazy_precompute_ensure_done",
@@ -306,6 +311,10 @@ def execute_lazy_precomputed_read(
                         time_range_end=prev_range_end,
                     )
                     ensure_duration_ms += int((time.perf_counter() - prev_ensure_started) * 1000)
+                    if prev_result.stale:
+                        # handle_stale_served enqueues at most once per request; one
+                        # revalidation re-runs the whole query, covering both periods.
+                        handle_stale_served(runner=runner, family=_FAMILY)
 
                     if not prev_result.ready:
                         WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="previous_not_ready").inc()

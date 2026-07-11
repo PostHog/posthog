@@ -76,6 +76,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'logs'
     } else if (resource === AccessControlResourceType.Tracing) {
         return 'tracing'
+    } else if (resource === AccessControlResourceType.Workflow) {
+        return 'workflows'
     }
 
     return resource.replace(/_/g, ' ') + 's'
@@ -116,6 +118,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'web analytics resource'
     } else if (resourceType === AccessControlResourceType.ExternalDataSource) {
         return 'data warehouse source'
+    } else if (resourceType === AccessControlResourceType.Workflow) {
+        return 'workflow'
     }
 
     return resourceType.replace(/_/g, ' ')
