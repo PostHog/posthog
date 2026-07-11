@@ -60,13 +60,15 @@ export const TimeseriesChart: Story = {
 // comparison with the legacy stories above. These render `QuillSparkline` directly rather than
 // flipping the `quill-sparkline` flag: the flag dispatch is unusable under Storybook, whose
 // implicit-action args inject an `onSelectionChange` spy that the dispatch reads as a
-// legacy-only feature. Quill charts fill their container, so an explicit height is passed.
+// legacy-only feature. The quill chart paints onto an absolutely-positioned canvas that adds no
+// intrinsic size, so the wrapper needs an explicit width and height — a `w-full` here would
+// collapse to a zero-width, unsnapshottable root under the test runner.
 export const BarChartQuill: Story = {
     args: {
         data: [10, 5, 3, 30, 22, 10, 2],
         labels: ['Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat', 'Sun'],
     },
-    render: (args) => <QuillSparkline {...args} className="w-full h-16" />,
+    render: (args) => <QuillSparkline {...args} className="w-64 h-16" />,
 }
 
 export const StackedBarChartQuill: Story = {
@@ -77,7 +79,7 @@ export const StackedBarChartQuill: Story = {
         ],
         labels: ['Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat', 'Sun'],
     },
-    render: (args) => <QuillSparkline {...args} className="w-full h-16" />,
+    render: (args) => <QuillSparkline {...args} className="w-64 h-16" />,
 }
 
 export const LineChartQuill: Story = {
@@ -87,5 +89,5 @@ export const LineChartQuill: Story = {
         type: 'line',
         color: 'success',
     },
-    render: (args) => <QuillSparkline {...args} className="w-full h-16" />,
+    render: (args) => <QuillSparkline {...args} className="w-64 h-16" />,
 }
