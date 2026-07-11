@@ -601,6 +601,26 @@ class TestOldestNonTerminalBatchAge:
             is not None
         )
 
+    @pytest.mark.asyncio
+    async def test_dead_run_remnants_do_not_count(self, conn, sync_conn):
+        # A batch enqueued into a run after fail_run swept it stays 'pending' but can
+        # never be claimed; counting it would hold the CDC backpressure guard down for
+        # the whole pruning window (a full extraction stop for the source).
+        failed = await _insert_batch(conn, run_uuid="dead-run", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+        await _insert_batch(conn, run_uuid="dead-run", batch_index=1)
+
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=1, schema_ids=["schema-1"]) is None
+        )
+
+        await _insert_batch(conn, run_uuid="live-run", batch_index=0)
+
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=1, schema_ids=["schema-1"])
+            is not None
+        )
+
 
 @pytest.mark.django_db(transaction=True)
 class TestGroupLeaseRecovery:

@@ -867,9 +867,13 @@ class BatchQueue:
 
         Non-terminal means unclaimed ('pending', 'waiting') or claimed but unfinished
         ('executing', 'waiting_retry'), read from the denormalized state columns.
-        Sync because its caller is the CDC producer's backpressure guard, which runs
-        in synchronous activity code. Bounded to the pruning window — older batches
-        are gone anyway.
+        Runs containing a 'failed' batch are excluded, mirroring the loader's claim
+        gate: their remaining batches can never be claimed (a batch enqueued into a
+        run after ``fail_run`` swept it stays 'pending' forever — seen in production),
+        so counting them would hold the backpressure guard down for the whole pruning
+        window. Sync because its caller is the CDC producer's backpressure guard,
+        which runs in synchronous activity code. Bounded to the pruning window —
+        older batches are gone anyway.
         """
         with conn.cursor() as cur:
             cur.execute(
@@ -880,6 +884,13 @@ class BatchQueue:
                   AND b.team_id = %(team_id)s
                   AND b.schema_id = ANY(%(schema_ids)s)
                   AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM {BATCH_TABLE} b_failed
+                      WHERE b_failed.run_uuid = b.run_uuid
+                          AND b_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                          AND b_failed.latest_state = 'failed'
+                  )
                 """,
                 {"team_id": team_id, "schema_ids": schema_ids},
             )
