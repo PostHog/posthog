@@ -21,16 +21,16 @@ Markers come from `calculateBillingPeriodMarkers` in `billing-utils.ts:533`.
 
 ## Quill mapping
 
-| Legacy | Quill |
-| --- | --- |
-| Multi-series line datasets | `TimeSeriesLineChart` `series: Series[]` (`key: String(id)`) |
-| Time axis + interval | `labels` + `config.xAxis = { timezone: 'UTC', interval }` |
-| Y formatting | `config.yAxis.format: 'numeric'` (usage) / `'currency', currency: 'USD'` (spend); `startAtZero` default matches `beginAtZero` |
-| External tooltip | `DefaultTooltip` via `config.tooltip = { sortedByValue: true, valueFormatter }` — delete the portal/positioning machinery entirely |
-| Period marker lines | `ReferenceLine orientation="vertical"` children with dashed `style`; `value` must exactly match an entry in `labels` (format markers with the same string format as `dates`) |
-| Legend off + external toggles | `config.legend: { show: false }` (default); keep the parent-filters-`hiddenSeries` pattern unchanged |
-| `useBillingMarkersPositioning` + ready/debounce state | delete — a custom overlay child reads `useChartLayout()` scales synchronously |
-| Dark mode recompute (`getGraphColors`/`isDarkModeOn`) | delete — `useChartTheme()` from `frontend/src/lib/charts/hooks.ts` tracks it |
+| Legacy                                                | Quill                                                                                                                                                                        |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Multi-series line datasets                            | `TimeSeriesLineChart` `series: Series[]` (`key: String(id)`)                                                                                                                 |
+| Time axis + interval                                  | `labels` + `config.xAxis = { timezone: 'UTC', interval }`                                                                                                                    |
+| Y formatting                                          | `config.yAxis.format: 'numeric'` (usage) / `'currency', currency: 'USD'` (spend); `startAtZero` default matches `beginAtZero`                                                |
+| External tooltip                                      | `DefaultTooltip` via `config.tooltip = { sortedByValue: true, valueFormatter }` — delete the portal/positioning machinery entirely                                           |
+| Period marker lines                                   | `ReferenceLine orientation="vertical"` children with dashed `style`; `value` must exactly match an entry in `labels` (format markers with the same string format as `dates`) |
+| Legend off + external toggles                         | `config.legend: { show: false }` (default); keep the parent-filters-`hiddenSeries` pattern unchanged                                                                         |
+| `useBillingMarkersPositioning` + ready/debounce state | delete — a custom overlay child reads `useChartLayout()` scales synchronously                                                                                                |
+| Dark mode recompute (`getGraphColors`/`isDarkModeOn`) | delete — `useChartTheme()` from `frontend/src/lib/charts/hooks.ts` tracks it                                                                                                 |
 
 ## Known gaps / decisions
 

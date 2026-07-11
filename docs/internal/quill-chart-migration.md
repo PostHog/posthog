@@ -26,18 +26,18 @@ Audited 2026-07-11.
 Quill ships its own `Sparkline`, but nothing in the app imports it yet.
 Consumers:
 
-| Surface | File |
-| --- | --- |
-| Logs viewer volume chart | `products/logs/frontend/components/LogsViewer/LogsViewerSparkline/index.tsx` |
-| Tracing volume + duration histogram | `products/tracing/frontend/TracingSparkline.tsx`, `OperationHistogram.tsx` |
-| Links click sparkline | `products/links/frontend/LinkMetricSparkline.tsx` |
-| Customer analytics usage cards | `products/customer_analytics/frontend/components/UsageMetricCard.tsx` |
-| AI gateway spend chart | `products/ai_gateway/frontend/gatewayUsage.tsx` |
-| Engineering analytics trend card | `products/engineering_analytics/frontend/components/TrendCard.tsx` |
-| Metrics series chart | `products/metrics/frontend/components/MetricsSeriesChart.tsx` |
-| Hog functions / CDP | `HogInvocations`, `InvocationsSparkline`, `HogFunctionsList`, `HogFunctionEventEstimates` |
-| Ingestion warnings v1/v2, app metrics | `AppMetricsSparkline.tsx` and friends |
-| HogQLX `<Sparkline>` render | `frontend/src/queries/nodes/HogQLX/render.tsx` |
+| Surface                               | File                                                                                      |
+| ------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Logs viewer volume chart              | `products/logs/frontend/components/LogsViewer/LogsViewerSparkline/index.tsx`              |
+| Tracing volume + duration histogram   | `products/tracing/frontend/TracingSparkline.tsx`, `OperationHistogram.tsx`                |
+| Links click sparkline                 | `products/links/frontend/LinkMetricSparkline.tsx`                                         |
+| Customer analytics usage cards        | `products/customer_analytics/frontend/components/UsageMetricCard.tsx`                     |
+| AI gateway spend chart                | `products/ai_gateway/frontend/gatewayUsage.tsx`                                           |
+| Engineering analytics trend card      | `products/engineering_analytics/frontend/components/TrendCard.tsx`                        |
+| Metrics series chart                  | `products/metrics/frontend/components/MetricsSeriesChart.tsx`                             |
+| Hog functions / CDP                   | `HogInvocations`, `InvocationsSparkline`, `HogFunctionsList`, `HogFunctionEventEstimates` |
+| Ingestion warnings v1/v2, app metrics | `AppMetricsSparkline.tsx` and friends                                                     |
+| HogQLX `<Sparkline>` render           | `frontend/src/queries/nodes/HogQLX/render.tsx`                                            |
 
 Gap: the shared component supports multi-series with breakdowns, custom tick/x-scale formatting, and drag-to-select ranges; quill `Sparkline` is a flat `number[]`.
 Logs/tracing drag-select maps to quill's `onDateRangeZoom`; multi-series likely means these migrate to `TimeSeriesBarChart`/`TimeSeriesLineChart` rather than quill `Sparkline`.
@@ -55,16 +55,16 @@ The `LineGraph` exported from `~/queries/nodes/DataVisualization/Components/Char
 
 ### C. Direct Chart.js (`lib/Chart` + `useChart`) — bespoke, highest effort
 
-| Surface | Files | Notes |
-| --- | --- | --- |
-| Billing | `frontend/src/scenes/billing/BillingLineGraph.tsx` + tooltip + marker positioning (~500 lines) | Straight `TimeSeriesLineChart` fit |
-| Experiments timeseries | `frontend/src/scenes/experiments/MetricsView/new/VariantTimeseriesChart.tsx` | Confidence bands map to quill fill-between ribbons |
-| Experiments exposures | `frontend/src/scenes/experiments/ExperimentView/Exposures.tsx` (two `useChart` components) | `TimeSeriesLineChart` fit |
-| Alerts | `products/alerts/frontend/views/{AlertHistoryChart,SimulationSummary}.tsx` | Uses `chartjs-plugin-annotation`; quill `ReferenceLines` + `AnomalyPointsLayer` cover most of it; dual y-axis supported via `yAxis` array |
-| Logs alert simulation | `products/logs/frontend/components/LogsAlerting/LogsAlertSimulation.tsx` | Same pattern as alerts |
-| Web analytics live dashboard | `frontend/src/scenes/web-analytics/LiveMetricsDashboard/liveWebAnalyticsMetricsCharts.tsx` + `useLiveChart.tsx` | Imperative per-tick `chart.update('none')`; needs a quill re-render-without-animation story |
-| AI observability cluster scatter | `products/ai_observability/frontend/clusters/{ClusterScatterPlot,ClusterDetailScatterPlot}.tsx` | Quill has no scatter chart; needs a new chart type on the `Chart` base primitive |
-| Debug CH queries | `frontend/src/lib/components/Shortcuts/utils/DebugCHQueriesImpl.tsx` | Internal tool, do last or leave |
+| Surface                          | Files                                                                                                           | Notes                                                                                                                                     |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Billing                          | `frontend/src/scenes/billing/BillingLineGraph.tsx` + tooltip + marker positioning (~500 lines)                  | Straight `TimeSeriesLineChart` fit                                                                                                        |
+| Experiments timeseries           | `frontend/src/scenes/experiments/MetricsView/new/VariantTimeseriesChart.tsx`                                    | Confidence bands map to quill fill-between ribbons                                                                                        |
+| Experiments exposures            | `frontend/src/scenes/experiments/ExperimentView/Exposures.tsx` (two `useChart` components)                      | `TimeSeriesLineChart` fit                                                                                                                 |
+| Alerts                           | `products/alerts/frontend/views/{AlertHistoryChart,SimulationSummary}.tsx`                                      | Uses `chartjs-plugin-annotation`; quill `ReferenceLines` + `AnomalyPointsLayer` cover most of it; dual y-axis supported via `yAxis` array |
+| Logs alert simulation            | `products/logs/frontend/components/LogsAlerting/LogsAlertSimulation.tsx`                                        | Same pattern as alerts                                                                                                                    |
+| Web analytics live dashboard     | `frontend/src/scenes/web-analytics/LiveMetricsDashboard/liveWebAnalyticsMetricsCharts.tsx` + `useLiveChart.tsx` | Imperative per-tick `chart.update('none')`; needs a quill re-render-without-animation story                                               |
+| AI observability cluster scatter | `products/ai_observability/frontend/clusters/{ClusterScatterPlot,ClusterDetailScatterPlot}.tsx`                 | Quill has no scatter chart; needs a new chart type on the `Chart` base primitive                                                          |
+| Debug CH queries                 | `frontend/src/lib/components/Shortcuts/utils/DebugCHQueriesImpl.tsx`                                            | Internal tool, do last or leave                                                                                                           |
 
 ### D. Legacy insight Chart.js remnants (cleanup, mostly deletion)
 

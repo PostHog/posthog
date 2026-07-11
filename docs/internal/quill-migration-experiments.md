@@ -50,11 +50,11 @@ Zero line: `ReferenceLine` at 0 (marker variant) + y-domain tuning.
 
 **Blocking design decisions — settle these before implementing, they are quill API questions, not implementation details:**
 
-| Legacy behavior | Quill today | Options |
-| --- | --- | --- |
-| CI band color per day (significance) | one `color`/`opacity` per band | (a) extend quill fill with per-index color, (b) split the band into contiguous same-color run series (visual seams), (c) accept a single neutral band color |
-| Dashed segments for each interpolated run (can be multiple disjoint runs) | `Series.stroke.partial` = one contiguous range | (a) extend `stroke.partial` to accept multiple ranges / a per-index predicate, (b) accept a single dashed tail only |
-| Dimmed per-point markers for interpolated points | `Series.points` has a single static radius/color | (a) per-point style hook in quill, (b) custom overlay child, (c) drop and rely on the tooltip's interpolation warning |
+| Legacy behavior                                                           | Quill today                                      | Options                                                                                                                                                     |
+| ------------------------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CI band color per day (significance)                                      | one `color`/`opacity` per band                   | (a) extend quill fill with per-index color, (b) split the band into contiguous same-color run series (visual seams), (c) accept a single neutral band color |
+| Dashed segments for each interpolated run (can be multiple disjoint runs) | `Series.stroke.partial` = one contiguous range   | (a) extend `stroke.partial` to accept multiple ranges / a per-index predicate, (b) accept a single dashed tail only                                         |
+| Dimmed per-point markers for interpolated points                          | `Series.points` has a single static radius/color | (a) per-point style hook in quill, (b) custom overlay child, (c) drop and rely on the tooltip's interpolation warning                                       |
 
 If extending quill, remember its `AGENTS.md` must be updated in the same PR.
 If scoping down (options b/c), get a design/product sign-off first — the significance tinting is meaningful UX, not decoration.
