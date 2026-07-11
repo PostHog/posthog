@@ -101,6 +101,10 @@ const isHogFlowInvocation = (invocation: CyclotronJobInvocation): invocation is 
 // produced close together in the SAME process (e.g. the flaky monotonicity test). Clamp to
 // strictly exceed the last value this process issued: that adds strict in-process
 // monotonicity on top of the NTP-anchored cross-process ordering.
+//
+// This module-level counter is process-global and never resets, so a test using
+// `jest.setSystemTime()` to a time earlier than an already-issued stamp will see clamped
+// `last + 1` values, not the fake time. Don't rewind the clock below a prior stamp in tests.
 let lastVersionMicros = 0n
 const microsecondsSinceEpoch = (): string => {
     // BigInt avoids the 53-bit cap so the number lines up with ClickHouse UInt64.
