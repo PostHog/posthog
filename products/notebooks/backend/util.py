@@ -37,7 +37,9 @@ SHARED_NOTEBOOK_SUPPORTED_MARKDOWN_COMPONENT_TAGS: frozenset[str] = frozenset(
         "Embed",
         "Image",
         "Latex",
+        "PythonV2",
         "Query",
+        "SQLV2",
     }
 )
 
@@ -47,6 +49,18 @@ _SHARED_NOTEBOOK_MARKDOWN_COMPONENT_PROP_TYPES: dict[str, dict[str, type | tuple
     "Embed": {"height": (int, float), "src": str, "title": str, "width": (int, float)},
     "Image": {"alt": str, "height": (int, float), "src": str, "title": str, "width": (int, float)},
     "Latex": {"content": str, "editing": bool, "title": str},
+    # The V2 cells render their persisted `result` envelope read-only in shared view — the
+    # walkthrough's "last saved result, no kernel". `runId` is deliberately absent: sharing
+    # tokens cannot reach the run endpoints, and stripping it keeps shared clients from
+    # ever polling. InputV2 stays unsupported (it exists to execute kernel code).
+    "PythonV2": {
+        "code": str,
+        "height": (int, float),
+        "nodeId": str,
+        "result": dict,
+        "returnVariable": str,
+        "title": str,
+    },
     "Query": {
         "hideFilters": bool,
         "hideResults": bool,
@@ -57,6 +71,16 @@ _SHARED_NOTEBOOK_MARKDOWN_COMPONENT_PROP_TYPES: dict[str, dict[str, type | tuple
         "query": dict,
         "showSettings": bool,
         "title": str,
+    },
+    "SQLV2": {
+        "code": str,
+        "height": (int, float),
+        "nodeId": str,
+        "outputTab": str,
+        "result": dict,
+        "returnVariable": str,
+        "title": str,
+        "vizQuery": dict,
     },
 }
 

@@ -30,6 +30,13 @@ export const SHARED_NOTEBOOK_SUPPORTED_NODE_TYPES: ReadonlySet<string> = new Set
     // `UnsupportedNodePlaceholder` from inside `NotebookNodeQuery` because they would otherwise
     // POST to `/api/projects/.../query/`, which sharing tokens cannot reach.
     NotebookNodeType.Query,
+    // The V2 cells render their persisted `result` envelope with no fetching; all run/toolbar
+    // affordances live in Settings, which NodeWrapper suppresses when shared, and the backend
+    // sharing filter strips `runId` so the run poller never starts. The components force the
+    // Results tab and disable paging in shared mode (those need endpoints sharing tokens
+    // cannot reach). InputV2 stays out: it exists to execute kernel code.
+    NotebookNodeType.SQLV2,
+    NotebookNodeType.PythonV2,
 ])
 
 export function isNodeSupportedInSharedNotebook(nodeType: string): boolean {

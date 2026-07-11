@@ -585,6 +585,68 @@ class TestNotebookSharingConfiguration(APIBaseTest):
         self.assertNotIn("cachedResults", raw)
         self.assertIsNone(body["notebook"]["text_content"])
 
+    def test_shared_notebook_keeps_v2_cell_results_and_strips_run_ids(self) -> None:
+        # Journey 12: a shared revamped notebook must show each cell's last saved result
+        # (code + persisted envelope) with no kernel affordances: runId must never reach an
+        # anonymous viewer (sharing tokens cannot poll runs), and the interactive InputV2
+        # widget must collapse entirely.
+        markdown = "\n\n".join(
+            [
+                "hello",
+                (
+                    '<SQLV2 code="select 1" nodeId="a1" result={{"columns":["a"],"first_page":[[1]],"row_count":1}} '
+                    'returnVariable="sql_df" runId="SECRET_SQL_RUN" />'
+                ),
+                (
+                    '<PythonV2 code="print(1)" nodeId="p1" result={{"columns":[],"first_page":[],"row_count":0,"stdout":"1"}} '
+                    'returnVariable="df" runId="SECRET_PY_RUN" />'
+                ),
+                '<InputV2 value="SECRET_INPUT" variable="date_from" widgetType="text" />',
+            ]
+        )
+        self.notebook.content = _markdown_doc(markdown)
+        self.notebook.text_content = "hello SECRET_SQL_RUN SECRET_PY_RUN SECRET_INPUT"
+        self.notebook.save()
+        self.client.patch(self._sharing_url(), {"enabled": True}, format="json")
+        config = SharingConfiguration.objects.get(notebook=self.notebook, expires_at__isnull=True)
+
+        self.client.logout()
+        response = self.client.get(f"/shared/{config.access_token}.json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+
+        markdown_node = body["notebook"]["content"]["content"][0]
+        self.assertEqual(
+            markdown_node,
+            {
+                "type": "ph-markdown-notebook",
+                "attrs": {
+                    "nodeId": "markdown-notebook-v2",
+                    "markdown": "\n\n".join(
+                        [
+                            "hello",
+                            (
+                                '<SQLV2 code="select 1" nodeId="a1" '
+                                'result={{"columns":["a"],"first_page":[[1]],"row_count":1}} '
+                                'returnVariable="sql_df" />'
+                            ),
+                            (
+                                '<PythonV2 code="print(1)" nodeId="p1" '
+                                'result={{"columns":[],"first_page":[],"row_count":0,"stdout":"1"}} '
+                                'returnVariable="df" />'
+                            ),
+                            "<InputV2 />",
+                        ]
+                    ),
+                },
+            },
+        )
+
+        raw = response.content.decode()
+        self.assertNotIn("SECRET_SQL_RUN", raw)
+        self.assertNotIn("SECRET_PY_RUN", raw)
+        self.assertNotIn("SECRET_INPUT", raw)
+
     def test_deleted_notebook_404s_on_shared_endpoint(self) -> None:
         self.client.patch(self._sharing_url(), {"enabled": True}, format="json")
         config = SharingConfiguration.objects.get(notebook=self.notebook, expires_at__isnull=True)
