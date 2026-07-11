@@ -3,7 +3,6 @@ import React, { useEffect, useMemo } from 'react'
 import { useChartHover } from '../../core/chart-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
-import { seriesValueRange } from '../../core/scales'
 import type { ChartTheme, LineChartConfig, Series } from '../../core/types'
 import { LineChart } from '../LineChart/LineChart'
 
@@ -26,24 +25,6 @@ export interface SparklineProps {
     className?: string
     dataAttr?: string
     onError?: (error: Error, info: React.ErrorInfo) => void
-}
-
-/** Hug the data range: a fixed domain (no tick-nicing) puts the lowest point on the plot bottom
- *  instead of floating mid-plot. A flat series reads against a zero baseline instead — flat 0 runs
- *  along the bottom, a flat non-zero value along the top — so a steady value doesn't read as zero.
- *  `undefined` (no finite values) falls back to the scale's own domain. */
-export function sparklineValueDomain(data: number[]): [number, number] | undefined {
-    const { min, max, count } = seriesValueRange([{ key: 'sparkline', label: 'sparkline', data }])
-    if (count === 0) {
-        return undefined
-    }
-    if (max !== min) {
-        return [min, max]
-    }
-    if (max === 0) {
-        return [0, 1]
-    }
-    return max > 0 ? [0, max] : [max, 0]
 }
 
 const SPARKLINE_CONFIG: LineChartConfig = {
@@ -95,10 +76,6 @@ function SparklineInner({
         ],
         [data, resolvedColor, fillOpacity, dashedFromIndex]
     )
-    const config = useMemo<LineChartConfig>(() => {
-        const valueDomain = sparklineValueDomain(data)
-        return valueDomain ? { ...SPARKLINE_CONFIG, valueDomain } : SPARKLINE_CONFIG
-    }, [data])
     const wrapperStyle = useMemo<React.CSSProperties | undefined>(() => (fill ? undefined : { height }), [fill, height])
 
     return (
@@ -107,7 +84,7 @@ function SparklineInner({
             style={wrapperStyle}
             data-attr={dataAttr}
         >
-            <LineChart series={series} labels={resolvedLabels} theme={theme} config={config}>
+            <LineChart series={series} labels={resolvedLabels} theme={theme} config={SPARKLINE_CONFIG}>
                 {onHoverIndexChange ? <HoverWatcher onHoverChange={onHoverIndexChange} /> : null}
             </LineChart>
         </div>

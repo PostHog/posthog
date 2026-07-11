@@ -2,7 +2,7 @@ import { fireEvent } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
 import { renderHogChart } from '../../testing'
-import { Sparkline, sparklineValueDomain } from './Sparkline'
+import { Sparkline } from './Sparkline'
 
 const THEME: ChartTheme = { colors: ['#22d3ee'], backgroundColor: '#ffffff' }
 const LABELS = ['Jan', 'Feb', 'Mar', 'Apr']
@@ -44,17 +44,5 @@ describe('Sparkline', () => {
     it('does not require labels — falls back to index strings', () => {
         const { container } = renderHogChart(<Sparkline data={[10, 20, 30]} theme={THEME} />)
         expect(container.querySelector('canvas')).not.toBeNull()
-    })
-
-    it.each([
-        ['mixed values hug min..max', [30, 10, 20], [10, 30]],
-        ['a flat non-zero series reads against a zero baseline (line at the top)', [500, 500, 500], [0, 500]],
-        ['a flat zero series runs along the bottom', [0, 0, 0], [0, 1]],
-        ['a flat negative series hangs from the zero baseline', [-5, -5], [-5, 0]],
-        ['gaps (NaN) are ignored', [NaN, 10, NaN, 30], [10, 30]],
-        ['all-NaN falls back to the scale default', [NaN, NaN], undefined],
-        ['empty falls back to the scale default', [], undefined],
-    ] as const)('sparklineValueDomain: %s', (_name, data, expected) => {
-        expect(sparklineValueDomain([...data])).toEqual(expected)
     })
 })
