@@ -26,7 +26,7 @@ env:
 
 jobs:
     # Job to decide if we should run frontend ci
-    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    # See .github/actions/paths-filter/README.md for filter semantics
     # we skip each step individually, so   they are still reported as success
     # because many of them are required for CI checks to be green
     changes:
@@ -61,7 +61,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -145,20 +145,18 @@ jobs:
             # that declare nested pnpm workspaces) rather than hardcoded, so a new product's
             # services are excluded automatically — see bin/frontend-exclude-filter.
             #
-            # A separate `every`-quantifier step is required: appending a plain `!...` to the
-            # broad filter wouldn't work because dorny's default `some` quantifier OR-matches
-            # predicates and neutralizes the negation (same gotcha as
-            # ci-migrations-service-separation-check.yml). With `every`, the filter is true
-            # only when some changed file lives OUTSIDE every excluded dir.
+            # A separate step is still needed because these exclusions are generated at
+            # runtime from pnpm-workspace.yaml into a filter file, while the main filter
+            # above is inline YAML — paths-filter takes one or the other. The exclude-only
+            # filter is true only when some changed file lives OUTSIDE every excluded dir.
             - name: Derive Node-only product workspace exclusions
               if: github.event_name != 'push'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: exclude
               if: github.event_name != 'push'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  predicate-quantifier: 'every'
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
     # Pick which jest tests to run on draft PRs by passing changed files to
@@ -406,6 +404,10 @@ jobs:
             - name: Check toolbar bundle stays under the CloudFront gzip limit
               run: pnpm --filter=@posthog/frontend check-toolbar-size
 
+            # Runs against the PR's own metafile, before the base rebuild overwrites it.
+            - name: Check toolbar graph stays inside its module boundary
+              run: pnpm --filter=@posthog/frontend check-toolbar-graph
+
             - name: Build base branch for size comparison
               # A broken base build (install/esbuild — which --report-only does not cover) must
               # only cost the vs-base delta, never redden every open PR's job. The comment steps
@@ -417,6 +419,11 @@ jobs:
               run: |
                   git fetch -n origin "$BASE_SHA"
                   git reset --hard "$BASE_SHA"
+                  # dist/ is untracked so it survives the reset. Without a clean, the base
+                  # build layers differently-hashed chunks on top of the PR's, inflating the
+                  # base measurement by hundreds of MiB and making every PR's dist-size delta
+                  # a large spurious negative. The build never cleans dist/ itself.
+                  rm -rf frontend/dist
                   pnpm --filter=@posthog/frontend... install
                   pnpm --filter=@posthog/frontend build:with-report
                   du -sb frontend/dist | cut -f1 > frontend/dist-size-base.txt
@@ -597,7 +604,11 @@ jobs:
 
     jest:
         runs-on: ubuntu-latest
-        timeout-minutes: 15
+        # Draft PRs run the selective mode as a single unsharded job over every
+        # test reachable from the changed files. A PR touching a scene component
+        # can pull in ~700 suites, which does not fit in 15 minutes. 20 covers it;
+        # the ready-for-review fanout shards well below either limit.
+        timeout-minutes: 20
         needs: [changes, select-jest-tests]
         if: |
             always() && needs.changes.outputs.frontend_code == 'true'
@@ -679,26 +690,27 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 1
 
-            # Quarantine gate: uploads junit to Trunk and gates the job. Exit 0 when every
-            # failure is an already-quarantined flake, non-zero otherwise (falls back to the
-            # raw test outcome if Trunk is unreachable). FOSS and EE run the same test files,
-            # so each segment uploads under its own variant to keep their histories distinct.
-            # Runs the token only on internal PRs, master, and the merge queue — never on fork
-            # PRs or Dependabot, which have no secret.
+            # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
+            # the verdict, so a Trunk outage can't red a passing shard. FOSS and EE share test files,
+            # so each segment uploads under its own variant. Internal PRs only (needs the secret);
+            # cli-version pinned, not 'latest' (skips the release redirect).
             - name: Quarantine gate
+              id: quarantine_gate
+              continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-results/junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
                   org-slug: posthog-inc
                   variant: ${{ matrix.segment }}
+                  cli-version: '0.13.7'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
-            # No Trunk secret on fork PRs and Dependabot; fall back to the raw jest outcome so
-            # a genuine failure still goes red exactly as before.
-            - name: Fail on jest failure (no quarantine gate)
-              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
+            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
+            # also covers the skipped gate on fork/Dependabot. Passing shards never red here.
+            - name: Fail on jest failure
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
               shell: bash
               run: exit 1
 
@@ -738,22 +750,23 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 1
 
-            # Quarantine gate: see the jest job for the full rationale. Runs the token only
-            # on internal PRs, master, and the merge queue — never on fork PRs or Dependabot.
+            # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
+            # the verdict. See the jest job for the full rationale. cli-version pinned, not 'latest'.
             - name: Quarantine gate
+              id: quarantine_gate
+              continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-results/junit-replay-shared.xml
                   org-slug: posthog-inc
                   variant: replay-shared
+                  cli-version: '0.13.7'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
-            # No Trunk secret on fork PRs and Dependabot; fall back to the raw jest outcome so
-            # a genuine failure still goes red exactly as before.
-            - name: Fail on jest failure (no quarantine gate)
-              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
+            - name: Fail on jest failure
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
               shell: bash
               run: exit 1
 

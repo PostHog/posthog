@@ -733,6 +733,8 @@ class TestQuotaLimiting(BaseTest):
             )
             is None
         )
+        assert self.organization.usage["events"].get("quota_limited_until") is None
+        assert self.organization.usage["events"].get("quota_limiting_suspended_until") is None
 
         # Not over quota
         self.organization.usage["exceptions"]["usage"] = 99
@@ -2222,6 +2224,76 @@ class TestQuotaLimiting(BaseTest):
         members_after = {member.decode("utf-8") for member in self.redis_client.zrange(recordings_zset_key, 0, -1)}
         assert (self.team.api_token in members_after) is expected_token_in_recordings_zset_after
 
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    def test_update_org_billing_quotas_recordings_limit_removed_clears_usage_marker(
+        self, mock_update_remote_config
+    ) -> None:
+        recordings_zset_key = "@posthog/quota-limits/recordings"
+        score = int(timezone.now().timestamp()) + 10_000
+        replace_limited_team_tokens(
+            QuotaResource.RECORDINGS,
+            {self.team.api_token: score},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        self.organization.usage = {
+            "events": {"usage": 0, "limit": 100, "todays_usage": 0},
+            "recordings": {
+                # Legacy/partial usage blobs can store explicit JSON null counters.
+                "usage": None,
+                "limit": None,
+                "todays_usage": None,
+                "quota_limited_until": score,
+            },
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+
+        update_org_billing_quotas(self.organization)
+
+        assert self.organization.usage["recordings"].get("quota_limited_until") is None
+        assert self.organization.usage["recordings"].get("quota_limiting_suspended_until") is None
+        members_after = {member.decode("utf-8") for member in self.redis_client.zrange(recordings_zset_key, 0, -1)}
+        assert self.team.api_token not in members_after
+        mock_update_remote_config.apply_async.assert_called_once_with(
+            args=[self.team.id],
+            kwargs={"bypass_recordings_quota_cache": True},
+            countdown=35,
+        )
+
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    def test_update_org_billing_quotas_recordings_free_allocation_keeps_limited_marker(
+        self, mock_update_remote_config
+    ) -> None:
+        recordings_zset_key = "@posthog/quota-limits/recordings"
+        score = int(timezone.now().timestamp()) + 10_000
+        replace_limited_team_tokens(
+            QuotaResource.RECORDINGS,
+            {self.team.api_token: score},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        self.organization.usage = {
+            "events": {"usage": 0, "limit": 100, "todays_usage": 0},
+            "recordings": {
+                "usage": 6_000,
+                "limit": 5_000,
+                "todays_usage": 0,
+                "quota_limited_until": score,
+            },
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+
+        update_org_billing_quotas(self.organization)
+
+        assert self.organization.usage["recordings"].get("quota_limited_until") is not None
+        members_after = {member.decode("utf-8") for member in self.redis_client.zrange(recordings_zset_key, 0, -1)}
+        assert self.team.api_token in members_after
+        mock_update_remote_config.apply_async.assert_not_called()
+
 
 def _full_usage_counters(**overrides: int) -> UsageCounters:
     base = UsageCounters(
@@ -2240,6 +2312,7 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         workflow_emails=0,
         workflow_destinations_dispatched=0,
         logs_mb_ingested=0,
+        replay_vision_credits=0,
     )
     base.update(overrides)  # type: ignore[typeddict-item]
     return base

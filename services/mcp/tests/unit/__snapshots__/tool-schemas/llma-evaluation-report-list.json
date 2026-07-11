@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "evaluation": {
+            "description": "Only return report configs for this evaluation UUID.",
+            "type": "string"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"

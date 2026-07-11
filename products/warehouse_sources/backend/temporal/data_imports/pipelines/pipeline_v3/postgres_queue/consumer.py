@@ -7,7 +7,9 @@ polling, retry, and recovery mechanics to the v3 batch consumer engine.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+from collections.abc import Callable, Coroutine
+from datetime import datetime
 from typing import Any
 
 from django.db import close_old_connections
@@ -29,10 +31,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     RETRY_BACKOFF_BASE_SECONDS,
     BatchConsumer as SharedBatchConsumer,
     BatchConsumerConfig,
+    OwnershipLostError,
     ProcessBatchFn,
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    FRESHNESS_WINDOW_SECONDS,
     BatchQueue,
     PendingBatch,
 )
@@ -48,6 +52,24 @@ from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 logger = structlog.get_logger(__name__)
 
 ConsumerConfig = BatchConsumerConfig
+
+# Raises OwnershipLostError when this consumer no longer holds the group lease.
+VerifyOwnership = Callable[[], None]
+# Unlike the engine's ProcessBatchFn, the Delta sink also receives the per-batch ownership check.
+DeltaProcessBatchFn = Callable[[PendingBatch, VerifyOwnership | None], Coroutine[Any, Any, None]]
+
+# Ceiling for the queue-freshness probe, deliberately far below the sweep
+# timeout so a degraded probe can't starve the reconcile sweep it rides on.
+FRESHNESS_PROBE_TIMEOUT_SECONDS = 30.0
+
+# Errors that fail identically on every attempt. Substring-matched because they
+# surface as generic exceptions; keep entries specific so transients can't match.
+NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
+    # delta-rs decimal precision overflow — the batch's data cannot fit the column
+    "is too large to store in a Decimal128",
+    # schema configured as incremental without a primary key — config error
+    "Primary key required for incremental syncs",
+)
 
 
 class DeltaBatchConsumerAdapter:
@@ -99,22 +121,15 @@ class DeltaBatchConsumerAdapter:
         job_state: str,
         attempt: int,
         error_response: dict[str, Any] | None = None,
+        batch_created_at: datetime | None = None,
     ) -> None:
-        if error_response is None:
-            await BatchQueue.update_status(
-                conn,
-                batch_id=batch_id,
-                job_state=job_state,
-                attempt=attempt,
-            )
-            return
-
         await BatchQueue.update_status(
             conn,
             batch_id=batch_id,
             job_state=job_state,
             attempt=attempt,
             error_response=error_response,
+            batch_created_at=batch_created_at,
         )
 
     async def fail_run(
@@ -267,11 +282,22 @@ class DeltaBatchConsumerAdapter:
 
         This is the loader's data-freshness signal: it rises whenever loading
         stalls, no matter why — the alert on it fires even when every other
-        health signal looks green. Failures are swallowed-with-capture so a
-        broken probe can't take the reconcile sweep down with it.
+        health signal looks green. The probe has its own timeout so it cannot
+        eat the reconcile sweep's budget; on timeout the gauge saturates, since
+        a queue DB too degraded to measure freshness must read as stale. Other
+        failures are swallowed-with-capture so a broken probe can't take the
+        sweep down.
         """
         try:
-            age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
+            async with asyncio.timeout(FRESHNESS_PROBE_TIMEOUT_SECONDS):
+                age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
+        except TimeoutError:
+            logger.error(  # noqa: TRY400 — designed degraded path, traceback is noise
+                "queue_freshness_probe_timed_out",
+                timeout_seconds=FRESHNESS_PROBE_TIMEOUT_SECONDS,
+            )
+            OLDEST_UNCLAIMED_BATCH_SECONDS.set(FRESHNESS_WINDOW_SECONDS)
+            return
         except Exception as e:
             logger.exception("queue_freshness_probe_failed")
             capture_exception(e)
@@ -286,6 +312,10 @@ class DeltaBatchConsumerAdapter:
     ) -> bool:
         return True
 
+    def is_retryable_error(self, err: Exception) -> bool:
+        message = str(err)
+        return not any(pattern in message for pattern in NON_RETRYABLE_ERROR_PATTERNS)
+
     async def after_batch_processed(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -299,15 +329,40 @@ class BatchConsumer(SharedBatchConsumer):
     def __init__(
         self,
         config: ConsumerConfig,
-        process_batch: ProcessBatchFn,
+        process_batch: DeltaProcessBatchFn,
         health_reporter: Callable[[], None] | None = None,
     ) -> None:
+        async def process_with_ownership_check(batch: PendingBatch) -> None:
+            await process_batch(batch, self._make_verify_ownership(batch))
+
         super().__init__(
             config=config,
-            process_batch=process_batch,
+            process_batch=process_with_ownership_check,
             adapter=DeltaBatchConsumerAdapter(),
             health_reporter=health_reporter,
         )
+
+    def _make_verify_ownership(self, batch: PendingBatch) -> Callable[[], None]:
+        """Sync ownership check for the worker thread: the engine's lease checks bracket
+        the batch but can't see a loss mid-write. Fails closed — an unverified lease is lost."""
+        database_url = self._config.database_url
+        connect_timeout = self._config.connect_timeout_seconds
+
+        def verify_ownership() -> None:
+            try:
+                owns = BatchQueue.verify_group_lease_sync(
+                    database_url,
+                    team_id=batch.team_id,
+                    schema_id=batch.schema_id,
+                    owner_token=self._owner_token,
+                    connect_timeout_seconds=connect_timeout,
+                )
+            except Exception as e:
+                raise OwnershipLostError("pre-commit lease verification query failed") from e
+            if not owns:
+                raise OwnershipLostError(f"group lease lost before commit for ({batch.team_id}, {batch.schema_id})")
+
+        return verify_ownership
 
 
 def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> None:

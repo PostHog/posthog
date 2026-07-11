@@ -125,6 +125,8 @@ mod tests {
             source_offset: 9,
             leaves: vec![],
             forward_hops: 0,
+
+            person_dedup: None,
         }
     }
 

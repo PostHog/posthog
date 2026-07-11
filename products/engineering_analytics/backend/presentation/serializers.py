@@ -18,8 +18,12 @@ from products.engineering_analytics.backend.facade.contracts import (
     CIJobFailureLog,
     CIStatusRollup,
     CostPerMergeBucket,
+    FlakyTestItem,
+    FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
+    OpenToMergeBucket,
+    PassRateBucket,
     PRCostSummary,
     PRLifecycle,
     PRLifecycleEvent,
@@ -27,6 +31,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequest,
     PullRequestList,
     PullRequestListItem,
+    PushCISample,
     QuarantineEntry,
     QuarantineFile,
     QuarantineRequest,
@@ -35,6 +40,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
     RunCost,
     RunFailureLogs,
+    TimeToGreenBucket,
     WorkflowCost,
     WorkflowHealthBucket,
     WorkflowHealthItem,
@@ -236,6 +242,7 @@ class WorkflowRunActivityPointSerializer(DataclassSerializer):
             },
             "head_branch": {"help_text": "Git branch the run was triggered on, or '' when unknown."},
             "pr_number": {"help_text": "Attributed pull request number, or 0 when unattributed."},
+            "head_sha": {"help_text": "Head commit SHA of the run/commit, or '' when unknown."},
         }
 
 
@@ -388,6 +395,59 @@ class PRCostSummarySerializer(DataclassSerializer):
         }
 
 
+class FlakyTestItemSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = FlakyTestItem
+        extra_kwargs = {
+            "nodeid": {
+                "help_text": "Reconstructed pytest nodeid (the CI span name), e.g. "
+                "'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable "
+                "selector — use `selector` to run or quarantine the test.",
+            },
+            "selector": {
+                "help_text": "Runnable pytest selector, e.g. "
+                "'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; "
+                "otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess.",
+            },
+            "rerun_passed_count": {
+                "help_text": "Times the test failed, then passed on an automatic retry — the strongest flaky "
+                "signal. Only CI lanes running with reruns enabled emit it; a flake in a no-rerun lane "
+                "shows up in failed_count instead.",
+            },
+            "failed_count": {
+                "help_text": "Spans whose final outcome was 'failed' or 'error' in the window. An absolute "
+                "count, not a rate — fast passing runs are not emitted, so denominators are biased.",
+            },
+            "failed_pr_count": {
+                "help_text": "Distinct pull requests among the failed/error spans. Failures on master or "
+                "unattributed branches carry no PR number and are excluded here (still in failed_count).",
+            },
+            "branch_count": {
+                "help_text": "Distinct git branches across all of the test's flaky-signal spans in the window.",
+            },
+            "xfailed_count": {
+                "help_text": "Runs where the test failed while quarantined (xfail) — already masked in CI "
+                "but still flaky.",
+            },
+            "last_seen_at": {"help_text": "Most recent flaky-signal span for this test in the window."},
+        }
+
+
+class FlakyTestListSerializer(DataclassSerializer):
+    items = FlakyTestItemSerializer(
+        many=True, help_text="Qualifying tests ranked by flakiness signal, strongest first, capped at `limit`."
+    )
+
+    class Meta:
+        dataclass = FlakyTestList
+        extra_kwargs = {
+            "truncated": {
+                "help_text": "True when more tests qualified than the cap; `items` is the strongest `limit` rows.",
+            },
+            "limit": {"help_text": "Maximum number of tests returned in `items`."},
+        }
+
+
 class CIStatusRollupSerializer(DataclassSerializer):
     class Meta:
         dataclass = CIStatusRollup
@@ -403,10 +463,33 @@ class CIStatusRollupSerializer(DataclassSerializer):
         }
 
 
+class PushCISampleSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PushCISample
+        extra_kwargs = {
+            "head_sha": {"help_text": "Head commit SHA of this push (CI round)."},
+            "started_at": {"help_text": "Earliest workflow-run start on this push."},
+            "wall_seconds": {
+                "help_text": "Wall-clock CI seconds for this push: earliest run start to latest completed "
+                "run end. Null while nothing has completed.",
+                "allow_null": True,
+            },
+            "failed": {
+                "help_text": "True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'.",
+            },
+            "pending": {"help_text": "True when any latest-per-workflow run on this push hasn't completed yet."},
+        }
+
+
 class PullRequestListItemSerializer(DataclassSerializer):
     author = AuthorSerializer(help_text="The pull request author.")
     repo = RepoRefSerializer(help_text="Repository the pull request belongs to.")
     ci = CIStatusRollupSerializer(help_text="CI status from the latest workflow runs on the head SHA.")
+    push_history = PushCISampleSerializer(
+        many=True,
+        help_text="This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per "
+        "push for the push-history sparkline. `pushes` stays the uncapped count.",
+    )
 
     class Meta:
         dataclass = PullRequestListItem
@@ -642,11 +725,14 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration of completed runs, in seconds. Null if none completed.",
+                "help_text": "Median duration in seconds over successful runs only — cancelled (superseded) and "
+                "failed runs end early and would bias the percentile. Null if no run succeeded in the window.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration of completed runs, in seconds. Null if none completed.",
+                "help_text": "95th-percentile duration in seconds over successful runs only — cancelled "
+                "(superseded) and failed runs end early and would bias the percentile. Null if no run succeeded "
+                "in the window.",
                 "allow_null": True,
             },
             "last_failure_at": {
@@ -709,11 +795,71 @@ class CostPerMergeBucketSerializer(DataclassSerializer):
         }
 
 
+class TimeToGreenBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TimeToGreenBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "p50_seconds": {
+                "help_text": "Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. "
+                "Null when the bucket had no successful PR run (a gap, not instant CI).",
+                "allow_null": True,
+            },
+        }
+
+
+class PassRateBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PassRateBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "success_rate": {
+                "help_text": "Fraction (0-1) of completed runs started in this bucket that succeeded. "
+                "Null when the bucket had no completed run (a gap, not a 0% pass rate).",
+                "allow_null": True,
+            },
+        }
+
+
+class OpenToMergeBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = OpenToMergeBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to open_to_merge_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "p50_seconds": {
+                "help_text": "Median merged_at - created_at seconds over PRs merged in this bucket, bots and "
+                "drafts excluded. Null when nothing merged in the bucket (a gap, not instant merges).",
+                "allow_null": True,
+            },
+        }
+
+
 class RepoOverviewSerializer(DataclassSerializer):
     cost_series = CostPerMergeBucketSerializer(
         many=True,
         help_text="CI cost per merged PR across the window, oldest first, zero-filled, bucketed by "
         "cost_series_granularity. Empty when the job-level source isn't synced.",
+    )
+    time_to_green_series = TimeToGreenBucketSerializer(
+        many=True,
+        help_text="Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the "
+        "window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null.",
+    )
+    success_rate_series = PassRateBucketSerializer(
+        many=True,
+        help_text="CI pass rate (completed runs that succeeded, all branches) per bucket across the window, "
+        "oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null.",
+    )
+    open_to_merge_series = OpenToMergeBucketSerializer(
+        many=True,
+        help_text="Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across "
+        "the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null.",
     )
 
     class Meta:
@@ -764,6 +910,15 @@ class RepoOverviewSerializer(DataclassSerializer):
             "default_branch": {"help_text": "'master' or 'main', picked by observed run volume in the window."},
             "cost_series_granularity": {
                 "help_text": "Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'."
+            },
+            "time_to_green_series_granularity": {
+                "help_text": "Bucket width of the time_to_green_series trend: 'hour', 'day', or 'week'."
+            },
+            "success_rate_series_granularity": {
+                "help_text": "Bucket width of the success_rate_series trend: 'hour', 'day', or 'week'."
+            },
+            "open_to_merge_series_granularity": {
+                "help_text": "Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'."
             },
         }
 
@@ -826,11 +981,13 @@ class WorkflowJobAggregateSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration of completed job instances, in seconds. Null if none completed.",
+                "help_text": "Median duration of successful job instances, in seconds — cancelled and failed "
+                "instances end early and would bias the percentile. Null if none succeeded.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration of completed job instances, in seconds. Null if none completed.",
+                "help_text": "95th-percentile duration of successful job instances, in seconds — cancelled and "
+                "failed instances end early and would bias the percentile. Null if none succeeded.",
                 "allow_null": True,
             },
             "failure_rate": {

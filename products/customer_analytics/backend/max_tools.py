@@ -8,14 +8,14 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, ConfigDict, Field
 
-from posthog.api.tagged_item import set_tags_on_object
 from posthog.exceptions_capture import capture_exception
+from posthog.models import OrganizationMembership
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
-from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
+from products.customer_analytics.backend.facade.api import _set_tags
 from products.customer_analytics.backend.logic import relationships as relationships_logic
-from products.customer_analytics.backend.models import Account
+from products.customer_analytics.backend.models import Account, AccountRelationshipDefinition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 from ee.hogai.tool import MaxTool
@@ -108,34 +108,33 @@ UPSERT_ACCOUNT_TOOL_DESCRIPTION = dedent("""
     Resolve `account_id` (a UUID) first via `read_data`/`list_data` with the account kind.
 
     # Properties
-    `properties` carries typed fields. Assignment fields (csm, account_executive, account_owner) take
-    an object `{id, email}` (the PostHog user id and email) or null to clear. External-system ids
-    (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id) are strings.
+    `properties` carries typed fields. External-system ids (stripe_customer_id, hubspot_deal_id,
+    billing_id, sfdc_id, zendesk_id) are strings.
     On **update**, only the property keys you pass are changed (others are preserved); pass a key as
     null to clear it.
+
+    # Relationships
+    Pass `relationships` to assign users to the account's relationships (CSM, Account executive, or
+    any definition the team has created), keyed by definition name: the value is the PostHog user id,
+    or null to end the current assignment. Only the named definitions are changed.
 
     # Tags
     Pass `tags` to set the account's tags. On update this REPLACES the existing tag set.
 
     # Examples
     - "Add an account for Acme Corp whose PostHog group key is acme-123": action=create, name="Acme Corp", external_id="acme-123"
-    - "Assign Jane (user 42, jane@acme.com) as CSM for that account": action=update, account_id=<uuid>,
-      properties={csm: {id: 42, email: "jane@acme.com"}}
+    - "Assign Jane (user 42) as CSM for that account": action=update, account_id=<uuid>,
+      relationships={CSM: 42}
     - "Tag it enterprise and priority": action=update, account_id=<uuid>, tags=["enterprise", "priority"]
     """).strip()
 
 
-class AccountAssignment(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    id: int = Field(description="PostHog user id of the assignee")
-    email: str = Field(description="Email of the assignee")
+class RelationshipAssignmentError(Exception):
+    pass
 
 
 class AccountPropertiesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    csm: AccountAssignment | None = Field(default=None, description="Customer success manager assignment")
-    account_executive: AccountAssignment | None = Field(default=None, description="Account executive assignment")
-    account_owner: AccountAssignment | None = Field(default=None, description="Account owner assignment")
     stripe_customer_id: str | None = Field(default=None, description="Stripe customer id")
     hubspot_deal_id: str | None = Field(default=None, description="HubSpot deal id")
     billing_id: str | None = Field(default=None, description="Billing system id")
@@ -157,6 +156,13 @@ class CreateAccountAction(BaseModel):
     )
     tags: list[str] | None = Field(default=None, description="Tag names to attach to the account")
     properties: AccountPropertiesInput | None = Field(default=None, description="Typed account properties")
+    relationships: dict[str, int | None] | None = Field(
+        default=None,
+        description=(
+            "Relationship assignments keyed by definition name (e.g. 'CSM'); each value is the "
+            "PostHog user id to assign, or null to end the current assignment."
+        ),
+    )
 
 
 class UpdateAccountAction(BaseModel):
@@ -170,6 +176,14 @@ class UpdateAccountAction(BaseModel):
     tags: list[str] | None = Field(default=None, description="Replaces the account's existing tags")
     properties: AccountPropertiesInput | None = Field(
         default=None, description="Property keys to merge; pass a key as null to clear it"
+    )
+    relationships: dict[str, int | None] | None = Field(
+        default=None,
+        description=(
+            "Relationship assignments keyed by definition name (e.g. 'CSM'); each value is the "
+            "PostHog user id to assign, or null to end the current assignment. Only the named "
+            "definitions are changed."
+        ),
     )
 
 
@@ -204,6 +218,8 @@ class UpsertAccountTool(MaxTool):
             return f"An account with external_id '{action.external_id}' already exists for this team.", {
                 "error": "duplicate_external_id",
             }
+        except RelationshipAssignmentError as e:
+            return str(e), {"error": "invalid_relationship_assignment"}
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to create account: {str(e)}", {"error": "creation_failed", "details": str(e)}
@@ -220,7 +236,13 @@ class UpsertAccountTool(MaxTool):
 
         await self.check_object_access(account, "editor", resource="account", action="edit")
 
-        if action.name is None and action.external_id is None and action.tags is None and action.properties is None:
+        if (
+            action.name is None
+            and action.external_id is None
+            and action.tags is None
+            and action.properties is None
+            and action.relationships is None
+        ):
             return "No changes provided. Specify at least one field to update.", {"error": "no_changes"}
 
         try:
@@ -229,6 +251,8 @@ class UpsertAccountTool(MaxTool):
             return f"An account with external_id '{action.external_id}' already exists for this team.", {
                 "error": "duplicate_external_id",
             }
+        except RelationshipAssignmentError as e:
+            return str(e), {"error": "invalid_relationship_assignment"}
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to update account: {str(e)}", {"error": "update_failed", "details": str(e)}
@@ -257,9 +281,9 @@ class UpsertAccountTool(MaxTool):
                 properties=properties,
             )
             if action.tags is not None:
-                set_tags_on_object(action.tags, account)
-            if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
-                relationships_logic.sync_from_account_properties(account, created_by=self._user)
+                _set_tags(action.tags, account, actor=self._user)
+            if action.relationships:
+                self._apply_relationship_assignments(account, action.relationships)
         return account
 
     @sync_to_async
@@ -276,10 +300,46 @@ class UpsertAccountTool(MaxTool):
         with transaction.atomic():
             account = Account.objects.update_account(account, **update_kwargs)
             if action.tags is not None:
-                set_tags_on_object(action.tags, account)
-            if action.properties is not None:
-                relationships_logic.sync_from_account_properties(account, created_by=self._user)
+                _set_tags(action.tags, account, actor=self._user)
+            if action.relationships:
+                self._apply_relationship_assignments(account, action.relationships)
         return account
+
+    def _apply_relationship_assignments(self, account: Account, assignments: dict[str, int | None]) -> None:
+        definitions = {
+            definition.name: definition
+            for definition in AccountRelationshipDefinition.objects.for_team(self._team.id).filter(
+                name__in=assignments.keys()
+            )
+        }
+        unknown = next((name for name in assignments if name not in definitions), None)
+        if unknown is not None:
+            available = AccountRelationshipDefinition.objects.for_team(self._team.id).values_list("name", flat=True)
+            raise RelationshipAssignmentError(
+                f"Unknown relationship definition '{unknown}'. Available: {', '.join(sorted(available)) or 'none'}."
+            )
+        user_ids = {user_id for user_id in assignments.values() if user_id is not None}
+        memberships = {
+            membership.user_id: membership
+            for membership in OrganizationMembership.objects.select_related("user").filter(
+                organization_id=self._team.organization_id, user_id__in=user_ids
+            )
+        }
+        missing = sorted(user_ids - memberships.keys())
+        if missing:
+            raise RelationshipAssignmentError(f"User {missing[0]} is not a member of this organization.")
+        for name, user_id in assignments.items():
+            definition = definitions[name]
+            if user_id is None:
+                relationships_logic.end_active(team_id=self._team.id, account=account, definition=definition)
+                continue
+            relationships_logic.assign(
+                team_id=self._team.id,
+                account=account,
+                definition=definition,
+                user=memberships[user_id].user,
+                created_by=self._user,
+            )
 
 
 UPSERT_ACCOUNT_NOTEBOOK_TOOL_DESCRIPTION = dedent("""

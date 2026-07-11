@@ -21,6 +21,19 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-20T00:00:00Z"))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-22T23:59:59.999999Z"))
 
+    def test_previous_period_with_exclude_incomplete_periods_stays_aligned(self):
+        # The "-7d is really 8 days" kludge in get_compare_period_dates adds a day to counteract
+        # the ongoing day, but a clipped range no longer includes it: current period is exactly
+        # Wed Aug 18 - Tue Aug 24, so the previous period must be Wed Aug 11 - Tue Aug 17
+        # (weekday-aligned, non-overlapping), not Aug 12 - Aug 18.
+        now = parser.isoparse("2021-08-25T10:00:00.000Z")
+        date_range = DateRange(date_from="-7d", excludeIncompletePeriods=True)
+        query_date_range = QueryPreviousPeriodDateRange(
+            team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now
+        )
+        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-11T00:00:00Z"))
+        self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-17T23:59:59.999999Z"))
+
     def test_explicit_timezone_info_overrides_team_timezone(self):
         # The previous-period delta parsing used to read directly from
         # `self._team.timezone_info`, so a `timezone_info=UTC` override on the constructor

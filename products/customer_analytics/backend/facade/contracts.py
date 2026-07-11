@@ -30,14 +30,18 @@ class AccountAssignment:
     email: str
 
 
-@dataclass(frozen=True)
+@stdlib_dataclass(frozen=True)
 class AccountRelationshipDefinition:
-    """A team-defined account relationship type (CSM, Onboarding manager, ...)."""
+    """A team-defined account relationship type (CSM, Onboarding manager, ...).
 
-    id: UUID
-    name: str
-    description: str | None
-    is_single_holder: bool
+    Stdlib dataclass with defaults so the wrapping ``DataclassSerializer`` can construct it
+    from partial request bodies (see :class:`CustomPropertyDefinitionView`).
+    """
+
+    id: UUID | None = None
+    name: str = ""
+    description: str | None = None
+    is_single_holder: bool = True
 
 
 @dataclass(frozen=True)
@@ -119,6 +123,7 @@ class AccountContextData:
     properties: AccountProperties
     tags: list[str] = field(default_factory=list)
     notes: list[AccountNote] = field(default_factory=list)
+    relationships: list[AccountRelationship] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -130,6 +135,11 @@ class ExternalAccount:
     consumes stays byte-identical to the pre-facade response — a validated
     pydantic pass-through, not a re-typed projection. ``id`` is the stringified
     UUID, matching the wire shape.
+
+    ``custom_properties`` contains every team-defined custom property definition
+    keyed by definition name, with the account's current scalar value (or ``None``
+    when unset). Every definition is present so result paths are deterministic even
+    when a property hasn't been set on this account yet.
     """
 
     id: str
@@ -137,6 +147,8 @@ class ExternalAccount:
     name: str
     properties: dict
     tags: list[str] = field(default_factory=list)
+    relationships: dict[str, list[dict]] = field(default_factory=dict)
+    custom_properties: dict[str, float | bool | str | None] = field(default_factory=dict)
 
 
 class ExternalAccountUpdateError(Enum):
@@ -145,6 +157,7 @@ class ExternalAccountUpdateError(Enum):
 
     NOT_FOUND = "not_found"
     USER_NOT_IN_ORGANIZATION = "user_not_in_organization"
+    RELATIONSHIP_DEFINITION_NOT_FOUND = "relationship_definition_not_found"
     INVALID_PROPERTIES = "invalid_properties"
     UPDATE_FAILED = "update_failed"
 

@@ -70,6 +70,77 @@ export interface TaskUserBasicInfoApi {
     role_at_organization?: string | null
 }
 
+export type SandboxCustomImageDTOApiSpec = { [key: string]: unknown }
+
+export type SandboxCustomImageDTOApiScanResult = { [key: string]: unknown }
+
+/**
+ * Detail response for a custom sandbox base image.
+ */
+export interface SandboxCustomImageDTOApi {
+    id: string
+    name: string
+    description: string
+    repository?: string
+    private?: boolean
+    status: string
+    version: number
+    modal_image_name: string
+    spec?: SandboxCustomImageDTOApiSpec
+    spec_yaml?: string
+    scan_result?: SandboxCustomImageDTOApiScanResult
+    build_log?: string
+    error: string
+    /** @nullable */
+    builder_task_id?: string | null
+    created_by?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+}
+
+export interface PaginatedSandboxCustomImageDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SandboxCustomImageDTOApi[]
+}
+
+/**
+ * Request body for creating a custom sandbox base image.
+ */
+export interface SandboxCustomImageWriteApi {
+    /**
+     * Display name for the custom image.
+     * @maxLength 255
+     */
+    name: string
+    /** What should go into the image; seeds the image-builder agent conversation. */
+    description?: string
+    /**
+     * Optional 'org/repo' the builder session clones so it can verify the image brings up that repository's dependencies.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
+    /** If true, only you can see and use this image; otherwise the whole team can. */
+    private?: boolean
+}
+
+/**
+ * Request body for scanning and building a custom sandbox base image.
+ */
+export interface SandboxCustomImageBuildApi {
+    /**
+     * Image spec YAML to build. When omitted, the spec is read from the builder agent's live sandbox.
+     * @nullable
+     */
+    spec_yaml?: string | null
+}
+
 /**
  * List response for sandbox environments (subset of fields).
  */
@@ -86,6 +157,12 @@ export interface SandboxEnvironmentDTOApi {
     created_at?: string | null
     /** @nullable */
     updated_at?: string | null
+    /** @nullable */
+    custom_image_id?: string | null
+    /** @nullable */
+    custom_image_name?: string | null
+    /** @nullable */
+    custom_image_status?: string | null
 }
 
 export interface PaginatedSandboxEnvironmentDTOListApi {
@@ -141,6 +218,11 @@ export interface SandboxEnvironmentWriteApi {
     environment_variables?: unknown
     /** If true, only the creator can see this environment; otherwise the whole team can. */
     private?: boolean
+    /**
+     * Custom base image for this environment's sandboxes (Modal VM runtime only); null uses the default base.
+     * @nullable
+     */
+    custom_image_id?: string | null
 }
 
 /**
@@ -174,6 +256,11 @@ export interface PatchedSandboxEnvironmentWriteApi {
     environment_variables?: unknown
     /** If true, only the creator can see this environment; otherwise the whole team can. */
     private?: boolean
+    /**
+     * Custom base image for this environment's sandboxes (Modal VM runtime only); null uses the default base.
+     * @nullable
+     */
+    custom_image_id?: string | null
 }
 
 /**
@@ -339,6 +426,32 @@ export interface PatchedChannelWriteApi {
 }
 
 /**
+ * Response shape for one @-mention of the requester in a task's thread.
+ */
+export interface TaskMentionDTOApi {
+    id: string
+    message_id: string
+    task_id: string
+    task_title: string
+    /** @nullable */
+    channel_id: string | null
+    /** @nullable */
+    channel_name: string | null
+    author?: TaskUserBasicInfoApi | null
+    content: string
+    created_at: string
+}
+
+export interface PaginatedTaskMentionDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskMentionDTOApi[]
+}
+
+/**
  * @nullable
  */
 export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
@@ -412,6 +525,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `signals_scout` - Signals Scout
  * * `support_reply` - Support Reply
  * * `hogdesk` - HogDesk
+ * * `image_builder` - Image Builder
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -430,6 +544,7 @@ export const OriginProductEnumApi = {
     SignalsScout: 'signals_scout',
     SupportReply: 'support_reply',
     Hogdesk: 'hogdesk',
+    ImageBuilder: 'image_builder',
 } as const
 
 /**
@@ -502,7 +617,8 @@ export interface TaskWriteApi {
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
-     * * `hogdesk` - HogDesk */
+     * * `hogdesk` - HogDesk
+     * * `image_builder` - Image Builder */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -571,6 +687,11 @@ export interface TaskWriteApi {
      * @items.maxLength 128
      */
     pending_user_artifact_ids?: string[]
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+     * @nullable
+     */
+    auto_publish?: boolean | null
     /**
      * Channel this task is owned by (the channel it was kicked off in).
      * @nullable
@@ -610,7 +731,8 @@ export interface PatchedTaskWriteApi {
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
-     * * `hogdesk` - HogDesk */
+     * * `hogdesk` - HogDesk
+     * * `image_builder` - Image Builder */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -679,6 +801,11 @@ export interface PatchedTaskWriteApi {
      * @items.maxLength 128
      */
     pending_user_artifact_ids?: string[]
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+     * @nullable
+     */
+    auto_publish?: boolean | null
     /**
      * Channel this task is owned by (the channel it was kicked off in).
      * @nullable
@@ -787,11 +914,18 @@ export interface ClaudeTaskRunCreateSchemaApi {
     pending_user_artifact_ids?: string[]
     /** Optional sandbox environment to apply for this cloud run. */
     sandbox_environment_id?: string
+    /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+    custom_image_id?: string
     /** Whether pull requests for this run should be authored by the user or the bot.
      *
      * * `user` - user
      * * `bot` - bot */
     pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+     * @nullable
+     */
+    auto_publish?: boolean | null
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
@@ -823,6 +957,11 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `bypassPermissions` - bypassPermissions
      * * `auto` - auto */
     initial_permission_mode?: InitialPermissionModeEnumApi
+    /**
+     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
+     * @nullable
+     */
+    rtk_enabled?: boolean | null
 }
 
 /**
@@ -835,6 +974,7 @@ export const CodexRuntimeAdapterEnumApi = {
 } as const
 
 /**
+ * * `plan` - plan
  * * `auto` - auto
  * * `read-only` - read-only
  * * `full-access` - full-access
@@ -843,6 +983,7 @@ export type CodexTaskRunCreateSchemaInitialPermissionModeEnumApi =
     (typeof CodexTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof CodexTaskRunCreateSchemaInitialPermissionModeEnumApi]
 
 export const CodexTaskRunCreateSchemaInitialPermissionModeEnumApi = {
+    Plan: 'plan',
     Auto: 'auto',
     ReadOnly: 'read-only',
     FullAccess: 'full-access',
@@ -874,11 +1015,18 @@ export interface CodexTaskRunCreateSchemaApi {
     pending_user_artifact_ids?: string[]
     /** Optional sandbox environment to apply for this cloud run. */
     sandbox_environment_id?: string
+    /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+    custom_image_id?: string
     /** Whether pull requests for this run should be authored by the user or the bot.
      *
      * * `user` - user
      * * `bot` - bot */
     pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+     * @nullable
+     */
+    auto_publish?: boolean | null
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
@@ -904,10 +1052,16 @@ export interface CodexTaskRunCreateSchemaApi {
     github_user_token?: string
     /** Initial permission mode for Codex runtimes.
      *
+     * * `plan` - plan
      * * `auto` - auto
      * * `read-only` - read-only
      * * `full-access` - full-access */
     initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi
+    /**
+     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
+     * @nullable
+     */
+    rtk_enabled?: boolean | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -928,6 +1082,8 @@ export interface TaskRunResumeRequestSchemaApi {
     pending_user_message?: string
     /** Optional sandbox environment to apply for this cloud run. */
     sandbox_environment_id?: string
+    /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+    custom_image_id?: string
     /** Whether pull requests for this run should be authored by the user or the bot.
      *
      * * `user` - user
@@ -1320,11 +1476,18 @@ export interface TaskRunBootstrapCreateRequestApi {
     branch?: string | null
     /** Optional sandbox environment to apply for this cloud run. */
     sandbox_environment_id?: string
+    /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+    custom_image_id?: string
     /** Whether pull requests for this run should be authored by the user or the bot.
      *
      * * `user` - user
      * * `bot` - bot */
     pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+     * @nullable
+     */
+    auto_publish?: boolean | null
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
@@ -1349,7 +1512,7 @@ export interface TaskRunBootstrapCreateRequestApi {
     reasoning_effort?: ReasoningEffortEnumApi
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
     github_user_token?: string
-    /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.
+    /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
      *
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -1359,6 +1522,11 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `read-only` - read-only
      * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
+    /**
+     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
+     * @nullable
+     */
+    rtk_enabled?: boolean | null
     /**
      * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
      * @maxLength 120
@@ -1765,6 +1933,257 @@ export interface StreamReadTokenResponseApi {
 }
 
 /**
+ * * `slack_message` - slack_message
+ * * `slack_canvas` - slack_canvas
+ * * `document` - document
+ * * `spreadsheet` - spreadsheet
+ * * `dashboard` - dashboard
+ * * `file` - file
+ * * `github_pr` - github_pr
+ */
+export type ArtifactTypeEnumApi = (typeof ArtifactTypeEnumApi)[keyof typeof ArtifactTypeEnumApi]
+
+export const ArtifactTypeEnumApi = {
+    SlackMessage: 'slack_message',
+    SlackCanvas: 'slack_canvas',
+    Document: 'document',
+    Spreadsheet: 'spreadsheet',
+    Dashboard: 'dashboard',
+    File: 'file',
+    GithubPr: 'github_pr',
+} as const
+
+/**
+ * * `slack_message` - slack_message
+ * * `slack_canvas` - slack_canvas
+ * * `slack_file` - slack_file
+ * * `document_connector` - document_connector
+ * * `github_pr` - github_pr
+ */
+export type AdapterEnumApi = (typeof AdapterEnumApi)[keyof typeof AdapterEnumApi]
+
+export const AdapterEnumApi = {
+    SlackMessage: 'slack_message',
+    SlackCanvas: 'slack_canvas',
+    SlackFile: 'slack_file',
+    DocumentConnector: 'document_connector',
+    GithubPr: 'github_pr',
+} as const
+
+/**
+ * * `active` - active
+ * * `failed` - failed
+ */
+export type TaskArtifactStatusEnumApi = (typeof TaskArtifactStatusEnumApi)[keyof typeof TaskArtifactStatusEnumApi]
+
+export const TaskArtifactStatusEnumApi = {
+    Active: 'active',
+    Failed: 'failed',
+} as const
+
+export type TaskRunLivingArtifactResponseApiVersionsItem = { [key: string]: unknown }
+
+export interface TaskRunLivingArtifactResponseApi {
+    /** Stable living artifact id. Use this id when editing the artifact. */
+    id: string
+    /** Task id this living artifact belongs to. */
+    task_id: string
+    /** Task run id that created or currently owns this artifact. */
+    run_id: string
+    /** Project id that owns this artifact. */
+    team_id: number
+    /** Human-readable artifact name. */
+    name: string
+    /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
+     *
+     * * `slack_message` - slack_message
+     * * `slack_canvas` - slack_canvas
+     * * `document` - document
+     * * `spreadsheet` - spreadsheet
+     * * `dashboard` - dashboard
+     * * `file` - file
+     * * `github_pr` - github_pr */
+    artifact_type: ArtifactTypeEnumApi
+    /** Adapter that currently stores or edits the artifact.
+     *
+     * * `slack_message` - slack_message
+     * * `slack_canvas` - slack_canvas
+     * * `slack_file` - slack_file
+     * * `document_connector` - document_connector
+     * * `github_pr` - github_pr */
+    adapter: AdapterEnumApi
+    /** Current registry status for the artifact.
+     *
+     * * `active` - active
+     * * `failed` - failed */
+    status: TaskArtifactStatusEnumApi
+    /** Adapter-specific location, such as S3 key or Slack canvas id. */
+    location: unknown
+    /** Adapter-specific metadata for external storage and source tracking. */
+    metadata: unknown
+    /** Current version number for the artifact. */
+    current_version: number
+    /** Chronological version records for this artifact. */
+    versions: TaskRunLivingArtifactResponseApiVersionsItem[]
+    /**
+     * ISO timestamp when created.
+     * @nullable
+     */
+    created_at?: string | null
+    /**
+     * ISO timestamp when last updated.
+     * @nullable
+     */
+    updated_at?: string | null
+}
+
+export interface TaskRunLivingArtifactsResponseApi {
+    /** Living artifacts for this task run. */
+    artifacts: TaskRunLivingArtifactResponseApi[]
+}
+
+/**
+ * Optional metadata to persist with the living artifact.
+ */
+export type TaskRunLivingArtifactCreateRequestApiMetadata = { [key: string]: unknown }
+
+export interface TaskRunLivingArtifactCreateRequestApi {
+    /**
+     * Human-readable artifact name, used as the title.
+     * @maxLength 255
+     */
+    name: string
+    /** Artifact format or delivery surface to create, such as document, spreadsheet, slack_canvas, or file.
+     *
+     * * `slack_message` - slack_message
+     * * `slack_canvas` - slack_canvas
+     * * `document` - document
+     * * `spreadsheet` - spreadsheet
+     * * `dashboard` - dashboard
+     * * `file` - file
+     * * `github_pr` - github_pr */
+    artifact_type?: ArtifactTypeEnumApi
+    /** Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.
+     *
+     * * `slack_message` - slack_message
+     * * `slack_canvas` - slack_canvas
+     * * `slack_file` - slack_file
+     * * `document_connector` - document_connector
+     * * `github_pr` - github_pr */
+    adapter?: AdapterEnumApi
+    /**
+     * Markdown or text content for the initial artifact version.
+     * @maxLength 500000
+     */
+    content?: string
+    /** Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts. */
+    content_base64?: string
+    /**
+     * MIME type for content_base64 or source-backed artifacts, such as application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.
+     * @maxLength 255
+     */
+    content_type?: string
+    /** Existing run artifact id to use as the initial content source. */
+    source_artifact_id?: string
+    /** Existing run artifact storage_path to use as the initial content source. */
+    source_storage_path?: string
+    /** Optional metadata to persist with the living artifact. */
+    metadata?: TaskRunLivingArtifactCreateRequestApiMetadata
+}
+
+export type TaskRunLivingArtifactOpenResponseApiVersionsItem = { [key: string]: unknown }
+
+export interface TaskRunLivingArtifactOpenResponseApi {
+    /** Stable living artifact id. Use this id when editing the artifact. */
+    id: string
+    /** Task id this living artifact belongs to. */
+    task_id: string
+    /** Task run id that created or currently owns this artifact. */
+    run_id: string
+    /** Project id that owns this artifact. */
+    team_id: number
+    /** Human-readable artifact name. */
+    name: string
+    /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
+     *
+     * * `slack_message` - slack_message
+     * * `slack_canvas` - slack_canvas
+     * * `document` - document
+     * * `spreadsheet` - spreadsheet
+     * * `dashboard` - dashboard
+     * * `file` - file
+     * * `github_pr` - github_pr */
+    artifact_type: ArtifactTypeEnumApi
+    /** Adapter that currently stores or edits the artifact.
+     *
+     * * `slack_message` - slack_message
+     * * `slack_canvas` - slack_canvas
+     * * `slack_file` - slack_file
+     * * `document_connector` - document_connector
+     * * `github_pr` - github_pr */
+    adapter: AdapterEnumApi
+    /** Current registry status for the artifact.
+     *
+     * * `active` - active
+     * * `failed` - failed */
+    status: TaskArtifactStatusEnumApi
+    /** Adapter-specific location, such as S3 key or Slack canvas id. */
+    location: unknown
+    /** Adapter-specific metadata for external storage and source tracking. */
+    metadata: unknown
+    /** Current version number for the artifact. */
+    current_version: number
+    /** Chronological version records for this artifact. */
+    versions: TaskRunLivingArtifactOpenResponseApiVersionsItem[]
+    /**
+     * ISO timestamp when created.
+     * @nullable
+     */
+    created_at?: string | null
+    /**
+     * ISO timestamp when last updated.
+     * @nullable
+     */
+    updated_at?: string | null
+    /**
+     * Current artifact content when the adapter can read it directly.
+     * @nullable
+     */
+    content?: string | null
+}
+
+/**
+ * Optional metadata to merge into the artifact registry record.
+ */
+export type TaskRunLivingArtifactEditRequestApiMetadata = { [key: string]: unknown }
+
+export interface TaskRunLivingArtifactEditRequestApi {
+    /**
+     * Optional new human-readable artifact name.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Markdown or text content for the next version.
+     * @maxLength 500000
+     */
+    content?: string
+    /** Base64-encoded binary content for the next version, used by adapters such as slack_file. */
+    content_base64?: string
+    /**
+     * MIME type for content_base64 or source-backed edits.
+     * @maxLength 255
+     */
+    content_type?: string
+    /** Existing run artifact id to use as the next version content source. */
+    source_artifact_id?: string
+    /** Existing run artifact storage_path to use as the next version content source. */
+    source_storage_path?: string
+    /** Optional metadata to merge into the artifact registry record. */
+    metadata?: TaskRunLivingArtifactEditRequestApiMetadata
+}
+
+/**
  * Response shape for one message in a task's thread.
  */
 export interface TaskThreadMessageDTOApi {
@@ -2090,6 +2509,7 @@ export interface TaskSummaryDTOApi {
     repository: string | null
     created_at: string
     updated_at: string
+    origin_product?: string
     latest_run?: TaskRunSummaryApi | null
 }
 
@@ -2154,6 +2574,17 @@ export interface WarmTaskResponseApi {
     run_id: string
 }
 
+export type SandboxCustomImagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type SandboxListParams = {
     /**
      * Number of results to return per page.
@@ -2185,6 +2616,23 @@ export type TaskChannelsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type TaskMentionsListParams = {
+    /**
+     * Maximum number of mentions to return (newest first).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only return mentions created after this ISO 8601 timestamp.
+     */
+    since?: string
 }
 
 export type TasksListParams = {

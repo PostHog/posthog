@@ -40,6 +40,10 @@ const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
 
+interface DashboardItemsProps {
+    showCreateAnomalyAlertButton?: boolean
+}
+
 /**
  * Shallow prop compare, except: `style` by value (react-grid-layout rebuilds it every drag/resize mousemove even
  * for tiles that haven't moved) and `children` ignored (the RGL-injected resize handles, recreated each render
@@ -63,7 +67,7 @@ const MemoizedDashboardButtonTileItem = memo(
 ) as typeof DashboardButtonTileItem
 const MemoizedDashboardWidgetItem = memo(DashboardWidgetItem, gridTilePropsEqual) as typeof DashboardWidgetItem
 
-export function DashboardItems(): JSX.Element {
+export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsProps = {}): JSX.Element {
     const {
         dashboard,
         tiles,
@@ -360,6 +364,7 @@ export function DashboardItems(): JSX.Element {
                 setContainerHeight(containerRef.current.clientHeight)
             }
         })
+        // oxlint-disable-next-line react-hooks/exhaustive-deps -- ref reads inside requestAnimationFrame aren't valid deps
     }, [updateLayouts])
 
     const handleWidthChange = useCallback(
@@ -557,6 +562,7 @@ export function DashboardItems(): JSX.Element {
                                         breakdownColorOverride={temporaryBreakdownColors}
                                         dataColorThemeId={dataColorThemeId}
                                         surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
+                                        showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
                                         {...commonTileProps}
                                     />
                                 )

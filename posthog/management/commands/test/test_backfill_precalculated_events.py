@@ -838,7 +838,7 @@ class TestRunTemporalWorkflow(BaseTest):
                 cohort_ids=[1, 2],
                 effective_days=14,
                 concurrent_workflows=5,
-                force_reprocess=False,
+                ignore_backfilled_dates=False,
             )
 
         mock_store.assert_called_once_with(self.filters, self.team.id)
@@ -853,7 +853,7 @@ class TestRunTemporalWorkflow(BaseTest):
         self.assertEqual(inputs.condition_hashes, ["hash_1", "hash_2"])
         self.assertEqual(inputs.days_to_backfill, 14)
         self.assertEqual(inputs.concurrent_workflows, 5)
-        self.assertFalse(inputs.force_reprocess)
+        self.assertFalse(inputs.ignore_backfilled_dates)
         self.assertEqual(kwargs["task_queue"], settings.MESSAGING_TASK_QUEUE)
         self.assertEqual(kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
         self.assertEqual(kwargs["id"], workflow_id)

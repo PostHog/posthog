@@ -89,6 +89,34 @@ export interface CIFailureLogsApi {
     truncated: boolean
 }
 
+export interface FlakyTestItemApi {
+    /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
+    nodeid: string
+    /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
+    selector: string
+    /** Times the test failed, then passed on an automatic retry — the strongest flaky signal. Only CI lanes running with reruns enabled emit it; a flake in a no-rerun lane shows up in failed_count instead. */
+    rerun_passed_count: number
+    /** Spans whose final outcome was 'failed' or 'error' in the window. An absolute count, not a rate — fast passing runs are not emitted, so denominators are biased. */
+    failed_count: number
+    /** Distinct pull requests among the failed/error spans. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_count). */
+    failed_pr_count: number
+    /** Distinct git branches across all of the test's flaky-signal spans in the window. */
+    branch_count: number
+    /** Runs where the test failed while quarantined (xfail) — already masked in CI but still flaky. */
+    xfailed_count: number
+    /** Most recent flaky-signal span for this test in the window. */
+    last_seen_at: string
+}
+
+export interface FlakyTestListApi {
+    /** Qualifying tests ranked by flakiness signal, strongest first, capped at `limit`. */
+    items: FlakyTestItemApi[]
+    /** True when more tests qualified than the cap; `items` is the strongest `limit` rows. */
+    truncated: boolean
+    /** Maximum number of tests returned in `items`. */
+    limit: number
+}
+
 export interface WorkflowJobAggregateApi {
     /** De-sharded job name: the matrix '(G/N)' suffix is stripped and unexpanded '${{ matrix.* }}' templates are collapsed, so shards of one matrix aggregate together. */
     job_name: string
@@ -109,12 +137,12 @@ export interface WorkflowJobAggregateApi {
      */
     queue_p50_seconds: number | null
     /**
-     * Median duration of completed job instances, in seconds. Null if none completed.
+     * Median duration of successful job instances, in seconds — cancelled and failed instances end early and would bias the percentile. Null if none succeeded.
      * @nullable
      */
     p50_seconds: number | null
     /**
-     * 95th-percentile duration of completed job instances, in seconds. Null if none completed.
+     * 95th-percentile duration of successful job instances, in seconds — cancelled and failed instances end early and would bias the percentile. Null if none succeeded.
      * @nullable
      */
     p95_seconds: number | null
@@ -379,6 +407,22 @@ export interface CIStatusRollupApi {
     failing_workflows?: string[]
 }
 
+export interface PushCISampleApi {
+    /** Head commit SHA of this push (CI round). */
+    head_sha: string
+    /** Earliest workflow-run start on this push. */
+    started_at: string
+    /**
+     * Wall-clock CI seconds for this push: earliest run start to latest completed run end. Null while nothing has completed.
+     * @nullable
+     */
+    wall_seconds: number | null
+    /** True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'. */
+    failed: boolean
+    /** True when any latest-per-workflow run on this push hasn't completed yet. */
+    pending: boolean
+}
+
 export interface PullRequestListItemApi {
     /** The pull request author. */
     author: AuthorApi
@@ -386,6 +430,8 @@ export interface PullRequestListItemApi {
     repo: RepoRefApi
     /** CI status from the latest workflow runs on the head SHA. */
     ci: CIStatusRollupApi
+    /** This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per push for the push-history sparkline. `pushes` stays the uncapped count. */
+    push_history: PushCISampleApi[]
     /** Pull request number within the repository. */
     number: number
     /** Pull request title. */
@@ -604,9 +650,45 @@ export interface CostPerMergeBucketApi {
     cost_per_merge_usd: number | null
 }
 
+export interface TimeToGreenBucketApi {
+    /** Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday). */
+    bucket_start: string
+    /**
+     * Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. Null when the bucket had no successful PR run (a gap, not instant CI).
+     * @nullable
+     */
+    p50_seconds: number | null
+}
+
+export interface PassRateBucketApi {
+    /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
+    bucket_start: string
+    /**
+     * Fraction (0-1) of completed runs started in this bucket that succeeded. Null when the bucket had no completed run (a gap, not a 0% pass rate).
+     * @nullable
+     */
+    success_rate: number | null
+}
+
+export interface OpenToMergeBucketApi {
+    /** Bucket start, aligned to open_to_merge_series_granularity (top of hour, midnight, or Monday). */
+    bucket_start: string
+    /**
+     * Median merged_at - created_at seconds over PRs merged in this bucket, bots and drafts excluded. Null when nothing merged in the bucket (a gap, not instant merges).
+     * @nullable
+     */
+    p50_seconds: number | null
+}
+
 export interface RepoOverviewApi {
     /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced. */
     cost_series: CostPerMergeBucketApi[]
+    /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null. */
+    time_to_green_series: TimeToGreenBucketApi[]
+    /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null. */
+    success_rate_series: PassRateBucketApi[]
+    /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null. */
+    open_to_merge_series: OpenToMergeBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
     /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -661,6 +743,12 @@ export interface RepoOverviewApi {
     default_branch: string
     /** Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'. */
     cost_series_granularity: string
+    /** Bucket width of the time_to_green_series trend: 'hour', 'day', or 'week'. */
+    time_to_green_series_granularity: string
+    /** Bucket width of the success_rate_series trend: 'hour', 'day', or 'week'. */
+    success_rate_series_granularity: string
+    /** Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'. */
+    open_to_merge_series_granularity: string
 }
 
 export interface WorkflowRunActivityPointApi {
@@ -682,6 +770,8 @@ export interface WorkflowRunActivityPointApi {
     head_branch: string
     /** Attributed pull request number, or 0 when unattributed. */
     pr_number: number
+    /** Head commit SHA of the run/commit, or '' when unknown. */
+    head_sha: string
 }
 
 export interface WorkflowRunActivityApi {
@@ -758,12 +848,12 @@ export interface WorkflowHealthItemApi {
      */
     success_rate: number | null
     /**
-     * Median duration of completed runs, in seconds. Null if none completed.
+     * Median duration in seconds over successful runs only — cancelled (superseded) and failed runs end early and would bias the percentile. Null if no run succeeded in the window.
      * @nullable
      */
     p50_seconds: number | null
     /**
-     * 95th-percentile duration of completed runs, in seconds. Null if none completed.
+     * 95th-percentile duration in seconds over successful runs only — cancelled (superseded) and failed runs end early and would bias the percentile. Null if no run succeeded in the window.
      * @nullable
      */
     p95_seconds: number | null
@@ -894,6 +984,33 @@ export type EngineeringAnalyticsCiFailureLogsParams = {
      * 'owner/name' repository the pull request belongs to.
      */
     repo: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsFlakyTestsParams = {
+    /**
+     * Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window may span at most 30 days.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Maximum number of tests to return (1-200). Defaults to 50.
+     */
+    limit?: number
+    /**
+     * A test qualifies once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     */
+    min_failed_prs?: number
+    /**
+     * A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
+     */
+    min_rerun_passes?: number
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -1087,10 +1204,22 @@ export type EngineeringAnalyticsWorkflowHealthParams = {
      */
     date_to?: string
     /**
+     * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsWorkflowHealthRunScope
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
 }
+
+export type EngineeringAnalyticsWorkflowHealthRunScope =
+    (typeof EngineeringAnalyticsWorkflowHealthRunScope)[keyof typeof EngineeringAnalyticsWorkflowHealthRunScope]
+
+export const EngineeringAnalyticsWorkflowHealthRunScope = {
+    All: 'all',
+    PullRequest: 'pull_request',
+} as const
 
 export type EngineeringAnalyticsWorkflowJobsParams = {
     /**

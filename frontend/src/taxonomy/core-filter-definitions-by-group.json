@@ -3973,7 +3973,8 @@
         },
         "$mcp_tool_call": {
             "description": "Fires every time an MCP server tool is invoked via @posthog/mcp. Includes the tool name, wall-clock duration, error state, and (when the client supplied a context argument) the agent's stated intent. Canonical replacement for the legacy `mcp_tool_call`.",
-            "label": "MCP tool call"
+            "label": "MCP tool call",
+            "primary_property": "$mcp_tool_name"
         },
         "$mcp_tools_list": {
             "description": "Fires when an MCP client requests the list of available tools. Useful for measuring discovery \u2014 whether new clients are finding the server. Canonical replacement for the legacy `mcp_tools_list`.",
@@ -4170,6 +4171,252 @@
         "message": {
             "description": "The contents of the log message",
             "label": "Console log message"
+        }
+    },
+    "mcp_properties": {
+        "$mcp_client_name": {
+            "description": "The MCP client that initiated the connection. Common values are coding agents (Claude Code, Codex) and chat clients (Claude desktop, Claude on web).",
+            "examples": [
+                "claude-code",
+                "codex-mcp-client",
+                "Anthropic/ClaudeAI"
+            ],
+            "label": "MCP client name"
+        },
+        "$mcp_client_user_agent": {
+            "description": "Full User-Agent string the MCP client sent on the transport. Often includes the agent name, version, and runtime mode \u2014 useful when $mcp_client_name and $mcp_client_version alone don't disambiguate the caller.",
+            "examples": [
+                "claude-code/2.1.141 (cli)",
+                "Anthropic/ClaudeAI"
+            ],
+            "label": "MCP client user agent"
+        },
+        "$mcp_client_version": {
+            "description": "The version of the MCP client that initiated the connection.",
+            "label": "MCP client version"
+        },
+        "$mcp_consumer": {
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
+            "examples": [
+                "posthog-code",
+                "slack"
+            ],
+            "label": "MCP consumer"
+        },
+        "$mcp_conversation_id": {
+            "description": "Stable, agent-echoed conversation identifier that stitches multiple tool calls into a single logical session. The MCP server mints a UUID when the agent omits one and prompts the agent to reuse it on subsequent calls; subsequent calls within the same conversation carry the same value. Unlike $mcp_session_id this survives reconnects and process restarts. Only present when the server has `enableConversationId` turned on.",
+            "label": "MCP conversation ID"
+        },
+        "$mcp_duration_ms": {
+            "description": "Wall-clock duration of the MCP tool or resource call, in milliseconds.",
+            "examples": [
+                42,
+                1280
+            ],
+            "label": "MCP duration (ms)",
+            "type": "Numeric"
+        },
+        "$mcp_error_message": {
+            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "label": "MCP error message"
+        },
+        "$mcp_error_status": {
+            "description": "Upstream HTTP status code when an MCP tool call failed against a PostHog API (e.g. 429, 500). Only set for API-originated failures.",
+            "examples": [
+                429,
+                500,
+                403
+            ],
+            "label": "MCP error status",
+            "type": "Numeric"
+        },
+        "$mcp_error_type": {
+            "description": "Failure category for an errored MCP tool call, for breaking failures down by reason. PostHog's server emits a semantic bucket (missing_context, validation, permission, timeout, rate_limited, api_4xx, api_5xx, internal); external servers using the SDK fall back to the thrown error's type. Only set when $mcp_is_error is true.",
+            "examples": [
+                "rate_limited",
+                "validation",
+                "timeout",
+                "api_4xx"
+            ],
+            "label": "MCP error type"
+        },
+        "$mcp_exec_inner_tool_names": {
+            "description": "Array of every inner tool name available to the agent at the time of a tools/list request. Stored as a JSON array \u2014 filter with `contains` against a single tool name (e.g. 'execute-sql'). Only stamped on mcp_tools_list events when running in single-exec mode (in multi-tool mode the SDK's $mcp_listed_tool_names already carries the catalog). Lets you compute zombie tools by diffing against $mcp_exec_tool_call_name from mcp_tool_call events.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP exec inner tool catalog"
+        },
+        "$mcp_exec_tool_call_description": {
+            "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' \u2014 derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",
+            "examples": [
+                "Run a HogQL/SQL query against PostHog.",
+                "List feature flags in the project."
+            ],
+            "label": "MCP exec inner tool description"
+        },
+        "$mcp_exec_tool_call_name": {
+            "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so by itself it doesn't tell you which inner tool the agent was actually invoking. This property carries the inner tool's name \u2014 derived server-side by parsing the exec command's `call <tool> ...` form and looking it up in our catalog. Use it for breakdowns / funnels that should pivot on the real tool rather than the dispatcher. Only present when an exec call targets a recognized inner tool.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP exec inner tool name"
+        },
+        "$mcp_intent": {
+            "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or \u2014 if none was supplied \u2014 from an intentFallback the MCP server provides.",
+            "examples": [
+                "Listing recent error tracking issues to triage a spike in 500s.",
+                "Fetching the trace referenced by the inbox signal to inspect the user message."
+            ],
+            "label": "MCP intent"
+        },
+        "$mcp_intent_source": {
+            "description": "Where $mcp_intent came from. 'context_parameter' means the client supplied it directly on the call; 'inferred' means the MCP server derived it via its intentFallback.",
+            "examples": [
+                "context_parameter",
+                "inferred"
+            ],
+            "label": "MCP intent source"
+        },
+        "$mcp_is_error": {
+            "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",
+            "label": "MCP is error"
+        },
+        "$mcp_listed_tool_names": {
+            "description": "Array of every tool name advertised to the agent on a tools/list request, in multi-tool mode. Stored as a JSON array \u2014 filter with `contains` against a single tool name (e.g. 'execute-sql'). Lets you compute zombie tools (advertised but never called) by diffing against $mcp_tool_name from mcp_tool_call events. In single-exec mode the catalog rides on $mcp_exec_inner_tool_names instead. Only present on mcp_tools_list.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP listed tool names"
+        },
+        "$mcp_mode": {
+            "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
+            "examples": [
+                "cli",
+                "tools"
+            ],
+            "label": "MCP mode"
+        },
+        "$mcp_oauth_client_name": {
+            "description": "The OAuth client name captured during the MCP handshake, when the connection used OAuth instead of a personal API key.",
+            "label": "MCP OAuth client name"
+        },
+        "$mcp_organization_id": {
+            "description": "PostHog organization ID resolved for the authenticated MCP session.",
+            "label": "MCP organization ID"
+        },
+        "$mcp_parameters": {
+            "description": "The arguments the client passed when invoking the tool. Large strings and sensitive keys (tokens, API keys, etc.) are redacted before capture.",
+            "label": "MCP parameters"
+        },
+        "$mcp_project_id": {
+            "description": "PostHog project (team) numeric ID for the active project on the MCP session.",
+            "label": "MCP project ID"
+        },
+        "$mcp_project_name": {
+            "description": "Display name of the active PostHog project on the MCP session.",
+            "label": "MCP project name"
+        },
+        "$mcp_project_uuid": {
+            "description": "PostHog project UUID for the active project on the MCP session.",
+            "label": "MCP project UUID"
+        },
+        "$mcp_protocol_version": {
+            "description": "The MCP protocol version negotiated between client and server during initialize.",
+            "examples": [
+                "2025-11-25",
+                "2025-06-18"
+            ],
+            "label": "MCP protocol version"
+        },
+        "$mcp_read_only": {
+            "description": "Whether the MCP session is operating in read-only mode. When true, write/mutation tools are not registered on the server.",
+            "label": "MCP read-only"
+        },
+        "$mcp_region": {
+            "description": "The PostHog cloud region the MCP server routed the request to.",
+            "examples": [
+                "us",
+                "eu"
+            ],
+            "label": "MCP region"
+        },
+        "$mcp_resource_name": {
+            "description": "The name of the MCP resource, prompt, or tool the event refers to.",
+            "label": "MCP resource name"
+        },
+        "$mcp_response": {
+            "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
+            "label": "MCP response"
+        },
+        "$mcp_server_name": {
+            "description": "The advertised name of the MCP server that handled the request.",
+            "examples": [
+                "PostHog"
+            ],
+            "label": "MCP server name"
+        },
+        "$mcp_server_version": {
+            "description": "The advertised version of the MCP server that handled the request.",
+            "label": "MCP server version"
+        },
+        "$mcp_session_id": {
+            "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary \u2014 use $mcp_conversation_id when you need a stable identifier across reconnects.",
+            "label": "MCP session ID"
+        },
+        "$mcp_source": {
+            "description": "Constant identifier for the analytics SDK that emitted the event. Lets you separate events from different SDK versions or unrelated MCP servers.",
+            "examples": [
+                "posthog_mcp_analytics"
+            ],
+            "label": "MCP source"
+        },
+        "$mcp_tool_category": {
+            "description": "The product category the invoked tool belongs to \u2014 the grouping dimension the MCP analytics dashboard buckets tool calls by. Stamped server-side from the tool catalog (PostHog's server) or declared per tool (external servers). Omitted when the tool has no catalogued category (e.g. the `exec` dispatcher), which the dashboard buckets as 'Uncategorized'. Present on mcp_tool_call.",
+            "examples": [
+                "Error tracking",
+                "Logs",
+                "Feature flags",
+                "Session replays"
+            ],
+            "label": "MCP tool category"
+        },
+        "$mcp_tool_description": {
+            "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do \u2014 descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
+            "examples": [
+                "Run a HogQL/SQL query against PostHog.",
+                "Fetch the trace referenced by an AI observability URL."
+            ],
+            "label": "MCP tool description"
+        },
+        "$mcp_tool_name": {
+            "description": "The name of the MCP tool that was invoked. Only present on mcp_tool_call.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP tool name"
+        },
+        "$mcp_transport": {
+            "description": "The transport the MCP client used to connect to the server.",
+            "examples": [
+                "stdio",
+                "sse",
+                "streamable-http"
+            ],
+            "label": "MCP transport"
+        },
+        "$mcp_version": {
+            "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
+            "examples": [
+                1,
+                2
+            ],
+            "label": "MCP server version (internal)",
+            "type": "Numeric"
         }
     },
     "metadata": {

@@ -1,0 +1,73 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "events": {
+        "description": "An event managed by your Luma calendar, including its schedule, location, and public URL.",
+        "docs_url": "https://docs.luma.com/reference",
+        "columns": {
+            "api_id": "Unique identifier for the event (evt-...).",
+            "name": "Name of the event.",
+            "description": "Plain-text description of the event.",
+            "description_md": "Markdown description of the event.",
+            "created_at": "When the event was created (ISO 8601).",
+            "start_at": "When the event starts (ISO 8601).",
+            "end_at": "When the event ends (ISO 8601).",
+            "duration_interval": "Duration of the event as an ISO 8601 interval.",
+            "timezone": "IANA timezone the event is scheduled in.",
+            "event_type": "Type of the event (e.g. independent or series).",
+            "cover_url": "URL of the event's cover image.",
+            "url": "Public Luma URL of the event page.",
+            "meeting_url": "Virtual meeting URL for online events.",
+            "zoom_meeting_url": "Zoom meeting URL when the event uses Zoom.",
+            "geo_address_json": "Structured address of the venue for in-person events.",
+            "geo_latitude": "Latitude of the event venue.",
+            "geo_longitude": "Longitude of the event venue.",
+            "visibility": "Whether the event is public or private.",
+            "user_api_id": "Identifier of the Luma user who created the event.",
+        },
+    },
+    "guests": {
+        "description": "A guest registration for one of your events, including approval status, tickets, and registration answers.",
+        "docs_url": "https://docs.luma.com/reference",
+        "columns": {
+            "api_id": "Unique identifier for the guest registration (gst-...).",
+            "event_api_id": "Identifier of the event the guest registered for (added by PostHog for joining to events).",
+            "approval_status": "Registration status of the guest (e.g. approved, pending_approval, declined).",
+            "created_at": "When the guest record was created (ISO 8601).",
+            "registered_at": "When the guest registered for the event (ISO 8601).",
+            "invited_at": "When the guest was invited to the event (ISO 8601).",
+            "name": "Name the guest registered with.",
+            "email": "Email address the guest registered with.",
+            "phone_number": "Phone number the guest registered with.",
+            "user_api_id": "Identifier of the guest's Luma user account.",
+            "user_email": "Email address of the guest's Luma user account.",
+            "user_name": "Name of the guest's Luma user account.",
+            "event_ticket": "Ticket the guest holds for the event, including amount paid.",
+            "event_tickets": "All tickets the guest holds for the event.",
+            "registration_answers": "Answers the guest gave to the event's registration questions.",
+            "check_in_qr_code": "QR code payload used to check the guest in at the event.",
+            "custom_source": "Custom source tag attached to the registration link the guest used.",
+            "eth_address": "Ethereum wallet address the guest registered with, when collected.",
+        },
+    },
+    "people": {
+        "description": "A person on your Luma calendar's audience list, aggregated across event registrations and subscriptions.",
+        "docs_url": "https://docs.luma.com/reference",
+        "columns": {
+            "api_id": "Unique identifier for the person.",
+            "name": "Name of the person.",
+            "email": "Email address of the person.",
+            "created_at": "When the person was added to the calendar (ISO 8601).",
+        },
+    },
+    "person_tags": {
+        "description": "A tag used to segment people on your Luma calendar.",
+        "docs_url": "https://docs.luma.com/reference",
+        "columns": {
+            "api_id": "Unique identifier for the tag.",
+            "name": "Name of the tag.",
+        },
+    },
+}

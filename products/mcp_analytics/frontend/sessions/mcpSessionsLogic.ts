@@ -367,26 +367,30 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             }
         },
     })),
-    // date_from / date_to are shared with the dashboard via the URL: the scene's tab links
-    // carry searchParams across tabs, so a range picked on either tab follows to the other.
+    // Mirror the filters to the URL so they survive a refresh and follow across tabs (date_from /
+    // date_to are shared with the dashboard; search is Sessions-only and also lets the dashboard
+    // deep-link a session by pre-filling its id).
     actionToUrl(({ values }) => {
         const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
             const { currentLocation } = router.values
             const searchParams = { ...currentLocation.searchParams }
-            if (values.dateFilter.dateFrom) {
-                searchParams.date_from = values.dateFilter.dateFrom
-            } else {
-                delete searchParams.date_from
+            const params: Record<string, string | null> = {
+                date_from: values.dateFilter.dateFrom,
+                date_to: values.dateFilter.dateTo,
+                search: values.filters.search || null,
             }
-            if (values.dateFilter.dateTo) {
-                searchParams.date_to = values.dateFilter.dateTo
-            } else {
-                delete searchParams.date_to
+            for (const [key, value] of Object.entries(params)) {
+                if (value) {
+                    searchParams[key] = value
+                } else {
+                    delete searchParams[key]
+                }
             }
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
         }
         return {
             setDateFilter: syncUrl,
+            setFilters: syncUrl,
         }
     }),
     urlToAction(({ actions, values, cache }) => ({
@@ -395,22 +399,33 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 typeof searchParams.date_from === 'string' ? searchParams.date_from : DEFAULT_DATE_FILTER.dateFrom
             const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
             const dateChanged = dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo
-            // setDateFilter reloads via its listener; only load directly when nothing changed.
+
+            const search = typeof searchParams.search === 'string' ? searchParams.search : ''
+            const searchChanged = search !== values.filters.search
+
+            // setFilters / setDateFilter each reload via their listener; only load directly when
+            // neither changed and we haven't loaded yet.
+            if (searchChanged) {
+                actions.setFilters({ search })
+            }
             if (dateChanged) {
                 actions.setDateFilter(dateFrom, dateTo)
-            } else if (!cache.hasLoaded) {
+            } else if (!searchChanged && !cache.hasLoaded) {
                 actions.loadSessions()
             }
             cache.hasLoaded = true
         },
     })),
     afterMount(({ actions, cache }) => {
-        // urlToAction owns the initial load when the sessions URL carries date params; this is the
-        // fallback for a param-less mount (and off-route mounts in tests, where urlToAction never
-        // fires). The cache.hasLoaded guard keeps a deep-linked load from firing twice.
+        // urlToAction owns the initial load when the sessions URL carries date or search params; this
+        // is the fallback for a param-less mount (and off-route mounts in tests, where urlToAction
+        // never fires). The cache.hasLoaded guard keeps a deep-linked load from firing twice.
         const { searchParams } = router.values
-        const hasUrlDates = typeof searchParams.date_from === 'string' || typeof searchParams.date_to === 'string'
-        if (!hasUrlDates && !cache.hasLoaded) {
+        const hasUrlParams =
+            typeof searchParams.date_from === 'string' ||
+            typeof searchParams.date_to === 'string' ||
+            typeof searchParams.search === 'string'
+        if (!hasUrlParams && !cache.hasLoaded) {
             cache.hasLoaded = true
             actions.loadSessions()
         }

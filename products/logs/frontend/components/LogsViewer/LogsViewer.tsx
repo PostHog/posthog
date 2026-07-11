@@ -14,7 +14,6 @@ import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsVie
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { FacetRail } from 'products/logs/frontend/components/LogsViewer/FacetRail/FacetRail'
-import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
 import { LogsQueryBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsQueryBar'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
@@ -39,9 +38,6 @@ export interface LogsViewerProps {
     // Filters enforced by the embedding scene. Merged into the user-editable filterGroup
     // and rendered without an X so users can't accidentally drop the scope.
     pinnedFilters?: UniversalFiltersGroup
-    // Hide the filter bar (levels/services/search/date range) entirely. For embeds where the
-    // scope is fixed by `pinnedFilters` and editing filters in place isn't wanted. @default true
-    showFilterBar?: boolean
 }
 
 export function LogsViewer({
@@ -50,7 +46,6 @@ export function LogsViewer({
     showSavedViewsButton = false,
     initialFilters,
     pinnedFilters,
-    showFilterBar = true,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters }}>
@@ -63,7 +58,6 @@ export function LogsViewer({
                                     <LogsViewerContent
                                         showFullScreenButton={showFullScreenButton}
                                         showSavedViewsButton={showSavedViewsButton}
-                                        showFilterBar={showFilterBar}
                                     />
                                 </BindLogic>
                             </BindLogic>
@@ -78,11 +72,9 @@ export function LogsViewer({
 function LogsViewerContent({
     showFullScreenButton,
     showSavedViewsButton,
-    showFilterBar,
 }: {
     showFullScreenButton: boolean
     showSavedViewsButton: boolean
-    showFilterBar: boolean
 }): JSX.Element {
     const {
         id,
@@ -107,7 +99,7 @@ function LogsViewerContent({
         clearSelection,
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
-    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode, groupBy } =
+    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode } =
         useValues(logsViewerConfigLogic)
     const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const {
@@ -122,7 +114,6 @@ function LogsViewerContent({
     } = useValues(logsViewerDataLogic)
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
-    const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
     const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
     const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
@@ -309,10 +300,6 @@ function LogsViewerContent({
         </>
     )
 
-    const filterBar = showFilterBar ? (
-        <LogsFilterBar showSavedViewsButton={showSavedViewsButton} showFullScreenButton={showFullScreenButton} />
-    ) : null
-
     const displayBarProps = {
         id,
         totalLogsCount: sparklineLoading ? undefined : totalLogsMatchingFilters,
@@ -352,18 +339,16 @@ function LogsViewerContent({
         </>
     )
 
-    // Patterns is a mode of the Viewer, not a separate tab: it swaps only the results region
-    // and reuses the same filter bar / FacetRail / date range (shared via logsViewerFiltersLogic).
-    // Gate on the flag too, so the patterns query stays unreachable when the flag is off regardless
-    // of the (non-persisted) viewMode state.
+    // Patterns and Group are modes of the Viewer, not separate tabs: they swap only the results
+    // region and reuse the same filter bar / FacetRail / date range (shared via
+    // logsViewerFiltersLogic). Each gates on its flag too, so its query stays unreachable when
+    // the flag is off regardless of the (non-persisted) viewMode state.
     const inPatternsMode = showPatternsView && viewMode === 'patterns'
-    // Group-by (prototype, logs-group-by flag): an active grouping swaps the Logs lens's results
-    // for the grouped table. Double-gated like Patterns so it's unreachable with the flag off.
-    const inGroupByMode = showGroupBy && !inPatternsMode && groupBy !== null
+    const inGroupByMode = showGroupBy && viewMode === 'group'
     const resultsRegion = inPatternsMode ? (
         <LogsPatterns id={id} />
-    ) : inGroupByMode && groupBy ? (
-        <LogsGroupByResults groupBy={groupBy} />
+    ) : inGroupByMode ? (
+        <LogsGroupByResults id={id} />
     ) : (
         logList
     )
@@ -378,29 +363,18 @@ function LogsViewerContent({
         </>
     )
 
-    if (showFacetRail) {
-        // Three-tier layout: query bar (ask a question) above the sparkline, the sparkline, then a
-        // row of [facet rail | display bar (operate on the data) + the log lists].
-        return (
-            <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
-                <LogsQueryBar showSavedViewsButton={showSavedViewsButton} showFullScreenButton={showFullScreenButton} />
-                {sparklineSection}
-                <div className="flex flex-row gap-2 flex-1 min-h-0">
-                    {!facetRailCollapsed && <FacetRail id={id} />}
-                    <div className="flex flex-col gap-2 flex-1 min-w-0">
-                        {resultsColumn(<LogsDisplayBar {...displayBarProps} showFacetRailToggle />)}
-                    </div>
-                </div>
-                <LogDetailsModal timezone={timezone} />
-            </div>
-        )
-    }
-
+    // Three-tier layout: query bar (ask a question) above the sparkline, the sparkline, then a
+    // row of [facet rail | display bar (operate on the data) + the log lists].
     return (
         <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
+            <LogsQueryBar showSavedViewsButton={showSavedViewsButton} showFullScreenButton={showFullScreenButton} />
             {sparklineSection}
-            {filterBar}
-            {resultsColumn(<LogsDisplayBar {...displayBarProps} />)}
+            <div className="flex flex-row gap-2 flex-1 min-h-0">
+                {!facetRailCollapsed && <FacetRail id={id} />}
+                <div className="flex flex-col gap-2 flex-1 min-w-0">
+                    {resultsColumn(<LogsDisplayBar {...displayBarProps} showFacetRailToggle />)}
+                </div>
+            </div>
             <LogDetailsModal timezone={timezone} />
         </div>
     )

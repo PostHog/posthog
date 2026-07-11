@@ -241,6 +241,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
+name = "ascii"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
+
+[[package]]
 name = "ascii-canvas"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1309,6 +1315,7 @@ dependencies = [
  "mockito",
  "moka",
  "natord",
+ "object_store",
  "posthog-rs",
  "rayon",
  "rdkafka",
@@ -1792,6 +1799,7 @@ dependencies = [
  "capture",
  "chrono",
  "common-alloc",
+ "common-compression",
  "common-continuous-profiling",
  "common-redis",
  "common-types",
@@ -1874,6 +1882,7 @@ dependencies = [
  "chrono",
  "clickhouse",
  "common-alloc",
+ "common-compression",
  "common-continuous-profiling",
  "common-metrics",
  "envconfig",
@@ -1983,6 +1992,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
+name = "choice"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3b71fc821deaf602a933ada5c845d088156d0cdf2ebf43ede390afe93466553"
+
+[[package]]
 name = "chrono"
 version = "0.4.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2005,6 +2020,12 @@ dependencies = [
  "chrono",
  "phf 0.12.1",
 ]
+
+[[package]]
+name = "chunked_transfer"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e4de3bc4ea267985becf712dc6d9eed8b04c953b3fcfb339ebc87acd9804901"
 
 [[package]]
 name = "ciborium"
@@ -2170,15 +2191,19 @@ dependencies = [
  "common-liveness",
  "common-types",
  "envconfig",
+ "futures",
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
+ "proptest",
  "rand 0.8.5",
  "rdkafka",
  "serde",
  "serde_json",
  "sqlx",
+ "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -2204,7 +2229,6 @@ dependencies = [
  "futures",
  "hogvm",
  "lifecycle",
- "lru",
  "metrics",
  "metrics-exporter-prometheus",
  "object_store",
@@ -2416,6 +2440,9 @@ dependencies = [
 name = "common-posthog"
 version = "0.1.0"
 dependencies = [
+ "httpmock",
+ "metrics",
+ "metrics-util",
  "posthog-rs",
  "serde_json",
  "tokio",
@@ -2865,6 +2892,7 @@ dependencies = [
  "regex",
  "reqwest 0.12.28",
  "rustls 0.23.37",
+ "semver",
  "serde",
  "serde_json",
  "sha2",
@@ -5043,6 +5071,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
 
 [[package]]
+name = "id-set"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9633fadf6346456cf8531119ba4838bc6d82ac4ce84d9852126dd2aa34d49264"
+
+[[package]]
 name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6584,6 +6618,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b93853da6d84c2e3c7d730d6473e8817692dd89be387eb01b94d7f108ecb5b8c"
 
 [[package]]
+name = "nohash-hasher"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
+
+[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7420,6 +7460,7 @@ dependencies = [
  "health",
  "lifecycle",
  "metrics",
+ "personhog-common",
  "personhog-coordination",
  "personhog-proto",
  "prost 0.13.5",
@@ -7509,6 +7550,15 @@ dependencies = [
  "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "personhog-stateright"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "personhog-coordination",
+ "stateright",
 ]
 
 [[package]]
@@ -7837,14 +7887,15 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.13.3"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2136b5250589588b5b514cd64b286bfb8630f2223e4f56ab1fa3858f1600ab38"
+checksum = "a5bcf2bdf6c269ff65ff9d4f360bc5f42d560afff96a589d873326594d473bd6"
 dependencies = [
  "backtrace",
  "brotli 7.0.0",
  "chrono",
  "derive_builder",
+ "findshlibs",
  "flate2",
  "os_info",
  "regex",
@@ -10340,6 +10391,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "stateright"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd1157f21b11916f90fe1f2ac9a8d0e09a8813b28701584141060f414eedf6ba"
+dependencies = [
+ "ahash 0.8.12",
+ "choice",
+ "crossbeam-utils",
+ "dashmap 6.1.0",
+ "id-set",
+ "log",
+ "nohash-hasher",
+ "parking_lot",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "tiny_http",
+]
+
+[[package]]
 name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11086,6 +11157,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tiny_http"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "389915df6413a2e74fb181895f933386023c71110878cd0825588928e64cdc82"
+dependencies = [
+ "ascii",
+ "chunked_transfer",
+ "httpdate",
+ "log",
+]
+
+[[package]]
 name = "tinystr"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11314,6 +11397,7 @@ dependencies = [
  "axum 0.7.9",
  "base64 0.22.1",
  "bytes",
+ "flate2",
  "h2 0.4.13",
  "http 1.4.0",
  "http-body 1.0.1",
@@ -11331,7 +11415,6 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
- "zstd",
 ]
 
 [[package]]
