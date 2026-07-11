@@ -82,7 +82,8 @@ function SparklineInner({
         }
         return [single]
     }, [series, data, resolvedColor, type, fillOpacity, dashedFromIndex])
-    const pointCount = chartSeries[0]?.data.length ?? 0
+    // Longest series, not just the first — a shorter/empty leading series must not truncate the labels.
+    const pointCount = useMemo(() => Math.max(0, ...chartSeries.map(({ data }) => data.length)), [chartSeries])
     const resolvedLabels = useMemo<string[]>(
         () => labels ?? Array.from({ length: pointCount }, (_, i) => String(i)),
         [labels, pointCount]
