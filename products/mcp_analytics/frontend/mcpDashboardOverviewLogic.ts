@@ -405,21 +405,19 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
     const current = rows.filter((r) => r.bucket >= currentStartBucket).sort((a, b) => a.bucket.localeCompare(b.bucket))
     const previous = rows.filter((r) => r.bucket < currentStartBucket)
 
-    // p95 === 0 marks a bucket with no latency data — excluded from the average.
-    const avgP95 = (rows_: BucketRow[]): number => {
-        const values = rows_.map((r) => r.p95).filter((v) => v > 0)
-        return values.length ? values.reduce((acc, v) => acc + v, 0) / values.length : 0
-    }
+    // Newest bucket with latency data — p95 === 0 marks a bucket without any.
+    const latestP95 = (rows_: BucketRow[]): number =>
+        [...rows_].sort((a, b) => b.bucket.localeCompare(a.bucket)).find((r) => r.p95 > 0)?.p95 ?? 0
 
     const curSessions = current.reduce((acc, r) => acc + r.sessions, 0)
     const curCalls = current.reduce((acc, r) => acc + r.tool_calls, 0)
     const curErrors = current.reduce((acc, r) => acc + r.errors, 0)
-    const curP95 = avgP95(current)
+    const curP95 = latestP95(current)
 
     const prevSessions = previous.reduce((acc, r) => acc + r.sessions, 0)
     const prevCalls = previous.reduce((acc, r) => acc + r.tool_calls, 0)
     const prevErrors = previous.reduce((acc, r) => acc + r.errors, 0)
-    const prevP95 = avgP95(previous)
+    const prevP95 = latestP95(previous)
 
     const curErrorRate = curCalls ? (curErrors / curCalls) * 100 : 0
     const prevErrorRate = prevCalls ? (prevErrors / prevCalls) * 100 : 0

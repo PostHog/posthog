@@ -111,7 +111,7 @@ export function KpiTiles({
             format: formatMs,
             color: theme.colors[0],
             loading: kpisLoading,
-            summaryLabel: 'Avg',
+            summaryLabel: 'Latest',
         },
         {
             label: 'Intent clusters',

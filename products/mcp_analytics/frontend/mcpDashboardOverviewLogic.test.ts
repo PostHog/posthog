@@ -358,11 +358,11 @@ describe('mcpDashboardOverviewLogic', () => {
                 sparkline: [100, 200],
             })
             expect(kpis.p95LatencyMs).toMatchObject({
-                value: 250,
+                value: 300,
                 previousValue: 150,
+                deltaPct: 100,
                 goodDirection: 'down',
             })
-            expect(kpis.p95LatencyMs.deltaPct).toBeCloseTo(66.67, 1)
             expect(kpis.errorRatePct.value).toBeCloseTo(6.667, 2)
             expect(kpis.errorRatePct.previousValue).toBeCloseTo(10, 5)
             expect(kpis.errorRatePct.goodDirection).toBe('down')
