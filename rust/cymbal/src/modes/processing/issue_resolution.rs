@@ -4,13 +4,16 @@ use chrono::{DateTime, Utc};
 use common_kafka::kafka_producer::{
     send_iter_to_kafka, send_keyed_iter_to_kafka, KafkaProduceError,
 };
+use rdkafka::error::RDKafkaErrorCode;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::core::types::notification::{
     IngestionNotification, IssueCreated, IssueNotificationContext, IssueReopened, IssueSnapshot,
     IssueSpiking, NotificationMeta,
 };
+use crate::metric_consts::KAFKA_MESSAGE_SIZE_TOO_LARGE_DROPPED;
 use crate::modes::processing::rules::assignment::{Assignee, Assignment};
 use crate::types::OutputErrProps;
 use crate::{app_context::AppContext, error::UnhandledError, metric_consts::ISSUE_REOPENED};
@@ -274,15 +277,38 @@ pub async fn send_fingerprint_issue_state(
     first_seen: DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
     let msg = FingerprintIssueState::new(issue, fingerprint, assignment, first_seen);
-    send_iter_to_kafka(
+    let results = send_iter_to_kafka(
         &context.immediate_producer,
         &context.config.fingerprint_issue_state_topic,
         &[msg],
     )
-    .await
-    .into_iter()
-    .collect::<Result<Vec<_>, KafkaProduceError>>()
-    .map_err(UnhandledError::KafkaProduceError)?;
+    .await;
+    handle_produce_results(results, "fingerprint_issue_state")
+}
+
+// A `MessageSizeTooLarge` produce error is neither retriable nor recoverable: the payload is
+// simply larger than the broker will accept. Mirroring the Node ingestion path, we drop the
+// oversized message (log plus metric) instead of bubbling it up as an `UnhandledError`, which
+// would fail the whole `/process` batch as a 5xx and report itself back into error tracking.
+fn handle_produce_results(
+    results: Vec<Result<(), KafkaProduceError>>,
+    site: &'static str,
+) -> Result<(), UnhandledError> {
+    for result in results {
+        match result {
+            Ok(()) => {}
+            Err(KafkaProduceError::KafkaProduceError { error })
+                if matches!(
+                    error.rdkafka_error_code(),
+                    Some(RDKafkaErrorCode::MessageSizeTooLarge)
+                ) =>
+            {
+                metrics::counter!(KAFKA_MESSAGE_SIZE_TOO_LARGE_DROPPED, "site" => site).increment(1);
+                warn!(site, "Dropping oversized Kafka message: {error}");
+            }
+            Err(e) => return Err(UnhandledError::KafkaProduceError(e)),
+        }
+    }
     Ok(())
 }
 
@@ -454,17 +480,14 @@ async fn publish_ingestion_notification(
     context: &AppContext,
     notification: IngestionNotification,
 ) -> Result<(), UnhandledError> {
-    send_keyed_iter_to_kafka(
+    let results = send_keyed_iter_to_kafka(
         &context.immediate_producer,
         &context.config.ingestion_notifications_topic,
         |notification| Some(notification.partition_key()),
         std::iter::once(notification),
     )
-    .await
-    .into_iter()
-    .collect::<Result<Vec<_>, KafkaProduceError>>()
-    .map_err(UnhandledError::KafkaProduceError)?;
-    Ok(())
+    .await;
+    handle_produce_results(results, "ingestion_notification")
 }
 
 fn assignment_to_string(assignment: Option<Assignment>) -> Result<Option<String>, UnhandledError> {
@@ -503,7 +526,13 @@ impl Display for IssueStatus {
 
 #[cfg(test)]
 mod test {
-    use crate::{modes::processing::rules::assignment::Assignee, sanitize_string};
+    use common_kafka::kafka_producer::KafkaProduceError;
+    use rdkafka::error::{KafkaError, RDKafkaErrorCode};
+
+    use super::handle_produce_results;
+    use crate::{
+        error::UnhandledError, modes::processing::rules::assignment::Assignee, sanitize_string,
+    };
 
     #[test]
     fn it_replaces_null_characters() {
@@ -516,5 +545,22 @@ mod test {
         let assignee = Assignee::User(1234);
         let stringified_assignee = serde_json::to_string(&assignee).unwrap();
         assert_eq!(stringified_assignee, "{\"type\":\"user\",\"id\":1234}");
+    }
+
+    #[test]
+    fn it_drops_message_size_too_large_produce_errors() {
+        let results = vec![Err(KafkaProduceError::KafkaProduceError {
+            error: KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge),
+        })];
+        assert!(handle_produce_results(results, "test").is_ok());
+    }
+
+    #[test]
+    fn it_bubbles_up_other_produce_errors() {
+        let results = vec![Err(KafkaProduceError::KafkaProduceCanceled)];
+        assert!(matches!(
+            handle_produce_results(results, "test"),
+            Err(UnhandledError::KafkaProduceError(_))
+        ));
     }
 }

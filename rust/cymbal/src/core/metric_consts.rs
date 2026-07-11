@@ -61,6 +61,8 @@ pub const BYTE_HISTOGRAM_BUCKETS: &[f64] = &[
 ];
 pub const ISSUE_CREATED: &str = "cymbal_issue_created";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
+pub const KAFKA_MESSAGE_SIZE_TOO_LARGE_DROPPED: &str =
+    "cymbal_kafka_message_size_too_large_dropped";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
 pub const CHUNK_ID_NOT_FOUND: &str = "cymbal_chunk_id_not_found";
 pub const CHUNK_ID_FAILURE_FETCHED: &str = "cymbal_chunk_id_failure_fetched";
