@@ -1,5 +1,4 @@
 import { cleanup } from '@testing-library/react'
-import React from 'react'
 
 import type { BaseChartContext } from '../core/chart-context'
 import type { ChartScales } from '../core/types'
