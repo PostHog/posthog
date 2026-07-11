@@ -18,9 +18,12 @@ if TYPE_CHECKING:
 class _EventsFieldCollector(TraversingVisitor):
     """Collects events-table field names and property accesses from the entire query."""
 
-    def __init__(self, events_table_type: ast.Type):
+    def __init__(self, events_table_type: ast.Type, synthetic_fields: set[str] | None = None):
         super().__init__()
         self.events_table_type = events_table_type
+        # Columns the transformer itself registered on the shared table while wrapping
+        # earlier scopes in the same query; excluded from the subset comparison below.
+        self.synthetic_fields = synthetic_fields or set()
         self.fields: set[str] = set()
         self.property_accesses: set[tuple[str, str]] = set()  # (property_name, table_column)
 
@@ -51,7 +54,13 @@ class _EventsFieldCollector(TraversingVisitor):
         if not isinstance(candidate, ast.TableType) or not isinstance(target, ast.TableType):
             return False
         # An augmented copy is the same table class with the original's fields plus the synthetic ones.
-        return type(candidate.table) is type(target.table) and set(target.table.fields).issubset(candidate.table.fields)
+        # The target may be the SHARED table already mutated by this transformer while wrapping an
+        # earlier scope of the same query (temp mat_* registrations); property-resolution copies were
+        # made before that mutation and only carry their own synthetic column, so those registrations
+        # must not participate in the comparison — or every later scope's property reads are dropped
+        # and the outer query fails with UNKNOWN_IDENTIFIER (code 47).
+        target_fields = set(target.table.fields) - self.synthetic_fields
+        return type(candidate.table) is type(target.table) and target_fields.issubset(candidate.table.fields)
 
     def visit_property_access(self, node: ast.PropertyAccess):
         # After the lowering pass an unmaterialized `properties.$x` read is a `PropertyAccess` over the blob `Field`,
@@ -140,7 +149,8 @@ class EventsPrefilterTransformer(TraversingVisitor):
         )
 
         # Collect ALL events-table fields from the entire query (SELECT, WHERE, GROUP BY, JOINs)
-        collector = _EventsFieldCollector(events_table_type)
+        registered_names = {name for _, name in self._temp_schema_fields}
+        collector = _EventsFieldCollector(events_table_type, synthetic_fields=registered_names)
         collector.visit(node)
         events_columns = collector.fields
         # Always include columns needed by JOIN constraints and the prefilter itself

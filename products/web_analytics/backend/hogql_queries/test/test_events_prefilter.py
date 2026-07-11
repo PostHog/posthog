@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, also_test_with_m
 from unittest.mock import patch
 
 from posthog.schema import (
+    CompareFilter,
     DateRange,
     EventPropertyFilter,
     PersonPropertyFilter,
@@ -194,6 +195,38 @@ class TestEventsPrefilterTransformer(ClickhouseTestMixin, APIBaseTest):
         assert sql.count("mat_customProperty") >= 2, (
             "subquery must SELECT the materialized column the outer query reads"
         )
+
+    def test_host_filter_with_path_cleaning_and_host_prepend(self):
+        # The dashboard's domain dropdown: a materialized $host property filter combined
+        # with includeHost + doPathCleaning. The host-prepended breakdown reads $host in
+        # a scope the prefilter wrapper must still satisfy; prod failed with code 47
+        # (Identifier 'events.mat_$host' cannot be resolved from subquery with name events).
+        self.team.path_cleaning_filters = [
+            {"regex": "/person/[^/#]+", "alias": "/person/<id>", "order": 0},
+            {"regex": "/insights/[A-Za-z0-9]+", "alias": "/insights/<id>", "order": 1},
+        ]
+        self.team.test_account_filters = [{"key": "$ip", "type": "event", "value": "127.0.0.1", "operator": "is_not"}]
+        self.team.save()
+        with materialized("events", "$host"), materialized("events", "$ip"):
+            sql = self._run_prefiltered_query(
+                includeBounceRate=True,
+                includeHost=True,
+                doPathCleaning=True,
+                filterTestAccounts=True,
+                compareFilter=CompareFilter(compare=True),
+                properties=[
+                    EventPropertyFilter(
+                        key="$host",
+                        operator=PropertyOperator.EXACT,
+                        value=["posthog.com"],
+                    )
+                ],
+            )
+
+        assert "toDate(events.timestamp)" in sql
+        # Both wrapped scopes (counts + bounce) filter on $host, so both prefilter
+        # subqueries must project the materialized column.
+        assert sql.count("mat_$host") >= 4
 
     def test_deep_key_read_off_materialized_column_kept_in_subquery(self):
         # A deep read (properties.customProperty.bar) through a materialized column becomes a JSON extract over the
