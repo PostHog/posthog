@@ -1098,16 +1098,20 @@ export function drawBars(
     const dataLength = series.data.length
     const dashedFrom = resolvePartialIndex(series.stroke?.partial?.fromIndex, dataLength)
     const dashedTo = resolvePartialIndex(series.stroke?.partial?.toIndex, dataLength)
-    const hatch = dashedFrom !== null || dashedTo !== null ? getHatchPattern(ctx, series.color) : null
 
     for (const bar of bars) {
         if (bar.width <= 0 || bar.height <= 0) {
             continue
         }
         const useHatch =
-            hatch !== null &&
-            ((dashedFrom !== null && bar.dataIndex >= dashedFrom) || (dashedTo !== null && bar.dataIndex <= dashedTo))
-        ctx.fillStyle = useHatch ? hatch : makeBarFill(ctx, barColorAt(series, bar.dataIndex), bar, fillStyle)
+            (dashedFrom !== null && bar.dataIndex >= dashedFrom) ||
+            (dashedTo !== null && bar.dataIndex <= dashedTo) ||
+            !!series.bars?.[bar.dataIndex]?.hatch
+        // The hatch keeps the bar's own resolved color (per-bar override included) so a
+        // flagged bar still reads as belonging to its series. Pattern lookups are cached.
+        ctx.fillStyle = useHatch
+            ? getHatchPattern(ctx, barColorAt(series, bar.dataIndex))
+            : makeBarFill(ctx, barColorAt(series, bar.dataIndex), bar, fillStyle)
         ctx.beginPath()
         traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
         ctx.fill()
