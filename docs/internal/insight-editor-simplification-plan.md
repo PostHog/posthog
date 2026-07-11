@@ -12,6 +12,12 @@ It is based on 30 days of our own product usage data (July 2026) from the PostHo
 Per public-repo policy, this document uses qualitative usage tiers instead of raw figures.
 The queries in the appendix reproduce the exact numbers against the internal project.
 
+A live, auto-refreshing version of this analysis is available internally as the
+[Insight editor usage audit dashboard](https://us.posthog.com/project/2/dashboard/1833172)
+(PostHog staff only), covering insight types analyzed/clicked/saved, chart display types,
+trends feature adoption, funnel modes, editor sections, math options, Options-menu toggles,
+and rarely used advanced controls, each on a rolling 30-day window.
+
 ## Usage tiers
 
 Relative to the population of users who viewed or edited an insight in the window:
