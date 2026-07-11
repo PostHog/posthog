@@ -45,6 +45,7 @@ export const TaxonomicBreakdownPopover = ({
         taxonomicGroupTypes = [TaxonomicFilterGroupType.CohortsWithAllUsers]
     } else if (isRetentionQuery(query) || (isInsightVizNode(query) && isRetentionQuery(query.source))) {
         taxonomicGroupTypes = [
+            TaxonomicFilterGroupType.MCPProperties,
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.PersonProperties,
             TaxonomicFilterGroupType.EventFeatureFlags,
@@ -55,6 +56,9 @@ export const TaxonomicBreakdownPopover = ({
         ]
     } else {
         taxonomicGroupTypes = [
+            // Only materializes when the insight has $mcp_* series in scope, so breakdowns
+            // by e.g. tool name or error state lead with the known MCP schema.
+            TaxonomicFilterGroupType.MCPProperties,
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.PersonProperties,
             TaxonomicFilterGroupType.EventFeatureFlags,

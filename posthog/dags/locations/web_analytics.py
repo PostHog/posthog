@@ -6,6 +6,7 @@ from products.marketing_analytics.dags import marketing_precompute
 from products.web_analytics.dags import (
     cache_favicons,
     cache_warming,
+    clear_oom_pins,
     eager_web_analytics_precompute,
     web_analytics_watchdog,
     web_dimensional_precompute,
@@ -58,6 +59,7 @@ defs = dagster.Definitions(
         web_dimensional_precompute.web_dimensional_precompute_job,
         marketing_precompute.marketing_precompute_job,
         cache_favicons.cache_authorized_domain_favicons_job,
+        clear_oom_pins.web_analytics_clear_precompute_oom_pins_job,
     ],
     schedules=schedules,
     loggers=loggers,

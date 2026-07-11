@@ -1,9 +1,10 @@
 """Which teams the Duckgres batch sink is enabled for.
 
-The sink must only claim batches for teams that (a) belong to an org with a
-provisioned DuckgresServer and (b) have the rollout feature flag on. Claiming
-anything else burns retries, fails sink runs, and floods Sentry for orgs that
-have no Duckgres to write to.
+The sink must only claim batches for teams that (a) have a DuckgresServerTeam
+membership and (b) have the rollout feature flag on. The membership is created
+when the team completes the managed-warehouse enable flow. Claiming anything
+else can switch an unregistered team from its legacy team-id schema to a newly
+chosen suffix after the sink has already primed it.
 
 The flag also provides mutual exclusion with the legacy
 DuckLakeCopyDataImportsWorkflow (full-table copy after each import job): that
@@ -15,6 +16,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from django.db.models import F
+
 import structlog
 import posthoganalytics
 
@@ -24,6 +27,20 @@ from posthog.exceptions_capture import capture_exception
 logger = structlog.get_logger(__name__)
 
 DUCKGRES_BATCH_SINK_FLAG = "duckgres-batch-sink"
+
+
+def is_duckgres_sink_team_member(team_id: int) -> bool:
+    """Whether a team has registered its membership in its org's Duckgres server.
+
+    ``table_suffix`` is intentionally not part of this check. Legacy memberships
+    with a NULL/empty suffix use the stable team-id schema naming fallback.
+    """
+    from posthog.ducklake.models import DuckgresServerTeam
+
+    return DuckgresServerTeam.objects.filter(
+        team_id=team_id,
+        server__organization_id=F("team__organization_id"),
+    ).exists()
 
 
 @dataclass(frozen=True)
@@ -56,22 +73,14 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
     if is_dev_mode():
         return None
 
-    from posthog.ducklake.models import DuckgresServer
-    from posthog.models import Team
-
-    org_budgets = dict(
-        DuckgresServer.objects.filter(organization_id__isnull=False).values_list(
-            "organization_id", "sink_max_concurrency"
-        )
-    )
-    if not org_budgets:
-        return SinkEnablement(team_ids=[], team_org_budgets=[])
+    from posthog.ducklake.models import DuckgresServerTeam
 
     enabled: list[int] = []
     team_org_budgets: list[tuple[int, str, int]] = []
-    for team_id, team_uuid, org_id in Team.objects.filter(organization_id__in=org_budgets.keys()).values_list(
-        "id", "uuid", "organization_id"
-    ):
+    memberships = DuckgresServerTeam.objects.filter(server__organization_id=F("team__organization_id")).values_list(
+        "team_id", "team__uuid", "team__organization_id", "server__sink_max_concurrency"
+    )
+    for team_id, team_uuid, org_id, sink_max_concurrency in memberships:
         try:
             if posthoganalytics.feature_enabled(
                 DUCKGRES_BATCH_SINK_FLAG,
@@ -85,7 +94,7 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
                 send_feature_flag_events=False,
             ):
                 enabled.append(team_id)
-                team_org_budgets.append((team_id, str(org_id), org_budgets[org_id]))
+                team_org_budgets.append((team_id, str(org_id), sink_max_concurrency))
         except Exception as e:
             # Flag evaluation failing for one team must not blind the whole sink;
             # treat as disabled (safe direction: we skip, never wrongly claim).

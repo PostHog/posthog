@@ -1,6 +1,10 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
+import { teamLogic } from 'scenes/teamLogic'
+
+import { type MetricsQuery, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import { metricsSceneLogic } from '../metricsSceneLogic'
@@ -30,12 +34,16 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 'setLiveRefresh',
                 'setGroupByKeys',
                 'setFilterGroup',
+                'addToDashboard',
+                'saveAsInsightSuccess',
                 'fetchQueryResults',
                 'fetchQueryResultsSuccess',
                 'fetchQueryResultsFailure',
             ],
             metricsSamplesLogic,
             ['setActiveTab as samplesPanelTabChanged', 'loadSamplesSuccess'],
+            teamLogic,
+            ['addProductIntent'],
         ],
         values: [metricsViewerLogic, ['hasMetricName', 'aggregation', 'groupByKeys', 'queryFilters']],
     })),
@@ -44,7 +52,7 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
         sampleRowExpanded: (sample: _MetricEventSampleApi) => ({ sample }),
         tracePivotClicked: (sample: _MetricEventSampleApi) => ({ sample }),
     }),
-    listeners(({ values, cache }) => ({
+    listeners(({ actions, values, cache }) => ({
         sceneTabChanged: ({ activeTab }) => {
             posthog.capture('metrics tab changed', { tab: activeTab })
         },
@@ -77,6 +85,21 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
             // queryFilters counts only complete, backend-valid chips (reducers ran before us).
             posthog.capture('metrics viewer attribute filter changed', { filter_count: values.queryFilters.length })
         },
+        addToDashboard: () => {
+            posthog.capture('metrics add to dashboard clicked', { aggregation: values.aggregation })
+        },
+        saveAsInsightSuccess: ({ savedInsight }) => {
+            if (!savedInsight) {
+                return
+            }
+            // Read the aggregation off the insight itself — the viewer's current
+            // value can already differ if it changed while the save was in flight.
+            // The node's 'quantile' maps back to the viewer vocabulary's 'p95'.
+            const nodeAggregation = (savedInsight.query as MetricsQuery | undefined)?.clauses?.[0]?.aggregation
+            posthog.capture('metrics insight saved', {
+                aggregation: nodeAggregation === 'quantile' ? 'p95' : (nodeAggregation ?? null),
+            })
+        },
         fetchQueryResults: () => {
             cache.queryStartedAt = performance.now()
         },
@@ -97,6 +120,15 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 has_group_by: values.groupByKeys.length > 0,
                 has_filters: values.queryFilters.length > 0,
             })
+            // Once per mount, not per query — live refresh re-runs the query every 15s,
+            // and each intent call is an API request (the backend counts repeats itself).
+            if (!cache.viewerQueryIntentFired) {
+                cache.viewerQueryIntentFired = true
+                actions.addProductIntent({
+                    product_type: ProductKey.METRICS,
+                    intent_context: ProductIntentContext.METRICS_VIEWER_QUERY_RUN,
+                })
+            }
         },
         fetchQueryResultsFailure: ({ error, errorObject }) => {
             // A superseded/unmounted query aborts — user-initiated, not a failure.
