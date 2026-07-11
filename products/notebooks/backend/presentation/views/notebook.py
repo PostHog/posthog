@@ -52,7 +52,11 @@ from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
-from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
+from products.notebooks.backend.python_analysis import (
+    analyze_python_globals,
+    annotate_python_nodes,
+    find_python_syntax_error,
+)
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
 from products.notebooks.backend.sql_v2 import (
     PAGE_LOCK_TTL_SECONDS,
@@ -962,6 +966,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         output_name = serializer.validated_data["output_name"]
         try:
             if node_type == "python":
+                # Fail fast on broken syntax (Journey 15): the run must be rejected here,
+                # not accepted and queued behind an in-flight run in the sandbox.
+                syntax_error = find_python_syntax_error(code)
+                if syntax_error:
+                    return Response({"detail": syntax_error}, status=400)
                 # A python node stores its code as-is; referenced frames become kernel inputs.
                 run_code, inputs = code, resolve_python_node_inputs(code, refs)
             else:

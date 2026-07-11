@@ -44,8 +44,9 @@ export function collectSqlV2Refs(doc: JSONContent | null | undefined, selfNodeId
 
 const POLL_INTERVAL_MS = 1000
 // Must outlast the backend's own run budgets (180s data-plane poll deadline, 300s kernel
-// execute timeout) plus slack, or a slow-but-successful run gets reported as timed out.
-const MAX_POLL_ATTEMPTS = 330 // ~5.5 minutes at 1s
+// execute timeout) plus slack — twice over, because a dispatched run can queue in the
+// sandbox behind another full-budget run (Journey 14) before its own budget even starts.
+const MAX_POLL_ATTEMPTS = 690 // ~11.5 minutes at 1s
 
 export const SQL_V2_DEFAULT_PAGE_SIZE = 50
 
@@ -86,7 +87,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
     connect((props: NotebookNodeSQLV2LogicProps) => ({
         values: [
             notebookOperationsLogic({ shortId: props.notebookShortId }),
-            ['activeOperation', 'isBusy'],
+            ['activeOperation', 'isBusy', 'activePageOperation'],
             notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
             ['staleNodeIds', 'staleCount', 'chainQueue', 'isChainRunning'],
         ],
@@ -248,10 +249,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
                     return
                 }
-                // The run button is disabled while the notebook is busy; this guards Cmd+Enter
-                // and programmatic dispatch. Re-running our own node supersedes as before.
-                if (values.isBusy && values.activeOperation?.nodeId !== props.nodeId) {
-                    lemonToast.info('Another operation is running in this notebook — wait for it to finish.')
+                // Journey 14: another node's run no longer blocks — the second run dispatches
+                // immediately and the sandbox orders execution. Only an in-flight page fetch
+                // (which holds a web worker) still gates; own-node operations supersede.
+                if (values.activePageOperation && values.activePageOperation.nodeId !== props.nodeId) {
+                    lemonToast.info('A page fetch is in progress in this notebook. Try again in a moment.')
                     actions.setIsRunning(false)
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
                     return
@@ -274,8 +276,10 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     // would orphan this run's node_id and break refs to this cell.
                     props.updateAttributes({ nodeId: props.nodeId, runId: run_id, result: null })
                     actions.startPolling(run_id)
-                } catch (error) {
-                    actions.setRunError(error instanceof Error ? error.message : 'Failed to run query')
+                } catch (error: any) {
+                    // A 400 at dispatch (e.g. Journey 15's syntax fail-fast) carries the real
+                    // message in `detail`; fall back to the generic error message otherwise.
+                    actions.setRunError(error?.detail || error?.message || 'Failed to run query')
                     actions.setIsRunning(false)
                     actions.finishOperation(runOperation.id)
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
@@ -419,6 +423,14 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         ],
         // An upstream cell's run landed after this cell last ran (Journey 10).
         isStale: [(s) => [s.staleNodeIds], (staleNodeIds): boolean => !!staleNodeIds[props.nodeId]],
+        // Journey 14: only a page fetch blocks dispatching a run — wire into Run buttons.
+        runBlockReason: [
+            (s) => [s.activePageOperation],
+            (activePageOperation): string | null =>
+                activePageOperation && activePageOperation.nodeId !== props.nodeId
+                    ? 'A page fetch is in progress in this notebook'
+                    : null,
+        ],
     })),
     afterMount(({ props, actions }) => {
         // Recover after a reload/remount: a persisted runId with no result means the run may still be

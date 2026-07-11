@@ -218,6 +218,21 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).count(), 0)
         mock_start.assert_not_called()
 
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_python_syntax_error_is_rejected_before_dispatch(self, _mock_enabled, mock_start):
+        # Journey 15: broken syntax must fail at dispatch, not get accepted and queued
+        # behind an in-flight run in the sandbox only to die there.
+        response = self.client.post(
+            self.run_url,
+            data={"node_id": "n1", "code": "def = 1", "node_type": "python", "output_name": "df"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Python syntax error", response.json()["detail"])
+        self.assertEqual(NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).count(), 0)
+        mock_start.assert_not_called()
+
     def _record_done_run(self, node_id: str, code: str) -> None:
         with team_scope(self.team.id):
             NotebookNodeRun.objects.create(
