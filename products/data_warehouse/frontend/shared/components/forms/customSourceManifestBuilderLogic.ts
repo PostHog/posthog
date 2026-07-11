@@ -195,10 +195,33 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
                         lemonToast.error('Enter a documentation URL first')
                         return null
                     }
-                    return await externalDataSourcesDraftCustomManifestCreate(String(ApiConfig.getCurrentTeamId()), {
-                        docs_url: docsUrl,
-                        source_name: values.sourceName.trim() || undefined,
-                    })
+                    try {
+                        return await externalDataSourcesDraftCustomManifestCreate(
+                            String(ApiConfig.getCurrentTeamId()),
+                            {
+                                docs_url: docsUrl,
+                                source_name: values.sourceName.trim() || undefined,
+                            }
+                        )
+                    } catch (error) {
+                        // The backend returns expected, user-facing errors here (a docs URL it can't
+                        // fetch, a rate-limit, missing consent). Those are already communicated with a
+                        // toast, so resolve the loader instead of throwing — a throw routes through the
+                        // global kea-loaders `onFailure`, which captures an exception into error
+                        // tracking, turning a handled "fix your input" case into inbox noise. Re-throw
+                        // anything that isn't an ApiError so genuine bugs still surface.
+                        if (error instanceof ApiError) {
+                            // 4xx/5xx bodies carry `data.message`, while a 429 throttle carries DRF's
+                            // `data.detail` ("…available in N seconds") — telling a rate-limited user to
+                            // "try again" immediately would be wrong, so surface the specific reason.
+                            const message = error.data?.message || error.data?.detail
+                            lemonToast.error(
+                                message || 'Failed to draft a manifest. Try again, or configure it manually.'
+                            )
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -263,13 +286,11 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
                 )
             }
         },
-        generateFromDocsFailure: ({ errorObject }) => {
-            // Surface the backend's specific reason instead of a blanket message: 4xx/5xx bodies carry
-            // `data.message`, while a 429 throttle carries DRF's `data.detail` ("…available in N
-            // seconds") — telling a rate-limited user to "try again" immediately would be wrong.
-            const apiError = errorObject instanceof ApiError ? errorObject : undefined
-            const message = apiError?.data?.message || apiError?.data?.detail
-            lemonToast.error(message || 'Failed to draft a manifest. Try again, or configure it manually.')
+        generateFromDocsFailure: () => {
+            // Expected API errors are handled (and toasted) in the loader, so only an unexpected,
+            // non-ApiError throw reaches here — worth both a generic toast and the exception capture
+            // that the global kea-loaders `onFailure` still does for it.
+            lemonToast.error('Failed to draft a manifest. Try again, or configure it manually.')
         },
     })),
     afterMount(({ actions, props }) => {

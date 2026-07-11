@@ -260,19 +260,39 @@ describe('customSourceManifestBuilderLogic', () => {
             ['429 throttle detail', 429, { detail: 'Request was throttled. Expected available in 30 seconds.' }],
             ['400 error message', 400, { message: 'Could not fetch the docs URL.' }],
         ] as [string, number, Record<string, string>][])(
-            'surfaces the backend reason (%s) instead of a generic failure',
+            'toasts the backend reason (%s) and resolves without a loader failure',
             async (_label, status, data) => {
-                // Deliberate loader failure — kea-loaders would log it
-                silenceKeaLoadersErrors()
                 mockDraft.mockRejectedValue(new ApiError('failed', status, undefined, data))
                 logic.actions.setDocsUrl('https://docs.example.com')
 
+                // A handled API error is caught in the loader so it never becomes a kea-loaders
+                // failure — otherwise the global onFailure would capture an exception for an
+                // expected, user-facing input error, leaking into error tracking as noise.
                 await expectLogic(logic, () => {
                     logic.actions.generateFromDocs()
-                }).toDispatchActions(['generateFromDocsFailure'])
+                })
+                    .toDispatchActions(['generateFromDocsSuccess'])
+                    .toNotHaveDispatchedActions(['generateFromDocsFailure'])
 
                 expect(lemonToast.error).toHaveBeenCalledWith(data.detail ?? data.message)
             }
         )
+
+        it('captures unexpected non-ApiError failures instead of swallowing them', async () => {
+            // A non-ApiError throw is a genuine bug, so it must still route through the loader
+            // failure path (where the global onFailure captures it) — only handled ApiErrors are
+            // suppressed.
+            silenceKeaLoadersErrors()
+            mockDraft.mockRejectedValue(new TypeError('unexpected'))
+            logic.actions.setDocsUrl('https://docs.example.com')
+
+            await expectLogic(logic, () => {
+                logic.actions.generateFromDocs()
+            }).toDispatchActions(['generateFromDocsFailure'])
+
+            expect(lemonToast.error).toHaveBeenCalledWith(
+                'Failed to draft a manifest. Try again, or configure it manually.'
+            )
+        })
     })
 })
