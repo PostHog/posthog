@@ -3,16 +3,24 @@ import React, { useEffect, useMemo } from 'react'
 import { useChartHover } from '../../core/chart-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
-import type { ChartTheme, LineChartConfig, Series } from '../../core/types'
+import type { BarChartConfig, ChartTheme, LineChartConfig, Series, TooltipContext } from '../../core/types'
+import { BarChart } from '../BarChart/BarChart'
 import { LineChart } from '../LineChart/LineChart'
 
 export interface SparklineProps {
-    data: number[]
+    /** Single-series values. Ignored when `series` is provided. */
+    data?: number[]
+    /** Multi-series form with full per-series control (color, fill, stroke). Bars render stacked.
+     *  When set, the single-series conveniences (`data`, `color`, `fillOpacity`,
+     *  `dashedFromIndex`) are ignored — express them on the series entries instead. */
+    series?: Series[]
     /** Optional x-axis labels — when omitted, indices stand in. Consumers can look up
      *  the hovered index against their own labels. */
     labels?: string[]
     theme: ChartTheme
     color?: string
+    /** `line` (default) draws a gradient-filled trend line; `bar` draws stacked bars. */
+    type?: 'line' | 'bar'
     height?: number
     /** Fill the parent's height (flex child) instead of using a fixed `height`. */
     fill?: boolean
@@ -22,19 +30,18 @@ export interface SparklineProps {
     dashedFromIndex?: number
     /** Fires the hovered index, or -1 when not hovering. */
     onHoverIndexChange?: (index: number) => void
+    /** Tooltip content renderer. Sparkline tooltips are off by default; supplying this enables them. */
+    tooltip?: (ctx: TooltipContext) => React.ReactNode
     className?: string
     dataAttr?: string
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-const SPARKLINE_CONFIG: LineChartConfig = {
-    hideXAxis: true,
-    hideYAxis: true,
-    showCrosshair: true,
-    tooltip: { enabled: false },
-    // Reserve room for the hover highlight ring (radius + 2 = 6px) so it isn't clipped at the top/bottom edge.
-    margins: { top: 6, right: 0, bottom: 6, left: 0 },
-}
+const BASE_CONFIG = { hideXAxis: true, hideYAxis: true } as const
+// Reserve room for the hover highlight ring (radius + 2 = 6px) so it isn't clipped at the top/bottom edge.
+const LINE_MARGINS = { top: 6, right: 0, bottom: 6, left: 0 }
+// Bars have no hover ring — sit them flush on the baseline, with a sliver of headroom for the tallest stack.
+const BAR_MARGINS = { top: 2, right: 0, bottom: 0, left: 0 }
 
 export function Sparkline(props: SparklineProps): React.ReactElement {
     const { onError, ...rest } = props
@@ -47,46 +54,68 @@ export function Sparkline(props: SparklineProps): React.ReactElement {
 
 function SparklineInner({
     data,
+    series,
     labels,
     theme,
     color,
+    type = 'line',
     height = 120,
     fill = false,
     fillOpacity = 0.35,
     dashedFromIndex,
     onHoverIndexChange,
+    tooltip,
     className,
     dataAttr,
 }: Omit<SparklineProps, 'onError'>): React.ReactElement {
     const resolvedColor = color ?? theme.colors[0]
+    const chartSeries = useMemo<Series[]>(() => {
+        if (series) {
+            return series
+        }
+        const single: Series = { key: 'sparkline', label: 'sparkline', data: data ?? [], color: resolvedColor }
+        if (type === 'line') {
+            single.fill = { gradient: true, opacity: fillOpacity }
+            if (dashedFromIndex != null) {
+                single.stroke = { partial: { fromIndex: dashedFromIndex } }
+            }
+        }
+        return [single]
+    }, [series, data, resolvedColor, type, fillOpacity, dashedFromIndex])
+    const pointCount = chartSeries[0]?.data.length ?? 0
     const resolvedLabels = useMemo<string[]>(
-        () => labels ?? Array.from({ length: data.length }, (_, i) => String(i)),
-        [labels, data.length]
+        () => labels ?? Array.from({ length: pointCount }, (_, i) => String(i)),
+        [labels, pointCount]
     )
-    const series = useMemo<Series[]>(
-        () => [
-            {
-                key: 'sparkline',
-                label: 'sparkline',
-                data,
-                color: resolvedColor,
-                fill: { gradient: true, opacity: fillOpacity },
-                stroke: dashedFromIndex != null ? { partial: { fromIndex: dashedFromIndex } } : undefined,
-            },
-        ],
-        [data, resolvedColor, fillOpacity, dashedFromIndex]
+    const hasTooltip = tooltip != null
+    const config = useMemo<LineChartConfig & BarChartConfig>(
+        () => ({
+            ...BASE_CONFIG,
+            ...(type === 'bar'
+                ? { barCornerRadius: 2, margins: BAR_MARGINS }
+                : { showCrosshair: true, margins: LINE_MARGINS }),
+            ...(hasTooltip ? {} : { tooltip: { enabled: false } }),
+        }),
+        [type, hasTooltip]
     )
     const wrapperStyle = useMemo<React.CSSProperties | undefined>(() => (fill ? undefined : { height }), [fill, height])
 
+    const watcher = onHoverIndexChange ? <HoverWatcher onHoverChange={onHoverIndexChange} /> : null
     return (
         <div
             className={`relative flex flex-col ${fill ? 'flex-1 min-h-0' : ''} ${className ?? ''}`}
             style={wrapperStyle}
             data-attr={dataAttr}
         >
-            <LineChart series={series} labels={resolvedLabels} theme={theme} config={SPARKLINE_CONFIG}>
-                {onHoverIndexChange ? <HoverWatcher onHoverChange={onHoverIndexChange} /> : null}
-            </LineChart>
+            {type === 'bar' ? (
+                <BarChart series={chartSeries} labels={resolvedLabels} theme={theme} config={config} tooltip={tooltip}>
+                    {watcher}
+                </BarChart>
+            ) : (
+                <LineChart series={chartSeries} labels={resolvedLabels} theme={theme} config={config} tooltip={tooltip}>
+                    {watcher}
+                </LineChart>
+            )}
         </div>
     )
 }
