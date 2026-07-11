@@ -458,7 +458,7 @@ async def repartition_table_in_place(
 
     if not resuming:
         # Fresh build: sweep every stale/orphaned temp variant, then stream the live table into ours.
-        async with aget_s3_client() as s3:
+        async with aget_s3_client(fresh_instance=True) as s3:
             await _purge_stale_temp_tables(s3, live_uri)
 
         rows_written, resolved = await _rewrite_into_temp(
@@ -637,7 +637,7 @@ async def _swap_temp_into_live(
         await ensure_claim()
 
     temp_prefix = temp_uri.replace("s3://", "").rstrip("/")
-    async with aget_s3_client() as s3:
+    async with aget_s3_client(fresh_instance=True) as s3:
         if await s3._exists(temp_uri):
             # Fully clear live before the copy. A leftover file from an incomplete recursive delete
             # merges into the copied `_delta_log` and inflates the row count past `expected_rows`,
@@ -654,5 +654,5 @@ async def _swap_temp_into_live(
     if live_rows != expected_rows:
         raise ValueError(f"repartition swap verification failed: live={live_rows} expected={expected_rows}")
 
-    async with aget_s3_client() as s3:
+    async with aget_s3_client(fresh_instance=True) as s3:
         await _purge_s3_prefix(s3, temp_uri)
