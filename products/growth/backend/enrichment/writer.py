@@ -9,6 +9,8 @@ One writer per field: this owns the provider-derived registry keys. It never tou
 `company_type_deterministic`, which the signup classifier owns.
 """
 
+from typing import Any
+
 from django.db import transaction
 
 from posthoganalytics.client import Client
@@ -19,7 +21,7 @@ from products.growth.backend.models import OrganizationEnrichment
 ORGANIZATION_GROUP_TYPE = "organization"
 
 
-def _merge_into_record(organization_id: str, values: dict) -> None:
+def _merge_into_record(organization_id: str, values: dict[str, Any]) -> None:
     """Row-locked read/merge/save into OrganizationEnrichment.data.
 
     select_for_update serializes concurrent writers on the same org (the request-path
@@ -64,6 +66,8 @@ def record_signup_work_email(*, organization_id: str, work_email: bool) -> None:
 
     First-party data known synchronously at signup, so it is written from the request
     path for every signup — including personal-domain ones that never get a provider
-    lookup. Postgres only; the group projection happens with the provider write.
+    lookup. Postgres only for v0: work_email is never set by the provider transform, and
+    personal domains get no provider write, so there's no group projection here. Projecting
+    it onto the organization group is deferred until a consumer needs the group property.
     """
     _merge_into_record(organization_id, {"work_email": work_email})
