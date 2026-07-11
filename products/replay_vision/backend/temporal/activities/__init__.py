@@ -13,6 +13,11 @@ from products.replay_vision.backend.temporal.activities.emit_classifier_tags imp
 from products.replay_vision.backend.temporal.activities.emit_observation_event import emit_observation_event_activity
 from products.replay_vision.backend.temporal.activities.emit_observation_signal import emit_observation_signal_activity
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
+from products.replay_vision.backend.temporal.activities.evaluate_prompt_suggestion import (
+    finalize_evaluation_activity,
+    record_evaluation_result_activity,
+    select_evaluation_sessions_activity,
+)
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
 from products.replay_vision.backend.temporal.activities.list_stale_scanner_estimates import (
@@ -56,6 +61,7 @@ __all__ = [
     "emit_observation_signal_activity",
     "ensure_session_asset_activity",
     "fetch_session_events_activity",
+    "finalize_evaluation_activity",
     "find_scanner_candidates_activity",
     "list_enabled_scanners_activity",
     "list_scanner_schedules_activity",
@@ -65,7 +71,9 @@ __all__ = [
     "mark_observation_running_activity",
     "mark_observation_succeeded_activity",
     "reap_orphaned_observations_activity",
+    "record_evaluation_result_activity",
     "refresh_scanner_estimate_activity",
+    "select_evaluation_sessions_activity",
     "upload_video_to_gemini_activity",
     "upsert_scanner_schedule_activity",
 ]

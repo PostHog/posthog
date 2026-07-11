@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { insightsApi } from 'scenes/insights/utils/api'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
@@ -19,6 +21,11 @@ jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
     metricsValuesRetrieve: jest.fn(),
     metricsAttributesRetrieve: jest.fn(),
+}))
+
+jest.mock('scenes/insights/utils/api', () => ({
+    ...jest.requireActual('scenes/insights/utils/api'),
+    insightsApi: { create: jest.fn() },
 }))
 
 const filterGroupWith = (filters: Record<string, any>[]): UniversalFiltersGroup => ({
@@ -99,6 +106,7 @@ describe('metricsViewerLogic', () => {
                     name: 'a',
                     metricName: 'request_duration',
                     aggregation: 'quantile',
+                    metricType: 'histogram',
                     quantile: 0.95,
                     filters: [{ key: 'namespace', op: 'eq', value: 'posthog' }],
                     groupBy: [{ key: 'container' }],
@@ -110,6 +118,85 @@ describe('metricsViewerLogic', () => {
 
     it('produces no MetricsQuery node without a metric name', () => {
         expect(logic.values.metricsQueryNode).toBeNull()
+    })
+
+    // A type outside the API enum (or a metric missing from the picker list) must be
+    // omitted, not persisted — the backend rejects unknown metric types.
+    it('omits metricType from the node when the picked type is unknown', () => {
+        logic.actions.setMetricName('mystery_metric')
+        expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
+    })
+
+    // The picker's items are live search results: typing a new search after picking
+    // a metric replaces them. The picked type must be latched, not derived, or a
+    // save at that moment silently persists an untyped (blendable) query.
+    it('keeps the picked metric type when the picker search results change', () => {
+        logic.actions.setMetricName('queue_depth')
+        metricNamePickerLogic.actions.loadItemsSuccess([{ name: 'http_requests', metric_type: 'sum' }] as any)
+        expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+    })
+
+    it('backfills the metric type when the picker loads after the metric was set', () => {
+        metricNamePickerLogic.actions.loadItemsSuccess([])
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
+        metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
+        expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+    })
+
+    // "Add to dashboard" must not create a fresh insight on every click — repeated
+    // clicks for an unchanged query would litter saved insights with duplicates.
+    // The mock normalizes the echoed query (like the API can: injected defaults,
+    // version stamps), so reuse must not depend on the server round-tripping the
+    // node byte-for-byte.
+    it('add to dashboard saves the insight once, then reuses it while the query is unchanged', async () => {
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) =>
+                ({ id: 1, short_id: 'abc123', ...insight, query: { ...insight.query, version: 1 } }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess', 'openAddToDashboardModal'])
+        expect(logic.values.isAddToDashboardModalOpen).toBe(true)
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+
+        logic.actions.closeAddToDashboardModal()
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['openAddToDashboardModal'])
+        expect(logic.values.isAddToDashboardModalOpen).toBe(true)
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+    })
+
+    it('add to dashboard saves a fresh insight after the query changes', async () => {
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['openAddToDashboardModal'])
+
+        logic.actions.closeAddToDashboardModal()
+        logic.actions.setAggregation('rate')
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess', 'openAddToDashboardModal'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(2)
+    })
+
+    // A failed add-to-dashboard save must not leave the flow armed: a later plain
+    // "Save as insight" success would unexpectedly pop the modal.
+    it('a later plain save does not open the modal after a failed add-to-dashboard save', async () => {
+        jest.mocked(insightsApi.create).mockRejectedValueOnce(new Error('boom'))
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightFailure'])
+
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.saveAsInsight()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(logic.values.isAddToDashboardModalOpen).toBe(false)
     })
 
     // A failed query (bad regex, 500) used to render the same "No data" empty state as a genuinely

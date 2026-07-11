@@ -45,7 +45,9 @@ interface EditAlertModalProps {
     insightShortId: InsightShortId
     onEditSuccess: (alertId?: AlertType['id'] | undefined) => void
     onClose?: () => void
-    insightLogicProps?: InsightLogicProps
+    insightLogicProps: InsightLogicProps
+    defaultToAnomalyDetection?: boolean
+    insightName?: string | null
 }
 
 export function EditAlertModal({
@@ -56,6 +58,8 @@ export function EditAlertModal({
     onClose,
     onEditSuccess,
     insightLogicProps,
+    defaultToAnomalyDetection,
+    insightName,
 }: EditAlertModalProps): JSX.Element {
     const _alertLogic = alertLogic({ alertId })
     const { alert, alertLoading } = useValues(_alertLogic)
@@ -68,7 +72,7 @@ export function EditAlertModal({
         [onEditSuccess]
     )
 
-    const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
+    const trendsLogic = trendsDataLogic(insightLogicProps)
     const {
         alertSeries,
         isNonTimeSeriesDisplay,
@@ -77,7 +81,7 @@ export function EditAlertModal({
         interval: trendInterval,
     } = useValues(trendsLogic)
 
-    const { query } = useValues(insightVizDataLogic(insightLogicProps ?? { dashboardItemId: insightShortId }))
+    const { query } = useValues(insightVizDataLogic(insightLogicProps))
 
     const funnelSource = !!query && isInsightVizNode(query) && isFunnelsQuery(query.source) ? query.source : null
     const isFunnelInsight = funnelSource !== null
@@ -101,6 +105,8 @@ export function EditAlertModal({
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
         insightAlertKind,
+        defaultToAnomalyDetection: !alertId && !isNonTimeSeriesDisplay && defaultToAnomalyDetection,
+        insightName,
         insightIsTrendsFunnel: isTrendsFunnel,
     }
     const formLogic = alertFormLogic(formLogicProps)
@@ -131,7 +137,6 @@ export function EditAlertModal({
 
     const { currentTeam } = useValues(teamLogic)
     const projectTimezone = currentTeam?.timezone ?? 'UTC'
-    const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
 
@@ -281,8 +286,8 @@ export function EditAlertModal({
                                             valueColumnOptions: hogqlValueColumnOptions,
                                             labelColumnOptions: hogqlLabelColumnOptions,
                                         }}
-                                        anomalyDetectionEnabled={
-                                            anomalyDetectionEnabled && supportsAnomalyDetection(alertForm.config)
+                                        supportsAnomalyDetection={
+                                            !isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)
                                         }
                                         investigationAgentEnabled={investigationAgentEnabled}
                                         simulationResult={simulationResult}
@@ -376,7 +381,12 @@ export function EditAlertModal({
                             type="primary"
                             htmlType="submit"
                             loading={isAlertFormSubmitting}
-                            disabledReason={!alertFormChanged && !hasPendingNotifications && 'No changes to save'}
+                            disabledReason={
+                                !creatingNewAlert &&
+                                !alertFormChanged &&
+                                !hasPendingNotifications &&
+                                'No changes to save'
+                            }
                             onClick={() => setAlertFormSubmitAttempted()}
                         >
                             {creatingNewAlert ? 'Create alert' : 'Save'}

@@ -73,6 +73,8 @@ from posthog.models.integration import (
     S3CompatibleIntegration,
     S3CredentialIntegrationError,
     SlackIntegration,
+    SnowflakeIntegration,
+    SnowflakeIntegrationError,
     StripeIntegration,
     TwilioIntegration,
     defer_repository_cache_fields,
@@ -562,6 +564,24 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                     created_by=request.user,
                 )
             except DatabricksIntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "snowflake":
+            config = validated_data.get("config", {})
+            try:
+                instance = SnowflakeIntegration.integration_from_config(
+                    team_id=team_id,
+                    name=config.get("name"),
+                    account=config.get("account"),
+                    user=config.get("user"),
+                    authentication_type=config.get("authentication_type", "password"),
+                    password=config.get("password"),
+                    private_key=config.get("private_key"),
+                    private_key_passphrase=config.get("private_key_passphrase"),
+                    created_by=request.user,
+                )
+            except SnowflakeIntegrationError as e:
                 raise ValidationError(str(e))
             return instance
 
