@@ -185,6 +185,11 @@ class ReplaceFilters(CloningVisitor):
                 return exprs[0]
             return ast.And(exprs=exprs)
         if node.chain == ["filters", "dateRange", "from"]:
+            if not self.compare_operations:
+                raise QueryError(
+                    "The `{filters.dateRange.from}` placeholder can only be used on one side of a comparison, "
+                    "e.g. `WHERE timestamp >= {filters.dateRange.from}`."
+                )
             compare_op_wrapper = self.compare_operations[-1]
 
             if no_filters:
@@ -207,6 +212,11 @@ class ReplaceFilters(CloningVisitor):
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
         if node.chain == ["filters", "dateRange", "to"]:
+            if not self.compare_operations:
+                raise QueryError(
+                    "The `{filters.dateRange.to}` placeholder can only be used on one side of a comparison, "
+                    "e.g. `WHERE timestamp <= {filters.dateRange.to}`."
+                )
             compare_op_wrapper = self.compare_operations[-1]
 
             if no_filters:
