@@ -60,6 +60,7 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     capture_event,
+    capture_report,
     get_all_event_metrics_in_period,
     get_instance_metadata,
     get_teams_with_query_metric,
@@ -95,6 +96,14 @@ from ee.models.license import License
 ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
 logger = structlog.get_logger(__name__)
+
+
+def test_usage_report_parent_task_acks_early_while_capture_task_acks_late() -> None:
+    assert send_all_org_usage_reports.acks_late is False
+    assert send_all_org_usage_reports.reject_on_worker_lost is False
+
+    assert capture_report.acks_late is True
+    assert capture_report.reject_on_worker_lost is True
 
 
 def _setup_replay_data(team_id: int, include_mobile_replay: bool, include_zero_duration: bool = False) -> None:

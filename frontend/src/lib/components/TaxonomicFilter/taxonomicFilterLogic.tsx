@@ -61,7 +61,7 @@ import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { getPrimaryPropertyForEvent } from 'lib/utils/events'
+import { distinctPrimaryPropertiesForEvents } from 'lib/utils/events'
 import { isString } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
@@ -511,16 +511,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 primaryPropertiesForContextEvents: string[]
                 mcpExcludedEventProperties: string[]
             } => {
-                const distinct = new Set<string>()
-                for (const eventName of eventNames) {
-                    const primary = getPrimaryPropertyForEvent(eventName, primaryProperties)
-                    if (primary) {
-                        distinct.add(primary)
-                    }
-                }
                 return {
                     eventNames,
-                    primaryPropertiesForContextEvents: Array.from(distinct),
+                    primaryPropertiesForContextEvents: distinctPrimaryPropertiesForEvents(
+                        eventNames,
+                        primaryProperties
+                    ),
                     mcpExcludedEventProperties: getMCPExcludedEventProperties(eventNames, taxonomicGroupTypes),
                 }
             },

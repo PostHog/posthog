@@ -48,10 +48,10 @@ export function getMCPPropertyFilterOptions(): string[] {
 }
 
 /** Seeded into the Suggested tab when the picker is scoped to `$mcp_tool_call`, so
- *  success/failure splits are one click away. In the legacy picker `$mcp_tool_name`
- *  also lands there via the event's `primary_property`; the rebuild doesn't seed
- *  primary properties yet (`promotedPropertiesForContextEvents` is unwired), so it
- *  shows only this list. */
+ *  success/failure splits are one click away. `$mcp_tool_name` also lands there via
+ *  the event's `primary_property` — in the legacy picker through taxonomicFilterLogic,
+ *  and in the rebuild through `promotedPropertiesForContextEvents` (computed by
+ *  `useTaxonomicGroupsContext`). */
 export const MCP_TOOL_CALL_SUGGESTED_PROPERTIES: string[] = ['$mcp_is_error']
 
 /** When the MCP properties group is available in a picker, the known schema is
