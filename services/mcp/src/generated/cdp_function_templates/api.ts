@@ -38,14 +38,14 @@ export const HogFunctionTemplatesListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const HogFunctionTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
     id: zod
         .string()
         .describe(
             "The template's id, e.g. 'template-slack' or 'template-geoip'. This is the 'id' field returned by the list endpoint."
+        ),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
