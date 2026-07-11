@@ -1,10 +1,13 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import redis.exceptions
+
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
     _STUCK_TTL_SECONDS,
     BumpStuckCounterInput,
     bump_stuck_counter_activity,
+    clear_stuck_counter_activity,
     read_stuck_session_ids,
 )
 
@@ -29,6 +32,74 @@ async def test_bump_stuck_counter_pipelines_incr_and_expire():
     pipeline.incr.assert_called_once_with("replay:rasterize:stuck:42:abc")
     pipeline.expire.assert_called_once_with("replay:rasterize:stuck:42:abc", _STUCK_TTL_SECONDS)
     pipeline.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_clear_stuck_counter_deletes_key():
+    redis_client = MagicMock()
+    redis_client.delete = AsyncMock(return_value=1)
+
+    with patch(
+        "posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter.get_async_client",
+        return_value=redis_client,
+    ):
+        await clear_stuck_counter_activity(BumpStuckCounterInput(team_id=42, session_id="abc"))
+
+    redis_client.delete.assert_awaited_once_with("replay:rasterize:stuck:42:abc")
+
+
+# A transient connectivity blip must not escape these best-effort activities, or the Temporal
+# activity interceptor reports a deliberately-tolerated failure as a new error-tracking issue.
+@pytest.mark.parametrize(
+    "error",
+    [
+        redis.exceptions.ConnectionError("Timeout connecting to server"),
+        redis.exceptions.TimeoutError("Timeout reading from server"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_bump_stuck_counter_swallows_transient_redis_errors(error):
+    redis_client = MagicMock()
+    redis_client.pipeline = MagicMock(side_effect=error)
+
+    with patch(
+        "posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter.get_async_client",
+        return_value=redis_client,
+    ):
+        await bump_stuck_counter_activity(BumpStuckCounterInput(team_id=42, session_id="abc"))
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        redis.exceptions.ConnectionError("Timeout connecting to server"),
+        redis.exceptions.TimeoutError("Timeout reading from server"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_clear_stuck_counter_swallows_transient_redis_errors(error):
+    redis_client = MagicMock()
+    redis_client.delete = AsyncMock(side_effect=error)
+
+    with patch(
+        "posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter.get_async_client",
+        return_value=redis_client,
+    ):
+        await clear_stuck_counter_activity(BumpStuckCounterInput(team_id=42, session_id="abc"))
+
+
+@pytest.mark.asyncio
+async def test_clear_stuck_counter_reraises_non_transient_redis_errors():
+    # A malformed command (ResponseError) is a real defect, not a blip — it must still surface.
+    redis_client = MagicMock()
+    redis_client.delete = AsyncMock(side_effect=redis.exceptions.ResponseError("WRONGTYPE"))
+
+    with patch(
+        "posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter.get_async_client",
+        return_value=redis_client,
+    ):
+        with pytest.raises(redis.exceptions.ResponseError):
+            await clear_stuck_counter_activity(BumpStuckCounterInput(team_id=42, session_id="abc"))
 
 
 @pytest.mark.asyncio
