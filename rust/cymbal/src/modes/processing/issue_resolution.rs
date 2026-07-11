@@ -303,7 +303,8 @@ fn handle_produce_results(
                     Some(RDKafkaErrorCode::MessageSizeTooLarge)
                 ) =>
             {
-                metrics::counter!(KAFKA_MESSAGE_SIZE_TOO_LARGE_DROPPED, "site" => site).increment(1);
+                metrics::counter!(KAFKA_MESSAGE_SIZE_TOO_LARGE_DROPPED, "site" => site)
+                    .increment(1);
                 warn!(site, "Dropping oversized Kafka message: {error}");
             }
             Err(e) => return Err(UnhandledError::KafkaProduceError(e)),
