@@ -410,3 +410,47 @@ class TestRepartitionActivity:
         schema.refresh_from_db()
         assert schema.repartition_pending is not None
         assert schema.repartition_pending["attempts"] == 0
+
+    @pytest.mark.parametrize(
+        "rewrite_error,forbidden_event",
+        [
+            (ValueError("boom"), "warehouse_repartition_failed"),
+            (RepartitionUnpartitionableError("no keys"), "warehouse_repartition_skipped"),
+        ],
+    )
+    def test_transient_db_error_in_failure_handler_not_recorded(self, team, rewrite_error, forbidden_event):
+        # The rewrite fails (a real failure, or an unpartitionable table), and then the pooler drops the
+        # connection while we re-read the schema to record the outcome. That refresh raising
+        # OperationalError is transient infra noise, not a repartition bug: it must be swallowed, never
+        # escape to fail the activity, and never record an outcome or consume an attempt. Guards the
+        # failure-handler refresh_from_db that used to be unguarded — an escaped OperationalError there
+        # broke the module's "a repartition failure never fails the workflow" invariant.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 0,
+            }
+        )
+        mocked = AsyncMock(side_effect=rewrite_error)
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=mocked),
+            patch.object(repartition_table, "capture_repartition_event") as capture,
+            patch.object(
+                ExternalDataSchema,
+                "refresh_from_db",
+                side_effect=OperationalError("server closed the connection unexpectedly"),
+            ),
+        ):
+            # Must not raise — the transient drop is swallowed, not propagated up to fail the activity.
+            ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+        emitted = [c.args[0] for c in capture.call_args_list]
+        assert "warehouse_repartition_started" in emitted
+        assert forbidden_event not in emitted
+        schema.refresh_from_db()
+        assert schema.repartition_pending is not None
+        assert schema.repartition_pending["attempts"] == 0
