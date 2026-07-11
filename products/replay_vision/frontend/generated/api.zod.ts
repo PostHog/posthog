@@ -454,6 +454,23 @@ export const VisionScannersObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
+ * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left of the monthly limit. Only monitor and classifier scanners are supported. Requires session recording edit access.
+ */
+export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault = 10
+export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax = 10
+
+export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */ zod.object({
+    session_limit: zod
+        .number()
+        .min(1)
+        .max(visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax)
+        .default(visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault)
+        .describe(
+            'How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to `evaluation_session_cap`, which is also the maximum.'
+        ),
+})
+
+/**
  * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.
  */
 export const visionScannersEstimateCreateBodySamplingRateDefault = 1

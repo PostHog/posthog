@@ -3,19 +3,20 @@ import { Group } from 'kea-forms'
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
-import {
-    funnelConfigForOptionKey,
-    funnelConfigToOptionKey,
-    funnelConversionOptions,
-} from 'lib/components/Alerts/funnelAlertOptions'
-import { FunnelAlertPreview } from 'lib/components/Alerts/funnelAlertPreview'
-import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
-import { isFunnelsAlertConfig } from 'lib/components/Alerts/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { alphabet } from 'lib/utils/strings'
 
 import { AlertConditionType } from '~/queries/schema/schema-general'
+
+import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
+import {
+    funnelConfigForOptionKey,
+    funnelConfigToOptionKey,
+    funnelConversionOptions,
+} from 'products/alerts/frontend/logic/funnelAlertOptions'
+import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
+import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
+import { isFunnelsAlertConfig } from 'products/alerts/frontend/types'
 
 import { HogQLAlertPreviewBanner, HogQLAlertPreviewRowsTable } from './HogQLAlertPreview'
 

@@ -8,7 +8,7 @@ import structlog
 from asgiref.local import Local
 
 if TYPE_CHECKING:
-    from posthog.models.activity_logging.activity_log import ActivityLog
+    from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
 
 logger = structlog.get_logger(__name__)
 
@@ -64,11 +64,22 @@ class ActivityLoggingStorage:
         if hasattr(self._local, "ip_address"):
             delattr(self._local, "ip_address")
 
+    def set_trigger(self, trigger: Optional["Trigger"]) -> None:
+        self._local.trigger = trigger
+
+    def get_trigger(self) -> Optional["Trigger"]:
+        return getattr(self._local, "trigger", None)
+
+    def clear_trigger(self) -> None:
+        if hasattr(self._local, "trigger"):
+            delattr(self._local, "trigger")
+
     def clear_all(self) -> None:
         self.clear_user()
         self.clear_was_impersonated()
         self.clear_client()
         self.clear_ip_address()
+        self.clear_trigger()
 
 
 activity_storage = ActivityLoggingStorage()

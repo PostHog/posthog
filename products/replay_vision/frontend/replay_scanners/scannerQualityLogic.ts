@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -9,6 +9,7 @@ import {
     visionScannersPromptSuggestionsApplyCreate,
     visionScannersPromptSuggestionsCurrentRetrieve,
     visionScannersPromptSuggestionsDismissCreate,
+    visionScannersPromptSuggestionsEvaluateCreate,
     visionScannersPromptSuggestionsGenerateCreate,
     visionScannersPromptSuggestionsList,
 } from '../generated/api'
@@ -20,6 +21,7 @@ import type {
     ReplayScannerPromptSuggestionApi,
     VisionScannersObservationsListParams,
 } from '../generated/api.schemas'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { ObservationsSorting, replayScannerLogic, resolveOrderByKey } from './replayScannerLogic'
 import type { scannerQualityLogicType } from './scannerQualityLogicType'
 
@@ -37,6 +39,9 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'scannerQualityLogic']),
     props({} as ScannerQualityLogicProps),
     key((props) => props.scannerId),
+
+    // Testing a suggestion spends quota, so the tab keeps the quota snapshot mounted and fresh.
+    connect(() => ({ actions: [visionQuotaLogic, ['loadQuota']] })),
 
     actions({
         loadObservations: true,
@@ -61,6 +66,10 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         dismissSuggestion: (suggestionId: string) => ({ suggestionId }),
         dismissSuggestionSuccess: (suggestion: ReplayScannerPromptSuggestionApi) => ({ suggestion }),
         dismissSuggestionFailure: true,
+        evaluateSuggestion: (suggestionId: string) => ({ suggestionId }),
+        evaluateSuggestionSuccess: (suggestion: ReplayScannerPromptSuggestionApi) => ({ suggestion }),
+        evaluateSuggestionFailure: true,
+        setTestSessionLimit: (limit: number | null) => ({ limit }),
         loadSuggestionHistory: true,
         loadSuggestionHistorySuccess: (history: ReplayScannerPromptSuggestionApi[]) => ({ history }),
         loadSuggestionHistoryFailure: true,
@@ -132,6 +141,8 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 generateSuggestionSuccess: (_, { suggestion }) => suggestion,
                 applySuggestionSuccess: (state, { suggestion }) => (state?.id === suggestion.id ? suggestion : state),
                 dismissSuggestionSuccess: (state, { suggestion }) => (state?.id === suggestion.id ? suggestion : state),
+                evaluateSuggestionSuccess: (state, { suggestion }) =>
+                    state?.id === suggestion.id ? suggestion : state,
             },
         ],
         suggestionStale: [
@@ -145,6 +156,20 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
             0,
             {
                 loadCurrentSuggestionSuccess: (_, { current }) => current.rated_count,
+            },
+        ],
+        // 0 until the first load, which keeps the cost line hidden until then.
+        evaluationSessionCap: [
+            0,
+            {
+                loadCurrentSuggestionSuccess: (_, { current }) => current.evaluation_session_cap ?? 0,
+            },
+        ],
+        // The user's chosen test size. Null means "as many as allowed".
+        testSessionLimit: [
+            null as number | null,
+            {
+                setTestSessionLimit: (_, { limit }) => limit,
             },
         ],
         suggestionLoading: [
@@ -179,6 +204,14 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 dismissSuggestionFailure: () => false,
             },
         ],
+        evaluating: [
+            false,
+            {
+                evaluateSuggestion: () => true,
+                evaluateSuggestionSuccess: () => false,
+                evaluateSuggestionFailure: () => false,
+            },
+        ],
         suggestionHistory: [
             [] as ReplayScannerPromptSuggestionApi[],
             {
@@ -195,7 +228,21 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values, cache }) => ({
+    selectors({
+        // How many sessions the next test re-runs and charges.
+        plannedTestSessions: [
+            (s) => [s.evaluationSessionCap, s.ratedCount, s.testSessionLimit],
+            (evaluationSessionCap: number, ratedCount: number, testSessionLimit: number | null): number => {
+                const maxAllowed = Math.min(evaluationSessionCap, ratedCount)
+                if (maxAllowed <= 0) {
+                    return 0
+                }
+                return Math.max(1, Math.min(maxAllowed, testSessionLimit ?? maxAllowed))
+            },
+        ],
+    }),
+
+    listeners(({ actions, props, values, selectors, cache }) => ({
         loadObservations: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
@@ -284,6 +331,45 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 return
             }
             actions.loadCurrentSuggestionSuccess(response)
+        },
+
+        // Poll while an evaluation runs. The breakpoint cancels on unmount and re-arms on
+        // every refresh, so only one poll chain is alive.
+        loadCurrentSuggestionSuccess: async ({ current }, breakpoint, _action, previousState) => {
+            const wasRunning = selectors.currentSuggestion(previousState)?.evaluation?.status === 'running'
+            const isRunning = current.suggestion?.evaluation?.status === 'running'
+            if (isRunning || wasRunning) {
+                actions.loadQuota()
+            }
+            if (isRunning) {
+                await breakpoint(4000)
+                actions.loadCurrentSuggestion()
+            }
+        },
+
+        evaluateSuggestion: async ({ suggestionId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.evaluateSuggestionFailure()
+                return
+            }
+            try {
+                const suggestion = await visionScannersPromptSuggestionsEvaluateCreate(
+                    String(teamId),
+                    props.scannerId,
+                    suggestionId,
+                    values.plannedTestSessions > 0 ? { session_limit: values.plannedTestSessions } : undefined
+                )
+                actions.evaluateSuggestionSuccess(suggestion)
+            } catch (error: any) {
+                lemonToast.error(`Couldn't start the test${error.detail ? `: ${error.detail}` : ''}`)
+                actions.evaluateSuggestionFailure()
+            }
+        },
+
+        evaluateSuggestionSuccess: async (_, breakpoint) => {
+            await breakpoint(4000)
+            actions.loadCurrentSuggestion()
         },
 
         generateSuggestion: async () => {
