@@ -2,8 +2,11 @@
 
 Providers (Harmonic) return long English country names; the `icp_country` group
 property holds ISO alpha-2 codes, so the transform must map before writing.
-Generated from frontend/src/lib/utils/country.ts (COUNTRY_CODE_TO_LONG_NAME) so
-backend and frontend agree on naming.
+
+COUNTRY_NAME_TO_ISO_CODE is generated from frontend/src/lib/utils/country.ts
+(COUNTRY_CODE_TO_LONG_NAME) so backend and frontend agree on naming — regenerate it
+with `python products/growth/backend/enrichment/generate_countries.py` after the
+frontend map changes. _ALIASES below is hand-maintained (provider name variants).
 """
 
 from typing import Optional
