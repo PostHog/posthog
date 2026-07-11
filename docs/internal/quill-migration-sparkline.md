@@ -121,3 +121,30 @@ The PR went through the sp-swarm/sp-triage review loop: all threads resolved exc
 ### Next up
 
 PR 2 per the sequence above: the in-place quill rendering path in `lib/components/Sparkline.tsx` behind a feature flag, covering the simple wave. Wait for #70223 to merge rather than stacking on it. The wrapper will need the semantic-color shim (gap 4 — app-side, `getColorVar`-based) since quill takes CSS colors while legacy consumers pass names like `'success'`/`'danger'`/`'muted'`.
+
+## Handover — status after step 2 (2026-07-11)
+
+### Done
+
+Step 2 (in-place quill path behind a flag) is up as [#70231](https://github.com/PostHog/posthog/pull/70231), based on master (not stacked on #70223 — the simple wave needs none of its new capabilities):
+
+- `Sparkline` dispatches at the top: `quill-sparkline` flag on + only simple props → `QuillSparkline` (compact `BarChart` stacked / `LineChart`, hidden axes, `margins: {top: 2, right: 0, bottom: 2, left: 0}`, quill `DefaultTooltip`); otherwise `LegacySparkline` (the old component, renamed, untouched).
+- The legacy-feature gate routes `onSelectionChange`, `highlightedRange`, non-empty `incompleteBars.indices`, non-empty `referenceLines`, and `withXScale`/`withYScale` to Chart.js — so every medium/heavy-wave consumer is unaffected even with the flag on. Riders on the flag: all simple-wave consumers, plus any HogQLX `<Sparkline>` tag using only simple props.
+- Semantic-color shim (gap 4) landed inside the component: `resolveSparklineColor` passes CSS-looking values (`#…`, `rgb…`, `hsl…`, `var(…)`) through and resolves everything else via `getColorVar`.
+- `normalizeSparklineData` extracted and shared by both paths, so the permissive `data` prop normalizes identically.
+- Tests (`Sparkline.test.tsx`, 12) cover dispatch both ways, per-prop legacy fallback, series normalization, tooltip option wiring, loading skeleton. Stories: three quill-flagged variants alongside the legacy ones.
+
+### Decisions made (and why)
+
+- **`maximumIndicator` and `tooltipRowCutoff` are dropped on the quill path** (per the plan's "accept dropping it"): no max-tick-only axis mode in quill, and its tooltip scrolls past ~10 rows instead of cutting off. They do NOT route to legacy — the default `maximumIndicator: true` would have pinned nearly every consumer to Chart.js and made the flag a no-op.
+- **Tooltip behavior difference to expect in visual review**: quill bar charts hit-test the cursor against filled segments (`BarTooltip.narrowSeriesByCursor`) — hovering the empty space above a short bar shows no tooltip, and hovering a stacked segment shows that segment only. Chart.js showed the whole column from anywhere in the band. Accepted as quill's app-wide interaction model.
+
+### Environment/test gotchas discovered
+
+- `featureFlagLogic`'s `featureFlags` reducer is kea-persisted to localStorage, which survives across jest tests in a file — always set the flag explicitly per test (true AND false), never rely on "unset means off".
+- Quill charts render two canvases: the labelled main canvas (`aria-label="Chart with N data series"`) plus an aria-hidden hover-overlay canvas. A "legacy canvas" selector must exclude both attributes.
+- The quill tooltip portal (`[data-hog-charts-tooltip]`) mounts before its content commits — wrap tooltip-content assertions in `waitFor` after `hoverUntilTooltip`.
+
+### Next up
+
+Step 3 (medium wave): time axes via `config.xAxis`, reference lines via quill `ReferenceLine`, drag-select via `onDateRangeZoom` — extending the quill path so InvocationsSparkline, LogsSamplingForm, and the metrics product stop hitting the legacy gate; delete `MetricsChartLegend` in favor of quill's `config.legend`. Wait for #70223 (HighlightedRange/hatch) to merge first — the heavy wave needs it, and the medium wave's drag-select verification should happen on top of it.
