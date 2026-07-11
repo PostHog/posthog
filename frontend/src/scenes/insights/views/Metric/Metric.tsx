@@ -45,7 +45,7 @@ const makeChangeColor = (hex: string): { background: string; foreground: string 
     foreground: hex,
 })
 
-export function MetricChart({ inCardView }: ChartParams): JSX.Element {
+export function MetricCard({ inCardView }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { insightData, trendsFilter, interval } = useValues(insightVizDataLogic(insightProps))
     const { incompletenessOffsetFromEnd } = useValues(trendsDataLogic(insightProps))
