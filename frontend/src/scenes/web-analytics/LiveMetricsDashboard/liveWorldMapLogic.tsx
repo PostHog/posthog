@@ -197,9 +197,10 @@ function computeHeat(lastActivity: Record<string, number>): Record<string, numbe
 
 interface HeatCache {
     lastActivity: Record<string, number>
-    heatIntervalRunning?: boolean
     disposables: DisposablesManager
 }
+
+const HEAT_INTERVAL_KEY = 'heatInterval'
 
 // Only run the heat decay interval while there are active heat values.
 // Stops automatically when all heat has decayed to 0.
@@ -207,10 +208,9 @@ function startHeatInterval(
     cache: HeatCache,
     actions: { setCountryHeat: (heat: Record<string, number>) => void }
 ): void {
-    if (cache.heatIntervalRunning) {
+    if (cache.disposables.registry.has(HEAT_INTERVAL_KEY)) {
         return
     }
-    cache.heatIntervalRunning = true
     cache.disposables.add(() => {
         const intervalId = setInterval(() => {
             const heat = computeHeat(cache.lastActivity || {})
@@ -222,10 +222,9 @@ function startHeatInterval(
             actions.setCountryHeat(heat)
         }, HEAT_UPDATE_INTERVAL_MS)
         return () => clearInterval(intervalId)
-    }, 'heatInterval')
+    }, HEAT_INTERVAL_KEY)
 }
 
 function stopHeatInterval(cache: HeatCache): void {
-    cache.heatIntervalRunning = false
-    cache.disposables.dispose('heatInterval')
+    cache.disposables.dispose(HEAT_INTERVAL_KEY)
 }
