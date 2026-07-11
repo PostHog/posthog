@@ -1,15 +1,7 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 
-import { useChartTheme } from '@posthog/quill-charts'
-import {
-    Metric,
-    MetricDelta,
-    MetricHeader,
-    MetricSparkline,
-    MetricSubtitle,
-    MetricValue,
-} from '@posthog/quill-components/metric'
+import { MetricCard, useChartTheme } from '@posthog/quill-charts'
 
 import { dayjs } from 'lib/dayjs'
 import { hexToRGBA } from 'lib/utils/colors'
@@ -45,7 +37,7 @@ const makeChangeColor = (hex: string): { background: string; foreground: string 
     foreground: hex,
 })
 
-export function MetricCard({ inCardView }: ChartParams): JSX.Element {
+export function Metric({ inCardView }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { insightData, trendsFilter, interval } = useValues(insightVizDataLogic(insightProps))
     const { incompletenessOffsetFromEnd } = useValues(trendsDataLogic(insightProps))
@@ -97,10 +89,14 @@ export function MetricCard({ inCardView }: ChartParams): JSX.Element {
 
     return (
         <div className={clsx('Metric ph-no-capture flex flex-col w-full p-2', inCardView && 'flex-1')}>
-            <Metric
-                className={clsx('px-0', inCardView && 'flex-1')}
+            <MetricCard
+                className={inCardView ? 'flex-1' : undefined}
                 sparklineFill={inCardView}
+                // No title — the insight/card header already shows the name.
+                title={null}
                 value={headlineValue}
+                changeSize="md"
+                changeInline
                 change={change}
                 changeTooltip={changeTooltip}
                 hoverChangeFromPreviousPoint
@@ -116,16 +112,9 @@ export function MetricCard({ inCardView }: ChartParams): JSX.Element {
                 }
                 sparklineDashedFromIndex={dashedFromIndex}
                 sparklineHeight={120}
+                sparklineClassName="mt-4 -mx-2"
                 dataAttr="metric-value"
-            >
-                {/* No title — the insight/card header already shows the name; the pill sits inline. */}
-                <MetricHeader className="items-center">
-                    <MetricValue />
-                    <MetricDelta className="h-auto gap-1 px-2.5 py-1 text-sm [&>svg]:size-3!" />
-                </MetricHeader>
-                <MetricSubtitle className="mt-1" />
-                <MetricSparkline className="mt-4 -mx-2 -mb-2" />
-            </Metric>
+            />
         </div>
     )
 }

@@ -8,7 +8,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
-import { MetricCard } from 'scenes/insights/views/Metric/Metric'
+import { Metric } from 'scenes/insights/views/Metric/Metric'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -116,7 +116,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <BoldNumber {...commonProps} />
         }
         if (display === ChartDisplayType.Metric) {
-            return <MetricCard {...commonProps} />
+            return <Metric {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsTable) {
             return (
