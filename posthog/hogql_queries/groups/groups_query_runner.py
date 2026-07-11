@@ -63,7 +63,9 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
                     exprs=[
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["properties", "name"]),
+                            # toString so a non-String `name` property type (e.g. Numeric) doesn't make
+                            # ilike raise ILLEGAL_TYPE_OF_ARGUMENT, matching the key comparison below.
+                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
                             right=ast.Constant(value=f"%{self.query.search}%"),
                         ),
                         ast.CompareOperation(

@@ -72,7 +72,7 @@
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
-  WHERE and(ifNull(equals(groups.index, 0), 0), or(ifNull(ilike(groups.properties___name, '%test%'), 0), ilike(toString(groups.key), '%test%')))
+  WHERE and(ifNull(equals(groups.index, 0), 0), or(ifNull(ilike(toString(groups.properties___name), '%test%'), 0), ilike(toString(groups.key), '%test%')))
   ORDER BY multiIf(ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'test'), 0), 0, ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'test%'), 0), 1, 2) ASC, groups.created_at DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
@@ -280,7 +280,7 @@
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
-  WHERE and(ifNull(equals(groups.index, 0), 0), or(ifNull(ilike(groups.properties___name, '%org2%'), 0), ilike(toString(groups.key), '%org2%')))
+  WHERE and(ifNull(equals(groups.index, 0), 0), or(ifNull(ilike(toString(groups.properties___name), '%org2%'), 0), ilike(toString(groups.key), '%org2%')))
   ORDER BY multiIf(ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'org2'), 0), 0, ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'org2%'), 0), 1, 2) ASC, groups.created_at DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
@@ -335,7 +335,7 @@
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
-  WHERE and(equals(groups.index, 0), or(ifNull(ilike(groups.properties___name, '%org2%'), 0), ilike(toString(groups.key), '%org2%')))
+  WHERE and(equals(groups.index, 0), or(ifNull(ilike(toString(groups.properties___name), '%org2%'), 0), ilike(toString(groups.key), '%org2%')))
   ORDER BY multiIf(ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'org2'), 0), 0, ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'org2%'), 0), 1, 2) ASC, groups.created_at DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
@@ -366,7 +366,7 @@
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
-  WHERE and(equals(groups.index, 0), or(ifNull(ilike(groups.properties___name, '%test%'), 0), ilike(toString(groups.key), '%test%')))
+  WHERE and(equals(groups.index, 0), or(ifNull(ilike(toString(groups.properties___name), '%test%'), 0), ilike(toString(groups.key), '%test%')))
   ORDER BY groups.properties___arr DESC,
            multiIf(ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'test'), 0), 0, ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'test%'), 0), 1, 2) ASC
   LIMIT 11
@@ -399,7 +399,7 @@
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
-  WHERE and(ifNull(equals(groups.index, 0), 0), or(ifNull(ilike(groups.properties___name, '%test%'), 0), ilike(toString(groups.key), '%test%')))
+  WHERE and(ifNull(equals(groups.index, 0), 0), or(ifNull(ilike(toString(groups.properties___name), '%test%'), 0), ilike(toString(groups.key), '%test%')))
   ORDER BY multiIf(ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'test'), 0), 0, ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'test%'), 0), 1, 2) ASC, groups.created_at DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
@@ -425,7 +425,7 @@
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
-  WHERE and(equals(groups.index, 0), or(ifNull(ilike(groups.properties___name, '%test%'), 0), ilike(toString(groups.key), '%test%')))
+  WHERE and(equals(groups.index, 0), or(ifNull(ilike(toString(groups.properties___name), '%test%'), 0), ilike(toString(groups.key), '%test%')))
   ORDER BY multiIf(ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'test'), 0), 0, ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'test%'), 0), 1, 2) ASC, groups.created_at DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
@@ -454,7 +454,7 @@
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
-  WHERE and(equals(groups.index, 0), or(ifNull(ilike(groups.properties___name, '%api%'), 0), ilike(toString(groups.key), '%api%')))
+  WHERE and(equals(groups.index, 0), or(ifNull(ilike(toString(groups.properties___name), '%api%'), 0), ilike(toString(groups.key), '%api%')))
   ORDER BY multiIf(ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'api'), 0), 0, ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'api%'), 0), 1, 2) ASC, groups.created_at DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
