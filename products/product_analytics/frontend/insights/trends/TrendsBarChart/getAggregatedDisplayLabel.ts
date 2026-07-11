@@ -9,6 +9,9 @@ import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 
 export interface AggregatedDisplayLabelDeps {
     stackBreakdowns: boolean
+    /** True when stacking two breakdowns: the band label becomes the first breakdown's value
+     *  instead of the series name, since the band groups by first-breakdown value, not series. */
+    twoDimensionStack?: boolean
     breakdownFilter: BreakdownFilter | null | undefined
     cohorts: CohortType[] | undefined
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined
@@ -17,6 +20,15 @@ export interface AggregatedDisplayLabelDeps {
 /** Category-axis label for a single band of the aggregated (Bar chart - Total value) chart. */
 export function getAggregatedDisplayLabel(r: IndexedTrendResult, deps: AggregatedDisplayLabelDeps): string {
     if (deps.stackBreakdowns) {
+        if (deps.twoDimensionStack && Array.isArray(r.breakdown_value)) {
+            return formatBreakdownLabel(
+                r.breakdown_value[0],
+                deps.breakdownFilter,
+                deps.cohorts,
+                deps.formatPropertyValueForDisplay,
+                0
+            )
+        }
         // Breakdown values within the band are distinguished by color and the tooltip.
         return getDisplayNameFromEntityFilter(r.action) ?? humanizeSeriesLabel(r.label)
     }

@@ -20,6 +20,7 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -48,6 +49,7 @@ import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
 import {
+    BAND_KEY_SEP,
     buildTrendsBarAggregatedSeries,
     buildTrendsBarTimeSeries,
     buildTrendsBarTimeSeriesConfig,
@@ -145,16 +147,61 @@ export function TrendsBarChart({
             : !!indexedResults[0].data && indexedResults.some((r: IndexedTrendResult) => r.count !== 0))
 
     const stackBreakdowns = !!querySource && !!getStackBreakdownValues(querySource)
+    const twoDimensionStack = stackBreakdowns && (breakdownFilter?.breakdowns?.length ?? 0) === 2
+
+    const getBandKey = useCallback(
+        (r: IndexedTrendResult): string => {
+            const firstValue = Array.isArray(r.breakdown_value) ? r.breakdown_value[0] : r.breakdown_value
+            const formatted = formatBreakdownLabel(
+                firstValue,
+                breakdownFilter,
+                allCohorts?.results,
+                formatPropertyValueForDisplay,
+                0
+            )
+            return `${formatted}${BAND_KEY_SEP}${r.compare_label ?? ''}`
+        },
+        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+    )
+
+    const getSegmentLabel = useCallback(
+        (r: IndexedTrendResult): string => {
+            const secondValue = Array.isArray(r.breakdown_value) ? r.breakdown_value[1] : undefined
+            return formatBreakdownLabel(
+                secondValue,
+                breakdownFilter,
+                allCohorts?.results,
+                formatPropertyValueForDisplay,
+                1
+            )
+        },
+        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+    )
+
+    const buildAggregatedMeta = useCallback(
+        (r: IndexedTrendResult): TrendsSeriesMeta => {
+            const meta = buildTrendsSeriesMeta(r)
+            // Tooltip reads meta.breakdown_value directly and re-formats it, bypassing series.label.
+            // With two-dimension stacking, the band already shows the first breakdown ("Chrome"),
+            // so the tooltip should show only the second ("Linux"), not the full "Chrome::Linux".
+            if (twoDimensionStack && Array.isArray(r.breakdown_value)) {
+                return { ...meta, breakdown_value: r.breakdown_value[1] }
+            }
+            return meta
+        },
+        [twoDimensionStack]
+    )
 
     const getAggregatedDisplayLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getAggregatedDisplayLabelFn(r, {
                 stackBreakdowns,
+                twoDimensionStack,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
             }),
-        [stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [stackBreakdowns, twoDimensionStack, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
     const getLabel = useCallback(
@@ -172,9 +219,11 @@ export function TrendsBarChart({
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: getTrendsColor,
                 getHidden: getTrendsHidden,
-                buildMeta: buildTrendsSeriesMeta,
+                buildMeta: buildAggregatedMeta,
                 stackBreakdowns,
                 getDisplayLabel: getAggregatedDisplayLabel,
+                getBandKey: twoDimensionStack ? getBandKey : undefined,
+                getLabel: twoDimensionStack ? getSegmentLabel : undefined,
             })
         }
         const timeSeries = buildTrendsBarTimeSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
@@ -198,7 +247,10 @@ export function TrendsBarChart({
         getTrendsHidden,
         currentPeriodResult?.labels,
         stackBreakdowns,
+        twoDimensionStack,
         getAggregatedDisplayLabel,
+        getBandKey,
+        getSegmentLabel,
         getLabel,
         applyMultipleYAxes,
         quillLegendEnabled,
