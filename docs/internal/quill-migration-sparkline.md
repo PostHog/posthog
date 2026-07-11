@@ -88,3 +88,36 @@ Internal dispatch: `type==='line' && single series && no extras` → quill `Spar
 The legacy component has stories only (`Sparkline.stories.tsx`, 2 stories) and no unit tests — behavior like drag-select math and tooltip filtering is currently unverified.
 Add tests with `@posthog/quill-charts/testing` (`getHogChart`, tooltip accessors) for: stacked multi-series rendering, drag-select index reporting, reference line placement, highlighted range, and tooltip filter options.
 Invoke `/writing-tests` before authoring; parameterize where variations repeat.
+
+## Handover — status after step 1 (2026-07-11)
+
+### Done
+
+Step 1 of the PR sequence (quill capability PR) is up as [#70223](https://github.com/PostHog/posthog/pull/70223), reviewed and awaiting merge:
+
+- **`HighlightedRange` overlay** (`packages/quill/packages/charts/src/overlays/HighlightedRange.tsx`, exported from the package index). `start`/`end` accept data indices or labels, so it can be fed directly from `onDateRangeZoom` output or from label-based external state. Band-aware via `scales.extent` (covers whole bars on bar charts, point-to-point on line charts), clamps to the plot area, renders null on unresolvable endpoints. Testing hook: `data-attr="hog-chart-highlighted-range"`.
+- **Per-bar hatch**: `Series.bars[i].hatch` hatches individual bars at arbitrary (non-contiguous) indices — the `incompleteBars` equivalent. Reuses `getHatchPattern`, resolving per-bar color via `barColorAt`.
+- **Gap 3 closed by verification, not code**: `onDateRangeZoom` resolves drags purely against label positions and an existing BarChart test already drags across categorical labels. Documented as label-generic in the charts AGENTS.md; do not add a duplicate test.
+
+The PR went through the sp-swarm/sp-triage review loop: all threads resolved except one deferred (see below); the review-fix commit is `e1d832ba`.
+
+### Decisions made (and why)
+
+- **Hatch look**: reused the package's existing `getHatchPattern` (same treatment as `stroke.partial` dashed bars) instead of porting the legacy faded-fill pattern from `createHashedPattern` — one consistent "not final" visual across the package. Revisit during the heavy wave if LogsViewerSparkline needs the faded look.
+- **HighlightedRange vs drag-select band**: intentionally separate. The canvas drag band (`drawSelectionRect`, blue) is transient gesture feedback; `HighlightedRange` (DOM, neutral gray) is persistent externally-controlled state (e.g. mirroring a virtualized list's visible rows). They share ~3 lines of clamp math — do not unify the rendering. If design wants visual coherence later, the right seam is a `--color-graph-selection-*` token (noted in a comment above `SELECTION_FILL` in `canvas-renderer.ts`).
+
+### Known gaps / deferred items
+
+- **ComboChart has no `scales.extent`**, so `HighlightedRange` falls back to point-to-point on combo bar series instead of covering bands. Real gap, needs a ComboChart design decision — left as an open review thread on #70223. Only matters if a combo-chart consumer ever needs the overlay.
+- Follow-ups acknowledged in resolved review threads on #70223: default the overlay color to `theme.crosshairColor ?? '#8f8f8f'`; set explicit `boxSizing: 'border-box'` on the border div; add a test pinning that a hatched bar with a `bars[i].color` override hatches in the override color.
+
+### Environment notes for the next agent
+
+- **Running quill charts tests**: they run under `frontend/jest.config.ts` (its `roots` include `packages/quill/packages/*/src`). `hogli test <charts path>` misroutes to a package-local jest with no TS transform and fails with `SyntaxError` — use `cd frontend && pnpm exec jest --config jest.config.ts ../packages/quill/packages/charts/src/...` instead (devex feedback filed).
+- Fresh checkouts need `pnpm install --filter @posthog/frontend... --frozen-lockfile` before tests run.
+- The full `typescript:check` fails in fresh checkouts (missing kea typegen artifacts, thousands of pre-existing errors) — verify charts changes with the package-local `tsc -p tsconfig.json` (test files show known jest-types noise; source files should be clean) and let CI do the rest.
+- Format with `bin/hogli format:js <files>`; there is no prettier setup inside `packages/quill`.
+
+### Next up
+
+PR 2 per the sequence above: the in-place quill rendering path in `lib/components/Sparkline.tsx` behind a feature flag, covering the simple wave. Wait for #70223 to merge rather than stacking on it. The wrapper will need the semantic-color shim (gap 4 — app-side, `getColorVar`-based) since quill takes CSS colors while legacy consumers pass names like `'success'`/`'danger'`/`'muted'`.
