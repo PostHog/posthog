@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { memo } from 'react'
 
 import { IconChevronDown, IconCopy, IconInfo, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
@@ -452,54 +453,14 @@ export function PersonScene(): JSX.Element | null {
                               key: PersonsTabType.FEATURE_FLAGS,
                               tooltip: `Only shows feature flags with targeting conditions based on person properties.`,
                               label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
-                              content: (() => {
-                                  const selectedDistinctId = distinctId || primaryDistinctId
-                                  return (
-                                      <>
-                                          <div className="flex deprecated-space-x-2 items-center mb-2">
-                                              <div className="flex items-center">
-                                                  Choose ID:
-                                                  <Tooltip
-                                                      docLink="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                                      title={
-                                                          <div className="deprecated-space-y-2">
-                                                              <div>
-                                                                  Feature flags values can depend on a person's distinct
-                                                                  ID.
-                                                              </div>
-                                                              <div>
-                                                                  If you want your flag values to stay consistent for
-                                                                  each user, you can enable flag persistence in the
-                                                                  feature flag settings.
-                                                              </div>
-                                                              <div>
-                                                                  This option may depend on your specific setup and
-                                                                  isn't always suitable.
-                                                              </div>
-                                                          </div>
-                                                      }
-                                                  >
-                                                      <IconInfo className="ml-1 text-base" />
-                                                  </Tooltip>
-                                              </div>
-                                              <LemonSelect
-                                                  value={selectedDistinctId}
-                                                  onChange={(value) => value && setDistinctId(value)}
-                                                  options={person.distinct_ids.map((distinct_id) => ({
-                                                      label: distinct_id,
-                                                      value: distinct_id,
-                                                  }))}
-                                                  data-attr="person-feature-flags-select"
-                                              />
-                                              {selectedDistinctId && (
-                                                  <LaunchToolbarButton distinctId={selectedDistinctId} />
-                                              )}
-                                          </div>
-                                          <LemonDivider className="mb-4" />
-                                          <RelatedFeatureFlags distinctId={selectedDistinctId} />
-                                      </>
-                                  )
-                              })(),
+                              content: (
+                                  <PersonFeatureFlagsTab
+                                      person={person}
+                                      distinctId={distinctId}
+                                      primaryDistinctId={primaryDistinctId}
+                                      setDistinctId={setDistinctId}
+                                  />
+                              ),
                           }
                         : false,
                     {
@@ -525,6 +486,57 @@ export function PersonScene(): JSX.Element | null {
         </SceneContent>
     )
 }
+
+// memoized with stable props so edits elsewhere in the scene don't re-render the mounted tab
+const PersonFeatureFlagsTab = memo(function PersonFeatureFlagsTab({
+    person,
+    distinctId,
+    primaryDistinctId,
+    setDistinctId,
+}: {
+    person: PersonType
+    distinctId: string | null
+    primaryDistinctId: string | null
+    setDistinctId: (distinctId: string) => void
+}): JSX.Element {
+    const selectedDistinctId = distinctId || primaryDistinctId
+    return (
+        <>
+            <div className="flex deprecated-space-x-2 items-center mb-2">
+                <div className="flex items-center">
+                    Choose ID:
+                    <Tooltip
+                        docLink="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                        title={
+                            <div className="deprecated-space-y-2">
+                                <div>Feature flags values can depend on a person's distinct ID.</div>
+                                <div>
+                                    If you want your flag values to stay consistent for each user, you can enable flag
+                                    persistence in the feature flag settings.
+                                </div>
+                                <div>This option may depend on your specific setup and isn't always suitable.</div>
+                            </div>
+                        }
+                    >
+                        <IconInfo className="ml-1 text-base" />
+                    </Tooltip>
+                </div>
+                <LemonSelect
+                    value={selectedDistinctId}
+                    onChange={(value) => value && setDistinctId(value)}
+                    options={person.distinct_ids.map((distinct_id) => ({
+                        label: distinct_id,
+                        value: distinct_id,
+                    }))}
+                    data-attr="person-feature-flags-select"
+                />
+                {selectedDistinctId && <LaunchToolbarButton distinctId={selectedDistinctId} />}
+            </div>
+            <LemonDivider className="mb-4" />
+            <RelatedFeatureFlags distinctId={selectedDistinctId} />
+        </>
+    )
+})
 
 function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['size'] }): JSX.Element {
     const { person } = useValues(personsLogic)
