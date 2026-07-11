@@ -26,6 +26,33 @@ SNAPCHAT_DATE_FORMAT = "%Y-%m-%dT00:00:00"
 RETRYABLE_STATUS_CODES = [429, 500, 503]
 
 
+def list_ad_accounts(access_token: str) -> list[tuple[dict, str | None]]:
+    """Every ad account across the organizations the connected user can reach, each paired with its
+    owning organization's name.
+
+    Snapchat nests them: `organizations[].organization.ad_accounts[]`, with a per-organization
+    `sub_request_status` we skip unless it succeeded.
+    """
+    response = make_tracked_session().get(
+        f"{BASE_URL}/me/organizations",
+        headers={"Authorization": f"Bearer {access_token}"},
+        params={"with_ad_accounts": "true"},
+        timeout=30,
+    )
+    response.raise_for_status()
+    body = response.json()
+
+    accounts: list[tuple[dict, str | None]] = []
+    for wrapper in body.get("organizations") or []:
+        if wrapper.get("sub_request_status") != "SUCCESS":
+            continue
+        organization = wrapper.get("organization") or {}
+        organization_name = organization.get("name")
+        for account in organization.get("ad_accounts") or []:
+            accounts.append((account, organization_name))
+    return accounts
+
+
 def fetch_account_metadata(ad_account_id: str, access_token: str) -> tuple[str | None, str | None]:
     """Fetch the currency and timezone configured on the Snapchat ad account.
 

@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_a
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.utils import (
     SnapchatDateRangeManager,
     format_stats_day_boundary,
+    list_ad_accounts,
 )
 
 
@@ -408,3 +409,38 @@ class TestNonRetryableErrors:
         assert not any(pattern in error_msg for pattern in self._patterns), (
             f"Snapchat error '{error_msg}' should remain retryable"
         )
+
+
+class TestListAdAccounts:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.utils"
+
+    def test_flattens_accounts_and_pairs_with_organization_name(self) -> None:
+        body = {
+            "organizations": [
+                {
+                    "sub_request_status": "SUCCESS",
+                    "organization": {
+                        "name": "PostHog",
+                        "ad_accounts": [
+                            {"id": "acc-1", "name": "PostHog Self Service", "status": "PENDING"},
+                            {"id": "acc-2", "name": "PostHog", "status": "ACTIVE"},
+                        ],
+                    },
+                },
+                # A failed sub-request contributes no accounts.
+                {"sub_request_status": "ERROR", "organization": {"name": "Broken", "ad_accounts": [{"id": "x"}]}},
+            ]
+        }
+        response = MagicMock()
+        response.json.return_value = body
+        session = MagicMock()
+        session.get.return_value = response
+
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            result = list_ad_accounts("token")
+
+        assert [(account["id"], org_name) for account, org_name in result] == [
+            ("acc-1", "PostHog"),
+            ("acc-2", "PostHog"),
+        ]
+        assert session.get.call_args.kwargs["params"] == {"with_ad_accounts": "true"}

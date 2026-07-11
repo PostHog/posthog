@@ -10746,6 +10746,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
     _BING_LIST_ACCOUNTS = (
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
     )
+    _SNAPCHAT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.source"
 
     def setUp(self):
         super().setUp()
@@ -10814,6 +10815,46 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # raises NotImplementedError — it must surface as a 400, not an unhandled 500.
         response = self.client.get(self._url("Salesforce", 1))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_snapchat_maps_accounts_grouped_by_organization(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="snapchat",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="snapchat_test",
+            created_by=self.user,
+        )
+        listed = [
+            ({"id": "acc-1", "name": "PostHog Self Service", "status": "PENDING"}, "PostHog"),
+            ({"id": "acc-2", "name": "PostHog", "status": "ACTIVE"}, "PostHog"),
+        ]
+        with (
+            patch(f"{self._SNAPCHAT_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._SNAPCHAT_MODULE}.list_ad_accounts", return_value=listed),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("SnapchatAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "acc-1",
+                "display_name": "PostHog Self Service",
+                "is_primary": False,
+                "badges": ["Pending"],
+                "group": "PostHog",
+                "secondary_text": None,
+            },
+            {
+                "value": "acc-2",
+                "display_name": "PostHog",
+                "is_primary": False,
+                "badges": ["Active"],
+                "group": "PostHog",
+                "secondary_text": None,
+            },
+        ]
 
     def test_gsc_success_maps_sites_to_accounts(self):
         integration = self._gsc_integration()
