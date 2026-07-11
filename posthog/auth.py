@@ -974,6 +974,11 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
     keyword = "InternalApiSecret"
     HEADER_NAME = "X-Internal-Api-Secret"
 
+    def _accepted_secrets(self) -> list[str]:
+        """Secrets this backend accepts. Overridden by subclasses that guard a dedicated per-purpose
+        secret instead of the fleet-wide INTERNAL_API_SECRET."""
+        return usable_internal_api_secrets()
+
     def _get_team_id_from_request(self, request: Request) -> str | None:
         parser_context = getattr(request, "parser_context", None)
         if isinstance(parser_context, dict):
@@ -1020,7 +1025,7 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
         # This is the runtime guard: a deploy with no usable secret is rejected here (fail closed)
         # rather than at startup — most Django/Temporal processes never get the secret injected and
         # never serve these endpoints, so a startup check would wrongly crash them.
-        accepted_secrets = usable_internal_api_secrets()
+        accepted_secrets = self._accepted_secrets()
 
         if not accepted_secrets:
             logger.error(
@@ -1047,6 +1052,25 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
 
     def authenticate_header(self, request: HttpRequest) -> str:
         return self.keyword
+
+
+class WorkflowsTasksAPIAuthentication(InternalAPIAuthentication):
+    """Dedicated-secret auth for the workflows agent_task Node CDP -> Django hop.
+
+    Same team-scoping and fail-closed behavior as InternalAPIAuthentication, but guards a per-purpose
+    secret (WORKFLOWS_TASKS_API_SECRET) rather than the fleet-wide INTERNAL_API_SECRET so a leak is
+    scoped to this one caller/callee pair (see .agents/security.md).
+    """
+
+    keyword = "WorkflowsTasksSecret"
+    HEADER_NAME = "X-Workflows-Tasks-Secret"
+
+    def _accepted_secrets(self) -> list[str]:
+        return [
+            secret
+            for secret in [settings.WORKFLOWS_TASKS_API_SECRET, *settings.WORKFLOWS_TASKS_API_SECRET_FALLBACKS]
+            if secret
+        ]
 
 
 def session_auth_required(endpoint):

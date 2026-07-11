@@ -66,6 +66,8 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED] and old_status != input.status:
         _capture_terminal_analytics(task_run, input)
+        # Wake a parked workflow agent_task step, if this run was started by one.
+        task_run.emit_workflow_completion_event_if_needed()
 
     log_with_activity_context(
         "Task run status updated",

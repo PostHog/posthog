@@ -170,6 +170,9 @@ export type CommonConfig = BaseServerConfig & {
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
     LAZY_LOADER_MAX_SIZE: number
     INTERNAL_API_BASE_URL: string
+    // Dedicated per-purpose secret for the workflows agent_task step's Node -> Django calls.
+    // Scoped to this one hop; deliberately NOT INTERNAL_API_SECRET (see .agents/security.md).
+    WORKFLOWS_TASKS_API_SECRET: string
     HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: number
@@ -349,6 +352,8 @@ export function getDefaultCommonConfig(): CommonConfig {
             : 'http://localhost:8000',
         INTERNAL_API_SECRET: isProdEnv() ? '' : LOCAL_DEV_INTERNAL_API_SECRET,
         INTERNAL_API_SECRET_FALLBACKS: '',
+        // Fail closed in prod (empty -> Django rejects); dev/test share the local convention.
+        WORKFLOWS_TASKS_API_SECRET: isProdEnv() ? '' : LOCAL_DEV_INTERNAL_API_SECRET,
         HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: 60_000,
         HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 5 * 60_000,
         HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 10 * 60_000,

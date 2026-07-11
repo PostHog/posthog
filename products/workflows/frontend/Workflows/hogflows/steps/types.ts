@@ -262,6 +262,19 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 
+    // Agent task: kick off a PostHog Code task with a prompt and wait for it to finish.
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('agent_task'),
+        config: z.object({
+            prompt: z.string(),
+            title: z.string().optional(),
+            repository: z.string().optional(),
+            create_pr: z.boolean().optional(),
+            max_wait_duration: DURATION_STRING,
+        }),
+    }),
+
     // CDP functions
     z.object({
         ..._commonActionFields,

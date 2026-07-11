@@ -549,6 +549,14 @@ INTERNAL_API_SECRET = get_from_env(
 # Receivers accept INTERNAL_API_SECRET plus these; senders always send INTERNAL_API_SECRET.
 INTERNAL_API_SECRET_FALLBACKS = get_list(os.getenv("INTERNAL_API_SECRET_FALLBACKS", ""))
 
+# Dedicated per-purpose secret for the workflows agent_task step's Node CDP -> Django hop. Scoped to
+# this one caller/callee pair rather than the fleet-wide INTERNAL_API_SECRET (see .agents/security.md).
+# Fail closed in prod (empty -> receiver rejects); dev/test share the local convention.
+WORKFLOWS_TASKS_API_SECRET = get_from_env(
+    "WORKFLOWS_TASKS_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET if DEBUG or TEST else ""
+).strip()
+WORKFLOWS_TASKS_API_SECRET_FALLBACKS = get_list(os.getenv("WORKFLOWS_TASKS_API_SECRET_FALLBACKS", ""))
+
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table

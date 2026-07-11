@@ -1638,3 +1638,86 @@ class TestCodeInvite(TestCase):
         with patch("products.tasks.backend.models.secrets.choice", return_value="B"):
             with self.assertRaises(IntegrityError):
                 CodeInvite.objects.create()
+
+
+class TestWorkflowAgentTaskCompletion(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+
+    def _run(self, *, state: dict, status=TaskRun.Status.COMPLETED, output=None) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            title="Workflow Task",
+            description="do the thing",
+            origin_product=Task.OriginProduct.WORKFLOW,
+        )
+        return TaskRun.objects.create(task=task, team=self.team, status=status, state=state, output=output)
+
+    @patch("products.tasks.backend.models.produce_internal_event")
+    def test_emits_completion_event_for_workflow_run(self, mock_produce):
+        run = self._run(
+            state={"workflow_agent_task": {"distinct_id": "user-1", "workflow_id": "flow-1", "action_id": "a1"}},
+            output={"pr_url": "https://x"},
+        )
+
+        run.emit_workflow_completion_event_if_needed()
+
+        mock_produce.assert_called_once()
+        event = mock_produce.call_args.kwargs["event"]
+        self.assertEqual(event.event, "$task_run_completed")
+        self.assertEqual(event.distinct_id, "user-1")
+        self.assertEqual(event.properties["task_run_id"], str(run.id))
+        self.assertEqual(event.properties["status"], TaskRun.Status.COMPLETED)
+        self.assertEqual(event.properties["output"], {"pr_url": "https://x"})
+        self.assertEqual(event.properties["$workflow_id"], "flow-1")
+        # Once-guard is persisted so a second terminal writer (e.g. a janitor sweep) can't double-emit.
+        run.refresh_from_db()
+        self.assertTrue(run.state["workflow_completion_event_emitted"])
+
+    @patch("products.tasks.backend.models.produce_internal_event")
+    def test_does_not_emit_twice(self, mock_produce):
+        run = self._run(
+            state={
+                "workflow_agent_task": {"distinct_id": "user-1", "workflow_id": "flow-1"},
+                "workflow_completion_event_emitted": True,
+            }
+        )
+
+        run.emit_workflow_completion_event_if_needed()
+
+        mock_produce.assert_not_called()
+
+    @parameterized.expand([("no_correlation", {}), ("correlation_missing_distinct_id", {"workflow_agent_task": {}})])
+    @patch("products.tasks.backend.models.produce_internal_event")
+    def test_no_op_when_not_a_workflow_run(self, _name, state, mock_produce):
+        run = self._run(state=state)
+
+        run.emit_workflow_completion_event_if_needed()
+
+        mock_produce.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_threads_workflow_agent_task_into_state(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+        correlation = {"distinct_id": "user-1", "workflow_id": "flow-1", "workflow_run_id": "r1", "action_id": "a1"}
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Workflow Task",
+                description="do the thing",
+                origin_product=Task.OriginProduct.WORKFLOW,
+                user_id=user.id,
+                repository="posthog/posthog",
+                workflow_agent_task=correlation,
+            )
+
+        run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(task_run.state["workflow_agent_task"], correlation)

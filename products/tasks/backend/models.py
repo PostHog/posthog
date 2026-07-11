@@ -27,6 +27,7 @@ from django.utils import timezone as django_timezone
 import structlog
 import posthoganalytics
 
+from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.file_system.constants import DEFAULT_SURFACE, DESKTOP_SURFACE
@@ -49,6 +50,14 @@ from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_use
 logger = structlog.get_logger(__name__)
 
 LogLevel = Literal["debug", "info", "warn", "error"]
+
+# TaskRun.state keys for the workflow agent_task correlation: the correlation payload written at
+# creation, and a once-guard so the terminal completion event is emitted at most once per run.
+WORKFLOW_AGENT_TASK_STATE_KEY = "workflow_agent_task"
+WORKFLOW_COMPLETION_EMITTED_STATE_KEY = "workflow_completion_event_emitted"
+# CDP internal event that wakes a parked workflow agent_task step (matched in the Node subscription
+# matcher). Terminal status ('completed' | 'failed' | 'cancelled') is carried as a property.
+WORKFLOW_TASK_COMPLETION_EVENT = "$task_run_completed"
 
 
 def resolve_schema(schema: type[BaseModel] | dict) -> dict:
@@ -133,6 +142,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # collided with the conversations support pipeline).
         HOGDESK = "hogdesk", "HogDesk"
         IMAGE_BUILDER = "image_builder", "Image Builder"
+        # A workflow (HogFlow) agent_task step started this task and is parked waiting for it.
+        WORKFLOW = "workflow", "Workflow"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -470,6 +481,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
+        workflow_agent_task: dict[str, Any] | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -652,6 +664,12 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             extra_state["custom_image_builder_id"] = custom_image_builder_id
             extra_state["use_modal_vm_sandbox"] = True
 
+        # Correlation for a workflow agent_task step: the terminal transition emits a CDP internal
+        # event carrying this distinct_id so the parked workflow job is woken (see
+        # emit_workflow_completion_event_if_needed).
+        if workflow_agent_task is not None:
+            extra_state[WORKFLOW_AGENT_TASK_STATE_KEY] = workflow_agent_task
+
         return task, extra_state
 
     @staticmethod
@@ -734,6 +752,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
+        workflow_agent_task: dict[str, Any] | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -765,6 +784,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             pending_user_message=pending_user_message,
             custom_image_builder_id=custom_image_builder_id,
             custom_image_id=custom_image_id,
+            workflow_agent_task=workflow_agent_task,
         )
 
         run_extra_state = dict(extra_state or {})
@@ -1415,6 +1435,43 @@ class TaskRun(models.Model):
             return round((self.completed_at - self.created_at).total_seconds(), 1)
         return 0.0
 
+    def emit_workflow_completion_event_if_needed(self) -> None:
+        """Wake a parked workflow agent_task step when a workflow-started run reaches a terminal state.
+
+        No-op for runs not started by a workflow. Emits a CDP internal event carrying the
+        correlation distinct_id (so the Node subscription matcher finds the parked job) and the
+        run's terminal status + output. Once-guarded via run state so it fires at most once per run,
+        and best-effort so a Kafka hiccup never blocks the status transition.
+        """
+        state = self.state if isinstance(self.state, dict) else {}
+        correlation = state.get(WORKFLOW_AGENT_TASK_STATE_KEY)
+        if not isinstance(correlation, dict) or state.get(WORKFLOW_COMPLETION_EMITTED_STATE_KEY):
+            return
+        distinct_id = correlation.get("distinct_id")
+        if not distinct_id:
+            return
+        try:
+            produce_internal_event(
+                team_id=self.team_id,
+                event=InternalEventEvent(
+                    event=WORKFLOW_TASK_COMPLETION_EVENT,
+                    distinct_id=str(distinct_id),
+                    properties={
+                        "task_run_id": str(self.id),
+                        "task_id": str(self.task_id),
+                        "status": self.status,
+                        "output": self.output,
+                        "error_message": self.error_message,
+                        "$workflow_id": correlation.get("workflow_id"),
+                        "$workflow_run_id": correlation.get("workflow_run_id"),
+                        "$workflow_action_id": correlation.get("action_id"),
+                    },
+                ),
+            )
+            self.state = self.update_state_atomic(self.id, updates={WORKFLOW_COMPLETION_EMITTED_STATE_KEY: True})
+        except Exception:
+            logger.warning("task_run.workflow_completion_event_failed", task_run_id=str(self.id), exc_info=True)
+
     def mark_completed(self, *, notify: bool = True, analytics_properties: dict | None = None) -> None:
         """Mark the progress as completed.
 
@@ -1431,6 +1488,7 @@ class TaskRun(models.Model):
             "task_run_completed",
             {"duration_seconds": self._duration_seconds(), **(analytics_properties or {})},
         )
+        self.emit_workflow_completion_event_if_needed()
         if not notify:
             return
         from products.tasks.backend.push_dispatcher import notify_task_run_completed
@@ -1466,6 +1524,7 @@ class TaskRun(models.Model):
                 "duration_seconds": self._duration_seconds(),
             },
         )
+        self.emit_workflow_completion_event_if_needed()
         from products.tasks.backend.push_dispatcher import notify_task_run_failed
 
         notify_task_run_failed(self)

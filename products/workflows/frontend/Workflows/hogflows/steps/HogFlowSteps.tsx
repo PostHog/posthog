@@ -5,6 +5,7 @@ import { useMemo } from 'react'
 import {
     IconBolt,
     IconClock,
+    IconCode,
     IconDay,
     IconDecisionTree,
     IconHourglass,
@@ -21,6 +22,7 @@ import { HogFunctionTemplateType } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
+import { StepAgentTaskConfiguration } from './StepAgentTask'
 import { StepConditionalBranchConfiguration } from './StepConditionalBranch'
 import { StepDelayConfiguration } from './StepDelay'
 import { StepExitConfiguration } from './StepExit'
@@ -86,6 +88,12 @@ const HogFlowStepConfigs: Partial<{
         icon: () => <IconHourglass />,
         color: () => '#ffaa00',
         renderConfiguration: (node) => <StepWaitUntilConditionConfiguration key={node.id} node={node} />,
+    },
+    agent_task: {
+        type: 'agent_task',
+        icon: () => <IconCode />,
+        color: (_, isDarkModeOn) => (isDarkModeOn ? '#B52AD9' : '#6500ae'),
+        renderConfiguration: (node) => <StepAgentTaskConfiguration key={node.id} node={node} />,
     },
     wait_until_time_window: {
         type: 'wait_until_time_window',

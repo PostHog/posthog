@@ -24,6 +24,7 @@ import { HogExecutorExecuteAsyncOptions } from '../hog-executor.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { ActionHandler } from './actions/action.interface'
+import { AgentTaskHandler } from './actions/agent_task'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
 import { ExitHandler } from './actions/exit.handler'
@@ -31,6 +32,7 @@ import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
+import { AgentTaskService } from './agent-task.service'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import {
@@ -89,9 +91,13 @@ export class HogFlowExecutorService {
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService,
         emailValidationService: EmailValidationService,
-        duplicateObserver?: HogFlowDuplicateObserverService
+        duplicateObserver?: HogFlowDuplicateObserverService,
+        agentTaskService?: AgentTaskService
     ) {
         this.duplicateObserver = duplicateObserver ?? null
+        // Falls back to an unconfigured service (empty base/secret) so tests that never exercise
+        // agent_task don't need to wire it; real construction passes a configured instance.
+        const resolvedAgentTaskService = agentTaskService ?? new AgentTaskService('', '')
         const hogFunctionHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
@@ -115,6 +121,7 @@ export class HogFlowExecutorService {
             function: hogFunctionHandler,
             function_sms: hogFunctionHandler,
             function_email: hogFunctionEmailHandler,
+            agent_task: new AgentTaskHandler(resolvedAgentTaskService),
             exit: new ExitHandler(),
         }
     }

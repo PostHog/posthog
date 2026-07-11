@@ -330,6 +330,22 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     filterGlobals: HogFunctionFilterGlobals
 }
 
+// State an agent_task step carries across its park/resume cycle. Kept as a dedicated type so the
+// shared currentAction stays step-agnostic (same approach as CyclotronJobInvocationHogFunctionContext).
+export type HogFlowAgentTaskState = {
+    // The PostHog Code task run this step kicked off. The subscription matcher confirms a
+    // $task_run_completed event belongs to THIS parked job (many jobs can share a distinct_id)
+    // by matching this id before waking it.
+    taskRunId: string
+    // Set by the subscription matcher when the matching task run reached a terminal state, so the
+    // handler advances on the wake instead of re-polling. Cleared by the handler once consumed.
+    completed?: boolean
+    // Terminal task status ('completed' | 'failed') and the task's structured output, stashed by
+    // the matcher so the handler can pick the success/timeout edge and expose the result.
+    status?: string
+    output?: unknown
+}
+
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
@@ -369,6 +385,9 @@ export type HogFlowInvocationContext = {
         // the cdp_hogflow_wait_poll_only_advance metric — the signal that proves whether the poll
         // ever catches a wake the subscription streams missed, gating its eventual removal.
         pollReparked?: boolean
+        // agent_task step state, namespaced into its own type rather than flattened onto every
+        // action (mirrors hogFunctionState above). Present only while an agent_task step is current.
+        agentTaskState?: HogFlowAgentTaskState
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.

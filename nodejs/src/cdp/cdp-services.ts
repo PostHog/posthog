@@ -21,6 +21,7 @@ import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
 import { HogExecutorService } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
+import { AgentTaskService } from './services/hogflows/agent-task.service'
 import { HogFlowDuplicateObserverService } from './services/hogflows/hogflow-duplicate-observer.service'
 import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
@@ -108,7 +109,13 @@ export interface CdpCoreServices {
 
 export type CdpCoreServicesConfig = Pick<
     CommonConfig,
-    'REDIS_URL' | 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE' | 'ENCRYPTION_SALT_KEYS' | 'SITE_URL'
+    | 'REDIS_URL'
+    | 'REDIS_POOL_MIN_SIZE'
+    | 'REDIS_POOL_MAX_SIZE'
+    | 'ENCRYPTION_SALT_KEYS'
+    | 'SITE_URL'
+    | 'INTERNAL_API_BASE_URL'
+    | 'WORKFLOWS_TASKS_API_SECRET'
 > &
     Pick<
         CdpConfig,
@@ -438,11 +445,13 @@ export function createCdpCoreServices(
     const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
     // Observer mirrors writes to Valkey (load-only); only the primary path drives metrics.
     const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow?.writer ?? null)
+    const agentTaskService = new AgentTaskService(config.INTERNAL_API_BASE_URL, config.WORKFLOWS_TASKS_API_SECRET)
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
         emailValidationService,
-        hogFlowDuplicateObserver
+        hogFlowDuplicateObserver,
+        agentTaskService
     )
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)

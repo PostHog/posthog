@@ -526,6 +526,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `support_reply` - Support Reply
  * * `hogdesk` - HogDesk
  * * `image_builder` - Image Builder
+ * * `workflow` - Workflow
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -545,6 +546,7 @@ export const OriginProductEnumApi = {
     SupportReply: 'support_reply',
     Hogdesk: 'hogdesk',
     ImageBuilder: 'image_builder',
+    Workflow: 'workflow',
 } as const
 
 /**
@@ -618,7 +620,8 @@ export interface TaskWriteApi {
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
-     * * `image_builder` - Image Builder */
+     * * `image_builder` - Image Builder
+     * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -732,7 +735,8 @@ export interface PatchedTaskWriteApi {
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
-     * * `image_builder` - Image Builder */
+     * * `image_builder` - Image Builder
+     * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

@@ -100,6 +100,16 @@ type MatchedJob = {
     conversionDistinctId?: string
     conversionEventName?: string
     conversionEventUuid?: string
+    // Set when a $task_run_completed internal event matched a parked agent_task step by distinct_id.
+    // The task run id is confirmed against the job's stored id under FOR UPDATE before waking, since
+    // many jobs can share a distinct_id.
+    agentTask?: AgentTaskCompletion
+}
+
+type AgentTaskCompletion = {
+    taskRunId: string
+    status: string
+    output: unknown
 }
 
 // Payload for capturedEventsService.queueEvent — a resolved PostHog capture event minus the token.
@@ -206,7 +216,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         const hogflows: Record<string, HogFlow> = {}
         for (const flows of Object.values(hogFlowsByTeam)) {
             for (const flow of flows) {
-                if (hasWaitUntilOrConversion(flow)) {
+                if (isActionableFlow(flow, source)) {
                     hogflows[flow.id] = flow
                 }
             }
@@ -265,8 +275,14 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             let conversionDistinctId: string | undefined
             let conversionEventName: string | undefined
             let conversionEventUuid: string | undefined
+            let agentTask: AgentTaskCompletion | undefined
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
+                // agent_task steps wake on a $task_run_completed internal event, not on filter bytecode.
+                // The task run id is confirmed against the parked job's stored id in applyMatchToState.
+                if (!agentTask && action?.type === 'agent_task') {
+                    agentTask = extractAgentTaskCompletion(globals.event)
+                }
                 if (!stepMatched && action?.type === 'wait_until_condition') {
                     if (
                         await matchesWaitUntilCondition(action, filterGlobals, {
@@ -296,7 +312,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             // collected even on measurement-only (non-exit) flows: processMatchedJobs reads the job's
             // state under FOR UPDATE to count the conversion exactly once per run (and surface it to
             // the executor for exit-on-conversion flows). The wake-vs-count-only decision is made there.
-            if (stepMatched || conversionMatched) {
+            if (stepMatched || conversionMatched || agentTask) {
                 matchedJobs.push({
                     id: candidate.id,
                     teamId: candidate.teamId,
@@ -311,6 +327,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     conversionDistinctId,
                     conversionEventName,
                     conversionEventUuid,
+                    agentTask,
                 })
             }
         }
@@ -616,7 +633,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         return
                     }
                     const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(parsed.team_id)
-                    if (!teamHogFlows.some(hasWaitUntilOrConversion)) {
+                    // Internal events can wake agent_task steps too, so include those flows here.
+                    if (!teamHogFlows.some((flow) => isActionableFlow(flow, 'internal_events'))) {
                         counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
                         return
                     }
@@ -757,6 +775,33 @@ function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
     return Array.isArray(conversionEvents) && conversionEvents.length > 0
 }
 
+// The internal-events stream can also wake agent_task steps ($task_run_completed). Those never
+// arrive on the events/person firehoses, so only broaden the gate for that source — the firehose
+// paths stay scoped to wait/conversion flows and pay no extra cyclotron lookups.
+function isActionableFlow(hogflow: HogFlow, source: WakeSource): boolean {
+    if (hasWaitUntilOrConversion(hogflow)) {
+        return true
+    }
+    return source === 'internal_events' && hogflow.actions.some((a: HogFlowAction) => a.type === 'agent_task')
+}
+
+// A $task_run_completed internal event carries the run id, terminal status and structured output as
+// properties. Returns the completion payload when the event is one, else undefined.
+function extractAgentTaskCompletion(event: HogFunctionInvocationGlobals['event']): AgentTaskCompletion | undefined {
+    if (event.event !== '$task_run_completed') {
+        return undefined
+    }
+    const taskRunId = event.properties?.task_run_id
+    if (typeof taskRunId !== 'string' || !taskRunId) {
+        return undefined
+    }
+    return {
+        taskRunId,
+        status: typeof event.properties?.status === 'string' ? event.properties.status : 'completed',
+        output: event.properties?.output,
+    }
+}
+
 // Single pass over the batch: dedup distinct/person ids, collect team ids,
 // and bucket every event under all the keys it could match a candidate by.
 function indexBatch(invocationGlobals: HogFunctionInvocationGlobals[]): IndexedBatch {
@@ -873,6 +918,22 @@ function applyMatchToState(stateBuffer: Buffer, m: MatchedJob): MatchOutcome | n
                 // we cannot tag the wake as an event match - skip the flag and continue, since the
                 // conversion handling above is independent of currentAction and may still apply.
                 logger.warn('Skipping eventMatched: no currentAction in state', { jobId: m.id })
+            }
+        }
+
+        // A $task_run_completed event resumes a parked agent_task step, but only the job whose stored
+        // task run id matches — jobs that merely share the distinct_id are left parked.
+        if (m.agentTask) {
+            const agentTaskState = updatedState.currentAction?.agentTaskState
+            if (agentTaskState && agentTaskState.taskRunId === m.agentTask.taskRunId && !agentTaskState.completed) {
+                updatedState.currentAction!.agentTaskState = {
+                    ...agentTaskState,
+                    completed: true,
+                    status: m.agentTask.status,
+                    output: m.agentTask.output,
+                }
+                changed = true
+                wake = true
             }
         }
 

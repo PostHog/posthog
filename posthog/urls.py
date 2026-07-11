@@ -77,7 +77,7 @@ from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,
 )
-from products.workflows.backend.api import hog_flow, hog_flow_template
+from products.workflows.backend.api import hog_flow, hog_flow_template, internal_agent_task
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -493,6 +493,15 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/status",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"put": "internal_update_batch_job_status"})),
+    ),
+    # Internal workflows agent_task endpoints (authenticated with WORKFLOWS_TASKS_API_SECRET)
+    path(
+        "api/projects/<str:team_id>/internal/workflows/agent_tasks",
+        csrf_exempt(internal_agent_task.InternalWorkflowsAgentTaskViewSet.as_view({"post": "create"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/workflows/agent_tasks/<str:pk>",
+        csrf_exempt(internal_agent_task.InternalWorkflowsAgentTaskViewSet.as_view({"get": "retrieve"})),
     ),
     path(
         "api/projects/<str:team_id>/internal/signals/emit",

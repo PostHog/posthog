@@ -84,6 +84,41 @@ const makeHogFlow = (overrides: Partial<HogFlow> & { id: string; waitUntil?: boo
     } as unknown as HogFlow
 }
 
+const makeAgentTaskFlow = (id: string, team_id = 1): HogFlow =>
+    ({
+        id,
+        team_id,
+        version: 1,
+        status: 'active',
+        actions: [
+            { id: 'trigger_node', name: 'Trigger', type: 'trigger', config: { type: 'event', filters: {} } },
+            { id: 'agent_node', name: 'Agent', type: 'agent_task', config: { prompt: 'go', max_wait_duration: '2h' } },
+            { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+        ],
+        edges: [],
+        conversion: null,
+    }) as unknown as HogFlow
+
+const makeTaskCompletionEvent = (
+    taskRunId: string,
+    status: string,
+    output: unknown,
+    distinctId = 'user-1'
+): HogFunctionInvocationGlobals =>
+    ({
+        project: { id: 1, name: 'Test', url: '' },
+        event: {
+            uuid: 'task-event-uuid',
+            event: '$task_run_completed',
+            distinct_id: distinctId,
+            properties: { task_run_id: taskRunId, status, output },
+            elements_chain: '',
+            timestamp: new Date().toISOString(),
+            url: '',
+        },
+        person: { id: 'person-uuid-1', properties: {}, name: 'User 1', url: '' },
+    }) as HogFunctionInvocationGlobals
+
 const makeGlobals = (overrides: Partial<HogFunctionInvocationGlobals>): HogFunctionInvocationGlobals =>
     ({
         project: { id: 1, name: 'Test', url: '' },
@@ -181,8 +216,11 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
         )
     }
 
-    public async runWake(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
-        await (this as any).wakeMatchingWorkflows(invocationGlobals)
+    public async runWake(
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        source: 'events' | 'person' | 'internal_events' = 'events'
+    ): Promise<void> {
+        await (this as any).wakeMatchingWorkflows(invocationGlobals, source)
     }
 }
 
@@ -1127,6 +1165,73 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(stateLoad).not.toBeUndefined()
             // wakeJobs is called with only the matching id; SELECT id, state pulls only that
             expect(stateLoad!.params[0]).toEqual(['job-match'])
+        })
+
+        describe('agent_task steps', () => {
+            const parkedAgentTaskJob = (taskRunId: string): void => {
+                matcher.findRows = [
+                    {
+                        id: 'job-1',
+                        team_id: 1,
+                        function_id: 'flow-1',
+                        action_id: 'agent_node',
+                        distinct_id: 'user-1',
+                        person_id: null,
+                    },
+                ]
+                matcher.wakeRows = [
+                    {
+                        ...matcher.findRows[0],
+                        state: stateBuffer({ currentAction: { id: 'agent_node', agentTaskState: { taskRunId } } }),
+                    },
+                ]
+                matcher.updateRowCount = 1
+                matcher.setHogFlows({ 'flow-1': makeAgentTaskFlow('flow-1') })
+            }
+
+            it('wakes a parked agent_task job when a matching task completion arrives', async () => {
+                parkedAgentTaskJob('run-1')
+
+                await matcher.runWake(
+                    [makeTaskCompletionEvent('run-1', 'completed', { pr_url: 'https://x' })],
+                    'internal_events'
+                )
+
+                const update = matcher.calls.find(
+                    (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
+                )
+                expect(update).not.toBeUndefined()
+                expect(update!.params[0]).toEqual(['job-1'])
+                const newState = parseJSON(update!.params[1][0].toString('utf-8')) as any
+                expect(newState.state.currentAction.agentTaskState).toEqual({
+                    taskRunId: 'run-1',
+                    completed: true,
+                    status: 'completed',
+                    output: { pr_url: 'https://x' },
+                })
+            })
+
+            it('does not wake a job whose stored task run id differs (shared distinct_id)', async () => {
+                // The parked job waits on run-2, but a completion for run-1 (same person) arrives.
+                parkedAgentTaskJob('run-2')
+
+                await matcher.runWake([makeTaskCompletionEvent('run-1', 'completed', null)], 'internal_events')
+
+                const update = matcher.calls.find(
+                    (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
+                )
+                expect(update).toBeUndefined()
+            })
+
+            it('is not woken by the same completion event on the events firehose', async () => {
+                // agent_task flows are only actionable on the internal-events stream, so the events
+                // source must skip cyclotron entirely for a team that has only an agent_task flow.
+                parkedAgentTaskJob('run-1')
+
+                await matcher.runWake([makeTaskCompletionEvent('run-1', 'completed', null)], 'events')
+
+                expect(matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))).toBeUndefined()
+            })
         })
     })
 
