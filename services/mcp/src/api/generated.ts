@@ -33364,6 +33364,7 @@ export namespace Schemas {
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `image_builder` - Image Builder
+     * * `workflow` - Workflow
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -33384,6 +33385,7 @@ export namespace Schemas {
       SupportReply: 'support_reply',
       Hogdesk: 'hogdesk',
       ImageBuilder: 'image_builder',
+      Workflow: 'workflow',
     } as const;
 
     /**
@@ -44566,7 +44568,8 @@ export namespace Schemas {
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
-       * * `image_builder` - Image Builder */
+       * * `image_builder` - Image Builder
+       * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -56612,7 +56615,8 @@ export namespace Schemas {
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
-       * * `image_builder` - Image Builder */
+       * * `image_builder` - Image Builder
+       * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

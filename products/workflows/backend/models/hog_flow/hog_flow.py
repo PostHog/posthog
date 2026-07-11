@@ -32,6 +32,9 @@ BILLABLE_ACTION_TYPES: Final[set[str]] = {
 PERSON_DEPENDENT_ACTION_TYPES: Final[set[str]] = {
     "wait_until_condition",
     "random_cohort_branch",
+    # Task completion is correlated back to the parked run by distinct_id, so person-less
+    # (row-scoped) workflows cannot use it.
+    "agent_task",
 }
 
 

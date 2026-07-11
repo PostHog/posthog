@@ -59,6 +59,20 @@ WORKFLOW_COMPLETION_EMITTED_STATE_KEY = "workflow_completion_event_emitted"
 # matcher). Terminal status ('completed' | 'failed' | 'cancelled') is carried as a property.
 WORKFLOW_TASK_COMPLETION_EVENT = "$task_run_completed"
 
+# Task output rides through Kafka and into the cyclotron job's state row; cap the serialized size so
+# an oversized agent output degrades to a truncation marker (the executor's poll fetches the full
+# output by reference) instead of an over-limit Kafka message or a bloated job state.
+WORKFLOW_EVENT_OUTPUT_MAX_BYTES = 4096
+
+
+def _cap_workflow_event_output(output: Any) -> Any:
+    if output is None:
+        return None
+    serialized = json.dumps(output, default=str)
+    if len(serialized.encode("utf-8")) <= WORKFLOW_EVENT_OUTPUT_MAX_BYTES:
+        return output
+    return {"truncated": True, "preview": serialized[:1000]}
+
 
 def resolve_schema(schema: type[BaseModel] | dict) -> dict:
     if isinstance(schema, dict):
@@ -1440,8 +1454,11 @@ class TaskRun(models.Model):
 
         No-op for runs not started by a workflow. Emits a CDP internal event carrying the
         correlation distinct_id (so the Node subscription matcher finds the parked job) and the
-        run's terminal status + output. Once-guarded via run state so it fires at most once per run,
-        and best-effort so a Kafka hiccup never blocks the status transition.
+        run's terminal status + output. The state once-guard is checked outside a lock and the
+        Kafka produce is unconfirmed, so delivery is at-least-once under concurrent terminal
+        writers and possibly zero on a broker outage — consumers must be idempotent (the matcher
+        is) and the executor's status poll is the backstop for a lost event. Best-effort so a
+        Kafka hiccup never blocks the status transition.
         """
         state = self.state if isinstance(self.state, dict) else {}
         correlation = state.get(WORKFLOW_AGENT_TASK_STATE_KEY)
@@ -1460,7 +1477,7 @@ class TaskRun(models.Model):
                         "task_run_id": str(self.id),
                         "task_id": str(self.task_id),
                         "status": self.status,
-                        "output": self.output,
+                        "output": _cap_workflow_event_output(self.output),
                         "error_message": self.error_message,
                         "$workflow_id": correlation.get("workflow_id"),
                         "$workflow_run_id": correlation.get("workflow_run_id"),

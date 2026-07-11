@@ -141,7 +141,9 @@ __all__ = [
     "delete_task_automation",
     "edit_task_run_living_artifact",
     "complete_idle_local_task_run",
+    "count_active_workflow_task_runs",
     "fail_task_run",
+    "find_workflow_agent_task_run",
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
     "get_code_home",
@@ -472,6 +474,36 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
     if run is None:
         return None
     return _task_run_to_dto(run)
+
+
+def find_workflow_agent_task_run(team_id: int, workflow_run_id: str, action_id: str) -> contracts.TaskRunDTO | None:
+    """Find the run a workflow agent_task step already started for this (workflow run, action) pair.
+
+    Idempotency lookup for the workflows internal endpoint: cyclotron gives the executor
+    at-least-once semantics, so a crash/timeout replay of the create call must find the
+    existing run instead of starting a duplicate task.
+    """
+    run = (
+        TaskRun.objects.select_related("task", "task__created_by")
+        .filter(
+            team_id=team_id,
+            state__workflow_agent_task__workflow_run_id=workflow_run_id,
+            state__workflow_agent_task__action_id=action_id,
+        )
+        .order_by("created_at")
+        .first()
+    )
+    return _task_run_to_dto(run) if run is not None else None
+
+
+def count_active_workflow_task_runs(team_id: int) -> int:
+    """Non-terminal task runs started by workflow agent_task steps for a team — the input to the
+    per-team in-flight cap on workflow-originated task creation."""
+    return TaskRun.objects.filter(
+        team_id=team_id,
+        task__origin_product=Task.OriginProduct.WORKFLOW,
+        status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
+    ).count()
 
 
 def get_wizard_pr_ready_email_context(run_id: str | UUID) -> contracts.WizardPrReadyEmailContextDTO | None:
@@ -1841,6 +1873,9 @@ def update_task_run(
             )
         observe_wizard_run_unbound(run)
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
+        # Wake a parked workflow agent_task step (once-guarded, so double-emitting with the
+        # workflow's own status activity is safe). Covers CANCELLED, which the activity path skips.
+        run.emit_workflow_completion_event_if_needed()
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
                 notify_task_run_cancelled,

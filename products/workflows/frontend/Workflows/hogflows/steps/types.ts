@@ -267,9 +267,15 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('agent_task'),
         config: z.object({
-            prompt: z.string(),
+            // Non-empty so a promptless step can't be saved/activated only to 400 at runtime.
+            prompt: z.string().trim().min(1, 'Prompt is required'),
             title: z.string().optional(),
-            repository: z.string().optional(),
+            // org/repo when set; empty is allowed (falls back to the project's default repository).
+            repository: z
+                .string()
+                .regex(/^\S+\/\S+$/, 'Use org/repo format')
+                .optional()
+                .or(z.literal('')),
             create_pr: z.boolean().optional(),
             max_wait_duration: DURATION_STRING,
         }),

@@ -18,7 +18,7 @@ def _branch_slot_count(action: dict) -> int:
         return len(config.get("conditions") or [])
     if action_type == "random_cohort_branch":
         return len(config.get("cohorts") or [])
-    if action_type == "wait_until_condition":
+    if action_type in ("wait_until_condition", "agent_task"):
         return 1
     return 0
 
@@ -78,12 +78,19 @@ def validate_graph(actions: list[dict], edges: list[dict], abort_action: Optiona
     # the condition matches or an events entry fires. Without it the node only advances on the
     # max_wait_duration timeout (the `continue` edge) and silently ignores resolution — a footgun the
     # frontend never produces (it always wires this edge). seen_branch_keys holds only valid branch edges.
+    # agent_task has the same shape: branch index 0 is the task-completed path, continue is failure/timeout.
     for action in actions:
         if action.get("type") == "wait_until_condition" and (action.get("id"), 0) not in seen_branch_keys:
             errors.append(
                 f"wait_until_condition '{action.get('id')}' is missing its resolution edge: add a 'branch' edge "
                 f"with index 0 (taken when the condition matches or an events entry fires). Without it the wait "
                 f"only ever advances on the max_wait_duration timeout, never on resolution."
+            )
+        if action.get("type") == "agent_task" and (action.get("id"), 0) not in seen_branch_keys:
+            errors.append(
+                f"agent_task '{action.get('id')}' is missing its success edge: add a 'branch' edge with index 0 "
+                f"(taken when the task completes). Without it the step only ever advances on failure or the "
+                f"max_wait_duration timeout, never on success."
             )
 
     if errors:

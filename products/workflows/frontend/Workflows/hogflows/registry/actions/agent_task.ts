@@ -3,7 +3,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { registerActionNodeCategory } from 'products/workflows/frontend/Workflows/hogflows/registry/actions/actionNodeRegistry'
 
 registerActionNodeCategory({
-    label: 'Code',
+    label: 'PostHog Code',
     featureFlag: FEATURE_FLAGS.WORKFLOWS_AGENT_TASK_STEP,
     nodes: [
         {

@@ -1232,6 +1232,55 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
                 expect(matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))).toBeUndefined()
             })
+
+            it('skips cyclotron for internal events that are not task completions', async () => {
+                // A team whose only flow is an agent_task workflow must not pay cyclotron lookups for
+                // unrelated internal events ($insight_alert_firing etc.).
+                parkedAgentTaskJob('run-1')
+                const unrelated = makeTaskCompletionEvent('run-1', 'completed', null)
+                unrelated.event.event = '$insight_alert_firing'
+
+                await matcher.runWake([unrelated], 'internal_events')
+
+                expect(matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))).toBeUndefined()
+            })
+
+            it('drops a completion event with a malformed status instead of waking (fail closed)', async () => {
+                parkedAgentTaskJob('run-1')
+                const malformed = makeTaskCompletionEvent('run-1', 'completed', null)
+                delete (malformed.event.properties as any).status
+
+                await matcher.runWake([malformed], 'internal_events')
+
+                const update = matcher.calls.find(
+                    (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
+                )
+                expect(update).toBeUndefined()
+            })
+
+            it('picks the right completion when several tasks for one person finish in the same batch', async () => {
+                parkedAgentTaskJob('run-2')
+
+                await matcher.runWake(
+                    [
+                        makeTaskCompletionEvent('run-1', 'completed', null),
+                        makeTaskCompletionEvent('run-2', 'failed', null),
+                    ],
+                    'internal_events'
+                )
+
+                const update = matcher.calls.find(
+                    (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
+                )
+                expect(update).not.toBeUndefined()
+                const newState = parseJSON(update!.params[1][0].toString('utf-8')) as any
+                expect(newState.state.currentAction.agentTaskState).toEqual({
+                    taskRunId: 'run-2',
+                    completed: true,
+                    status: 'failed',
+                    output: null,
+                })
+            })
         })
     })
 

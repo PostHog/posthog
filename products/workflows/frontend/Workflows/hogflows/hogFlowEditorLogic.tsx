@@ -61,9 +61,20 @@ const getBranchLabel = (action: HogFlowAction | undefined, edge: HogFlow['edges'
             const condition = branchAction.config.conditions?.[edge.index || 0]
             return condition?.name || `If condition #${(edge.index || 0) + 1} matches`
         }
+        case 'agent_task':
+            return 'Task completed'
         default:
             return `If condition #${(edge.index || 0) + 1} matches`
     }
+}
+
+// The `continue` edge is the fall-through: "no match" for branching steps, but the failure/timeout
+// path for steps whose branch edge is a success/resolution edge.
+const getContinueLabel = (action: HogFlowAction | undefined): string => {
+    if (action?.type === 'agent_task') {
+        return 'Failed or timed out'
+    }
+    return 'No match'
 }
 
 /**
@@ -442,7 +453,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 label: isOnlyEdgeForNode
                                     ? undefined
                                     : edge.type === 'continue'
-                                      ? `No match`
+                                      ? getContinueLabel(edgeSourceAction)
                                       : getBranchLabel(edgeSourceAction, edge),
                             },
                             labelShowBg: false,

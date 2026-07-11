@@ -71,6 +71,7 @@ describe('action.agent_task', () => {
                 workflowRunId: invocation.id,
                 actionId: action.id,
                 prompt: 'Fix the bug in checkout', // interpolated from variables
+                title: action.name, // no config title -> falls back to the step name
             })
         )
         expect(invocation.state.currentAction!.agentTaskState).toEqual({ taskRunId: 'run-1' })
@@ -153,6 +154,44 @@ describe('action.agent_task', () => {
     it('throws when there is no distinct_id to correlate completion', async () => {
         invocation.state.event!.distinct_id = ''
 
-        await expect(execute()).rejects.toThrow('distinct_id')
+        await expect(execute()).rejects.toThrow('distinct ID')
+    })
+
+    it('re-parks instead of failing the run when the status poll errors transiently', async () => {
+        invocation.state.currentAction!.agentTaskState = { taskRunId: 'run-1' }
+        service.getAgentTaskStatus.mockRejectedValue(new Error('django blip'))
+
+        const result = await execute()
+
+        expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 5 }))
+        expect(result.nextAction).toBeUndefined()
+        expect(invocation.state.currentAction!.agentTaskState).toEqual({ taskRunId: 'run-1' })
+    })
+
+    it('caps oversized task output instead of passing it through to variables', async () => {
+        invocation.state.currentAction!.agentTaskState = {
+            taskRunId: 'run-1',
+            completed: true,
+            status: 'completed',
+            output: { blob: 'x'.repeat(10_000) },
+        }
+
+        const result = await execute()
+
+        expect(result.nextAction?.id).toBe('on_success')
+        expect(result.result).toEqual({
+            status: 'completed',
+            output: { truncated: true, preview: expect.stringContaining('x') },
+        })
+    })
+
+    it('caps interpolated variable values in the prompt', async () => {
+        service.createAgentTask.mockResolvedValue({ taskRunId: 'run-1', status: 'queued' })
+        invocation.state.variables = { area: 'y'.repeat(5000) }
+
+        await execute()
+
+        const prompt = service.createAgentTask.mock.calls[0][0].prompt
+        expect(prompt).toBe(`Fix the bug in ${'y'.repeat(2000)}`)
     })
 })

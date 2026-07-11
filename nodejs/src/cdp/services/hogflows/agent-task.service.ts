@@ -45,6 +45,9 @@ export class AgentTaskService {
         const urlPath = `/api/projects/${request.teamId}/internal/workflows/agent_tasks`
         const response = await this.fetch(urlPath, {
             method: 'POST',
+            // Creation writes rows and dispatches a Temporal workflow before responding — give it
+            // more than the 3s default so a slow dispatch doesn't orphan a created-but-unacked task.
+            timeoutMs: 30_000,
             body: JSON.stringify({
                 distinct_id: request.distinctId,
                 workflow_id: request.workflowId,
@@ -67,15 +70,23 @@ export class AgentTaskService {
         return { status: data.status, output: data.output, errorMessage: data.error_message ?? null }
     }
 
-    private async fetch(urlPath: string, params: { method: string; body?: string }): Promise<string> {
-        const url = `${this.internalApiBaseUrl || 'http://localhost:8000'}${urlPath}`
+    private async fetch(
+        urlPath: string,
+        params: { method: string; body?: string; timeoutMs?: number }
+    ): Promise<string> {
+        // Fail fast on a wiring mistake rather than burning timeouts against localhost in prod.
+        if (!this.internalApiBaseUrl || !this.secret) {
+            throw new Error('Agent task service is not configured (INTERNAL_API_BASE_URL / WORKFLOWS_TASKS_API_SECRET)')
+        }
+        const url = `${this.internalApiBaseUrl}${urlPath}`
         try {
             const response = await internalFetch(url, {
                 method: params.method,
                 body: params.body,
+                timeoutMs: params.timeoutMs,
                 headers: {
                     'Content-Type': 'application/json',
-                    ...(this.secret ? { [WORKFLOWS_TASKS_SECRET_HEADER.toLowerCase()]: this.secret } : {}),
+                    [WORKFLOWS_TASKS_SECRET_HEADER.toLowerCase()]: this.secret,
                 },
             })
             if (response.status < 200 || response.status >= 300) {

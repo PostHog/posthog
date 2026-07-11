@@ -169,15 +169,16 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
     }),
 
     // Agent task: kick off a PostHog Code task with a prompt and wait for it to finish.
-    // Parks on entry (like wait_until_condition) and is woken by the $task_run_completed /
-    // $task_run_failed internal event, falling back to a status poll on the max_wait_duration cap.
+    // Parks on entry (like wait_until_condition) and is woken by the $task_run_completed internal
+    // event (terminal status carried as a property), with a status poll as backstop up to
+    // max_wait_duration.
     z.object({
         ..._commonActionFields,
         type: z.literal('agent_task'),
         config: z.object({
             // The prompt sent to the task as its description (templated with workflow variables).
             prompt: z.string(),
-            // Optional task title; falls back to the action name when empty.
+            // Optional task title; the handler falls back to the action name when empty.
             title: z.string().optional(),
             // Target repository as `org/repo`; falls back to the team's default when empty.
             repository: z.string().optional(),

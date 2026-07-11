@@ -105,6 +105,17 @@ class TestValidateGraph(TestCase):
         assert validate_graph(actions, edges) == []
         assert "out of range [0, 1)" in _graph_errors(actions, [_edge("t", "w"), _edge("w", "x", "branch", index=1)])
 
+    def test_agent_task_requires_success_edge_at_index_zero(self):
+        agent = {"id": "a", "name": "a", "type": "agent_task", "config": {"prompt": "fix it"}}
+        actions = [TRIGGER, agent, EXIT]
+        # The success (branch index 0) + failure/timeout (continue) shape the palette produces is valid.
+        valid = [_edge("t", "a"), _edge("a", "x", "branch", index=0), _edge("a", "x")]
+        assert validate_graph(actions, valid) == []
+        # Missing the branch edge is rejected so a success-blind step can't ship via the graph API.
+        assert "missing its success edge" in _graph_errors(actions, [_edge("t", "a"), _edge("a", "x")])
+        # index 1 is out of range (only the completed path exists).
+        assert "out of range [0, 1)" in _graph_errors(actions, [_edge("t", "a"), _edge("a", "x", "branch", index=1)])
+
     def test_unreachable_node_returns_warning_not_error(self):
         actions = [TRIGGER, _fn("a"), _fn("orphan"), EXIT]
         edges = [_edge("t", "a"), _edge("a", "x")]

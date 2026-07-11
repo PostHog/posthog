@@ -20,10 +20,10 @@ export function StepAgentTaskConfiguration({
     const action = node.data
     const { prompt, title, repository, create_pr, max_wait_duration } = action.config
 
-    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
 
     const update = (config: Partial<Extract<HogFlowAction, { type: 'agent_task' }>['config']>): void => {
-        setWorkflowActionConfig(action.id, { ...action.config, ...config })
+        partialSetWorkflowActionConfig(action.id, config)
     }
 
     return (
@@ -44,14 +44,14 @@ export function StepAgentTaskConfiguration({
             <LemonInput
                 value={title ?? ''}
                 onChange={(value) => update({ title: value })}
-                placeholder="Optional — defaults to the step name"
+                placeholder="Optional, defaults to the step name"
             />
 
             <LemonLabel>Repository</LemonLabel>
             <LemonInput
                 value={repository ?? ''}
                 onChange={(value) => update({ repository: value })}
-                placeholder="org/repo — defaults to the team's repository"
+                placeholder="org/repo (optional, uses the project's default repository)"
             />
 
             <LemonCheckbox
@@ -60,7 +60,7 @@ export function StepAgentTaskConfiguration({
                 label="Open a pull request when the task finishes"
             />
 
-            <LemonLabel>Maximum wait</LemonLabel>
+            <LemonLabel>Max time to wait</LemonLabel>
             <p className="mb-0 text-secondary">
                 Continue down the timeout path if the task has not finished within this duration.
             </p>
