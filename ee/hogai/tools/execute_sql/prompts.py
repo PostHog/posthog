@@ -77,6 +77,15 @@ JOIN persons p ON e.person_id = p.id
 WHERE e.event IN (SELECT event FROM events WHERE ...)
 ```
 
+# Query performance
+The `events` table can hold billions of rows and is sorted by (team, toDate(timestamp), event), so a query that reads more than it needs is slow and can run out of memory. Avoid these anti-patterns:
+- A timestamp bound is not optional even for a selective-looking filter: a point lookup anchored only on a session id, trace id, distinct_id, or property equality still scans the team's entire history unless the WHERE bounds timestamp. Time conditions buried inside aggregate arguments (countIf, sumIf) do not prune the scan — the WHERE itself must bound timestamp. Exception: `posthog.ai_events` is sorted by trace_id, so a trace_id filter there is already the pruning path and needs no timestamp bound.
+- Do not call JSONExtractString/JSONExtractRaw/JSONExtractFloat/JSONHas or similar JSON functions on the `properties` or `person.properties` blob, and do not serialize the whole blob with toString(properties) to string-search it — both force a full JSON parse per row, up to ~100x slower than the materialized column. Use dot access (properties.foo, person.properties.foo); it compiles to the materialized column. Field-level casts like toString(properties.foo) are fine.
+- Do not run LIKE/ILIKE with a leading `%` wildcard against events strings (e.g. properties.$current_url ILIKE '%/checkout') — it cannot use an index and scans every row. Anchor the pattern where possible, or use full-text hasToken/hasTokenCaseInsensitive for word matches.
+- Do not scan `events` more times than needed: joining events to itself, an IN (SELECT ... FROM events) subquery over the same time range, UNIONing multiple scans of the same range, or referencing an events CTE more than once (CTEs are inlined, not materialized — referencing one twice executes it twice). Answer in a single pass with conditional aggregates (countIf, sumIf, uniqIf, argMax) or a window function.
+- Do not GROUP BY an unbounded high-cardinality expression (URLs/paths with embedded ids, session or trace ids, emails, free text) over a wide time window (roughly a month or more) under a broad filter — it explodes memory. Naturally bounded dimensions (hostnames, event names, countries, app versions) are fine, and so is grouping when the WHERE already narrows to few rows.
+- Do not let the only time filter run through a value-mangling transform such as formatDateTime(timestamp, ...) = '2026-06' or toString(timestamp) LIKE '2026%' — it defeats index pruning. Direct comparisons and range functions prune fine: >=, <, BETWEEN, toDate(timestamp) >= ..., toStartOfMonth/Week/Day comparisons, now() - INTERVAL arithmetic.
+
 # Other constraints
 - You should not make formatting or casing changes if explicitly requested by the user.
 - You should not use double curly braces (`{{{{` or `}}}}`) for templating. The only templating syntax allowed is single curly braces with variables in the "variables" namespace (for example: `{{{{variables.org}}}}`).<%={{{{ }}}}=%>

@@ -72,7 +72,7 @@ SELECT
     round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
     round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50_ms,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_ms,
-    uniq(distinct_id) AS users,
+    uniq(person_id) AS users,
     countDistinctIf($session_id, $session_id != '') AS sessions
 FROM events
 WHERE event = '$mcp_tool_call'
@@ -106,14 +106,14 @@ A "harness" is the friendly product label for the MCP client that made a call �
 ```sql
 SELECT
     harness,
-    uniq(distinct_id) AS users,
-    round(uniq(distinct_id) * 100.0 / (
-        SELECT uniq(distinct_id) FROM events
+    uniq(person_id) AS users,
+    round(uniq(person_id) * 100.0 / (
+        SELECT uniq(person_id) FROM events
         WHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 30 DAY
     ), 1) AS pct_of_users
 FROM (
     SELECT
-        distinct_id,
+        person_id,
         multiIf(
             h = 'claude-code claude-desktop', 'Claude Desktop',
             h = 'claude-code claude-vscode', 'Claude Code (VS Code)',
@@ -149,7 +149,7 @@ FROM (
         ) AS harness
     FROM (
         SELECT
-            distinct_id,
+            person_id,
             trim(replaceRegexpAll(lower(
                 coalesce(
                     multiIf(
@@ -186,7 +186,7 @@ GROUP BY harness
 ORDER BY users DESC
 ```
 
-The `multiIf` above is the canonical bucket list. The denominator is total distinct users, so per-harness shares can sum past 100% (one user may use several harnesses). Swap the outer aggregate for other harness cuts — `count()` for call volume, `quantile(0.95)(toFloat(properties.$mcp_duration_ms))` for latency. For `query-trends`, pass the inner `multiIf(...)` over the normalized client name as a **HogQL breakdown** to get the same buckets in a trends series.
+The `multiIf` above is the canonical bucket list. Count unique users with `person_id`, never `uniq(distinct_id)` — one person spans several `distinct_id`s, so `distinct_id` overcounts. The denominator is total distinct users, so per-harness shares can sum past 100% (one user may use several harnesses). Swap the outer aggregate for other harness cuts — `count()` for call volume, `quantile(0.95)(toFloat(properties.$mcp_duration_ms))` for latency. For `query-trends`, pass the inner `multiIf(...)` over the normalized client name as a **HogQL breakdown** to get the same buckets in a trends series.
 
 **Tool co-occurrence** (which tool tends to run right before a given tool, within a session) — prefer `posthog:query-mcp-tool-neighbors` (`neighborDirection: before`/`after`); this SQL is the recipe behind it, for custom window logic:
 

@@ -211,7 +211,7 @@ You should use the skipping index signature to write optimized analytical querie
 
 ##### Time ranges
 
-All analytical queries and subqueries must always have time ranges set for supported tables (events). If the user doesn't state it, assume default time range based on the data volume, like a day, week, or month.
+All analytical queries and subqueries must always have time ranges set for supported tables (events, sessions). If the user doesn't state it, assume default time range based on the data volume, like a day, week, or month. A selective-looking filter is not a substitute: a point lookup anchored only on a session id, trace id, `distinct_id`, or property equality still scans the team's entire history unless the `WHERE` bounds `timestamp`. Time conditions buried inside aggregate arguments (`countIf`, `sumIf`) don't prune the scan — the `WHERE` itself must bound `timestamp`. (Exception: `posthog.ai_events` is sorted by `trace_id`, so a `trace_id` filter there is already the pruning path and needs no timestamp bound.)
 
 **How you should use time ranges**
 
@@ -285,6 +285,16 @@ WHERE g.event = '$ai_generation'
 ```
 <reasoning>Join is not necessary here. The assistant could've used a subquery.</reasoning>
 </example>
+
+##### Performance anti-patterns
+
+The `events` table can hold billions of rows and is sorted by `(team, toDate(timestamp), event)`, so a query that reads more than it needs is slow and can OOM. Beyond the timestamp bound above, avoid these smells:
+
+- **Whole-blob property reads.** Never call `JSONExtractString`/`JSONExtractRaw`/`JSONExtractFloat`/`JSONHas` (or similar JSON functions) on the `properties` or `person.properties` blob, and never serialize the whole blob with `toString(properties)` to string-search it — both force a full JSON parse per row, up to ~100x slower than the materialized column. Use dot access (`properties.foo`, `person.properties.foo`); it compiles to the materialized column. Field-level casts like `toString(properties.foo)` are fine.
+- **Leading-wildcard `LIKE`/`ILIKE` on events.** A leading `%` (e.g. `properties.$current_url ILIKE '%/checkout'`) can't use an index and scans every row. Anchor the pattern where possible (`ILIKE 'https://app%'`), or use full-text `hasToken`/`hasTokenCaseInsensitive` for word matches.
+- **Redundant passes over events.** Don't join `events` to itself, filter with `IN (SELECT ... FROM events)` over the same time range, `UNION` multiple scans of the same range, or reference an events CTE more than once (CTEs are inlined, not materialized — referencing one twice executes it twice). Answer in a single pass with conditional aggregates (`countIf`, `sumIf`, `uniqIf`, `argMax`) or a window function.
+- **Unbounded high-cardinality `GROUP BY`.** Grouping a wide time window (roughly a month or more) under a broad filter by an expression whose distinct-value count grows with traffic — URLs/paths with embedded ids, session or trace ids, emails, free text — explodes memory. Naturally bounded dimensions (hostnames, event names, countries, app versions) are fine, and so is grouping when the `WHERE` already narrows to few rows.
+- **Pruning-defeating timestamp transforms.** Don't let the only time filter run through a value-mangling transform such as `formatDateTime(timestamp, ...) = '2026-06'` or `toString(timestamp) LIKE '2026%'` — it defeats index pruning. Direct comparisons and range functions prune fine: `>=`, `<`, `BETWEEN`, `toDate(timestamp) >= ...`, `toStartOfMonth`/`toStartOfWeek`/`toStartOfDay` comparisons, and `now() - INTERVAL` arithmetic.
 
 ##### Other constraints
 
