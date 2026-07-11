@@ -34,11 +34,17 @@ _ALIASES: dict[str, str] = {
 }
 
 
+def _normalize(name: str) -> str:
+    # CLDR spells names like "Côte d'Ivoire" with a typographic apostrophe (U+2019);
+    # providers send a straight one. Fold them so both forms resolve.
+    return name.strip().lower().replace("’", "'")
+
+
 @lru_cache(maxsize=1)
 def _name_to_code() -> dict[str, str]:
     # Lazy so importing this module stays off the django.setup() hot path.
     territories = Locale("en").territories
-    inverted = {name.lower(): code for code, name in territories.items() if len(code) == 2 and code.isalpha()}
+    inverted = {_normalize(name): code for code, name in territories.items() if len(code) == 2 and code.isalpha()}
     return {**inverted, **_ALIASES}
 
 
@@ -46,7 +52,7 @@ def country_name_to_iso_code(name: Optional[str]) -> Optional[str]:
     """Return the ISO alpha-2 code for a provider country name, or None when unmapped."""
     if not name or not isinstance(name, str):
         return None
-    normalized = name.strip().lower()
+    normalized = _normalize(name)
     mapping = _name_to_code()
     if len(normalized) == 2 and normalized.upper() in mapping.values():
         return normalized.upper()
