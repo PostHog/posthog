@@ -342,7 +342,7 @@ class TestBackpressureGuard:
             assert act._previous_load_still_pending() is expect_skip
 
         if expect_skip:
-            mock_metric.assert_called_once_with(1, str(act.source.id), expect_stuck)
+            mock_metric.assert_called_once_with(act.inputs.team_id, str(act.inputs.source_id), expect_stuck)
         else:
             mock_metric.assert_not_called()
 

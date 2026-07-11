@@ -855,6 +855,8 @@ class TestReconcileFailedRuns:
 
         mock_fail_run.assert_called_once()
         assert mock_fail_run.call_args.kwargs["run_uuid"] == ref.run_uuid
+        assert mock_fail_run.call_args.kwargs["team_id"] == ref.team_id
+        assert mock_fail_run.call_args.kwargs["schema_id"] == ref.schema_id
 
     @pytest.mark.asyncio
     async def test_skips_already_terminal_run(self):

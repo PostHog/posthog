@@ -338,7 +338,9 @@ class TestBatchQueueFailRun:
         await _insert_batch(conn, batch_index=2, run_uuid="run-x")
         await BatchQueue.update_status(conn, batch_id=bid1, job_state="succeeded", attempt=1)
 
-        count = await BatchQueue.fail_run(conn, run_uuid="run-x", reason="test failure")
+        count = await BatchQueue.fail_run(
+            conn, run_uuid="run-x", team_id=1, schema_id="schema-1", reason="test failure"
+        )
 
         assert count == 2
 
@@ -1010,7 +1012,7 @@ class TestStateDualWrite:
         done = await _insert_batch(conn, batch_index=1, run_uuid="run-dw")
         await BatchQueue.update_status(conn, batch_id=done, job_state="succeeded", attempt=1)
 
-        failed = await BatchQueue.fail_run(conn, run_uuid="run-dw", reason="boom")
+        failed = await BatchQueue.fail_run(conn, run_uuid="run-dw", team_id=1, schema_id="schema-1", reason="boom")
 
         assert failed == 1
         assert (await _batch_state(conn, pending))[0] == "failed"

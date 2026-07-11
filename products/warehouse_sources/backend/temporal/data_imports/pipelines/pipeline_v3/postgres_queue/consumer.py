@@ -144,7 +144,9 @@ class DeltaBatchConsumerAdapter:
         Each step is isolated so a failure can't crash the consumer.
         """
         try:
-            await BatchQueue.fail_run(conn, run_uuid=batch.run_uuid, reason=reason)
+            await BatchQueue.fail_run(
+                conn, run_uuid=batch.run_uuid, team_id=batch.team_id, schema_id=batch.schema_id, reason=reason
+            )
         except Exception as e:
             logger.exception("fail_run_queue_update_failed", batch_id=batch.id, run_uuid=batch.run_uuid)
             capture_exception(e)
@@ -246,6 +248,8 @@ class DeltaBatchConsumerAdapter:
                 stragglers = await BatchQueue.fail_run(
                     conn,
                     run_uuid=ref.run_uuid,
+                    team_id=ref.team_id,
+                    schema_id=ref.schema_id,
                     reason="enqueued into an already-failed run (reconcile sweep)",
                 )
             except Exception as e:
