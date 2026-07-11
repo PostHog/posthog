@@ -48,6 +48,12 @@ const mixedPrChecks = {
             url: 'https://github.com/PostHog/posthog/actions/runs/12001/jobs/4',
         },
         {
+            name: 'Dependency review',
+            status: 'completed',
+            conclusion: 'stale',
+            url: 'https://github.com/PostHog/posthog/actions/runs/12001/jobs/5',
+        },
+        {
             name: 'Codecov / project',
             status: 'completed',
             conclusion: 'neutral',

@@ -1657,6 +1657,35 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert [check["name"] for check in result["checks"]] == ["first page", "second page"]
 
+    @parameterized.expand([("check_runs",), ("statuses",)])
+    def test_get_pull_request_checks_fails_when_later_page_is_unavailable(self, failing_source):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            source = "check_runs" if "/check-runs" in url else "statuses"
+            if source == failing_source and "page=2" in url:
+                return None
+
+            response = MagicMock(status_code=200)
+            response.links = {}
+            response.json.return_value = {"check_runs": []} if source == "check_runs" else {"statuses": []}
+            if source == failing_source:
+                next_path = "check-runs" if source == "check_runs" else "status"
+                response.links = {
+                    "next": {"url": f"https://api.github.com/repos/PostHog/posthog/commits/abc123f/{next_path}?page=2"}
+                }
+            return response
+
+        with (
+            patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}),
+            patch.object(github, "_installation_authenticated_get", side_effect=fake_get),
+        ):
+            result = github.get_pull_request_checks("PostHog/posthog", 1)
+
+        expected_noun = "check run" if failing_source == "check_runs" else "commit status"
+        assert result == {"success": False, "error": f"GitHub could not return every {expected_noun}"}
+
     def test_get_pull_request_checks_fails_when_pr_unavailable(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)

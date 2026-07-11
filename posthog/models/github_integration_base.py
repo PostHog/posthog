@@ -535,14 +535,16 @@ class GitHubIntegrationBase:
         endpoint: str,
         params: dict[str, str | int] | None = None,
         timeout: int = 10,
-    ) -> list[requests.Response]:
-        """Follow GitHub's trusted ``next`` links so list endpoints are not silently truncated."""
+    ) -> tuple[list[requests.Response], bool]:
+        """Follow GitHub's trusted ``next`` links and report whether every page was fetched."""
         responses: list[requests.Response] = []
-        next_url: str | None = url
+        next_url = url
         next_params = params
         seen_urls: set[str] = set()
 
-        while next_url is not None and next_url not in seen_urls:
+        while True:
+            if next_url in seen_urls:
+                return responses, False
             seen_urls.add(next_url)
             response = self._installation_authenticated_get(
                 next_url,
@@ -551,25 +553,23 @@ class GitHubIntegrationBase:
                 timeout=timeout,
             )
             if response is None:
-                break
+                return responses, False
             responses.append(response)
             if response.status_code != 200:
-                break
+                return responses, False
 
             links = getattr(response, "links", None)
             next_link = links.get("next") if isinstance(links, dict) else None
+            if next_link is None:
+                return responses, True
             next_link_url = next_link.get("url") if isinstance(next_link, dict) else None
-            parsed_next_url = urlparse(next_link_url) if isinstance(next_link_url, str) else None
-            next_url = (
-                next_link_url
-                if parsed_next_url is not None
-                and parsed_next_url.scheme == "https"
-                and parsed_next_url.netloc == "api.github.com"
-                else None
-            )
+            if not isinstance(next_link_url, str):
+                return responses, False
+            parsed_next_url = urlparse(next_link_url)
+            if parsed_next_url.scheme != "https" or parsed_next_url.netloc != "api.github.com":
+                return responses, False
+            next_url = next_link_url
             next_params = None
-
-        return responses
 
     def _installation_authenticated_patch(
         self,
@@ -991,14 +991,14 @@ class GitHubIntegrationBase:
         checks: list[dict[str, Any]] = []
 
         # GitHub Actions (and any Checks-API app) — the primary source for a modern repo.
-        runs_responses = self._installation_authenticated_get_pages(
+        runs_responses, runs_complete = self._installation_authenticated_get_pages(
             f"https://api.github.com/repos/{repo_path}/commits/{head_sha}/check-runs",
             endpoint="/repos/{owner}/{repo}/commits/{ref}/check-runs",
             params={"per_page": 100},
         )
+        if not runs_complete:
+            return {"success": False, "error": "GitHub could not return every check run"}
         for runs_response in runs_responses:
-            if runs_response.status_code != 200:
-                continue
             try:
                 runs_body = runs_response.json()
             except Exception:
@@ -1016,14 +1016,14 @@ class GitHubIntegrationBase:
                 )
 
         # Legacy commit statuses (external CI posting via the Statuses API) — combined per context.
-        status_responses = self._installation_authenticated_get_pages(
+        status_responses, statuses_complete = self._installation_authenticated_get_pages(
             f"https://api.github.com/repos/{repo_path}/commits/{head_sha}/status",
             endpoint="/repos/{owner}/{repo}/commits/{ref}/status",
             params={"per_page": 100},
         )
+        if not statuses_complete:
+            return {"success": False, "error": "GitHub could not return every commit status"}
         for status_response in status_responses:
-            if status_response.status_code != 200:
-                continue
             try:
                 status_body = status_response.json()
             except Exception:
@@ -1084,7 +1084,7 @@ class GitHubIntegrationBase:
             (f"issues/{pr_number}/comments", "conversation", "/repos/{owner}/{repo}/issues/{issue_number}/comments"),
             (f"pulls/{pr_number}/comments", "review", "/repos/{owner}/{repo}/pulls/{pull_number}/comments"),
         ):
-            responses = self._installation_authenticated_get_pages(
+            responses, _complete = self._installation_authenticated_get_pages(
                 f"https://api.github.com/repos/{repo_path}/{path}",
                 endpoint=endpoint,
                 params={"per_page": 100},

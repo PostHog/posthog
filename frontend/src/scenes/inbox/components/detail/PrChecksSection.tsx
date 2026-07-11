@@ -1,6 +1,14 @@
 import { useValues } from 'kea'
 
-import { IconCheckCircle, IconExternal, IconMinus, IconSpinner, IconWarning, IconX } from '@posthog/icons'
+import {
+    IconCheckCircle,
+    IconClockRewind,
+    IconExternal,
+    IconMinus,
+    IconSpinner,
+    IconWarning,
+    IconX,
+} from '@posthog/icons'
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import type { PullRequestCheckApi } from 'products/signals/frontend/generated/api.schemas'
@@ -9,7 +17,7 @@ import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { DetailSection } from './DetailSection'
 
-type CheckVariant = 'failure' | 'cancelled' | 'pending' | 'success' | 'neutral'
+type CheckVariant = 'failure' | 'cancelled' | 'pending' | 'stale' | 'success' | 'neutral'
 
 /** Collapse a GitHub check's (status, conclusion) pair into one of the buckets we render. */
 function resolveCheckVariant(check: PullRequestCheckApi): CheckVariant {
@@ -26,8 +34,10 @@ function resolveCheckVariant(check: PullRequestCheckApi): CheckVariant {
             return 'failure'
         case 'cancelled':
             return 'cancelled'
+        case 'stale':
+            return 'stale'
         default:
-            // neutral / skipped / stale / null-on-completed
+            // neutral / skipped / null-on-completed
             return 'neutral'
     }
 }
@@ -54,6 +64,12 @@ const VARIANT_META: Record<
         iconClassName: 'text-warning',
         summaryClassName: 'text-warning',
     },
+    stale: {
+        icon: <IconClockRewind />,
+        label: 'Stale',
+        iconClassName: 'text-muted',
+        summaryClassName: 'text-secondary',
+    },
     success: {
         icon: <IconCheckCircle />,
         label: 'Successful',
@@ -69,7 +85,7 @@ const VARIANT_META: Record<
 }
 
 // Failed first, then in-flight, then the rest — the buckets worth a human's attention lead.
-const VARIANT_ORDER: CheckVariant[] = ['failure', 'pending', 'cancelled', 'success', 'neutral']
+const VARIANT_ORDER: CheckVariant[] = ['failure', 'pending', 'cancelled', 'stale', 'success', 'neutral']
 
 function CheckSummary({ variant, count }: { variant: CheckVariant; count: number }): JSX.Element | null {
     if (count === 0) {
@@ -115,9 +131,10 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
             result[variant] += 1
             return result
         },
-        { failure: 0, cancelled: 0, pending: 0, success: 0, neutral: 0 }
+        { failure: 0, cancelled: 0, pending: 0, stale: 0, success: 0, neutral: 0 }
     )
-    const hasChecksNeedingAttention = counts.failure > 0 || counts.cancelled > 0 || counts.pending > 0
+    const hasChecksNeedingAttention =
+        counts.failure > 0 || counts.cancelled > 0 || counts.pending > 0 || counts.stale > 0
 
     return (
         <DetailSection
