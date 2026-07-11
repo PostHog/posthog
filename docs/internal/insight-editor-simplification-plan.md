@@ -17,6 +17,10 @@ A live, auto-refreshing version of this analysis is available internally as the
 (PostHog staff only), covering insight types analyzed/clicked/saved, chart display types,
 trends feature adoption, funnel modes, editor sections, math options, Options-menu toggles,
 and rarely used advanced controls, each on a rolling 30-day window.
+It also includes one "all editor options by usage" tile per insight type
+(Trends, Funnels, Retention, Paths, Stickiness, Lifecycle), each ranking every option of
+that type - query config usage plus clicks on every control - in a single table, with
+untracked controls called out in the tile description.
 
 ## Usage tiers
 
