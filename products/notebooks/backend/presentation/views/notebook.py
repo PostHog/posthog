@@ -32,7 +32,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.sharing_publish_gate import is_publicly_shared, tables_blocked_in_notebook_edit
+from posthog.api.sharing_publish_gate import blocked_access_in_notebook_edit, is_publicly_shared
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
@@ -286,7 +286,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     # checked, and only when a share exists - normal autosave on unshared
                     # notebooks does no access work at all.
                     if is_publicly_shared(locked_instance):
-                        blocked = tables_blocked_in_notebook_edit(
+                        blocked = blocked_access_in_notebook_edit(
                             self.context["request"].user, locked_instance, validated_data.get("content")
                         )
                         if blocked:
@@ -1150,7 +1150,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # without it the collab path would bypass the shared-notebook access block entirely.
         # Must run before submit_steps: once steps are accepted, peers have already applied them.
         if is_publicly_shared(notebook):
-            blocked = tables_blocked_in_notebook_edit(user, notebook, request.data.get("content"))
+            blocked = blocked_access_in_notebook_edit(user, notebook, request.data.get("content"))
             if blocked:
                 blocked_list = ", ".join(f"`{name}`" for name in blocked)
                 raise serializers.ValidationError(

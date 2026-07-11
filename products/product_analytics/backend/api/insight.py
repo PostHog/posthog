@@ -50,7 +50,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.sharing_publish_gate import is_publicly_shared, tables_blocked_for_user
+from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
@@ -723,7 +723,7 @@ class InsightSerializer(InsightBasicSerializer):
         # Unshared insights save without any access query.
         new_query = validated_data.get("query")
         if isinstance(new_query, dict) and new_query != instance.query and is_publicly_shared(instance):
-            blocked = tables_blocked_for_user(self.context["request"].user, instance.team, [new_query])
+            blocked = blocked_access_for_user(self.context["request"].user, instance.team, [new_query])
             if blocked:
                 blocked_list = ", ".join(f"`{name}`" for name in blocked)
                 raise serializers.ValidationError(
@@ -838,7 +838,7 @@ class InsightSerializer(InsightBasicSerializer):
             # The dashboard's public link would expose this insight's query, so the editor adding
             # it must be able to run it (see the publish gate for the enable-time counterpart).
             if isinstance(instance.query, dict) and is_publicly_shared(dashboard):
-                blocked = tables_blocked_for_user(self.context["request"].user, instance.team, [instance.query])
+                blocked = blocked_access_for_user(self.context["request"].user, instance.team, [instance.query])
                 if blocked:
                     blocked_list = ", ".join(f"`{name}`" for name in blocked)
                     raise serializers.ValidationError(

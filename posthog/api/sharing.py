@@ -28,7 +28,7 @@ from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerialize
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
-from posthog.api.sharing_publish_gate import tables_blocked_for_publisher
+from posthog.api.sharing_publish_gate import blocked_access_for_publisher
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
@@ -488,11 +488,11 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         # Publishing is the access decision for shared links (queries on the public page execute
         # without warehouse access control), so gate the enable transition: the publisher must have
-        # access to every table the artifact queries, or sharing becomes an escalation channel.
+        # access to everything the artifact queries, or sharing becomes an escalation channel.
         if request.data.get("enabled") and not instance.enabled:
-            blocked_tables = tables_blocked_for_publisher(cast(User, request.user), self.team, instance)
-            if blocked_tables:
-                blocked = ", ".join(f"`{name}`" for name in blocked_tables)
+            blocked_names = blocked_access_for_publisher(cast(User, request.user), self.team, instance)
+            if blocked_names:
+                blocked = ", ".join(f"`{name}`" for name in blocked_names)
                 raise ValidationError(
                     f"Can't enable sharing: you don't have access to {blocked}, "
                     "which the shared queries use. Ask an admin for access, or remove those queries first."
