@@ -7,7 +7,7 @@ from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvi
 def _fake_harmonic_client(company):
     """Build a mock standing in for `async with AsyncHarmonicClient() as client`."""
     client = MagicMock()
-    client.enrich_company_by_domain = AsyncMock(return_value=company)
+    client.enrich_company_by_domain_strict = AsyncMock(return_value=company)
     cm = MagicMock()
     cm.__aenter__ = AsyncMock(return_value=client)
     cm.__aexit__ = AsyncMock(return_value=False)
@@ -23,7 +23,7 @@ async def test_enrich_by_domain_transforms_response():
     assert fields is not None
     assert fields.company_type == "STARTUP"
     assert fields.funding_stage == "SEED"
-    client.enrich_company_by_domain.assert_awaited_once_with("posthog.com")
+    client.enrich_company_by_domain_strict.assert_awaited_once_with("posthog.com")
 
 
 @pytest.mark.asyncio

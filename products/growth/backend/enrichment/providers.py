@@ -19,11 +19,15 @@ class EnrichmentProvider(abc.ABC):
 
     @abc.abstractmethod
     async def enrich_by_domain(self, domain: str) -> Optional[EnrichmentFields]:
-        """Return enrichment for a domain, or None when the company is not found."""
+        """Return enrichment for a domain, or None when the company is not found.
+
+        Raises on operational failure (network, provider outage) so the caller can retry
+        and alert, rather than conflating an outage with a genuine not-found.
+        """
 
 
 class HarmonicEnrichmentProvider(EnrichmentProvider):
     async def enrich_by_domain(self, domain: str) -> Optional[EnrichmentFields]:
         async with AsyncHarmonicClient() as client:
-            company = await client.enrich_company_by_domain(domain)
+            company = await client.enrich_company_by_domain_strict(domain)
         return transform_harmonic_company(company)
