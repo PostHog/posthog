@@ -1461,7 +1461,7 @@
         }
     },
     "cdp-function-templates-retrieve": {
-        "description": "Get a specific function template by its template ID (e.g. 'template-slack', 'template-geoip'). Returns the full template including source code, inputs schema, default filters, and mapping templates. Use this to understand what inputs a template requires before creating a function from it.",
+        "description": "Get a specific function template by its id (e.g. 'template-slack', 'template-geoip'). Pass the 'id' field returned by cdp-function-templates-list — if you only know a template by name (e.g. 'Slack', 'Webhook'), call cdp-function-templates-list first to find its id. Returns the full template including source code, inputs schema, default filters, and mapping templates. Use this to understand what inputs a template requires before creating a function from it.",
         "category": "Function templates",
         "feature": "hog_function_templates",
         "summary": "Get function template",

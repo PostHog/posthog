@@ -4,7 +4,7 @@ from django.db.models import Count, QuerySet
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, permissions, serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
@@ -86,6 +86,18 @@ class HogFunctionTemplateSerializer(serializers.ModelSerializer):
 
 # NOTE: There is nothing currently private about these values
 @extend_schema(tags=["hog_function_templates"], extensions={"x-product": "cdp"})
+@extend_schema_view(
+    retrieve=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "id",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="The template's id, e.g. 'template-slack' or 'template-geoip'. This is the 'id' field returned by the list endpoint.",
+            ),
+        ]
+    )
+)
 class PublicHogFunctionTemplateViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -95,6 +107,10 @@ class PublicHogFunctionTemplateViewSet(
     serializer_class = HogFunctionTemplateSerializer
     queryset = HogFunctionTemplate.objects.all()
     lookup_field = "template_id"
+    # Look templates up by their template_id, but expose the path parameter as `id` so it matches the
+    # `id` field the serializer returns (and every other retrieve endpoint). Agents kept calling this
+    # with `id` and hitting validation errors because the generated param was named `template_id`.
+    lookup_url_kwarg = "id"
     # Plain GenericViewSet doesn't inherit TeamAndOrgViewSetMixin's authenticators, so the global
     # default (SessionAuthentication only) applies. Declare the API-token authenticators explicitly
     # so personal API key / OAuth callers (the MCP server, public API) can reach the authenticated

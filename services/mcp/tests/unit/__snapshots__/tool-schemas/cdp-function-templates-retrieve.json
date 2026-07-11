@@ -1,10 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "template_id": {
+        "id": {
+            "description": "The template's id, e.g. 'template-slack' or 'template-geoip'. This is the 'id' field returned by the list endpoint.",
             "type": "string"
         }
     },
-    "required": ["template_id"],
+    "required": ["id"],
     "type": "object"
 }

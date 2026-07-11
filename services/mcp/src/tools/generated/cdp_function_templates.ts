@@ -62,7 +62,7 @@ const cdpFunctionTemplatesRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunctionTemplate>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_function_templates/${encodeURIComponent(String(params.template_id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_function_templates/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
