@@ -2152,6 +2152,39 @@ class TestSaveTimeAccessBlock(APIBaseTest):
         notebook.refresh_from_db()
         assert notebook.content == {"type": "doc", "content": []}
 
+    def test_notebook_markdown_save_blocked_for_denied_query(self):
+        # The markdown editor autosaves through collab/markdown_save, a third write path that also
+        # persists content directly - without the guard here, markdown notebooks bypass the gate.
+        self._deny_editor()
+        notebook = self._shared_notebook({"type": "doc", "content": []})
+        denied_query = {
+            "kind": "DataTableNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+        }
+        new_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-markdown-notebook",
+                    "attrs": {
+                        "nodeId": "markdown-notebook-v2",
+                        "markdown": '<Query nodeId="q1" query={' + json.dumps(denied_query) + "} />",
+                    },
+                }
+            ],
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/collab/markdown_save/",
+            data={"client_id": "c1", "version": notebook.version, "content": new_content, "text_content": ""},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "publicly shared" in str(response.json())
+        notebook.refresh_from_db()
+        assert notebook.content == {"type": "doc", "content": []}
+
     def test_notebook_embedding_denied_insight_blocked(self):
         self._deny_editor()
         self.insight.query = self._DENIED_QUERY

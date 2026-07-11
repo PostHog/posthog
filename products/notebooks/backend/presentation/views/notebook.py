@@ -1244,6 +1244,16 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = cast(User, request.user)
         submitted_content = data["content"]
 
+        # Same guard as NotebookSerializer.update and collab_save - markdown saves also write
+        # content directly, so without it this path would bypass the shared-notebook access block.
+        if is_publicly_shared(notebook):
+            blocked = blocked_access_in_notebook_edit(user, notebook, submitted_content)
+            if blocked:
+                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                raise serializers.ValidationError(
+                    f"Can't save: you don't have access to {blocked_list}, and this notebook is publicly shared."
+                )
+
         notebook_before: Notebook | None = None
         with transaction.atomic():
             # The row lock serializes the Postgres version check with the Redis stream append, so
