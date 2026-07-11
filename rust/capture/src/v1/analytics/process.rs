@@ -297,11 +297,13 @@ fn emit_batch_abort_warning(
     let Some(warning) = WarningType::from_tag(err.tag()) else {
         return;
     };
+    // `empty_batch` aborts have batch_len == 0; the rejected request is still
+    // one occurrence, so never charge a count of zero.
     emitter.emit(
         &context.api_token,
         warning,
         warning_context_details(context),
-        batch_len as u64,
+        batch_len.max(1) as u64,
     );
 }
 
@@ -3422,6 +3424,24 @@ mod tests {
         assert!(
             !emitted[0].extra_details.contains_key("distinctId"),
             "no per-event identifiers exist for a whole-batch abort"
+        );
+    }
+
+    #[tokio::test]
+    async fn warnings_empty_batch_abort_charges_count_one_not_zero() {
+        let (state, collector) = state_with_warning_collector();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(vec![]);
+
+        let err = process_batch(&state, &mut ctx, batch).await.unwrap_err();
+        assert!(matches!(err, Error::EmptyBatch));
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::EmptyBatch);
+        assert_eq!(
+            emitted[0].count, 1,
+            "an empty-batch abort is one occurrence, never zero"
         );
     }
 

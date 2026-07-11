@@ -10,7 +10,7 @@
 use std::time::Duration;
 
 use rdkafka::error::KafkaError;
-use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
+use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use rdkafka::ClientConfig;
 
 /// Connection and tuning knobs for the warnings producer. Callers map these
@@ -77,13 +77,14 @@ impl WarningProducer {
         })
     }
 
-    /// Enqueue a message and return immediately, dropping the delivery future.
-    /// `Err` means the message never entered the queue (e.g. `QueueFull`);
-    /// delivery failures after enqueue are invisible by design.
-    pub fn send(&self, key: &str, payload: &[u8]) -> Result<(), KafkaError> {
+    /// Enqueue a message and return immediately with the delivery future.
+    /// `Err` means the message never entered the queue (e.g. `QueueFull`).
+    /// Callers may await the returned future off the hot path to observe
+    /// delivery outcomes, or drop it — enqueue is complete either way.
+    pub fn send(&self, key: &str, payload: &[u8]) -> Result<DeliveryFuture, KafkaError> {
         let record = FutureRecord::to(&self.topic).key(key).payload(payload);
         match self.producer.send_result(record) {
-            Ok(_delivery_future) => Ok(()),
+            Ok(delivery_future) => Ok(delivery_future),
             Err((err, _record)) => Err(err),
         }
     }
@@ -117,7 +118,7 @@ mod tests {
     fn send_is_non_blocking_with_unreachable_broker() {
         let producer = WarningProducer::new(&unreachable_config(10)).unwrap();
         let start = std::time::Instant::now();
-        producer.send("tok", b"{}").expect("enqueue must succeed");
+        drop(producer.send("tok", b"{}").expect("enqueue must succeed"));
         assert!(
             start.elapsed() < Duration::from_millis(500),
             "send must never block on broker availability"

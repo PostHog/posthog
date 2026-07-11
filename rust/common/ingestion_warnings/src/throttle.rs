@@ -14,11 +14,33 @@ use governor::{clock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
 /// Default refill period: one permit per (token, type) per hour.
 pub const DEFAULT_THROTTLE_PERIOD: Duration = Duration::from_secs(3600);
 
+/// Default bound on tracked `(token, type)` keys. Capture cannot verify
+/// tokens, so a flood of spoofed tokens would otherwise grow the key map
+/// without limit until the hourly sweep; legit steady-state cardinality
+/// (tokens with drops in the last hour × types) sits orders of magnitude
+/// below this, so hitting the cap means abuse, and the cheap fail-open
+/// response is to stop emitting until the sweep evicts refilled keys.
+pub const DEFAULT_MAX_TRACKED_KEYS: usize = 100_000;
+
 type Key = (String, crate::registry::WarningType);
+
+/// Outcome of a throttle check; names align with the emission metric's
+/// `outcome` label values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThrottleDecision {
+    /// Budget available — emit the warning.
+    Emit,
+    /// This `(token, type)` already emitted within the period — drop.
+    Throttled,
+    /// The key map is at capacity (token-flood guard) — drop without
+    /// consulting or growing the limiter.
+    CardinalityCapped,
+}
 
 /// Keyed governor rate limiter over `(token, WarningType)`.
 pub struct WarningThrottle {
     limiter: RateLimiter<Key, DefaultKeyedStateStore<Key>, clock::DefaultClock>,
+    max_tracked_keys: usize,
 }
 
 impl WarningThrottle {
@@ -31,15 +53,29 @@ impl WarningThrottle {
             .allow_burst(burst);
         Self {
             limiter: RateLimiter::dashmap(quota),
+            max_tracked_keys: DEFAULT_MAX_TRACKED_KEYS,
         }
     }
 
-    /// Returns `true` when this `(token, type)` still has budget; consuming a
-    /// permit. `false` means the caller should drop the warning.
-    pub fn check(&self, token: &str, warning: crate::registry::WarningType) -> bool {
-        self.limiter
-            .check_key(&(token.to_string(), warning))
-            .is_ok()
+    /// Override the tracked-key cap (tests use small values).
+    pub fn with_max_tracked_keys(mut self, max_tracked_keys: usize) -> Self {
+        self.max_tracked_keys = max_tracked_keys;
+        self
+    }
+
+    /// Consume a permit for this `(token, type)` if the key map has room and
+    /// the key has budget. Anything but [`ThrottleDecision::Emit`] means the
+    /// caller should drop the warning.
+    pub fn check(&self, token: &str, warning: crate::registry::WarningType) -> ThrottleDecision {
+        // Governor's keyed limiter inserts on lookup, so the cap must gate
+        // every check — including keys already tracked — to stay O(1).
+        if self.limiter.len() >= self.max_tracked_keys {
+            return ThrottleDecision::CardinalityCapped;
+        }
+        match self.limiter.check_key(&(token.to_string(), warning)) {
+            Ok(()) => ThrottleDecision::Emit,
+            Err(_) => ThrottleDecision::Throttled,
+        }
     }
 
     /// Drop per-key state that has fully refilled, bounding memory. Call
@@ -71,25 +107,42 @@ mod tests {
     fn burst_one_allows_first_and_blocks_repeat_per_key() {
         let throttle = WarningThrottle::default();
 
-        assert!(throttle.check("tok_a", WarningType::MissingEventName));
-        assert!(
-            !throttle.check("tok_a", WarningType::MissingEventName),
+        assert_eq!(
+            throttle.check("tok_a", WarningType::MissingEventName),
+            ThrottleDecision::Emit
+        );
+        assert_eq!(
+            throttle.check("tok_a", WarningType::MissingEventName),
+            ThrottleDecision::Throttled,
             "same (token, type) within the period must be throttled"
         );
 
         // Different type and different token are independent buckets.
-        assert!(throttle.check("tok_a", WarningType::EmptyBatch));
-        assert!(throttle.check("tok_b", WarningType::MissingEventName));
+        assert_eq!(
+            throttle.check("tok_a", WarningType::EmptyBatch),
+            ThrottleDecision::Emit
+        );
+        assert_eq!(
+            throttle.check("tok_b", WarningType::MissingEventName),
+            ThrottleDecision::Emit
+        );
     }
 
     #[test]
     fn permits_refill_after_the_period() {
         let throttle = WarningThrottle::new(Duration::from_millis(50), NonZeroU32::MIN);
-        assert!(throttle.check("tok", WarningType::InvalidBatch));
-        assert!(!throttle.check("tok", WarningType::InvalidBatch));
-        std::thread::sleep(Duration::from_millis(80));
-        assert!(
+        assert_eq!(
             throttle.check("tok", WarningType::InvalidBatch),
+            ThrottleDecision::Emit
+        );
+        assert_eq!(
+            throttle.check("tok", WarningType::InvalidBatch),
+            ThrottleDecision::Throttled
+        );
+        std::thread::sleep(Duration::from_millis(80));
+        assert_eq!(
+            throttle.check("tok", WarningType::InvalidBatch),
+            ThrottleDecision::Emit,
             "permit must refill after the period elapses"
         );
     }
@@ -97,7 +150,10 @@ mod tests {
     #[test]
     fn sweep_evicts_refilled_keys() {
         let throttle = WarningThrottle::new(Duration::from_millis(10), NonZeroU32::MIN);
-        assert!(throttle.check("tok", WarningType::MissingDistinctId));
+        assert_eq!(
+            throttle.check("tok", WarningType::MissingDistinctId),
+            ThrottleDecision::Emit
+        );
         assert_eq!(throttle.tracked_keys(), 1);
         std::thread::sleep(Duration::from_millis(30));
         throttle.sweep();
@@ -105,6 +161,37 @@ mod tests {
             throttle.tracked_keys(),
             0,
             "fully refilled keys are evicted"
+        );
+    }
+
+    #[test]
+    fn cardinality_cap_stops_emission_until_sweep_frees_keys() {
+        let throttle = WarningThrottle::new(Duration::from_millis(10), NonZeroU32::MIN)
+            .with_max_tracked_keys(2);
+        assert_eq!(
+            throttle.check("tok_a", WarningType::MissingEventName),
+            ThrottleDecision::Emit
+        );
+        assert_eq!(
+            throttle.check("tok_b", WarningType::MissingEventName),
+            ThrottleDecision::Emit
+        );
+        // Map is at capacity: new AND existing keys are capped (fail open).
+        assert_eq!(
+            throttle.check("tok_c", WarningType::MissingEventName),
+            ThrottleDecision::CardinalityCapped
+        );
+        assert_eq!(
+            throttle.check("tok_a", WarningType::EmptyBatch),
+            ThrottleDecision::CardinalityCapped
+        );
+
+        std::thread::sleep(Duration::from_millis(30));
+        throttle.sweep();
+        assert_eq!(
+            throttle.check("tok_c", WarningType::MissingEventName),
+            ThrottleDecision::Emit,
+            "sweep must free capacity for new keys"
         );
     }
 }

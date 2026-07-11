@@ -21,7 +21,7 @@ pub mod throttle;
 use std::time::Duration;
 
 use chrono::Utc;
-use metrics::counter;
+use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
 use rdkafka::types::RDKafkaErrorCode;
 use serde_json::{Map, Value};
@@ -29,11 +29,19 @@ use tracing::warn;
 
 pub use producer::{WarningProducer, WarningProducerConfig};
 pub use registry::WarningType;
-pub use throttle::WarningThrottle;
+pub use throttle::{ThrottleDecision, WarningThrottle};
 
-/// Counter of emission attempts: labels `type` (warning type) and `outcome`
-/// (`emitted | throttled | queue_full | serialize_error | enqueue_error`).
+/// Counter of emission attempts: labels `type` (warning type) and `outcome`.
+/// Enqueue-time outcomes: `emitted | throttled | cardinality_capped |
+/// queue_full | serialize_error | enqueue_error`. Delivery-time outcomes
+/// (reported asynchronously for each `emitted` message): `delivered |
+/// delivery_failed`.
 pub const CAPTURE_INGESTION_WARNINGS_TOTAL: &str = "capture_ingestion_warnings_total";
+
+/// Gauge of `(token, type)` keys currently tracked by the throttle, updated
+/// on each sweep. The early-warning signal for the cardinality cap.
+pub const CAPTURE_INGESTION_WARNINGS_THROTTLE_KEYS: &str =
+    "capture_ingestion_warnings_throttle_keys";
 
 /// Sink-agnostic emitter seam. The Kafka implementation is
 /// [`KafkaWarningEmitter`]; tests use
@@ -72,10 +80,11 @@ impl KafkaWarningEmitter {
         })
     }
 
-    /// Evict fully-refilled throttle keys to bound memory. Call periodically
-    /// from a maintenance task.
+    /// Evict fully-refilled throttle keys to bound memory and publish the
+    /// tracked-key gauge. Call periodically from a maintenance task.
     pub fn sweep_throttle(&self) {
         self.throttle.sweep();
+        gauge!(CAPTURE_INGESTION_WARNINGS_THROTTLE_KEYS).set(self.throttle.tracked_keys() as f64);
     }
 }
 
@@ -87,14 +96,26 @@ impl WarningEmitter for KafkaWarningEmitter {
         extra_details: Map<String, Value>,
         count: u64,
     ) {
-        if !self.throttle.check(token, warning) {
-            counter!(
-                CAPTURE_INGESTION_WARNINGS_TOTAL,
-                "type" => warning.as_str(),
-                "outcome" => "throttled",
-            )
-            .increment(1);
-            return;
+        match self.throttle.check(token, warning) {
+            ThrottleDecision::Emit => {}
+            ThrottleDecision::Throttled => {
+                counter!(
+                    CAPTURE_INGESTION_WARNINGS_TOTAL,
+                    "type" => warning.as_str(),
+                    "outcome" => "throttled",
+                )
+                .increment(1);
+                return;
+            }
+            ThrottleDecision::CardinalityCapped => {
+                counter!(
+                    CAPTURE_INGESTION_WARNINGS_TOTAL,
+                    "type" => warning.as_str(),
+                    "outcome" => "cardinality_capped",
+                )
+                .increment(1);
+                return;
+            }
         }
 
         let payload =
@@ -116,13 +137,14 @@ impl WarningEmitter for KafkaWarningEmitter {
         // Key by token so a team's warnings stay partition-local, matching
         // the Node.js producer's keying by team.
         match self.producer.send(token, &payload) {
-            Ok(()) => {
+            Ok(delivery_future) => {
                 counter!(
                     CAPTURE_INGESTION_WARNINGS_TOTAL,
                     "type" => warning.as_str(),
                     "outcome" => "emitted",
                 )
                 .increment(1);
+                spawn_delivery_observer(warning, delivery_future);
             }
             Err(KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull)) => {
                 counter!(
@@ -150,6 +172,40 @@ impl WarningEmitter for KafkaWarningEmitter {
     }
 }
 
+/// Observe a message's delivery report off the hot path. `emitted` only
+/// proves the message entered the local queue; without this, a broken topic
+/// or broker at rollout looks healthy while nothing lands. Post-throttle
+/// volume is tiny (≤ affected tokens × types per pod per hour), so one
+/// detached task per message is cheap. Outside a tokio runtime (sync tests,
+/// exotic embedders) the future is dropped and delivery stays unobserved —
+/// never an error.
+fn spawn_delivery_observer(
+    warning: WarningType,
+    delivery_future: rdkafka::producer::DeliveryFuture,
+) {
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    handle.spawn(async move {
+        let outcome = match delivery_future.await {
+            Ok(Ok(_partition_offset)) => "delivered",
+            Ok(Err((err, _msg))) => {
+                warn!(warning_type = warning.as_str(), error = %err,
+                    "ingestion warning delivery failed");
+                "delivery_failed"
+            }
+            // Producer dropped before the report arrived (shutdown).
+            Err(_canceled) => "delivery_failed",
+        };
+        counter!(
+            CAPTURE_INGESTION_WARNINGS_TOTAL,
+            "type" => warning.as_str(),
+            "outcome" => outcome,
+        )
+        .increment(1);
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,6 +227,26 @@ mod tests {
         assert!(
             start.elapsed() < std::time::Duration::from_millis(500),
             "emit must be fire-and-forget"
+        );
+    }
+
+    #[tokio::test]
+    async fn emit_inside_a_runtime_spawns_delivery_observer_without_blocking() {
+        // Same unreachable broker, but inside a tokio runtime so the delivery
+        // observer task actually spawns; emit must still return immediately.
+        let emitter = KafkaWarningEmitter::new(&WarningProducerConfig {
+            kafka_hosts: "192.0.2.1:9092".to_string(),
+            message_timeout_ms: 500,
+            linger_ms: 5,
+            ..WarningProducerConfig::default()
+        })
+        .unwrap();
+
+        let start = std::time::Instant::now();
+        emitter.emit("tok", WarningType::MissingEventName, Map::new(), 1);
+        assert!(
+            start.elapsed() < std::time::Duration::from_millis(500),
+            "emit must not await the delivery report"
         );
     }
 }
