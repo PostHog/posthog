@@ -30,13 +30,13 @@ class TestInternalAgentTaskAPI(APIBaseTest):
 
     def test_rejects_missing_secret(self):
         response = self.client.post(self.url, self._create_body(), content_type="application/json")
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     def test_rejects_wrong_secret(self):
         response = self.client.post(
             self.url, self._create_body(), content_type="application/json", **{SECRET_HEADER: "nope"}
         )
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     @patch("products.workflows.backend.api.internal_agent_task._agent_task_step_enabled", return_value=False)
     def test_returns_403_when_flag_disabled(self, _mock_flag):
