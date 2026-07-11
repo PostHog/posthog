@@ -316,7 +316,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             release_id=upload_data.get("release_id", None),
             force=force,
             skip_on_conflict=skip_on_conflict,
-            distinct_id=str(request.user.pk) if request.user.pk else None,
         )
         return Response({"id_map": id_map}, status=status.HTTP_201_CREATED)
 
