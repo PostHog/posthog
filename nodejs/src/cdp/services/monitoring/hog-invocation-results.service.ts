@@ -82,27 +82,31 @@ const isHogFunctionInvocation = (invocation: CyclotronJobInvocation): invocation
 const isHogFlowInvocation = (invocation: CyclotronJobInvocation): invocation is CyclotronJobInvocationHogFlow =>
     'hogFlow' in invocation
 
-// Sub-ms-precision epoch timestamp that stays monotonic within a process, so
-// consecutive lifecycle rows for the same invocation get strictly increasing
-// `version` values. Without monotonicity the 'running' + terminal rows of a
-// fast invocation can share (or invert) a `version`, and ReplacingMergeTree
-// keeps one arbitrarily — potentially leaving the runs UI showing a
-// permanently 'running' status.
+// Monotonic microsecond timestamp used as the row `version`. ReplacingMergeTree keeps the
+// row with the max `version` per key; without a monotonic version the 'running' + terminal
+// rows of a fast invocation can share or invert a version, and CH keeps one arbitrarily —
+// leaving the runs UI stuck on 'running' (and, via the rerun paginator's
+// `argMax(status, version)` in-flight check, that invocation un-rerunnable).
 //
-// Both the millisecond and sub-ms parts come from the SAME monotonic source:
-// `performance.timeOrigin` (wall-clock ms at process start) plus
-// `performance.now()` (monotonic ms since then). Deriving the ms part from
-// `Date.now()` instead would not be monotonic — the wall clock can step
-// backward (NTP), and its ms boundary is uncorrelated with `performance.now()`'s
-// sub-ms fraction, so the two clocks could disagree and invert the version. The
-// only remaining tie window is two rows sampled at the exact same
-// `performance.now()`, which is below the precision the clock delivers.
+// The rows being compared are produced across DIFFERENT processes — the 'running' row by
+// the events consumer, the terminal row by a cyclotron worker — so the base must be a
+// clock that stays synchronised across processes. `Date.now()` is continuously
+// NTP-disciplined, so cross-process skew stays well under the queue latency between the
+// two rows. (`performance.timeOrigin + performance.now()` is monotonic within a process
+// but freezes each process's wall-clock offset at start and never re-syncs, so an
+// NTP step or VM pause would invert versions across pods — worse for the comparison that
+// matters.)
+//
+// A wall clock alone can still tie, or briefly step backward under NTP, for two rows
+// produced close together in the SAME process (e.g. the flaky monotonicity test). Clamp to
+// strictly exceed the last value this process issued: that adds strict in-process
+// monotonicity on top of the NTP-anchored cross-process ordering.
+let lastVersionMicros = 0n
 const microsecondsSinceEpoch = (): string => {
-    const epochMs = performance.timeOrigin + performance.now()
     // BigInt avoids the 53-bit cap so the number lines up with ClickHouse UInt64.
-    const ms = BigInt(Math.floor(epochMs))
-    const subMs = BigInt(Math.floor((epochMs % 1) * 1000))
-    return (ms * 1000n + subMs).toString()
+    const wallMicros = BigInt(Date.now()) * 1000n
+    lastVersionMicros = wallMicros > lastVersionMicros ? wallMicros : lastVersionMicros + 1n
+    return lastVersionMicros.toString()
 }
 
 const isoMicroseconds = (date: Date): string => {

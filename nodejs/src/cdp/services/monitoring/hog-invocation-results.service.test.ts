@@ -271,16 +271,22 @@ describe('HogInvocationResultsService', () => {
 
     describe('version monotonicity', () => {
         it('produces strictly increasing version values across successive rows for the same invocation', async () => {
+            // Queued back-to-back with no delay: both rows land in the same wall-clock
+            // millisecond, so this only passes if version is clamped to strictly exceed the
+            // last value issued — the property that keeps ReplacingMergeTree from dropping the
+            // terminal row. No sleep, so it can't flake on wall-clock jitter.
             const invocation = createExampleInvocation()
             service.queueLifecycleRow(invocation, 'running')
-            // Tick by 1 ms — version is now64(6) in microseconds.
-            await new Promise((r) => setTimeout(r, 2))
             service.queueLifecycleRow(invocation, 'succeeded')
             await service.flush()
 
+            // flush() produces rows concurrently (Promise.all), so their produce order is not
+            // the queue order — match by status rather than array index.
             const rows = parseProducedRows(outputs)
             expect(rows).toHaveLength(2)
-            expect(BigInt(rows[1].version)).toBeGreaterThan(BigInt(rows[0].version))
+            const running = rows.find((r) => r.status === 'running')!
+            const succeeded = rows.find((r) => r.status === 'succeeded')!
+            expect(BigInt(succeeded.version)).toBeGreaterThan(BigInt(running.version))
         })
     })
 
