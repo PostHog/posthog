@@ -11,6 +11,7 @@ import {
 } from '@posthog/icons'
 import {
     LemonButton,
+    LemonInput,
     LemonModal,
     LemonSegmentedButton,
     LemonTable,
@@ -36,12 +37,15 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ObservationResultSummary } from '../../components/ObservationCard'
 import type { ReplayObservationApi, ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
+import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
+import { formatCredits } from '../../utils/credits'
 import { fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
 import { readConfidence } from '../../utils/observation'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { LABEL_CHART_DAYS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from '../scannerQualityLogic'
+import { OBSERVATION_CREDITS_BY_MODEL } from '../types'
 import { versionTag } from './ScannerObservationsTable'
 
 const RATED_FILTER_OPTIONS: { value: RatedFilterValue; label: string }[] = [
@@ -209,21 +213,136 @@ function SuggestionMeta({ suggestion }: { suggestion: ReplayScannerPromptSuggest
     )
 }
 
+const EVALUATION_OUTCOME_TAGS: Record<string, { type: LemonTagType; label: string }> = {
+    kept: { type: 'success', label: 'Kept' },
+    fixed: { type: 'success', label: 'Fixed' },
+    regressed: { type: 'danger', label: 'Regressed' },
+    still_wrong: { type: 'danger', label: 'Still wrong' },
+    error: { type: 'muted', label: 'Error' },
+}
+
+/** Test-before-apply results: the suggested prompt re-run against rated sessions. */
+function SuggestionEvaluationPanel({
+    suggestion,
+}: {
+    suggestion: ReplayScannerPromptSuggestionApi
+}): JSX.Element | null {
+    const [detailsOpen, setDetailsOpen] = useState(false)
+    const evaluation = suggestion.evaluation
+    if (!evaluation) {
+        return null
+    }
+
+    if (evaluation.status === 'running') {
+        return (
+            <div className="border rounded p-3 flex items-center gap-2 text-sm text-muted">
+                <Spinner />
+                Testing against rated sessions… {evaluation.results.length} of {evaluation.total || '?'} done
+            </div>
+        )
+    }
+
+    if (evaluation.status === 'failed' && !evaluation.results.length) {
+        return (
+            <div className="border rounded p-3 text-sm text-muted">
+                The test didn't finish. Run it again to check this prompt against your rated sessions.
+            </div>
+        )
+    }
+
+    const summary = evaluation.summary ?? { kept: 0, regressed: 0, fixed: 0, still_wrong: 0, errors: 0 }
+    const downTotal = summary.fixed + summary.still_wrong
+    const upTotal = summary.kept + summary.regressed
+    // Only sessions that ran successfully were charged.
+    const chargedCount = evaluation.results.filter((result) => result.outcome !== 'error').length
+    return (
+        <div className="border rounded p-3 space-y-2">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-medium">Tested against {evaluation.results.length} rated sessions:</span>
+                {downTotal > 0 && (
+                    <Tooltip title="Rated-wrong sessions whose result changed under the suggested prompt">
+                        <LemonTag type={summary.fixed > 0 ? 'success' : 'muted'}>
+                            {summary.fixed}/{downTotal} wrong now different
+                        </LemonTag>
+                    </Tooltip>
+                )}
+                {upTotal > 0 && (
+                    <Tooltip title="Rated-right sessions whose result is unchanged under the suggested prompt">
+                        <LemonTag type={summary.regressed > 0 ? 'danger' : 'success'}>
+                            {summary.kept}/{upTotal} right unchanged
+                        </LemonTag>
+                    </Tooltip>
+                )}
+                {summary.errors > 0 && <LemonTag type="muted">{summary.errors} failed to run</LemonTag>}
+                <Tooltip title="Only sessions that ran successfully count against the monthly Replay Vision quota">
+                    <span className="text-muted text-xs">
+                        Used {chargedCount} observation{chargedCount === 1 ? '' : 's'} of quota
+                    </span>
+                </Tooltip>
+            </div>
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
+                icon={detailsOpen ? <IconChevronDown /> : <IconChevronRight />}
+                onClick={() => setDetailsOpen(!detailsOpen)}
+                data-attr="vision-quality-evaluation-details-toggle"
+            >
+                Per-session results
+            </LemonButton>
+            {detailsOpen && (
+                <div className="space-y-1">
+                    {evaluation.results.map((result) => (
+                        <div key={result.session_id} className="flex flex-wrap items-center gap-2 text-xs">
+                            <LemonTag type={EVALUATION_OUTCOME_TAGS[result.outcome]?.type ?? 'muted'}>
+                                {EVALUATION_OUTCOME_TAGS[result.outcome]?.label ?? result.outcome}
+                            </LemonTag>
+                            <Link to={urls.replaySingle(result.session_id)} className="font-mono">
+                                {result.session_id.slice(0, 8)}…
+                            </Link>
+                            <span className="text-muted">
+                                rated {result.rated_correct ? 'right' : 'wrong'} · {result.before ?? 'n/a'} →{' '}
+                                {result.after ?? (result.error ? `failed: ${result.error.slice(0, 80)}` : 'n/a')}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
 function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = scannerQualityLogic({ scannerId })
     const {
         currentSuggestion,
         suggestionStale,
         ratedCount,
+        evaluationSessionCap,
+        plannedTestSessions,
         suggestionLoading,
         generating,
         applying,
         dismissing,
+        evaluating,
         suggestionHistory,
         suggestionHistoryLoading,
     } = useValues(logic)
-    const { generateSuggestion, applySuggestion, dismissSuggestion, loadSuggestionHistory } = useActions(logic)
+    const {
+        generateSuggestion,
+        applySuggestion,
+        dismissSuggestion,
+        evaluateSuggestion,
+        setTestSessionLimit,
+        loadSuggestionHistory,
+    } = useActions(logic)
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { quota } = useValues(visionQuotaLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+    // Only scanner types with a discrete outcome (verdict, tags) can be diffed against ratings.
+    const evaluationSupported = scanner?.scanner_type === 'monitor' || scanner?.scanner_type === 'classifier'
+    // Each re-run is charged like a normal observation of the scanner's model.
+    const creditsPerTestSession = scanner ? (OBSERVATION_CREDITS_BY_MODEL[scanner.model] ?? 0) : 0
+    const plannedTestCredits = plannedTestSessions * creditsPerTestSession
     const [historyOpen, setHistoryOpen] = useState(false)
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
@@ -287,9 +406,32 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                     beforeLabel={`Current prompt (v${currentSuggestion.scanner_version})`}
                     isDarkModeOn={isDarkModeOn}
                 />
+                {currentSuggestion.status === 'pending' && <SuggestionEvaluationPanel suggestion={currentSuggestion} />}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <SuggestionMeta suggestion={currentSuggestion} />
                     <div className="flex items-center gap-2">
+                        {currentSuggestion.status === 'pending' && evaluationSupported && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                loading={evaluating || currentSuggestion.evaluation?.status === 'running'}
+                                disabledReason={
+                                    editDisabledReason ??
+                                    (ratedCount === 0
+                                        ? 'Rate at least one result first'
+                                        : quota?.exhausted && quota.credit_limit !== null
+                                          ? `Monthly Replay Vision budget of ${formatCredits(quota.credit_limit)} reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
+                                          : quota && quota.remaining !== null && plannedTestCredits > quota.remaining
+                                            ? `Only ${formatCredits(quota.remaining)} of budget left this month. Lower the test session count.`
+                                            : undefined)
+                                }
+                                tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying. Each tested session is charged like a normal observation. Pick how many below."
+                                onClick={() => evaluateSuggestion(currentSuggestion.id)}
+                                data-attr="vision-quality-evaluate-suggestion"
+                            >
+                                {currentSuggestion.evaluation ? 'Re-test' : 'Test against rated sessions'}
+                            </LemonButton>
+                        )}
                         {currentSuggestion.status === 'pending' && (
                             <LemonButton
                                 size="small"
@@ -317,6 +459,30 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                         )}
                     </div>
                 </div>
+                {currentSuggestion.status === 'pending' && evaluationSupported && plannedTestSessions > 0 && (
+                    <div className="flex items-center justify-end gap-1.5 text-xs text-muted">
+                        <span>Testing re-runs</span>
+                        <LemonInput
+                            type="number"
+                            size="xsmall"
+                            min={1}
+                            max={Math.min(evaluationSessionCap, ratedCount)}
+                            value={plannedTestSessions}
+                            onChange={(value) => setTestSessionLimit(value ?? null)}
+                            className="w-14"
+                            data-attr="vision-quality-test-session-limit"
+                        />
+                        <span>
+                            of your {Math.min(evaluationSessionCap, ratedCount)} most useful rated session
+                            {Math.min(evaluationSessionCap, ratedCount) === 1 ? '' : 's'}, charging{' '}
+                            {formatCredits(plannedTestCredits)}
+                            {quota && quota.remaining !== null && quota.credit_limit !== null
+                                ? ` (${formatCredits(quota.remaining)} of ${formatCredits(quota.credit_limit)} left this month)`
+                                : ''}
+                            .
+                        </span>
+                    </div>
+                )}
             </div>
         )
     }

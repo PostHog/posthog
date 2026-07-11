@@ -87,6 +87,38 @@ describe('useTaxonomicGroupsContext', () => {
         expect(result.current).toBe(first)
     })
 
+    it.each([
+        {
+            description: 'promotes the taxonomy-default primary property for $pageview',
+            eventNames: ['$pageview'],
+            expectedPromoted: ['$pathname'],
+            expectedSuggestedOptions: ['$pathname'],
+        },
+        {
+            description: 'promotes the taxonomy-default primary property for $mcp_tool_call',
+            eventNames: ['$mcp_tool_call'],
+            expectedPromoted: ['$mcp_tool_name'],
+            // The Suggested tab also seeds MCP_TOOL_CALL_SUGGESTED_PROPERTIES
+            // ($mcp_is_error) after the promoted primary property.
+            expectedSuggestedOptions: ['$mcp_tool_name', '$mcp_is_error'],
+        },
+        {
+            description: 'promotes nothing when no event is in context',
+            eventNames: [] as string[],
+            expectedPromoted: [],
+            expectedSuggestedOptions: [],
+        },
+    ])('$description', ({ eventNames, expectedPromoted, expectedSuggestedOptions }) => {
+        const { result } = renderHook(() => useTaxonomicGroupsContext({ eventNames }), { wrapper })
+        expect(result.current.promotedPropertiesForContextEvents).toEqual(expectedPromoted)
+        const suggestedGroup = buildTaxonomicGroups(result.current).find(
+            (g) => g.type === TaxonomicFilterGroupType.SuggestedFilters
+        )
+        expect(suggestedGroup?.options).toEqual(
+            expectedSuggestedOptions.map((name) => ({ name, group: TaxonomicFilterGroupType.EventProperties }))
+        )
+    })
+
     it('feeds buildTaxonomicGroups end-to-end and produces a non-empty groups array', () => {
         const { result } = renderHook(() => useTaxonomicGroupsContext({ eventNames: ['$pageview'] }), {
             wrapper,
