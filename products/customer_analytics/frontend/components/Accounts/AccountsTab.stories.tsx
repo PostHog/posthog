@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { waitFor, within } from '@testing-library/dom'
+import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -414,7 +414,17 @@ export const RowExpandedUsageNotFound: Story = {
 export const RowExpandedUsagePopulated: Story = {
     render: () => <App />,
     parameters: {
-        testOptions: EXPANDED_ROW_TEST_OPTIONS,
+        testOptions: {
+            ...EXPANDED_ROW_TEST_OPTIONS,
+            // Wait for the canvas to render before snapshotting — the chart is async and can
+            // take a while in CI. Using waitForSelector (60s budget) instead of a play-function
+            // waitFor avoids exceeding the 60s Jest test timeout.
+            waitForSelector: [
+                '[data-attr="accounts-refresh"]',
+                '[data-attr="account-expansion"]',
+                '.DataVisualization canvas',
+            ],
+        },
     },
     decorators: billingTabDecorators(
         insightsResponse(USAGE_INSIGHT),
@@ -422,20 +432,5 @@ export const RowExpandedUsagePopulated: Story = {
     ),
     play: async ({ canvasElement }) => {
         await expandAndOpenTab(canvasElement, 'Usage')
-        // Wait for both the chart canvas AND the sidebar links to be present simultaneously.
-        // The tab switch can trigger a re-render cycle that briefly unmounts the sidebar;
-        // gating on both ensures the snapshot captures a fully settled state.
-        const canvas = within(canvasElement)
-        await waitFor(
-            () => {
-                if (!canvasElement.querySelector('.DataVisualization canvas')) {
-                    throw new Error('DataVisualization canvas not yet rendered')
-                }
-            },
-            { timeout: 30000, interval: 500 }
-        )
-        // Re-confirm sidebar links are still rendered after the canvas settled —
-        // guards against the re-fetch race that causes the "Useful links" flicker.
-        await canvas.findByText('Organization', {}, { timeout: 10000 })
     },
 }
