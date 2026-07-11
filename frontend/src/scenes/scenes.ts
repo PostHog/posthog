@@ -948,6 +948,10 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.exports()]: [Scene.Exports, 'exports'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
+    // Catch-all for malformed referrer slugs (e.g. trailing markdown `**` from AI-generated links)
+    // that fall outside the allowed segment charset and would otherwise dead-end on a 404. Must come
+    // after the `:referrer` route so real partner slugs still resolve to their referral page.
+    [urls.startups('*')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
     [`${urls.agenticAuthorize()}/`]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
