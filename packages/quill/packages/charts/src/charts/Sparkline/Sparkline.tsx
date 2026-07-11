@@ -29,14 +29,21 @@ export interface SparklineProps {
 }
 
 /** Hug the data range: a fixed domain (no tick-nicing) puts the lowest point on the plot bottom
- *  instead of floating over a zero baseline, so a flat series runs along the bottom edge.
+ *  instead of floating mid-plot. A flat series reads against a zero baseline instead — flat 0 runs
+ *  along the bottom, a flat non-zero value along the top — so a steady value doesn't read as zero.
  *  `undefined` (no finite values) falls back to the scale's own domain. */
 export function sparklineValueDomain(data: number[]): [number, number] | undefined {
     const { min, max, count } = seriesValueRange([{ key: 'sparkline', label: 'sparkline', data }])
     if (count === 0) {
         return undefined
     }
-    return [min, max === min ? min + 1 : max]
+    if (max !== min) {
+        return [min, max]
+    }
+    if (max === 0) {
+        return [0, 1]
+    }
+    return max > 0 ? [0, max] : [max, 0]
 }
 
 const SPARKLINE_CONFIG: LineChartConfig = {
