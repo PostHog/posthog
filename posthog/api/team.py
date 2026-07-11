@@ -1209,13 +1209,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def validate_access_control(self, value) -> None:
         """Validate that access_control field is not being used as it's deprecated."""
         if value is not None:
-            import posthoganalytics
-
             request = self.context.get("request")
             user = request.user if request else None
 
-            posthoganalytics.capture_exception(
-                Exception("Deprecated access control field used"),
+            posthoganalytics.capture(
+                event="deprecated access_control field used",
+                distinct_id=str(user.distinct_id) if user else "anonymous",
                 properties={
                     "field": "access_control",
                     "value": str(value),

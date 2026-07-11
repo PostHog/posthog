@@ -1417,8 +1417,8 @@ def team_api_test_factory():
             assert response.status_code == expected_status, response.json()
             return response
 
-        @patch("posthoganalytics.capture_exception")
-        def test_access_control_field_deprecated_on_update(self, mock_capture_exception):
+        @patch("posthoganalytics.capture")
+        def test_access_control_field_deprecated_on_update(self, mock_capture):
             """Test that access_control field is deprecated and cannot be used when updating a team."""
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -1432,16 +1432,16 @@ def team_api_test_factory():
             self.assertIn("deprecated", error_data["detail"])
             self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
 
-            # Verify that the exception was captured
-            mock_capture_exception.assert_called_once()
-            call_args = mock_capture_exception.call_args
-            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            # Verify that usage was tracked as a regular analytics event, not an exception
+            mock_capture.assert_called_once()
+            call_args = mock_capture.call_args
+            self.assertEqual(call_args[1]["event"], "deprecated access_control field used")
             self.assertEqual(call_args[1]["properties"]["field"], "access_control")
             self.assertEqual(call_args[1]["properties"]["value"], "False")
             self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
 
-        @patch("posthoganalytics.capture_exception")
-        def test_access_control_field_deprecated_on_partial_update(self, mock_capture_exception):
+        @patch("posthoganalytics.capture")
+        def test_access_control_field_deprecated_on_partial_update(self, mock_capture):
             """Test that access_control field is deprecated and cannot be used when partially updating a team."""
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -1455,16 +1455,16 @@ def team_api_test_factory():
             self.assertIn("deprecated", error_data["detail"])
             self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
 
-            # Verify that the exception was captured
-            mock_capture_exception.assert_called_once()
-            call_args = mock_capture_exception.call_args
-            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            # Verify that usage was tracked as a regular analytics event, not an exception
+            mock_capture.assert_called_once()
+            call_args = mock_capture.call_args
+            self.assertEqual(call_args[1]["event"], "deprecated access_control field used")
             self.assertEqual(call_args[1]["properties"]["field"], "access_control")
             self.assertEqual(call_args[1]["properties"]["value"], "True")
             self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
 
-        @patch("posthoganalytics.capture_exception")
-        def test_access_control_field_deprecated_with_other_valid_fields(self, mock_capture_exception):
+        @patch("posthoganalytics.capture")
+        def test_access_control_field_deprecated_with_other_valid_fields(self, mock_capture):
             """Test that access_control field is deprecated even when other valid fields are provided."""
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -1478,10 +1478,10 @@ def team_api_test_factory():
             self.assertIn("deprecated", error_data["detail"])
             self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
 
-            # Verify that the exception was captured
-            mock_capture_exception.assert_called_once()
-            call_args = mock_capture_exception.call_args
-            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            # Verify that usage was tracked as a regular analytics event, not an exception
+            mock_capture.assert_called_once()
+            call_args = mock_capture.call_args
+            self.assertEqual(call_args[1]["event"], "deprecated access_control field used")
             self.assertEqual(call_args[1]["properties"]["field"], "access_control")
             self.assertEqual(call_args[1]["properties"]["value"], "True")
             self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
