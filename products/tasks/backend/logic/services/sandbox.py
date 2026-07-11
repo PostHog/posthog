@@ -227,6 +227,18 @@ class SandboxBase(ABC):
     @abstractmethod
     def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
 
+    def stop_agent_server(self) -> ExecutionResult:
+        """Stop the agent server gracefully so it can flush terminal events."""
+        return self.execute(
+            "pkill -TERM -f '[a]gent-server' 2>/dev/null || true; "
+            "for _ in $(seq 1 80); do "
+            "pgrep -f '[a]gent-server' >/dev/null || exit 0; "
+            "sleep 0.5; "
+            "done; "
+            "exit 1",
+            timeout_seconds=45,
+        )
+
     def agent_server_supports_auto_publish(self) -> bool:
         """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
         CLI options, so probe the installed binary before passing --autoPublish; unsupported

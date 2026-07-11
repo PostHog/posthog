@@ -117,6 +117,14 @@ USAGE_REPORT_TASK_KWARGS = {
     "expires": 14400,  # 4h
 }
 
+# The all-org parent can run longer than Redis' default visibility timeout, so
+# late acking it can redeliver the same producer while the first copy is alive.
+USAGE_REPORT_PARENT_TASK_KWARGS = {
+    **USAGE_REPORT_TASK_KWARGS,
+    "acks_late": False,
+    "reject_on_worker_lost": False,
+}
+
 
 @dataclasses.dataclass
 class UsageReportCounters:
@@ -2905,7 +2913,7 @@ def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[st
     return
 
 
-@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
+@shared_task(**USAGE_REPORT_PARENT_TASK_KWARGS, max_retries=3)
 def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,

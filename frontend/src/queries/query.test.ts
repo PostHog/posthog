@@ -4,7 +4,7 @@ import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
-import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { EventsQuery, HogQLQuery, NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -20,6 +20,17 @@ describe('query', () => {
                         return [
                             200,
                             { results: [], clickhouse: 'clickhouse string', hogql: 'hogql string', is_cached: false },
+                        ]
+                    }
+                    if (data.query?.kind === 'WebStatsTableQuery') {
+                        return [
+                            200,
+                            {
+                                results: [],
+                                is_cached: false,
+                                preComputeStrategy: 'lazy_precompute',
+                                preComputeStale: true,
+                            },
                         ]
                     }
                     if (data.query?.kind === 'EventsQuery' && data.query.select[0] === 'error') {
@@ -107,6 +118,23 @@ describe('query', () => {
             duration: expect.any(Number),
             clickhouse_sql: expect.any(String),
             is_cached: false,
+        })
+    })
+
+    it('captures precompute strategy and staleness from web analytics responses', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const q = setLatestVersionsOnQuery({
+            kind: NodeKind.WebStatsTableQuery,
+            breakdownBy: WebStatsBreakdown.Page,
+            properties: [],
+        }) as any
+        captureSpy.mockClear()
+        await performQuery(q)
+        const queryCompletedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
+        expect(queryCompletedCalls).toHaveLength(1)
+        expect(queryCompletedCalls[0][1]).toMatchObject({
+            precompute_strategy: 'lazy_precompute',
+            precompute_stale: true,
         })
     })
 

@@ -1,5 +1,6 @@
 import time
 import datetime
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
@@ -84,6 +85,16 @@ PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
     "Errors raised while marking an orphaned prewarmed TaskRun FAILED in the prewarmed-queued cleanup sweep",
 )
 
+STALE_LOCAL_QUEUED_TASK_RUN_COMPLETED_COUNTER = Counter(
+    "posthog_task_run_stale_local_queued_completed_total",
+    "Idle local (desktop-driven) TaskRuns quietly marked COMPLETED by the stale-queued cleanup sweep",
+)
+
+STALE_LOCAL_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
+    "posthog_task_run_stale_local_queued_errors_total",
+    "Errors raised while marking an idle local TaskRun COMPLETED in the stale-queued cleanup sweep",
+)
+
 
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
@@ -144,16 +155,23 @@ def delete_expired_delegation_invites() -> None:
 
 @shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
 def kill_stale_queued_task_runs() -> None:
-    """Mark TaskRuns stuck in QUEUED for >24h as FAILED.
+    """Terminalize TaskRuns stuck in QUEUED for >24h: cloud runs FAIL, local runs COMPLETE.
 
-    A TaskRun sits in QUEUED until the Temporal `process-task` workflow flips it
-    to IN_PROGRESS. If that workflow never starts (worker down, schedule call
-    failed), the row would otherwise stay QUEUED forever. mark_failed() (per row,
-    not bulk .update()) preserves publish_stream_state_event and the
-    `task_run_failed` analytics capture. Materializing ids first avoids
-    server-side cursor invalidation while updating the same table; the inner
-    refetch with status=QUEUED handles the race where a worker picks up the run
-    between selection and update.
+    A cloud TaskRun sits in QUEUED until the Temporal `process-task` workflow flips
+    it to IN_PROGRESS. If that workflow never starts (worker down, schedule call
+    failed), the row would otherwise stay QUEUED forever — so a stale cloud run is a
+    genuine failure. A local (desktop-driven) run, by contrast, sits in QUEUED by
+    design for its whole life: the desktop agent drives the session and never reports
+    status, so an idle local run is a session that simply ended and finalizes as
+    COMPLETED — quietly, with no push notification (see the environment discussion on
+    `get_stale_queued_task_run_ids`). Failing local runs here used to flood users with
+    bogus failures on runs that never ran in the cloud at all.
+
+    Per-row finalizers (not bulk .update()) preserve publish_stream_state_event and
+    the terminal analytics captures. Materializing ids first avoids server-side
+    cursor invalidation while updating the same table; the inner refetch with
+    status=QUEUED handles the race where a worker picks up the run between selection
+    and update.
 
     Staleness is keyed primarily on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
     re-queues an existing run (status=QUEUED, completed_at=None) without resetting
@@ -161,7 +179,10 @@ def kill_stale_queued_task_runs() -> None:
     re-queued long-lived runs. `updated_at` (auto_now=True) advances on every save,
     so a re-queued run won't appear in this candidate set until it has actually
     been QUEUED for the full STALE_AFTER window. `CREATED_HARD_CAP` is a backstop for a
-    run whose `updated_at` keeps being bumped while it stays QUEUED.
+    cloud run whose `updated_at` keeps being bumped while it stays QUEUED; the local
+    sweep deliberately has no such backstop — a local run whose `updated_at` keeps
+    advancing is a desktop session that is genuinely alive (the desktop PATCHes
+    output/branch as it works) and must not be finalized under the user.
     """
     from products.tasks.backend.facade import api as tasks_facade
 
@@ -175,13 +196,15 @@ def kill_stale_queued_task_runs() -> None:
     REASON = "Run was stuck in QUEUED state for over 24h and was killed by the cleanup job."
     PREWARMED_REASON = "Prewarmed run never started its workflow and was orphaned in QUEUED; reaped by the cleanup job."
 
-    def _fail_each(run_ids: list, reason: str, swept_counter: Counter, errors_counter: Counter) -> tuple[int, int]:
+    def _sweep_each(
+        run_ids: list, finalize: Callable[[UUID], bool], swept_counter: Counter, errors_counter: Counter
+    ) -> tuple[int, int]:
         swept = errors = 0
         for run_id in run_ids:
             try:
-                # fail_task_run refetches with status=QUEUED, handling the race where a worker
+                # Finalizers refetch with status=QUEUED, handling the race where a worker
                 # picked up the run between selection and update (returns False -> skip).
-                if tasks_facade.fail_task_run(run_id, reason):
+                if finalize(run_id):
                     swept += 1
                     swept_counter.inc()
             except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
@@ -191,27 +214,49 @@ def kill_stale_queued_task_runs() -> None:
         return swept, errors
 
     # Janitor sweep is intentionally cross-team — it runs without a team context.
-    stale_ids = tasks_facade.get_stale_queued_task_run_ids(STALE_AFTER, BATCH_SIZE, created_hard_cap=CREATED_HARD_CAP)
-    swept, errors = _fail_each(
-        stale_ids, REASON, STALE_QUEUED_TASK_RUN_SWEPT_COUNTER, STALE_QUEUED_TASK_RUN_ERRORS_COUNTER
+    stale_ids = tasks_facade.get_stale_queued_task_run_ids(
+        STALE_AFTER,
+        BATCH_SIZE,
+        created_hard_cap=CREATED_HARD_CAP,
+        environment=tasks_facade.TaskRunEnvironment.CLOUD,
+    )
+    swept, errors = _sweep_each(
+        stale_ids,
+        lambda run_id: tasks_facade.fail_task_run(run_id, REASON, error_type="stale_queued_cleanup"),
+        STALE_QUEUED_TASK_RUN_SWEPT_COUNTER,
+        STALE_QUEUED_TASK_RUN_ERRORS_COUNTER,
+    )
+
+    # Idle local runs: complete quietly instead of failing (see docstring).
+    local_ids = tasks_facade.get_stale_queued_task_run_ids(
+        STALE_AFTER, BATCH_SIZE, environment=tasks_facade.TaskRunEnvironment.LOCAL
+    )
+    local_swept, local_errors = _sweep_each(
+        local_ids,
+        tasks_facade.complete_idle_local_task_run,
+        STALE_LOCAL_QUEUED_TASK_RUN_COMPLETED_COUNTER,
+        STALE_LOCAL_QUEUED_TASK_RUN_ERRORS_COUNTER,
     )
 
     # Fast-reap orphaned prewarmed runs so they don't ride QUEUED to the 24h sweep above.
     prewarmed_ids = tasks_facade.get_stale_prewarmed_queued_task_run_ids(PREWARMED_STALE_AFTER, BATCH_SIZE)
-    prewarmed_swept, prewarmed_errors = _fail_each(
+    prewarmed_swept, prewarmed_errors = _sweep_each(
         prewarmed_ids,
-        PREWARMED_REASON,
+        lambda run_id: tasks_facade.fail_task_run(run_id, PREWARMED_REASON, error_type="stale_queued_cleanup"),
         PREWARMED_QUEUED_TASK_RUN_SWEPT_COUNTER,
         PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER,
     )
 
-    saturated = len(stale_ids) >= BATCH_SIZE or len(prewarmed_ids) >= BATCH_SIZE
+    saturated = len(stale_ids) >= BATCH_SIZE or len(local_ids) >= BATCH_SIZE or len(prewarmed_ids) >= BATCH_SIZE
     log = logger.warning if saturated else logger.info
     log(
         "kill_stale_queued_task_runs.sweep_done",
         candidates=len(stale_ids),
         swept=swept,
         errors=errors,
+        local_candidates=len(local_ids),
+        local_completed=local_swept,
+        local_errors=local_errors,
         prewarmed_candidates=len(prewarmed_ids),
         prewarmed_swept=prewarmed_swept,
         prewarmed_errors=prewarmed_errors,
@@ -246,9 +291,11 @@ def redispatch_orphaned_queued_task_runs() -> None:
     RECONCILE_AFTER = datetime.timedelta(minutes=5)
 
     # Janitor sweep is intentionally cross-team — it runs without a team context.
-    # cloud_only: local (desktop) runs idle in QUEUED by design while the desktop agent drives
+    # Cloud only: local (desktop) runs idle in QUEUED by design while the desktop agent drives
     # them; cloud-dispatching one hijacks the live session and eventually marks it failed.
-    candidate_ids = tasks_facade.get_stale_queued_task_run_ids(RECONCILE_AFTER, BATCH_SIZE, cloud_only=True)
+    candidate_ids = tasks_facade.get_stale_queued_task_run_ids(
+        RECONCILE_AFTER, BATCH_SIZE, environment=tasks_facade.TaskRunEnvironment.CLOUD
+    )
     outcomes: dict[str, int] = {}
     for run_id in candidate_ids:
         try:

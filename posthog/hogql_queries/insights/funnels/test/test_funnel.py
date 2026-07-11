@@ -13,7 +13,6 @@ from posthog.test.base import (
     create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -6098,8 +6097,7 @@ class TestFunnelStepsCompareUDF(ClickhouseTestMixin, APIBaseTest):
             compareFilter=CompareFilter(compare=compare, compare_to=compare_to),
         )
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_default_previous_period_tags_steps(self, _feature_enabled):
+    def test_compare_default_previous_period_tags_steps(self):
         # Current window 2021-06-07 .. 2021-06-13; default previous is the prior 7-day window
         # (2021-05-31 .. 2021-06-06). One full conversion lands in each window.
         journeys_for(
@@ -6130,8 +6128,7 @@ class TestFunnelStepsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([s["count"] for s in current_steps], [1, 1])
         self.assertEqual([s["count"] for s in previous_steps], [1, 1])
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_with_custom_offset_shifts_previous_window(self, _feature_enabled):
+    def test_compare_with_custom_offset_shifts_previous_window(self):
         # Custom offset `-30d` puts the previous window 30 days before the current window's start
         # (2021-05-08 .. 2021-05-14), regardless of window length. Two conversions land there; a
         # third lands in the *default* previous window (2021-05-31 .. 2021-06-06), which `-30d`
@@ -6164,8 +6161,7 @@ class TestFunnelStepsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         previous_steps = [row for row in results if row["compare_label"] == "previous"]
         self.assertEqual([s["count"] for s in previous_steps], [2, 2])
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_with_empty_previous_period(self, _feature_enabled):
+    def test_compare_with_empty_previous_period(self):
         # Only the current period has events. The previous side must still return a tagged step
         # skeleton (zeroed) so the chart can render two bars per step — a missing previous side
         # would leave steps with a single bar and break the grouped-bar layout.
@@ -6272,8 +6268,7 @@ class TestFunnelStepsBreakdownCompareUDF(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_breakdown_compare_aligns_inner_funnels_by_value(self, _name, journeys, expected_counts, _feature_enabled):
+    def test_breakdown_compare_aligns_inner_funnels_by_value(self, _name, journeys, expected_counts):
         journeys_for(
             {key: self._conversion(browser, day) for key, (browser, day) in journeys.items()},
             self.team,
