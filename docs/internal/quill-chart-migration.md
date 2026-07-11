@@ -94,6 +94,12 @@ No quill equivalent exists and these aren't chart-library shaped; leave as-is un
 
 Ordered by leverage per unit of effort; each phase is independently shippable.
 
+Detailed, agent-ready plans exist for three work streams:
+
+- [Sparkline replacement](./quill-migration-sparkline.md) — the shared Chart.js sparkline and its ~18 consumers
+- [Billing line graph](./quill-migration-billing.md) — `BillingLineGraph` and the period-marker overlay
+- [Experiments charts](./quill-migration-experiments.md) — exposures charts and the variant timeseries with CI bands
+
 ### Phase 1 — finish the SQL rollout and delete the legacy insight path
 
 1. Complete the `PRODUCT_ANALYTICS_QUILL_SQL_CHARTS` rollout, first testing the group-B consumers (app metrics stacked bars, `goalLines` in the error tracking rate-limit charts, workflows panel metrics, endpoints usage trends) on the quill path — they flip with the flag but haven't been individually verified.
