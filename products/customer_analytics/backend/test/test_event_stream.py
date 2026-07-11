@@ -44,6 +44,12 @@ class TestEventStreamViewSet(APIBaseTest):
     def _group_filter(self, function: HogFunction) -> dict:
         return (function.filters or {})["properties"][0]
 
+    def _inputs(self, function: HogFunction) -> dict:
+        return function.inputs or {}
+
+    def _filtered_events(self, function: HogFunction) -> list[dict]:
+        return (function.filters or {})["events"]
+
     def test_create_without_slack_defers_destination_until_channel_is_set(self):
         stream = self._create_stream({"event_names": ["$pageview"]})
 
@@ -57,8 +63,8 @@ class TestEventStreamViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         function = self._destination(stream)
-        self.assertEqual(function.inputs["slack_workspace"]["value"], self.integration.id)
-        self.assertEqual(function.inputs["channel"]["value"], "C0123ABC")
+        self.assertEqual(self._inputs(function)["slack_workspace"]["value"], self.integration.id)
+        self.assertEqual(self._inputs(function)["channel"]["value"], "C0123ABC")
 
     def test_clearing_channel_keeps_existing_destination_inputs(self):
         stream = self._create_stream()
@@ -68,8 +74,8 @@ class TestEventStreamViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         function = self._destination(stream)
         self.assertFalse(function.enabled)
-        self.assertEqual(function.inputs["slack_workspace"]["value"], self.integration.id)
-        self.assertEqual(function.inputs["channel"]["value"], "C0123ABC")
+        self.assertEqual(self._inputs(function)["slack_workspace"]["value"], self.integration.id)
+        self.assertEqual(self._inputs(function)["channel"]["value"], "C0123ABC")
 
     def test_create_provisions_disabled_destination_until_members_exist(self):
         stream = self._create_stream()
@@ -79,8 +85,8 @@ class TestEventStreamViewSet(APIBaseTest):
         self.assertEqual(function.type, "destination")
         self.assertFalse(function.enabled)
         self.assertEqual(self._group_filter(function)["value"], [_NO_MEMBERS_SENTINEL])
-        self.assertEqual(function.inputs["slack_workspace"]["value"], self.integration.id)
-        self.assertEqual(function.inputs["channel"]["value"], "C0123ABC")
+        self.assertEqual(self._inputs(function)["slack_workspace"]["value"], self.integration.id)
+        self.assertEqual(self._inputs(function)["channel"]["value"], "C0123ABC")
 
     def test_add_and_remove_account_resyncs_destination_filters(self):
         stream = self._create_stream()
@@ -100,7 +106,7 @@ class TestEventStreamViewSet(APIBaseTest):
             self._group_filter(function),
             {"key": "$group_0", "value": ["org-acme", "org-globex"], "operator": "exact", "type": "event"},
         )
-        self.assertEqual([event["id"] for event in function.filters["events"]], ["$pageview", "dashboard_created"])
+        self.assertEqual([event["id"] for event in self._filtered_events(function)], ["$pageview", "dashboard_created"])
 
         for account in (acme, globex):
             response = self.client.post(
@@ -199,7 +205,7 @@ class TestEventStreamViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["event_names"], ["signup", "invoice_paid"])
         function = self._destination(stream)
-        self.assertEqual([event["id"] for event in function.filters["events"]], ["signup", "invoice_paid"])
+        self.assertEqual([event["id"] for event in self._filtered_events(function)], ["signup", "invoice_paid"])
         self.assertTrue(function.enabled)
 
         response = self.client.patch(f"{self.base_url}{stream['id']}/", {"enabled": False}, format="json")

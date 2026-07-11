@@ -49,11 +49,12 @@ def account_group_type_index(team_id: int) -> int | None:
 def member_group_keys(stream: EventStream) -> list[str]:
     """Group keys (``Account.external_id``) of the stream's members. Accounts without an
     external_id have no analytics identity, so they can't be matched to events and are skipped."""
-    return sorted(
+    keys = (
         stream.members.filter(account__external_id__isnull=False)
         .exclude(account__external_id="")
         .values_list("account__external_id", flat=True)
     )
+    return sorted(key for key in keys if key is not None)
 
 
 def _build_filters(stream: EventStream, group_type_index: int, group_keys: list[str]) -> dict[str, Any]:

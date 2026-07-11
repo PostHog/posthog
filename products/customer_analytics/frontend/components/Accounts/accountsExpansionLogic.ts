@@ -4,7 +4,14 @@ import posthog from 'posthog-js'
 import type { accountsExpansionLogicType } from './accountsExpansionLogicType'
 import { AccountsEvents } from './constants'
 
-export type AccountExpansionTab = 'notes' | 'users' | 'relationships' | 'usage' | 'spend' | 'opportunities' | 'event_stream'
+export type AccountExpansionTab =
+    | 'notes'
+    | 'users'
+    | 'relationships'
+    | 'usage'
+    | 'spend'
+    | 'opportunities'
+    | 'event_stream'
 
 export const ACCOUNT_EXPANSION_TABS: AccountExpansionTab[] = [
     'notes',
