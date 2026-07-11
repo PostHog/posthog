@@ -309,36 +309,3 @@ export const GridNoSparkline: Story = {
         )
     },
 }
-
-export const InsightLayout: Story = {
-    render: () => {
-        const theme = useChartTheme()
-        const total = REVENUE.reduce((a, b) => a + b, 0)
-        return (
-            <Card flush className="h-[320px] w-[360px]">
-                <Metric
-                    value={total}
-                    data={REVENUE}
-                    labels={MONTHS}
-                    theme={theme}
-                    color="#8b5cf6"
-                    change={{ value: 12.4 }}
-                    changeTooltip="Comparing this period's total to the previous period's total."
-                    hoverChangeFromPreviousPoint
-                    positiveColor={{ background: 'rgb(139 92 246 / 10%)', foreground: '#8b5cf6' }}
-                    negativeColor={{ background: 'rgb(219 55 7 / 10%)', foreground: '#db3707' }}
-                    restingSubtitle="Total"
-                    sparklineFill
-                    formatValue={(v) => `US$${Math.round(v).toLocaleString()}`}
-                >
-                    <div className="flex items-center justify-between gap-2">
-                        <MetricValue />
-                        <MetricDelta className="h-auto gap-1 px-2.5 py-1 text-sm [&>svg]:size-3!" />
-                    </div>
-                    <MetricSubtitle className="mt-1" />
-                    <MetricSparkline />
-                </Metric>
-            </Card>
-        )
-    },
-}
