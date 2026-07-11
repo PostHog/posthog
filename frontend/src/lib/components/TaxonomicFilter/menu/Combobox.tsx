@@ -377,12 +377,7 @@ export function MenuFilterCombobox({
                 continue
             }
             for (const item of items) {
-                merged.push({
-                    item,
-                    group,
-                    name: getRawName(item, group),
-                    friendlyLabel: getFriendlyLabel(item, group),
-                })
+                merged.push(buildMenuFilterEntry(item, group))
             }
         }
         // Make sure the committed selection is reachable from the list
@@ -521,12 +516,7 @@ export function MenuFilterCombobox({
                 continue
             }
             const item = { name: option.name } as unknown as TaxonomicDefinitionTypes
-            const entry: MenuFilterEntry = {
-                item,
-                group: realGroup,
-                name: getRawName(item, realGroup),
-                friendlyLabel: getFriendlyLabel(item, realGroup),
-            }
+            const entry = buildMenuFilterEntry(item, realGroup)
             if (!prefixKeys.has(entryKey(entry))) {
                 entries.push(entry)
             }
@@ -1436,6 +1426,15 @@ function getFriendlyLabel(item: TaxonomicDefinitionTypes, group: TaxonomicFilter
         return undefined
     }
     return getCoreFilterDefinition(raw, group.type)?.label
+}
+
+function buildMenuFilterEntry(item: TaxonomicDefinitionTypes, group: TaxonomicFilterGroup): MenuFilterEntry {
+    return {
+        item,
+        group,
+        name: getRawName(item, group),
+        friendlyLabel: getFriendlyLabel(item, group),
+    }
 }
 
 // Mirrors the legacy `taxonomicFilterLogic` classifier (kept in sync until the legacy picker is retired).
