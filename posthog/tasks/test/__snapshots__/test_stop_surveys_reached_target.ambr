@@ -43,10 +43,10 @@
 # ---
 # name: TestStopSurveysReachedTarget.test_stop_surveys_with_enough_responses[new_events_schema.1]
   '''
-  SELECT nullIf(nullIf(events.properties.`$survey_id`, ''), 'null') AS survey_id,
+  SELECT events.properties.`$survey_id` AS survey_id,
          count(DISTINCT if(ifNull(notEquals(coalesce(if(notEquals(toJSONString(events.properties.^`$survey_submission_id`), '{}'), toJSONString(events.properties.^`$survey_submission_id`), if(isNull(events.properties.`$survey_submission_id`), NULL, if(startsWith(dynamicType(events.properties.`$survey_submission_id`), 'DateTime'), replaceOne(toString(events.properties.`$survey_submission_id`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`$survey_submission_id`), 'Array'), startsWith(dynamicType(events.properties.`$survey_submission_id`), 'Map'), startsWith(dynamicType(events.properties.`$survey_submission_id`), 'Tuple')), toJSONString(events.properties.`$survey_submission_id`), toString(events.properties.`$survey_submission_id`))))), ''), ''), 1), if(notEquals(toJSONString(events.properties.^`$survey_submission_id`), '{}'), toJSONString(events.properties.^`$survey_submission_id`), if(isNull(events.properties.`$survey_submission_id`), NULL, if(startsWith(dynamicType(events.properties.`$survey_submission_id`), 'DateTime'), replaceOne(toString(events.properties.`$survey_submission_id`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`$survey_submission_id`), 'Array'), startsWith(dynamicType(events.properties.`$survey_submission_id`), 'Map'), startsWith(dynamicType(events.properties.`$survey_submission_id`), 'Tuple')), toJSONString(events.properties.`$survey_submission_id`), toString(events.properties.`$survey_submission_id`))))), toString(events.uuid))) AS unique_responses
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'survey sent'), greaterOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), in(nullIf(nullIf(events.properties.`$survey_id`, ''), 'null'), ['00000000-0000-0000-0000-000000000003']))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'survey sent'), greaterOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), in(events.properties.`$survey_id`, ['00000000-0000-0000-0000-000000000003']))
   GROUP BY survey_id
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
@@ -64,10 +64,10 @@
 # ---
 # name: TestStopSurveysReachedTarget.test_stop_surveys_with_enough_responses[new_events_schema]
   '''
-  SELECT nullIf(nullIf(events.properties.`$survey_id`, ''), 'null') AS survey_id,
+  SELECT events.properties.`$survey_id` AS survey_id,
          count(DISTINCT if(ifNull(notEquals(coalesce(if(notEquals(toJSONString(events.properties.^`$survey_submission_id`), '{}'), toJSONString(events.properties.^`$survey_submission_id`), if(isNull(events.properties.`$survey_submission_id`), NULL, if(startsWith(dynamicType(events.properties.`$survey_submission_id`), 'DateTime'), replaceOne(toString(events.properties.`$survey_submission_id`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`$survey_submission_id`), 'Array'), startsWith(dynamicType(events.properties.`$survey_submission_id`), 'Map'), startsWith(dynamicType(events.properties.`$survey_submission_id`), 'Tuple')), toJSONString(events.properties.`$survey_submission_id`), toString(events.properties.`$survey_submission_id`))))), ''), ''), 1), if(notEquals(toJSONString(events.properties.^`$survey_submission_id`), '{}'), toJSONString(events.properties.^`$survey_submission_id`), if(isNull(events.properties.`$survey_submission_id`), NULL, if(startsWith(dynamicType(events.properties.`$survey_submission_id`), 'DateTime'), replaceOne(toString(events.properties.`$survey_submission_id`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`$survey_submission_id`), 'Array'), startsWith(dynamicType(events.properties.`$survey_submission_id`), 'Map'), startsWith(dynamicType(events.properties.`$survey_submission_id`), 'Tuple')), toJSONString(events.properties.`$survey_submission_id`), toString(events.properties.`$survey_submission_id`))))), toString(events.uuid))) AS unique_responses
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'survey sent'), greaterOrEquals(events.timestamp, toDateTime64('2021-12-29 20:00:00.000000', 6, 'UTC')), in(nullIf(nullIf(events.properties.`$survey_id`, ''), 'null'), ['00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002']))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'survey sent'), greaterOrEquals(events.timestamp, toDateTime64('2021-12-29 20:00:00.000000', 6, 'UTC')), in(events.properties.`$survey_id`, ['00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002']))
   GROUP BY survey_id
   LIMIT 2 SETTINGS readonly=2,
                    max_execution_time=60,

@@ -265,7 +265,7 @@
   
   SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(value_metrics, 1)), avgMerge(tupleElement(value_metrics, 2))) AS value_metrics, host AS host 
   FROM (
-    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS value_metrics, nullIf(nullIf(events.properties.`$host`, ''), 'null') AS host 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS value_metrics, events.properties.`$host` AS host 
     FROM events_json AS events 
     WHERE and(equals(events.team_id, 420), less(events.timestamp, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s))) 
     GROUP BY host) 
@@ -273,7 +273,7 @@
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(value_metrics, 1)), avgMerge(tupleElement(value_metrics, 2))) AS value_metrics, host AS host 
   FROM (
-    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS value_metrics, nullIf(nullIf(events.properties.`$host`, ''), 'null') AS host 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS value_metrics, events.properties.`$host` AS host 
     FROM events_json AS events 
     WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)), less(events.timestamp, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s))) 
     GROUP BY host) 
@@ -281,7 +281,7 @@
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(value_metrics, 1)), avgMerge(tupleElement(value_metrics, 2))) AS value_metrics, host AS host 
   FROM (
-    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS value_metrics, nullIf(nullIf(events.properties.`$host`, ''), 'null') AS host 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS value_metrics, events.properties.`$host` AS host 
     FROM events_json AS events 
     WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s))) 
     GROUP BY host) 
@@ -450,7 +450,7 @@
   
   SELECT uniqMerge(unique_users) AS unique_users, countMerge(total_events) AS total_events, host AS host 
   FROM (
-    SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events, nullIf(nullIf(events.properties.`$host`, ''), 'null') AS host 
+    SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events, events.properties.`$host` AS host 
     FROM events_json AS events 
     WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s))) 
     GROUP BY host 
@@ -563,7 +563,7 @@
   
   SELECT host AS host, uniqMerge(unique_users) AS unique_users, sumMerge(click_count) AS click_count, avgMerge(avg_duration) AS avg_duration 
   FROM (
-    SELECT nullIf(nullIf(events.properties.`$host`, ''), 'null') AS host, uniqState(events.distinct_id) AS unique_users, sumStateIf(1, equals(events.event, %(hogql_val_0)s)) AS click_count, avgState(accurateCastOrNull(if(notEquals(toJSONString(events.properties.^session_duration), '{}'), toJSONString(events.properties.^session_duration), if(isNull(events.properties.session_duration), NULL, if(startsWith(dynamicType(events.properties.session_duration), 'DateTime'), replaceOne(toString(events.properties.session_duration), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.session_duration), 'Array'), startsWith(dynamicType(events.properties.session_duration), 'Map'), startsWith(dynamicType(events.properties.session_duration), 'Tuple')), toJSONString(events.properties.session_duration), toString(events.properties.session_duration))))), %(hogql_val_1)s)) AS avg_duration 
+    SELECT events.properties.`$host` AS host, uniqState(events.distinct_id) AS unique_users, sumStateIf(1, equals(events.event, %(hogql_val_0)s)) AS click_count, avgState(accurateCastOrNull(if(notEquals(toJSONString(events.properties.^session_duration), '{}'), toJSONString(events.properties.^session_duration), if(isNull(events.properties.session_duration), NULL, if(startsWith(dynamicType(events.properties.session_duration), 'DateTime'), replaceOne(toString(events.properties.session_duration), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.session_duration), 'Array'), startsWith(dynamicType(events.properties.session_duration), 'Map'), startsWith(dynamicType(events.properties.session_duration), 'Tuple')), toJSONString(events.properties.session_duration), toString(events.properties.session_duration))))), %(hogql_val_1)s)) AS avg_duration 
     FROM events_json AS events 
     WHERE equals(events.team_id, 420) 
     GROUP BY host) 
@@ -616,7 +616,7 @@
 # name: TestStateTransforms.test_preserve_group_by[new_events_schema]
   '''
   
-  SELECT nullIf(nullIf(events.properties.`$pathname`, ''), 'null') AS pathname, uniqState(events.distinct_id) AS unique_users, countState() AS total_events 
+  SELECT events.properties.`$pathname` AS pathname, uniqState(events.distinct_id) AS unique_users, countState() AS total_events 
   FROM events_json AS events 
   WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s))) 
   GROUP BY pathname 
@@ -635,7 +635,7 @@
 # name: TestStateTransforms.test_preserve_query_without_aggregations[new_events_schema]
   '''
   
-  SELECT events.distinct_id AS distinct_id, nullIf(nullIf(events.properties.`$pathname`, ''), 'null') AS pathname 
+  SELECT events.distinct_id AS distinct_id, events.properties.`$pathname` AS pathname 
   FROM events_json AS events 
   WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s))) 
   LIMIT 50000
@@ -939,7 +939,7 @@
   
   SELECT tuple(uniqMerge(tupleElement(user_stats, 1)), countMerge(tupleElement(user_stats, 2))) AS user_stats, host AS host 
   FROM (
-    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, nullIf(nullIf(events.properties.`$host`, ''), 'null') AS host 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, events.properties.`$host` AS host 
     FROM events_json AS events 
     WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s))) 
     GROUP BY host) 
@@ -1055,7 +1055,7 @@
   
   SELECT host AS host, countMerge(total_count) AS total_count, countMerge(click_count) AS click_count 
   FROM (
-    SELECT nullIf(nullIf(events.properties.`$host`, ''), 'null') AS host, countState() AS total_count, countStateIf(equals(events.event, %(hogql_val_0)s)) AS click_count 
+    SELECT events.properties.`$host` AS host, countState() AS total_count, countStateIf(equals(events.event, %(hogql_val_0)s)) AS click_count 
     FROM events_json AS events 
     WHERE equals(events.team_id, 420) 
     GROUP BY host) 

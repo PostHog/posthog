@@ -157,7 +157,7 @@
   '''
   -- ClickHouse
   WITH latest_events AS (
-    SELECT events.distinct_id AS distinct_id, argMax(nullIf(nullIf(events.properties.`$os_version`, ''), 'null'), toTimeZone(events.timestamp, %(hogql_val_0)s)) AS latest_os_version 
+    SELECT events.distinct_id AS distinct_id, argMax(events.properties.`$os_version`, toTimeZone(events.timestamp, %(hogql_val_0)s)) AS latest_os_version 
     FROM events_json AS events 
     WHERE and(equals(events.team_id, 99999), and(equals(events.properties.`$os`, %(hogql_val_1)s), isNotNull(events.properties.`$os`)), greaterOrEquals(events.timestamp, minus(now64(6, %(hogql_val_2)s), toIntervalDay(30)))) 
     GROUP BY events.distinct_id), major_versions AS (
@@ -499,9 +499,9 @@
   -- ClickHouse
   SELECT e.event AS event, s.session_id AS session_id 
   FROM (
-    SELECT e.event AS event, nullIf(nullIf(e.properties.`$session_id`, ''), 'null') AS `properties__$session_id` 
+    SELECT e.event AS event, e.properties.`$session_id` AS `properties__$session_id` 
     FROM events_json AS e 
-    WHERE and(equals(e.team_id, 99999), isNotNull(nullIf(nullIf(e.properties.`$session_id`, ''), 'null'))) 
+    WHERE and(equals(e.team_id, 99999), isNotNull(e.properties.`$session_id`)) 
     LIMIT 10) AS e LEFT JOIN (
     SELECT session_replay_events.session_id AS session_id 
     FROM session_replay_events 

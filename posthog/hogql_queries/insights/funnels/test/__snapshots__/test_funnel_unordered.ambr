@@ -1064,7 +1064,7 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(and(equals(e.event, 'buy'), ifNull(equals(if(notEquals(toJSONString(e.properties.^`$version`), '{}'), toJSONString(e.properties.^`$version`), if(isNull(e.properties.`$version`), NULL, if(startsWith(dynamicType(e.properties.`$version`), 'DateTime'), replaceOne(toString(e.properties.`$version`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$version`), 'Array'), startsWith(dynamicType(e.properties.`$version`), 'Map'), startsWith(dynamicType(e.properties.`$version`), 'Tuple')), toJSONString(e.properties.`$version`), toString(e.properties.`$version`))))), 'xyz'), 0)), 1, 0) AS step_1,
-                  [ifNull(toString(nullIf(nullIf(e.properties.`$browser`, ''), 'null')), '')] AS prop_basic,
+                  [ifNull(toString(e.properties.`$browser`), '')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -1200,7 +1200,7 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(equals(e.event, 'buy'), 1, 0) AS step_1,
-                  [ifNull(toString(nullIf(nullIf(e.properties.`$browser`, ''), 'null')), ''), ifNull(toString(if(notEquals(toJSONString(e.properties.^`$version`), '{}'), toJSONString(e.properties.^`$version`), if(isNull(e.properties.`$version`), NULL, if(startsWith(dynamicType(e.properties.`$version`), 'DateTime'), replaceOne(toString(e.properties.`$version`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$version`), 'Array'), startsWith(dynamicType(e.properties.`$version`), 'Map'), startsWith(dynamicType(e.properties.`$version`), 'Tuple')), toJSONString(e.properties.`$version`), toString(e.properties.`$version`)))))), '')] AS prop_basic,
+                  [ifNull(toString(e.properties.`$browser`), ''), ifNull(toString(if(notEquals(toJSONString(e.properties.^`$version`), '{}'), toJSONString(e.properties.^`$version`), if(isNull(e.properties.`$version`), NULL, if(startsWith(dynamicType(e.properties.`$version`), 'DateTime'), replaceOne(toString(e.properties.`$version`), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.`$version`), 'Array'), startsWith(dynamicType(e.properties.`$version`), 'Map'), startsWith(dynamicType(e.properties.`$version`), 'Tuple')), toJSONString(e.properties.`$version`), toString(e.properties.`$version`)))))), '')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN

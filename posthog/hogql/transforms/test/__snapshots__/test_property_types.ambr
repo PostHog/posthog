@@ -92,7 +92,7 @@
 # name: TestPropertyTypes.test_resolve_property_types_combined[new_events_schema]
   '''
   
-  SELECT multiply(accurateCastOrNull(nullIf(nullIf(events.properties.`$screen_width`, ''), 'null'), %(hogql_val_4)s), events__person.properties___tickets)
+  SELECT multiply(accurateCastOrNull(events.properties.`$screen_width`, %(hogql_val_4)s), events__person.properties___tickets)
   FROM events_json AS events LEFT OUTER JOIN (
     SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
     FROM person_distinct_id_overrides
@@ -122,7 +122,7 @@
 # name: TestPropertyTypes.test_resolve_property_types_event[new_events_schema]
   '''
   
-  SELECT multiply(accurateCastOrNull(nullIf(nullIf(events.properties.`$screen_width`, ''), 'null'), %(hogql_val_0)s), accurateCastOrNull(nullIf(nullIf(events.properties.`$screen_height`, ''), 'null'), %(hogql_val_1)s)), accurateCastOrNull(transform(toString(if(notEquals(toJSONString(events.properties.^bool), '{}'), toJSONString(events.properties.^bool), if(isNull(events.properties.bool), NULL, if(startsWith(dynamicType(events.properties.bool), 'DateTime'), replaceOne(toString(events.properties.bool), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.bool), 'Array'), startsWith(dynamicType(events.properties.bool), 'Map'), startsWith(dynamicType(events.properties.bool), 'Tuple')), toJSONString(events.properties.bool), toString(events.properties.bool)))))), %(hogql_val_2)s, %(hogql_val_3)s, NULL), %(hogql_val_4)s) AS bool
+  SELECT multiply(accurateCastOrNull(events.properties.`$screen_width`, %(hogql_val_0)s), accurateCastOrNull(events.properties.`$screen_height`, %(hogql_val_1)s)), accurateCastOrNull(transform(toString(if(notEquals(toJSONString(events.properties.^bool), '{}'), toJSONString(events.properties.^bool), if(isNull(events.properties.bool), NULL, if(startsWith(dynamicType(events.properties.bool), 'DateTime'), replaceOne(toString(events.properties.bool), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.bool), 'Array'), startsWith(dynamicType(events.properties.bool), 'Map'), startsWith(dynamicType(events.properties.bool), 'Tuple')), toJSONString(events.properties.bool), toString(events.properties.bool)))))), %(hogql_val_2)s, %(hogql_val_3)s, NULL), %(hogql_val_4)s) AS bool
   FROM events_json AS events
   WHERE equals(events.team_id, 420)
   LIMIT 50000

@@ -101,7 +101,7 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'watched movie'), 1, 0) AS step_0,
                   if(equals(e.event, 'terminate funnel'), 1, 0) AS step_1,
-                  [if(empty(replaceRegexpOne(ifNull(toString(nullIf(nullIf(e.properties.`$current_url`, ''), 'null')), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(nullIf(nullIf(e.properties.`$current_url`, ''), 'null')), ''), '[\\/?#]*$', ''))] AS prop_basic,
+                  [if(empty(replaceRegexpOne(ifNull(toString(e.properties.`$current_url`), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(e.properties.`$current_url`), ''), '[\\/?#]*$', ''))] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -237,7 +237,7 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'watched movie'), 1, 0) AS step_0,
                   if(equals(e.event, 'terminate funnel'), 1, 0) AS step_1,
-                  [if(empty(replaceRegexpOne(ifNull(toString(nullIf(nullIf(e.properties.`$pathname`, ''), 'null')), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(nullIf(nullIf(e.properties.`$pathname`, ''), 'null')), ''), '[\\/?#]*$', ''))] AS prop_basic,
+                  [if(empty(replaceRegexpOne(ifNull(toString(e.properties.`$pathname`), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(e.properties.`$pathname`), ''), '[\\/?#]*$', ''))] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -373,7 +373,7 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'watched movie'), 1, 0) AS step_0,
                   if(equals(e.event, 'terminate funnel'), 1, 0) AS step_1,
-                  [if(empty(replaceRegexpOne(replaceRegexpAll(ifNull(toString(nullIf(nullIf(e.properties.`$pathname`, ''), 'null')), ''), '/home.*', '/cleaned-home'), '[\\/?#]*$', '')), '/', replaceRegexpOne(replaceRegexpAll(ifNull(toString(nullIf(nullIf(e.properties.`$pathname`, ''), 'null')), ''), '/home.*', '/cleaned-home'), '[\\/?#]*$', ''))] AS prop_basic,
+                  [if(empty(replaceRegexpOne(replaceRegexpAll(ifNull(toString(e.properties.`$pathname`), ''), '/home.*', '/cleaned-home'), '[\\/?#]*$', '')), '/', replaceRegexpOne(replaceRegexpAll(ifNull(toString(e.properties.`$pathname`), ''), '/home.*', '/cleaned-home'), '[\\/?#]*$', ''))] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -509,7 +509,7 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'watched movie'), 1, 0) AS step_0,
                   if(equals(e.event, 'terminate funnel'), 1, 0) AS step_1,
-                  [replaceRegexpAll(ifNull(toString(nullIf(nullIf(e.properties.`$pathname`, ''), 'null')), ''), '/home.*', '/cleaned-home')] AS prop_basic,
+                  [replaceRegexpAll(ifNull(toString(e.properties.`$pathname`), ''), '/home.*', '/cleaned-home')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
