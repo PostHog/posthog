@@ -72,6 +72,7 @@ from posthog.temporal.session_replay.session_summary.types.video import (
 
 from products.replay.backend.models.session_summaries import SingleSessionSummary
 
+from ee.hogai.session_summaries import SessionSummaryModelUnavailableError
 from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
@@ -329,7 +330,9 @@ async def ensure_llm_single_session_summary(
     progress: SingleSessionProgress | None = None,
 ):
     """Single-session summary flow. ``progress`` populated only by the video flow."""
-    retry_policy = RetryPolicy(maximum_attempts=3)
+    retry_policy = RetryPolicy(
+        maximum_attempts=3, non_retryable_error_types=[SessionSummaryModelUnavailableError.__name__]
+    )
     trace_id = temporalio.workflow.info().workflow_id
 
     # Must run before the a5* fan-out — embeddings/signals/tags would otherwise re-emit on retried runs.

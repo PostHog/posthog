@@ -53,6 +53,7 @@ from posthog.temporal.session_replay.session_summary_group.types import (
 
 from products.replay.backend.models.session_summaries import SessionGroupSummary
 
+from ee.hogai.session_summaries import SessionSummaryModelUnavailableError
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARY_MIN_SUCCESS_FLOOR,
     GROUP_SUMMARY_MIN_SUCCESS_RATIO,
@@ -313,7 +314,9 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 extract_session_group_patterns_activity,
                 inputs,
                 start_to_close_timeout=timedelta(minutes=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3, non_retryable_error_types=[SessionSummaryModelUnavailableError.__name__]
+                ),
             )
             self._processed_patterns_extraction += len(inputs.single_session_summaries_inputs)
             self._current_status.append(
@@ -419,7 +422,9 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 trigger_session_id=inputs.trigger_session_id,
             ),
             start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            retry_policy=RetryPolicy(
+                maximum_attempts=3, non_retryable_error_types=[SessionSummaryModelUnavailableError.__name__]
+            ),
         )
         return session_ids_with_patterns_extracted
 

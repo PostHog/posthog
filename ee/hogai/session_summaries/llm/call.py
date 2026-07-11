@@ -2,6 +2,7 @@ import os
 
 from django.conf import settings
 
+import openai
 import structlog
 import posthoganalytics
 from openai.types.responses import Response as OpenAIResponse
@@ -12,6 +13,7 @@ from rest_framework import exceptions
 from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
 
+from ee.hogai.session_summaries import SessionSummaryModelUnavailableError
 from ee.hogai.session_summaries.constants import BASE_LLM_CALL_TIMEOUT_S, SESSION_SUMMARIES_REASONING_EFFORT
 
 logger = structlog.get_logger(__name__)
@@ -101,13 +103,21 @@ async def call_llm(
     user_param = _prepare_user_param(user_id)
     client = get_async_openai_client()
     posthog_props = _build_posthog_props(trigger_session_id)
-    result = await client.responses.create(  # type: ignore[call-overload]
-        input=messages,
-        model=model,
-        reasoning={"effort": SESSION_SUMMARIES_REASONING_EFFORT},
-        user=user_param,
-        posthog_trace_id=trace_id,
-        posthog_distinct_id=user_distinct_id,
-        posthog_properties=posthog_props,
-    )
+    try:
+        result = await client.responses.create(  # type: ignore[call-overload]
+            input=messages,
+            model=model,
+            reasoning={"effort": SESSION_SUMMARIES_REASONING_EFFORT},
+            user=user_param,
+            posthog_trace_id=trace_id,
+            posthog_distinct_id=user_distinct_id,
+            posthog_properties=posthog_props,
+        )
+    except openai.NotFoundError as err:
+        # A 404 means the model isn't available (retired/renamed). Retrying won't help until
+        # the model config is fixed, so surface it as a distinct non-retryable error instead
+        # of letting callers treat it as a transient, retryable API error.
+        msg = f"Summarization model '{model}' is not available for session {session_id}: {err}"
+        logger.exception(msg, session_id=session_id, signals_type="session-summaries")
+        raise SessionSummaryModelUnavailableError(msg) from err
     return result
