@@ -53,6 +53,13 @@ class ErrorTrackingRecommendationViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
             raise NotFound()
         except recommendations_facade.UnknownRecommendationTypeError:
             return Response({"detail": "Unknown recommendation type."}, status=status.HTTP_400_BAD_REQUEST)
+        except recommendations_facade.RecommendationRefreshUnavailableError:
+            # The compute task couldn't be enqueued (e.g. the broker is briefly unavailable).
+            # It's transient and retryable, so surface a 503 rather than leaking a 500.
+            return Response(
+                {"detail": "Couldn't start the refresh right now. Please try again in a moment."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         return Response(self.get_serializer(recommendation).data, status=status.HTTP_200_OK)
 
     @extend_schema(request=None, responses=ErrorTrackingRecommendationSerializer)

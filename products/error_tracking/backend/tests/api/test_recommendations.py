@@ -384,6 +384,29 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
+    def test_refresh_returns_503_when_enqueue_fails(self, mock_alerts, mock_long_running):
+        response = self._list()
+        rec_id = next(r["id"] for r in response.json()["results"] if r["type"] == "long_running_issues")
+
+        with patch(
+            "products.error_tracking.backend.logic.recommendations.store.compute_error_tracking_recommendation.delay",
+            side_effect=Exception("broker unavailable"),
+        ):
+            response = self._refresh(rec_id)
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        # The failed claim is rolled back so a later retry can still recompute.
+        obj = ErrorTrackingRecommendation.objects.get(id=rec_id)
+        self.assertEqual(obj.status, ErrorTrackingRecommendation.Status.READY)
+
+    @patch(
+        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        return_value={"issues": []},
+    )
+    @patch(
+        "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
+        return_value=MOCK_ALERTS_META,
+    )
     def test_list_marks_recommendations_ready_after_compute(self, mock_alerts, mock_long_running):
         response = self._list()
 
