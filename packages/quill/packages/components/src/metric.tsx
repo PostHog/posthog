@@ -306,15 +306,9 @@ export function MetricValue({ className, children, ...props }: React.ComponentPr
 
 /** Change pill — a `Badge` (success/destructive by `goodDirection`, or the root's custom
  *  `positiveColor`/`negativeColor`) with a directional chevron. Renders nothing when there is no
- *  resolved delta. Carries its own `TooltipProvider`, so `changeTooltip` needs no app-root setup. */
-export function MetricDelta({
-    className,
-    size = 'sm',
-}: {
-    className?: string
-    /** `md` renders the larger pill the metric insight uses inline next to the headline. */
-    size?: 'sm' | 'md'
-}): React.ReactElement | null {
+ *  resolved delta. Carries its own `TooltipProvider`, so `changeTooltip` needs no app-root setup.
+ *  Resize via `className` — e.g. the metric insight passes its own larger-pill classes. */
+export function MetricDelta({ className }: { className?: string }): React.ReactElement | null {
     const { change } = useMetric('MetricDelta')
     if (change == null) {
         return null
@@ -323,11 +317,7 @@ export function MetricDelta({
     const badge = (
         <Badge
             variant={change.colors != null ? 'default' : change.good ? 'success' : 'destructive'}
-            className={cn(
-                'gap-0.5 rounded-full tabular-nums',
-                size === 'md' && 'h-auto gap-1 px-2.5 py-1 text-sm [&>svg]:size-3!',
-                className
-            )}
+            className={cn('gap-0.5 rounded-full tabular-nums', className)}
             // Dynamic user-configured colors can't be Tailwind classes; inline style wins over the variant.
             style={
                 change.colors != null

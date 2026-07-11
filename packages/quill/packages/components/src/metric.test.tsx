@@ -67,15 +67,4 @@ describe('Metric', () => {
         consoleError.mockRestore()
     })
 
-    it('size="md" renders the larger pill', () => {
-        const { container } = render(
-            <Metric value={100} change={{ value: 8.4 }}>
-                <MetricValue />
-                <MetricDelta size="md" />
-            </Metric>
-        )
-        const pill = container.querySelector<HTMLElement>('[data-attr="metric-change-pill"]')!
-        expect(pill.className).toContain('text-sm')
-        expect(pill.className).toContain('px-2.5')
-    })
 })
