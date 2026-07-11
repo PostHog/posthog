@@ -9,6 +9,7 @@ from temporalio import activity
 
 from posthog.schema_migrations import LATEST_VERSIONS, _discover_migrations
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.temporal.common.utils import close_db_connections
 
 from products.product_analytics.backend.models.insight import Insight
 
@@ -41,6 +42,7 @@ class GetInsightsToMigrateActivityResult:
 
 
 @activity.defn
+@close_db_connections
 def get_insights_to_migrate(inputs: GetInsightsToMigrateActivityInputs) -> GetInsightsToMigrateActivityResult:
     _discover_migrations()  # Populate LATEST_VERSIONS; this is the first activity in the workflow
 
@@ -75,6 +77,7 @@ class MigrateInsightsBatchActivityInputs:
 
 
 @activity.defn
+@close_db_connections
 def migrate_insights_batch(inputs: MigrateInsightsBatchActivityInputs) -> list[int]:
     """Migrate a batch of insights to the latest version."""
     logger = LOGGER.bind()
