@@ -3,6 +3,7 @@ from typing import Optional, cast
 from django.conf import settings
 
 import gspread
+from google.auth import exceptions as google_auth_exceptions
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -123,6 +124,15 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                 False,
                 "Google Sheets could not open this spreadsheet. Please check the URL and that it is shared "
                 "with our service account as described at https://posthog.com/docs/cdp/sources/google-sheets",
+            )
+        except (google_auth_exceptions.RefreshError, google_auth_exceptions.TransportError):
+            # A transient failure fetching the service-account OAuth token (Google's token endpoint
+            # 5xx-ing) surfaces here rather than as a gspread APIError. Its str() is a raw server
+            # message like "A server error occurred." with nothing for the user to act on.
+            return (
+                False,
+                "PostHog couldn't verify access to your Google Sheet right now because Google returned a "
+                "temporary error. Please try again in a moment.",
             )
         except Exception as e:
             return False, str(e)

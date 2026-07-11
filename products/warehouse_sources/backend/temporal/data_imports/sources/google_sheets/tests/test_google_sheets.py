@@ -6,6 +6,7 @@ from unittest import mock
 
 import gspread
 import requests
+from google.auth import exceptions as google_auth_exceptions
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
@@ -578,3 +579,24 @@ def test_validate_credentials_maps_api_error_to_friendly_message(api_message, ex
     assert expected_fragment in (error_message or "")
     # The raw gspread "APIError: [400]: ..." dump must not reach the user.
     assert "APIError" not in (error_message or "")
+
+
+@pytest.mark.parametrize(
+    "auth_error",
+    [
+        google_auth_exceptions.RefreshError("A server error occurred."),
+        google_auth_exceptions.TransportError("A server error occurred."),
+    ],
+)
+def test_validate_credentials_maps_transient_google_auth_error(auth_error):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client"
+    ) as mock_client:
+        mock_client.return_value.open_by_url.side_effect = auth_error
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+        is_valid, error_message = GoogleSheetsSource().validate_credentials(config, team_id=1)
+
+    assert is_valid is False
+    # The raw Google token-endpoint message ("A server error occurred.") must not reach the user.
+    assert "A server error occurred." not in (error_message or "")
+    assert "try again" in (error_message or "").lower()
