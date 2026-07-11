@@ -260,6 +260,16 @@ class TestValidateCredentials:
         assert ok is False
         assert error is not None
 
+    def test_payment_required_gets_actionable_message(self) -> None:
+        session = MagicMock()
+        session.post.return_value = FakeResponse(status_code=402)
+        with patch.object(mp, "make_tracked_session", return_value=session):
+            ok, error = validate_credentials("us", "user", "secret", "123")
+        assert ok is False
+        assert error is not None
+        assert "402" in error
+        assert "plan" in error.lower()
+
 
 class TestExportIterator:
     def _run(self, manager: FakeManager, start: date, end: date, responses: list[FakeResponse]) -> list[dict]:

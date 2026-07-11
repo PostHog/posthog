@@ -183,6 +183,13 @@ def validate_credentials(
         if schema_name is None:
             return True, None
         return False, "The service account does not have access to this resource in the selected project."
+    if response.status_code == 402:
+        return (
+            False,
+            "Mixpanel denied the request (402 Payment Required). Raw data access usually needs a Mixpanel "
+            "plan that includes the data export API, and the account must be in good standing. Check your "
+            "Mixpanel plan and billing, then try again.",
+        )
 
     return False, f"Mixpanel returned an unexpected status ({response.status_code}) while validating credentials."
 
