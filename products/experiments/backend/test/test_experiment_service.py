@@ -34,7 +34,11 @@ from products.actions.backend.models.action import Action
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.experiment_service import ExperimentService, _deprecated_fields_in_request
+from products.experiments.backend.experiment_service import (
+    ExperimentService,
+    _deprecated_fields_in_request,
+    _deprecated_parameters_keys_in_request,
+)
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
@@ -2217,6 +2221,40 @@ class TestExperimentService(APIBaseTest):
         assert dup.feature_flag.id != source.feature_flag.id
         assert dup.feature_flag.aggregation_group_type_index == group_index
 
+    # Only groups[0]'s rollout percentage clones; property targeting and extra groups do not, matching
+    # the experiment input surface that restricts groups to a single empty-properties entry.
+    @parameterized.expand(
+        [
+            ("single_group", [{"properties": [], "rollout_percentage": 20}]),
+            (
+                "targeting_and_extra_groups_dropped",
+                [
+                    {
+                        "properties": [{"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"}],
+                        "rollout_percentage": 20,
+                    },
+                    {"properties": [], "rollout_percentage": 55},
+                ],
+            ),
+        ]
+    )
+    def test_duplicate_experiment_inherits_rollout_percentage(self, _name: str, source_groups: list[dict]):
+        flag = self._create_flag(key="dup-rollout-source")
+        flag.filters = {**flag.filters, "groups": source_groups}
+        flag.save()
+        service = self._service()
+        source = service.create_experiment(name="Rollout Source", feature_flag_key="dup-rollout-source")
+
+        # New key forces a fresh flag through _ensure_feature_flag rather than reusing the source.
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-rollout-target")
+
+        assert dup.feature_flag.id != source.feature_flag.id
+        clone_groups = dup.feature_flag.filters["groups"]
+        # Inherits groups[0]'s percentage but nothing else: one group, no property targeting.
+        assert len(clone_groups) == 1
+        assert clone_groups[0]["rollout_percentage"] == 20
+        assert clone_groups[0]["properties"] == []
+
     # ------------------------------------------------------------------
     # Launch experiment
     # ------------------------------------------------------------------
@@ -3098,6 +3136,61 @@ class TestExperimentService(APIBaseTest):
 
         with self.assertRaises(ValidationError):
             service.resume_experiment(experiment)
+
+    @parameterized.expand(
+        [
+            (
+                "launched",
+                "experiment launched",
+                lambda self: self._create_launchable_experiment(name="Ev L", feature_flag_key="ev-launched-flag"),
+                lambda service, experiment, request: service.launch_experiment(experiment, request=request),
+            ),
+            (
+                "paused",
+                "experiment paused",
+                lambda self: self._create_running_experiment(name="Ev P", feature_flag_key="ev-paused-flag"),
+                lambda service, experiment, request: service.pause_experiment(experiment, request=request),
+            ),
+            (
+                "resumed",
+                "experiment resumed",
+                lambda self: self._create_running_experiment(name="Ev R", feature_flag_key="ev-resumed-flag"),
+                # pause first (no request -> no report), then resume with the request under assertion
+                lambda service, experiment, request: (
+                    service.pause_experiment(experiment),
+                    service.resume_experiment(experiment, request=request),
+                ),
+            ),
+            (
+                "archived",
+                "experiment archived",
+                lambda self: self._create_ended_experiment(name="Ev A", feature_flag_key="ev-archived-flag"),
+                lambda service, experiment, request: service.archive_experiment(experiment, request=request),
+            ),
+            (
+                "unarchived",
+                "experiment unarchived",
+                lambda self: self._create_ended_experiment(name="Ev U", feature_flag_key="ev-unarchived-flag"),
+                # archive first (no request -> no report), then unarchive with the request under assertion
+                lambda service, experiment, request: (
+                    service.archive_experiment(experiment),
+                    service.unarchive_experiment(experiment, request=request),
+                ),
+            ),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_lifecycle_action_emits_exact_event_name(self, _name, event_name, build, act, mock_report_user_action):
+        # These five event strings are asserted nowhere else. After the per-action report methods were
+        # collapsed into one _report_lifecycle_event(event_name) call, a typo'd string at any call site
+        # would silently break the analytics event without this guard.
+        experiment = build(self)
+        mock_report_user_action.reset_mock()
+
+        act(self._service(), experiment, self._make_request())
+
+        mock_report_user_action.assert_called_once()
+        assert mock_report_user_action.call_args.args[1] == event_name
 
     # ------------------------------------------------------------------
     # Freeze exposure
@@ -6578,3 +6671,27 @@ class TestDeprecatedFieldsInRequest(SimpleTestCase):
         request = MagicMock()
         type(request).data = PropertyMock(side_effect=RuntimeError("stream consumed"))
         assert _deprecated_fields_in_request(request) == {}
+
+
+class TestDeprecatedParametersKeysInRequest(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "deprecated_subset_sorted",
+                {"parameters": {"rollout_percentage": 50, "feature_flag_variants": [], "variant_notes": {}}},
+                ["feature_flag_variants", "rollout_percentage"],
+            ),
+            ("only_non_deprecated_keys", {"parameters": {"variant_notes": {"control": "n"}}}, []),
+            ("parameters_not_a_dict", {"parameters": [1, 2]}, []),
+            ("non_dict_body", [1, 2, 3], []),
+        ]
+    )
+    def test_detects_deprecated_parameters_keys(self, _name: str, body: Any, expected: list[str]) -> None:
+        request = MagicMock()
+        request.data = body
+        assert _deprecated_parameters_keys_in_request(request) == expected
+
+    def test_returns_empty_when_reading_body_raises(self) -> None:
+        request = MagicMock()
+        type(request).data = PropertyMock(side_effect=RuntimeError("stream consumed"))
+        assert _deprecated_parameters_keys_in_request(request) == []

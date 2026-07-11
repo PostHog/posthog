@@ -89,6 +89,16 @@ describe('objects utils', () => {
             expect(reconcileById([], next, (item) => item.id)).toBe(next)
         })
 
+        it('returns the previous array itself when every item is reused', () => {
+            // Consumers that diff collections by reference (ReactFlow's controlled nodes/edges
+            // props) must see an unchanged reconcile as unchanged: a fresh array wrapper per
+            // rebuild re-syncs ReactFlow's store on every render, which can amplify upstream
+            // churn into an infinite update loop (React #185).
+            const prev = [makeItem({ id: 'a' }), makeItem({ id: 'b' })]
+            const next = [makeItem({ id: 'a' }), makeItem({ id: 'b' })]
+            expect(reconcileById(prev, next, (item) => item.id)).toBe(prev)
+        })
+
         it('never reuses items the isReusable predicate rejects, even when deep-equal', () => {
             // An in-flight item's row may render wall-clock time: reusing its reference would let a
             // memoized row skip the poll re-render and freeze.

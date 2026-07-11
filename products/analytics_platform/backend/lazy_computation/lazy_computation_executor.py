@@ -78,6 +78,20 @@ DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
 # replica writes immediately but ClickHouse still blocks on the quorum protocol).
 PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else "auto"
 
+# How long a quorum INSERT waits for replica acknowledgements before failing.
+# ClickHouse's default is 600s, which turns any quorum breakage (dead replica,
+# stale registration, ZK trouble) into ten-minute request hangs; the executor is
+# built to treat failed inserts as retryable and callers fall back to the live
+# query, so failing fast is strictly better. Part replication between two healthy
+# colocated replicas is sub-second; 2s keeps a spurious-timeout margin while making
+# a broken quorum cost two seconds instead of ten minutes. A false positive is
+# cheap: the part is already written, the retry re-insert is idempotent under
+# ReplacingMergeTree, and the caller falls back to the live query meanwhile.
+# A quorum-wait expiry raises code 319 UNKNOWN_STATUS_OF_INSERT ("client must
+# retry"), which is deliberately absent from NON_RETRYABLE_CLICKHOUSE_ERROR_CODES —
+# distinct from 159 TIMEOUT_EXCEEDED (max_execution_time), which stays non-retryable.
+PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS = 2 * 1000
+
 
 # Mirrors the `lazy_computation.executed` structured log so the same outcomes
 # (`success` / `timeout` / `non_retryable_error` / `max_retries_exceeded`) are
@@ -148,6 +162,7 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
         {
             "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
             "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
+            "insert_quorum_timeout": PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
             # The executor marks a job READY as soon as the INSERT returns, so rows must be on the
             # shards by then — not sitting in the initiator's async distribution queue, where they
             # become visible to readers only minutes later. We set this per-insert rather than
@@ -787,7 +802,7 @@ class LazyComputationExecutor:
     - ttl_schedule: TtlSchedule controlling how long lazy-computed data persists per time range
     - stale_pending_threshold_seconds: How long before a PENDING job is considered stale
     - ch_start_grace_period_seconds: Grace period before declaring "not started" as stale
-    - serve_stale_grace_seconds: When set, a request that would otherwise compute inline
+    - stale_while_revalidate_seconds: When set, a request that would otherwise compute inline
       (or block on another executor's pending jobs) is served from READY jobs that expired
       within the last N seconds — complete-but-stale data, returned immediately with
       `stale=True`. Must stay well under EXPIRY_BUFFER_SECONDS (48h) so the underlying
@@ -803,10 +818,10 @@ class LazyComputationExecutor:
         ttl_schedule: TtlSchedule = DEFAULT_TTL_SCHEDULE,
         stale_pending_threshold_seconds: float = DEFAULT_STALE_PENDING_THRESHOLD_SECONDS,
         ch_start_grace_period_seconds: float = DEFAULT_CH_START_GRACE_PERIOD_SECONDS,
-        serve_stale_grace_seconds: float | None = None,
+        stale_while_revalidate_seconds: float | None = None,
     ) -> None:
-        if serve_stale_grace_seconds is not None and serve_stale_grace_seconds >= EXPIRY_BUFFER_SECONDS:
-            raise ValueError("serve_stale_grace_seconds must be below EXPIRY_BUFFER_SECONDS")
+        if stale_while_revalidate_seconds is not None and stale_while_revalidate_seconds >= EXPIRY_BUFFER_SECONDS:
+            raise ValueError("stale_while_revalidate_seconds must be below EXPIRY_BUFFER_SECONDS")
         self.wait_timeout_seconds = wait_timeout_seconds
         self.poll_interval_seconds = poll_interval_seconds
         self.max_poll_interval_seconds = max_poll_interval_seconds
@@ -814,7 +829,7 @@ class LazyComputationExecutor:
         self.ttl_schedule = ttl_schedule
         self.stale_pending_threshold_seconds = stale_pending_threshold_seconds
         self.ch_start_grace_period_seconds = ch_start_grace_period_seconds
-        self.serve_stale_grace_seconds = serve_stale_grace_seconds
+        self.stale_while_revalidate_seconds = stale_while_revalidate_seconds
 
     def execute(
         self,
@@ -906,13 +921,13 @@ class LazyComputationExecutor:
                 # fully cover the range, return them immediately — complete-but-stale beats
                 # blocking. Whoever refreshes (the warmer, or a request after the grace)
                 # replaces the data; `filter_overlapping_jobs` always prefers newer jobs.
-                if self.serve_stale_grace_seconds is not None and (ttl_ranges or pending_jobs):
+                if self.stale_while_revalidate_seconds is not None and (ttl_ranges or pending_jobs):
                     graced = find_existing_jobs(
-                        team, query_hash, start, end, expired_grace_seconds=self.serve_stale_grace_seconds
+                        team, query_hash, start, end, expired_grace_seconds=self.stale_while_revalidate_seconds
                     )
                     graced_ready = self._filter_by_freshness(
                         [j for j in graced if j.status == PreaggregationJob.Status.READY],
-                        grace_seconds=self.serve_stale_grace_seconds,
+                        grace_seconds=self.stale_while_revalidate_seconds,
                     )
                     # Coverage must be checked on the overlap-filtered set that will actually
                     # be returned: the filter prefers newer jobs, so a newer narrow job can
@@ -1177,7 +1192,7 @@ def ensure_precomputed(
     query_type: str | None = None,
     spill_to_disk: bool = False,
     wait_timeout_seconds: float | None = None,
-    serve_stale_grace_seconds: float | None = None,
+    stale_while_revalidate_seconds: float | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1223,11 +1238,13 @@ def ensure_precomputed(
                       persists as a READY job even when the overall call times out,
                       so repeated calls converge. Use a small value for user-facing
                       requests that have a cheap fallback path.
-        serve_stale_grace_seconds: When set, requests that would otherwise compute
-                      inline or wait are served from READY jobs expired within the
-                      last N seconds (result comes back with `stale=True`). Only for
-                      user-facing callers with a refresh mechanism (e.g. an hourly
-                      warmer); background refreshers must leave this unset or they
+        stale_while_revalidate_seconds: Mirrors the HTTP `stale-while-revalidate`
+                      cache directive (RFC 5861): when set, requests that would
+                      otherwise compute inline or wait are served from READY jobs
+                      expired within the last N seconds (result comes back with
+                      `stale=True`), and the caller is expected to revalidate in the
+                      background. Only for user-facing callers with a refresh
+                      mechanism; background refreshers must leave this unset or they
                       would serve stale to themselves and never recompute.
 
     Returns:
@@ -1321,7 +1338,7 @@ def ensure_precomputed(
     executor = LazyComputationExecutor(
         ttl_schedule=ttl_schedule,
         wait_timeout_seconds=wait_timeout_seconds if wait_timeout_seconds is not None else DEFAULT_WAIT_TIMEOUT_SECONDS,
-        serve_stale_grace_seconds=serve_stale_grace_seconds,
+        stale_while_revalidate_seconds=stale_while_revalidate_seconds,
     )
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
 

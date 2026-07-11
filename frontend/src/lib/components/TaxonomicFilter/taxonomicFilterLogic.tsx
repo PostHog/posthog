@@ -49,12 +49,19 @@ import {
     TaxonomicFilterValue,
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
+import {
+    MCP_TOOL_CALL_EVENT,
+    MCP_TOOL_CALL_SUGGESTED_PROPERTIES,
+    getMCPExcludedEventProperties,
+    getMCPPropertyFilterOptions,
+    includesMCPAnalyticsEvents,
+} from 'lib/components/TaxonomicFilter/utils/mcpProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { getPrimaryPropertyForEvent } from 'lib/utils/events'
+import { distinctPrimaryPropertiesForEvents } from 'lib/utils/events'
 import { isString } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
@@ -489,28 +496,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (eventNames) => eventNames ?? [],
             { resultEqualityCheck: objectsEqual },
         ],
-        // Combined selector that returns both event names and the distinct primary properties
-        // for those events. Combined into a single selector so taxonomicGroups stays under
-        // kea's 16-dep tuple type limit; consumers destructure both fields.
+        // Combined selector that returns the event names, the distinct primary properties for
+        // those events, and the known MCP schema to hide from Event properties when the MCP tab
+        // hosts it. Combined into a single selector so taxonomicGroups stays under kea's 16-dep
+        // tuple type limit; consumers destructure the fields.
         eventNamesWithPrimaryProperties: [
-            (s) => [s.eventNames, s.primaryProperties],
+            (s) => [s.eventNames, s.primaryProperties, (_, props) => props.taxonomicGroupTypes],
             (
                 eventNames: string[],
-                primaryProperties: Record<string, string>
+                primaryProperties: Record<string, string>,
+                taxonomicGroupTypes: TaxonomicFilterGroupType[] | undefined
             ): {
                 eventNames: string[]
                 primaryPropertiesForContextEvents: string[]
+                mcpExcludedEventProperties: string[]
             } => {
-                const distinct = new Set<string>()
-                for (const eventName of eventNames) {
-                    const primary = getPrimaryPropertyForEvent(eventName, primaryProperties)
-                    if (primary) {
-                        distinct.add(primary)
-                    }
-                }
                 return {
                     eventNames,
-                    primaryPropertiesForContextEvents: Array.from(distinct),
+                    primaryPropertiesForContextEvents: distinctPrimaryPropertiesForEvents(
+                        eventNames,
+                        primaryProperties
+                    ),
+                    mcpExcludedEventProperties: getMCPExcludedEventProperties(eventNames, taxonomicGroupTypes),
                 }
             },
             { resultEqualityCheck: objectsEqual },
@@ -620,6 +627,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventNamesWithPrimaryProperties: {
                     eventNames: string[]
                     primaryPropertiesForContextEvents: string[]
+                    mcpExcludedEventProperties: string[]
                 },
                 schemaColumns: DatabaseSchemaField[],
                 schemaColumnsLoading: boolean | undefined,
@@ -642,7 +650,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 },
                 featureFlags: Record<string, boolean | string | undefined>
             ): TaxonomicFilterGroup[] => {
-                const { eventNames, primaryPropertiesForContextEvents } = eventNamesWithPrimaryProperties
+                const { eventNames, primaryPropertiesForContextEvents, mcpExcludedEventProperties } =
+                    eventNamesWithPrimaryProperties
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
@@ -832,6 +841,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             ...(!featureFlags[FEATURE_FLAGS.TRAFFIC_TYPE_VIRTUAL_PROPERTIES]
                                 ? TRAFFIC_TYPE_VIRTUAL_PROPERTIES
                                 : []),
+                            // The known MCP schema lives only in its own group when that tab is
+                            // present — excluded via the same mechanism as TRAFFIC_TYPE_VIRTUAL_PROPERTIES
+                            // above; the exclusivity intent is documented on getMCPExcludedEventProperties.
+                            ...mcpExcludedEventProperties,
                         ],
                         propertyAllowList:
                             propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
@@ -859,6 +872,26 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: getPropertyDefinitionIcon,
                         getPopoverHeader: () => 'Internal event properties',
                     },
+                    // Only offered when the picker is scoped to canonical MCP events, so the
+                    // known @posthog/mcp schema is separated out without adding a tab anywhere else.
+                    ...(includesMCPAnalyticsEvents(eventNames)
+                        ? [
+                              {
+                                  name: 'MCP properties',
+                                  searchPlaceholder: 'MCP properties',
+                                  type: TaxonomicFilterGroupType.MCPProperties,
+                                  options: getMCPPropertyFilterOptions().map((value) => ({
+                                      name: value,
+                                      value,
+                                      group: TaxonomicFilterGroupType.EventProperties,
+                                  })),
+                                  getName: (option: SimpleOption) => option.name,
+                                  getValue: (option: SimpleOption) => option.name,
+                                  getIcon: getPropertyDefinitionIcon,
+                                  getPopoverHeader: () => 'MCP property',
+                              },
+                          ]
+                        : []),
                     {
                         name: 'Event metadata',
                         searchPlaceholder: 'event metadata',
@@ -1093,19 +1126,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                       ...endpointFilters,
                                   }).url
                                 : undefined,
-                        localItemsSearch: (items: any[], q: string): any[] => {
-                            if (!q) {
-                                return items
-                            }
-                            return [
-                                {
-                                    key: 'message',
-                                    name: 'Search span message for "' + q + '"',
-                                    value: q,
-                                    propertyFilterType: 'span',
-                                },
-                            ].concat(items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase())))
-                        },
                         getName: (option: { key: string; name: string }) => option.name,
                         getValue: (option: { key: string; name: string }) => option.key,
                         getPopoverHeader: () => 'Span attributes',
@@ -1563,6 +1583,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 ? (['text', 'selector'] as const).map((name) => ({
                                       name,
                                       group: TaxonomicFilterGroupType.Elements,
+                                  }))
+                                : []),
+                            ...(eventNames.includes(MCP_TOOL_CALL_EVENT)
+                                ? MCP_TOOL_CALL_SUGGESTED_PROPERTIES.map((name) => ({
+                                      name,
+                                      group: TaxonomicFilterGroupType.EventProperties,
                                   }))
                                 : []),
                         ],

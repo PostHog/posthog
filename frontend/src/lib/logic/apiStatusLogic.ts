@@ -13,7 +13,9 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
     actions({
         onApiResponse: (response?: Response, error?: any) => ({ response, error }),
         setInternetConnectionIssue: (issue: boolean) => ({ issue }),
-        setTimeSensitiveAuthenticationRequired: (required: boolean | [resolve: () => void, reject: () => void]) => ({
+        setTimeSensitiveAuthenticationRequired: (
+            required: boolean | [onSuccess: () => void, onFailure: () => void]
+        ) => ({
             required,
         }),
         setTwoFactorVerificationExpiredToastShown: (shown: boolean) => ({ shown }),
@@ -28,9 +30,10 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         ],
 
         timeSensitiveAuthenticationRequired: [
-            // When a tuple with resolve/reject is passed, one of these will be called
-            // when re-authentication succeeds or fails/is dismissed
-            false as boolean | [resolve: () => void, reject: () => void],
+            // When a tuple of callbacks is passed, one of these will be called
+            // when re-authentication succeeds or fails/is dismissed. Neither may throw
+            // or reject: the pending checkReauthentication listener awaits them fire-and-forget.
+            false as boolean | [onSuccess: () => void, onFailure: () => void],
             {
                 setTimeSensitiveAuthenticationRequired: (_, { required }) => required,
             },
