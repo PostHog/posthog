@@ -191,6 +191,8 @@ The collapsed editor sections (Filters, Breakdown, Advanced options, Funnel sett
 - Autocapture measures 30 days of *clicks*, not reliance: a feature configured once on a long-lived saved insight shows no clicks. The `insight analyzed` properties partially correct for this because they fire on every view of saved insights too.
 - Flag-gated features have usage suppressed by their rollout percentage; treat their tiers as lower bounds and check the flag cohort before deciding.
 - Text inputs (axis labels, formula box) autocapture weakly; corroborate with query properties before acting on zeros.
+- Controls without a `data-attr` can often still be measured by their exact label text (`$el_text`), and the per-type dashboard tiles do this for the stickiness compute-as options, the person-properties toggle, retention's calculation pickers, paths' full-URL switch, and the lifecycle toggles. Two limits: labels break silently on copy changes, and labels shared with other components (the criteria operator options reuse the property-filter operator labels) cannot be attributed at all.
+- The shared `AggregationSelect` component carries `data-attr="retention-aggregation-selector"` even when rendered as the funnels "Aggregating by" picker, so that attribute's counts span both types.
 - This is one project's window; rerun the appendix queries over a quarter before shipping removals.
 
 ## Appendix: reproduction queries
