@@ -110,6 +110,12 @@ CDC_ORPHAN_JOB_MIN_AGE = dt.timedelta(minutes=30)
 # tell an abandoned run from one whose batches simply aged out.
 CDC_ORPHAN_JOB_MAX_AGE = dt.timedelta(days=14)
 
+# Backpressure guard: past this age a skipped tick is a stuck load, not a slow one — well beyond
+# the loader's recovery-sweep grace (300s) and retry backoffs, so it only trips when a run needs
+# operator attention. Skips past it log at error level; the tick is still skipped (see
+# _previous_load_still_pending for why we never auto-fail the pending run).
+CDC_BACKPRESSURE_STUCK_AGE = dt.timedelta(hours=2)
+
 # Per-peek bound on WAL changes. A large backlog is drained over several passes (and, if needed,
 # several scheduled runs) instead of one unbounded read that risks the 2h activity timeout and
 # re-decodes from the slot start on every retry. The slot advances after each pass, so the next
@@ -701,6 +707,9 @@ class CDCExtractActivity:
         if not self._setup():
             return
 
+        if self._previous_load_still_pending():
+            return
+
         self._mark_schemas_running()
         # Best-effort — must never break the extraction run, so guard the call
         # site: the method itself has unguarded lines (activity.info(),
@@ -787,6 +796,52 @@ class CDCExtractActivity:
             delete_cdc_extraction_schedule(str(self.inputs.source_id))
         except Exception:
             self.log.exception("failed_to_delete_own_schedule")
+
+    def _previous_load_still_pending(self) -> bool:
+        """Backpressure guard: skip this tick while a previous run's batches are still loading.
+
+        CDC ticks don't hold the per-schema pipeline lock the way external-data-job runs do,
+        so without this check every tick enqueues a fresh run regardless of whether the
+        previous one landed. Coexisting runs of one schema can then be claimed out of order
+        by the loader (its head-of-line gate is run-scoped), and an incremental merge applied
+        out of order silently overwrites newer rows with older ones. Skipping keeps at most
+        one active run per schema; nothing has been peeked and the slot is untouched, so WAL
+        accumulates and the next tick catches up.
+
+        Per-source, not per-schema: the slot is read once for all tables, so one table's
+        pending load must hold back the whole source's tick.
+
+        Deliberately no auto-remediation past CDC_BACKPRESSURE_STUCK_AGE: the slot already
+        advanced past the pending runs' events, so failing their batches would leave a
+        permanent gap in the table. The queue-freshness alert fires well before the
+        threshold, and if nobody intervenes the engine eventually invalidates the slot,
+        which triggers the existing full re-sync recovery. Fail-open on probe errors — the
+        producer writes to the same DB, so a run that can't be probed can't enqueue either.
+        """
+        schema_ids = [str(s.id) for s in self.cdc_schemas]
+        try:
+            conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
+        except Exception:
+            self.log.warning("cdc_backpressure_probe_connect_failed", exc_info=True)
+            return False
+        try:
+            age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(
+                conn, team_id=self.inputs.team_id, schema_ids=schema_ids
+            )
+        except Exception:
+            self.log.warning("cdc_backpressure_probe_failed", exc_info=True)
+            return False
+        finally:
+            conn.close()
+
+        if age is None:
+            return False
+
+        stuck = age >= CDC_BACKPRESSURE_STUCK_AGE.total_seconds()
+        log = self.log.error if stuck else self.log.info
+        log("cdc_tick_skipped_pending_load", oldest_pending_age_seconds=round(age, 1), stuck=stuck)
+        metrics.get_tick_skipped_metric(self.inputs.team_id, str(self.inputs.source_id), stuck).add(1)
+        return True
 
     def _mark_schemas_running(self) -> None:
         """Mark CDC schemas as Running at the start."""

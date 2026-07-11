@@ -3632,6 +3632,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -5027,6 +5029,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -5856,6 +5860,7 @@ export namespace Schemas {
       Resources: 'resources',
       ErrorTrackingProperties: 'error_tracking_properties',
       ActivityLogProperties: 'activity_log_properties',
+      McpProperties: 'mcp_properties',
       MaxAiContext: 'max_ai_context',
       WorkflowVariables: 'workflow_variables',
       SuggestedFilters: 'suggested_filters',
@@ -14732,6 +14737,65 @@ export namespace Schemas {
       NoChange: 'no_change',
     } as const;
 
+    export interface PromptEvaluationResult {
+      /** The rated session that was re-run with the suggested prompt. */
+      session_id: string;
+      /** The original rated observation the comparison is against. */
+      observation_id: string;
+      /** The team's rating of the original output (thumbs up = true). */
+      rated_correct: boolean;
+      /**
+         * The original output's primary outcome.
+         * @nullable
+         */
+      before: string | null;
+      /**
+         * The suggested prompt's outcome for the same session. Null when the run errored or returned no discrete outcome (e.g. a classifier with no tags).
+         * @nullable
+         */
+      after: string | null;
+      /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), or error. */
+      outcome: string;
+      /**
+         * Why this session's re-run failed, when it did.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface PromptEvaluationSummary {
+      /** Thumbs-up sessions whose output is unchanged. */
+      kept: number;
+      /** Thumbs-up sessions whose output changed. */
+      regressed: number;
+      /** Thumbs-down sessions whose output changed. */
+      fixed: number;
+      /** Thumbs-down sessions whose output is unchanged. */
+      still_wrong: number;
+      /** Sessions whose re-run failed. */
+      errors: number;
+    }
+
+    export interface PromptSuggestionEvaluation {
+      /** running, succeeded, or failed. */
+      status: string;
+      /** When the evaluation started. */
+      started_at: string;
+      /**
+         * When the evaluation finished, if it has.
+         * @nullable
+         */
+      finished_at: string | null;
+      /** How many rated sessions are being re-run. */
+      total: number;
+      /** The rated set the evaluation ran against. */
+      labels_fingerprint: string;
+      /** Per-session outcomes, in completion order. */
+      results: PromptEvaluationResult[];
+      /** Outcome counts. Null while the evaluation is running. */
+      summary: PromptEvaluationSummary | null;
+    }
+
     export interface ReplayScannerPromptSuggestion {
       readonly id: string;
       /** pending (current), applied, dismissed, or superseded by a newer suggestion.
@@ -14761,6 +14825,8 @@ export namespace Schemas {
       readonly applied_at: string | null;
       /** User who applied this suggestion to the scanner; null unless applied. */
       readonly applied_by: UserBasic | null;
+      /** Test-before-apply results: the suggested prompt re-run against rated sessions. */
+      readonly evaluation: PromptSuggestionEvaluation | null;
     }
 
     export interface CurrentPromptSuggestion {
@@ -14770,6 +14836,8 @@ export namespace Schemas {
       stale: boolean;
       /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
       rated_count: number;
+      /** Maximum rated sessions one suggestion test re-runs. Each successful re-run charges credits like a normal observation of the same model. */
+      evaluation_session_cap: number;
     }
 
     /**
@@ -21592,6 +21660,15 @@ export namespace Schemas {
       sampling_rate: number;
     }
 
+    export interface EvaluatePromptSuggestionRequest {
+      /**
+         * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.
+         * @minimum 1
+         * @maximum 100
+         */
+      session_limit?: number;
+    }
+
     /**
      * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
@@ -25358,6 +25435,33 @@ export namespace Schemas {
       readonly modified_by: number | null;
     }
 
+    export interface FeedbackThemeSession {
+      /** Observation whose feedback comment backs this theme. */
+      observation_id: string;
+      /** Session recording the feedback comment was about. */
+      session_id: string;
+    }
+
+    export interface FeedbackTheme {
+      /** Short failure mode in sentence case, for example "Review page mistaken for confirmation". */
+      theme: string;
+      /** How many feedback comments describe this failure mode. */
+      count: number;
+      /** Up to two short representative quotes from the feedback comments. */
+      examples: string[];
+      /** The rated sessions whose feedback comments back this theme. Empty for summaries generated before session tracking. */
+      sessions: FeedbackThemeSession[];
+    }
+
+    export interface FeedbackThemes {
+      /** Recurring failure modes, most frequent first. */
+      themes: FeedbackTheme[];
+      /** Number of thumbs-down feedback comments the summary was generated from. */
+      feedback_count: number;
+      /** When the summary was generated. */
+      generated_at: string;
+    }
+
     /**
      * Structured element metadata (inferred selectors, attributes, component hints).
      */
@@ -26775,6 +26879,9 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface HogFlow {
       readonly id: string;
       /**
@@ -26818,6 +26925,11 @@ export namespace Schemas {
       readonly billable_action_types: unknown;
       /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
       readonly schedules: readonly HogFlowSchedule[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     /**
@@ -26920,6 +27032,9 @@ export namespace Schemas {
       current_action_id?: string;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface HogFlowMinimal {
       readonly id: string;
       /** @nullable */
@@ -26940,6 +27055,11 @@ export namespace Schemas {
       readonly abort_action: string | null;
       readonly variables: unknown;
       readonly billable_action_types: unknown;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     /**
@@ -27971,11 +28091,24 @@ export namespace Schemas {
       scope?: MetricsAttributeScope | null;
     }
 
+    export type MetricsOtelType = typeof MetricsOtelType[keyof typeof MetricsOtelType];
+
+
+    export const MetricsOtelType = {
+      Gauge: 'gauge',
+      Sum: 'sum',
+      Histogram: 'histogram',
+      ExponentialHistogram: 'exponential_histogram',
+      Summary: 'summary',
+    } as const;
+
     export interface MetricsQueryClause {
       aggregation: MetricsAggregation;
       filters?: MetricsQueryFilter[] | null;
       groupBy?: MetricsQueryGroupBy[] | null;
       metricName: string;
+      /** Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series. */
+      metricType?: MetricsOtelType | null;
       /** Alias a formula refers to (e.g. "a"); must be unique within the query */
       name: string;
       /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
@@ -32589,6 +32722,8 @@ export namespace Schemas {
       up: number;
       /** Thumbs-down ratings on this version's observations. */
       down: number;
+      /** Succeeded (ratable) observations this version produced, rated or not. */
+      total: number;
     }
 
     export interface ObservationLabelStats {
@@ -32691,6 +32826,7 @@ export namespace Schemas {
     /**
      * * `schedule` - Schedule
      * * `on_demand` - On demand
+     * * `retry` - Retry
      */
     export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
 
@@ -32698,6 +32834,7 @@ export namespace Schemas {
     export const ObservationTriggerEnum = {
       Schedule: 'schedule',
       OnDemand: 'on_demand',
+      Retry: 'retry',
     } as const;
 
     /**
@@ -35060,10 +35197,11 @@ export namespace Schemas {
       readonly scanner_snapshot: ScannerSnapshot | null;
       /** Result data persisted on success; null until the observation succeeds. */
       readonly scanner_result: ScannerResult | null;
-      /** Whether this observation came from the schedule or an on-demand request.
+      /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.
        *
        * * `schedule` - Schedule
-       * * `on_demand` - On demand */
+       * * `on_demand` - On demand
+       * * `retry` - Retry */
       readonly triggered_by: ObservationTriggerEnum;
       /** User who triggered an on-demand observation; null for scheduled observations. */
       readonly triggered_by_user: UserBasic | null;
@@ -35078,12 +35216,12 @@ export namespace Schemas {
          */
       readonly recording_subject_email: string | null;
       /**
-         * Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.
+         * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
          * @nullable
          */
       readonly previous_observation_id: string | null;
       /**
-         * Id of the older sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the end.
+         * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
          * @nullable
          */
       readonly next_observation_id: string | null;
@@ -35184,6 +35322,8 @@ export namespace Schemas {
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
       readonly updated_at: string;
+      /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
+      readonly feedback_themes: FeedbackThemes | null;
     }
 
     export interface PaginatedReplayScannerList {
@@ -40692,6 +40832,9 @@ export namespace Schemas {
      */
     export type PatchedHogFlowVariablesItem = {[key: string]: string};
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedHogFlow {
       readonly id?: string;
       /**
@@ -40735,6 +40878,11 @@ export namespace Schemas {
       readonly billable_action_types?: unknown;
       /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
       readonly schedules?: readonly HogFlowSchedule[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedHogFlowGraphUpdate {
@@ -43046,6 +43194,8 @@ export namespace Schemas {
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;
       readonly updated_at?: string;
+      /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
+      readonly feedback_themes?: FeedbackThemes | null;
     }
 
     export interface PatchedReviewQueueItemUpdate {
@@ -48265,6 +48415,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -48740,6 +48892,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -64156,13 +64310,48 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
      * Session recording id to return observations for.
      */
     session_id: string;
+    };
+
+    export type EnvironmentsVisionObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string;
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
     };
 
     export type EnvironmentsVisionScannersListParams = {
@@ -64214,7 +64403,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
@@ -64234,7 +64423,42 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
+    };
+
+    export type EnvironmentsVisionScannersObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string;
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -64269,7 +64493,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -72419,13 +72643,48 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
      * Session recording id to return observations for.
      */
     session_id: string;
+    };
+
+    export type VisionObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string;
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
     };
 
     export type VisionScannersListParams = {
@@ -72477,7 +72736,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
@@ -72497,7 +72756,42 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
+    };
+
+    export type VisionScannersObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string;
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -72532,7 +72826,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**

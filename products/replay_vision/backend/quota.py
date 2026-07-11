@@ -18,6 +18,7 @@ from products.replay_vision.backend.models.replay_observation import IN_FLIGHT_S
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.prompt_evaluation import in_flight_evaluation_credits
 
 logger = structlog.get_logger(__name__)
 
@@ -127,7 +128,8 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
         ).values_list("scanner_snapshot__model", flat=True)
     )
     in_flight = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
-    usage = consumed + in_flight
+    # Prompt tests have no observation rows. Their unsettled sessions are committed spend too.
+    usage = consumed + in_flight + in_flight_evaluation_credits(organization_id)
     bonus = ReplayQuotaGrant.objects.filter(
         organization_id=organization_id,
         expires_at__gt=now,

@@ -20,7 +20,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControlError
 
-from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
+from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 from products.metrics.backend.metrics_query_runner import MetricsQueryRunner
 from products.metrics.backend.tests._seeder import seed_metric
 
@@ -38,6 +38,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     name="a",
                     metricName="http_requests_total",
                     aggregation="histogram_quantile",
+                    metricType="histogram",
                     quantile=0.95,
                     filters=[MetricsQueryFilter(key="container", op="eq", value="capture", scope="attribute")],
                     groupBy=[MetricsQueryGroupBy(key="namespace")],
@@ -52,6 +53,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         clause = request.clauses[0]
         assert clause.metric_name == "http_requests_total"
+        assert clause.metric_type is MetricType.HISTOGRAM
         assert clause.aggregation is MetricAggregation.HISTOGRAM_QUANTILE
         assert clause.quantile == 0.95
         assert clause.filters[0].op is FilterOp.EQ
