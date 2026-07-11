@@ -163,7 +163,7 @@ def _check_replication_role(conn: psycopg.Connection) -> list[str]:
                 "Grant one of: REPLICATION attribute (ALTER USER <username> WITH REPLICATION), "
                 "superuser, or membership in rds_replication / rds_superuser on RDS. "
                 "If you can't grant replication access, switch these tables to Incremental sync "
-                "instead of CDC — it needs only SELECT permission."
+                "instead of CDC. Incremental needs only SELECT permission."
             ]
     return []
 

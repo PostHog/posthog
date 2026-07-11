@@ -62,7 +62,7 @@ def _slot_setup_error_message(exc: Exception) -> str:
             f"Failed to create replication slot: {exc} "
             "The database user lacks permission to create logical replication slots. "
             "Either grant it replication access, or switch these tables to Incremental sync "
-            "instead of CDC — Incremental needs only SELECT permission."
+            "instead of CDC. Incremental needs only SELECT permission."
         )
     return f"Failed to create replication slot: {exc}"
 
