@@ -3513,8 +3513,11 @@ const api = {
                             // If we can't read the response, just use the status
                         }
 
-                        // For any error, call onError and abort to prevent retries
-                        onError(new Error(errorMessage))
+                        // Carry the real HTTP status so callers can classify the failure by status code
+                        // rather than string-matching the message (which misfires on transient/stream errors).
+                        const error = new Error(errorMessage) as Error & { status?: number }
+                        error.status = response.status
+                        onError(error)
                         abortController.abort()
                         return
                     }

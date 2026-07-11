@@ -940,6 +940,73 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('tile streaming failure classification', () => {
+        let lemonToastErrorSpy: jest.SpiedFunction<typeof lemonToast.error>
+
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        beforeEach(() => {
+            lemonToastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            lemonToastErrorSpy.mockRestore()
+        })
+
+        // A genuine 404 from the stream's initial response is the only signal that flips the scene to
+        // "Dashboard not found". A stream error whose message merely mentions 404 (e.g. a tile query that
+        // failed upstream) carries no status and must stay a toast — string-matching '404' used to turn
+        // these blips into a hard NotFound on valid, loaded dashboards.
+        it('only marks NotFound on a real 404 status, not a message that mentions 404', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'Query failed with code 404 upstream' })
+            }).toFinishAllListeners()
+            expect(logic.values.error404).toBe(false)
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
+            expect(lemonToastErrorSpy).toHaveBeenCalled()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+            }).toFinishAllListeners()
+            expect(logic.values.error404).toBe(true)
+        })
+
+        it('routes a 403 status to access denied and other errors to a toast', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'forbidden', status: 403 })
+            }).toFinishAllListeners()
+            expect(logic.values.accessDeniedToDashboard).toBe(true)
+            expect(logic.values.error404).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'HTTP 500: something broke', status: 500 })
+            }).toFinishAllListeners()
+            expect(lemonToastErrorSpy).toHaveBeenCalledWith(expect.stringContaining('something broke'))
+        })
+
+        // The failure that drove the reports: a transient stream error before any metadata arrives leaves
+        // dashboard === null. The empty-state gate would then render "Dashboard not found"; instead the
+        // load is marked failed so a load-error state shows, and it must NOT be classified as a 404.
+        it('marks the load failed (not NotFound) when a transient error leaves no dashboard', async () => {
+            // Dispatched before the initial load resolves (loaders breakpoint for 200ms), so dashboard is null.
+            expect(logic.values.dashboard).toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+            }).toDispatchActions(['setDashboardStreamFailed'])
+
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+            expect(logic.values.error404).toBe(false)
+        })
+    })
+
     describe('when a dashboard item API errors', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 8 })
