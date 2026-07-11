@@ -50,4 +50,32 @@ describe('Metric', () => {
         expect(pill?.className).toContain('quill-badge--variant-success')
         expect(pill?.style.background).toBe('')
     })
+
+    // Badge isn't a forwardRef component, so it must not be the trigger's `render` target — a revert
+    // to `render={badge}` makes the pill the trigger itself and fires React's function-ref error.
+    it('changeTooltip anchors the trigger on a span wrapping the pill, without ref errors', () => {
+        const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+        const { container } = render(
+            <Metric value={100} change={{ value: 8.4 }} changeTooltip="vs last week">
+                <MetricValue />
+                <MetricDelta />
+            </Metric>
+        )
+        const trigger = container.querySelector<HTMLElement>('[data-slot="tooltip-trigger"]')
+        expect(trigger?.querySelector('[data-attr="metric-change-pill"]')).not.toBeNull()
+        expect(consoleError).not.toHaveBeenCalled()
+        consoleError.mockRestore()
+    })
+
+    it('size="md" renders the larger pill', () => {
+        const { container } = render(
+            <Metric value={100} change={{ value: 8.4 }}>
+                <MetricValue />
+                <MetricDelta size="md" />
+            </Metric>
+        )
+        const pill = container.querySelector<HTMLElement>('[data-attr="metric-change-pill"]')!
+        expect(pill.className).toContain('text-sm')
+        expect(pill.className).toContain('px-2.5')
+    })
 })

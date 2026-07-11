@@ -2,13 +2,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import { useChartTheme } from '@posthog/quill-charts'
-import {
-    Metric as QuillMetric,
-    MetricDelta,
-    MetricSparkline,
-    MetricSubtitle,
-    MetricValue,
-} from '@posthog/quill-components/metric'
+import { Metric, MetricDelta, MetricSparkline, MetricSubtitle, MetricValue } from '@posthog/quill-components/metric'
 
 import { dayjs } from 'lib/dayjs'
 import { hexToRGBA } from 'lib/utils/colors'
@@ -44,7 +38,7 @@ const makeChangeColor = (hex: string): { background: string; foreground: string 
     foreground: hex,
 })
 
-export function Metric({ inCardView }: ChartParams): JSX.Element {
+export function MetricInsight({ inCardView }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { insightData, trendsFilter, interval } = useValues(insightVizDataLogic(insightProps))
     const { incompletenessOffsetFromEnd } = useValues(trendsDataLogic(insightProps))
@@ -96,7 +90,7 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
 
     return (
         <div className={clsx('Metric ph-no-capture flex flex-col w-full p-2', inCardView && 'flex-1')}>
-            <QuillMetric
+            <Metric
                 className={clsx('px-0', inCardView && 'flex-1')}
                 sparklineFill={inCardView}
                 value={headlineValue}
@@ -123,10 +117,9 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
                     <MetricDelta size="md" />
                 </div>
                 <MetricSubtitle className="mt-1" />
-                {/* -mb-2 bleeds through the wrapper's p-2; top-[6px] eats the canvas's bottom hover-ring margin
-                    so the line's lowest point sits on the tile edge. */}
-                <MetricSparkline className="mt-4 -mx-2 -mb-2 relative top-[6px]" />
-            </QuillMetric>
+                {/* -mb-2 bleeds through the wrapper's p-2 so the sparkline reaches the tile edges. */}
+                <MetricSparkline className="mt-4 -mx-2 -mb-2" />
+            </Metric>
         </div>
     )
 }

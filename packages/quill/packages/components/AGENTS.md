@@ -130,6 +130,7 @@ const theme = useChartTheme()
 Rules:
 
 - Wrap `Metric` in `<Card flush>` — `Metric` is just the layout/content (it owns its inline padding like `CardContent`, so the sparkline can bleed out with `-mx-4`); the card owns the border, block padding, and bottom edge. `flush` drops the card's bottom padding so `MetricSparkline` reaches the bottom; a number-only tile can use a plain `<Card>`.
+- `MetricSparkline` owns the bottom-edge alignment (a built-in 6px shift that pushes the canvas's hover-ring margin past the card edge so the line rests on it) — a custom `className` only manages margins (`-mx-*`/`-mb-*`/`mt-*`), never re-adds the offset.
 - Give the card a height (`className="h-40"`, or `h-full` in a sized box) when using `sparklineFill` or when you want a fixed-height sparkline pinned to the bottom; otherwise it sizes to content (`Metric` is `h-full` so it fills whatever card it's in).
 - The root owns the data/hover behavior and feeds the parts via context — a part used outside `<Metric>` throws. Pass `value` for a number-only tile; pass `data`+`labels`+`theme` for a sparkline.
 - `MetricDelta` renders a `Badge`; `goodDirection` (default `up`) decides success vs destructive. It carries its own `TooltipProvider`, so `changeTooltip` needs no app-root setup. `size="md"` renders the larger pill (the metric insight puts it inline next to the headline in a flex row — there is no `changeInline` prop, compose the layout instead).

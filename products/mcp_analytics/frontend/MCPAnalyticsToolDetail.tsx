@@ -10,17 +10,7 @@ import {
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
 import {
-    Metric,
-    MetricDelta,
-    MetricHeader,
-    MetricSparkline,
-    MetricSubtitle,
-    MetricTitle,
-    MetricValue,
-} from '@posthog/quill-components/metric'
-import {
     Card,
-    CardContent,
     CardDescription,
     CardHeader,
     CardTitle,
@@ -49,6 +39,7 @@ import { SceneExport } from '~/scenes/sceneTypes'
 
 import { formatBucketLabel, formatMs, formatMsAsSeconds } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
+import { MetricTile } from './dashboard/MetricTile'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import {
     type DailyChartData,
@@ -65,62 +56,6 @@ export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     paramsToProps: ({ params: { toolName } }) => ({
         toolName: decodeURIComponent(toolName ?? ''),
     }),
-}
-
-function StatTile({
-    label,
-    value,
-    formatValue,
-    data,
-    labels,
-    theme,
-    color,
-    goodDirection,
-    loading,
-}: {
-    label: string
-    value: number
-    formatValue: (n: number) => string
-    data?: number[]
-    labels?: string[]
-    theme: ChartTheme
-    color?: string
-    goodDirection?: 'up' | 'down'
-    loading: boolean
-}): JSX.Element {
-    const hasSparkline = data != null && data.length > 0
-    return (
-        <Card size="sm" flush={hasSparkline} className="flex-1">
-            {loading ? (
-                <CardContent className="flex flex-col gap-2">
-                    <Skeleton className="h-3 w-16" />
-                    <Skeleton className="h-7 w-20" />
-                </CardContent>
-            ) : (
-                <Metric
-                    className="px-3 text-primary"
-                    value={value}
-                    data={data}
-                    labels={labels}
-                    theme={theme}
-                    color={color}
-                    formatValue={formatValue}
-                    goodDirection={goodDirection}
-                    // Resting caption only — hovering a sparkline point swaps in that day's label.
-                    restingSubtitle="Last 7 days"
-                    sparklineHeight={40}
-                >
-                    <MetricHeader>
-                        <MetricTitle>{label}</MetricTitle>
-                        <MetricDelta />
-                    </MetricHeader>
-                    <MetricValue className="mt-2" />
-                    <MetricSubtitle className="mt-1" />
-                    <MetricSparkline className="mt-2 -mx-3 relative top-[6px]" />
-                </Metric>
-            )}
-        </Card>
-    )
 }
 
 // Renderer for the "person" column in the Top users table. The loader maps each row's
@@ -280,74 +215,77 @@ function StatTiles({
     const errorRateDaily = daily.calls.map((c, i) => (c ? (daily.errors[i] / c) * 100 : 0))
     const sparkLabels = daily.labels.slice(-SPARKLINE_DAYS).map(formatBucketLabel)
 
+    const tiles: {
+        label: string
+        value: number
+        formatValue: (n: number) => string
+        data: number[]
+        color: string
+        goodDirection: 'up' | 'down'
+    }[] = [
+        {
+            label: 'Calls',
+            value: calls,
+            formatValue: humanFriendlyNumber,
+            data: spark(daily.calls),
+            color: theme.colors[0],
+            goodDirection: 'up',
+        },
+        {
+            label: 'Error rate',
+            value: errorRate,
+            formatValue: (n) => `${n.toFixed(1)}%`,
+            data: spark(errorRateDaily),
+            color: theme.colors[4],
+            goodDirection: 'down',
+        },
+        {
+            label: 'p50 latency',
+            value: summary?.p50_ms ?? 0,
+            formatValue: formatMs,
+            data: spark(daily.p50),
+            color: theme.colors[0],
+            goodDirection: 'down',
+        },
+        {
+            label: 'p95 latency',
+            value: summary?.p95_ms ?? 0,
+            formatValue: formatMs,
+            data: spark(daily.p95),
+            color: theme.colors[0],
+            goodDirection: 'down',
+        },
+        {
+            label: 'Users',
+            value: summary?.users ?? 0,
+            formatValue: humanFriendlyNumber,
+            data: spark(daily.users),
+            color: theme.colors[0],
+            goodDirection: 'up',
+        },
+        {
+            label: 'Sessions',
+            value: summary?.conversations ?? 0,
+            formatValue: humanFriendlyNumber,
+            data: spark(daily.sessions),
+            color: theme.colors[6],
+            goodDirection: 'up',
+        },
+    ]
+
     return (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6" data-quill>
-            <StatTile
-                label="Calls"
-                loading={loading}
-                value={calls}
-                formatValue={humanFriendlyNumber}
-                data={spark(daily.calls)}
-                labels={sparkLabels}
-                theme={theme}
-                color={theme.colors[0]}
-                goodDirection="up"
-            />
-            <StatTile
-                label="Error rate"
-                loading={loading}
-                value={errorRate}
-                formatValue={(n) => `${n.toFixed(1)}%`}
-                data={spark(errorRateDaily)}
-                labels={sparkLabels}
-                theme={theme}
-                color={theme.colors[4]}
-                goodDirection="down"
-            />
-            <StatTile
-                label="p50 latency"
-                loading={loading}
-                value={summary?.p50_ms ?? 0}
-                formatValue={formatMs}
-                data={spark(daily.p50)}
-                labels={sparkLabels}
-                theme={theme}
-                color={theme.colors[0]}
-                goodDirection="down"
-            />
-            <StatTile
-                label="p95 latency"
-                loading={loading}
-                value={summary?.p95_ms ?? 0}
-                formatValue={formatMs}
-                data={spark(daily.p95)}
-                labels={sparkLabels}
-                theme={theme}
-                color={theme.colors[0]}
-                goodDirection="down"
-            />
-            <StatTile
-                label="Users"
-                loading={loading}
-                value={summary?.users ?? 0}
-                formatValue={humanFriendlyNumber}
-                data={spark(daily.users)}
-                labels={sparkLabels}
-                theme={theme}
-                color={theme.colors[0]}
-                goodDirection="up"
-            />
-            <StatTile
-                label="Sessions"
-                loading={loading}
-                value={summary?.conversations ?? 0}
-                formatValue={humanFriendlyNumber}
-                data={spark(daily.sessions)}
-                labels={sparkLabels}
-                theme={theme}
-                color={theme.colors[6]}
-                goodDirection="up"
-            />
+            {tiles.map((tile) => (
+                <MetricTile
+                    key={tile.label}
+                    {...tile}
+                    loading={loading}
+                    labels={sparkLabels}
+                    theme={theme}
+                    restingSubtitle="Last 7 days"
+                    sparklineHeight={40}
+                />
+            ))}
         </div>
     )
 }

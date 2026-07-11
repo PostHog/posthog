@@ -4,13 +4,13 @@ import { InsightVizStory } from 'scenes/insights/__mocks__/createInsightVizStory
 
 import __trendsMetric from '~/mocks/fixtures/api/projects/team_id/insights/trendsMetric.json'
 
-import { Metric } from './Metric'
+import { MetricInsight } from './Metric'
 
 type Story = StoryObj<{}>
 
 const meta: Meta = {
     title: 'Insights/Metric',
-    component: Metric,
+    component: MetricInsight,
     parameters: {
         layout: 'centered',
         mockDate: '2022-04-01',

@@ -3,6 +3,7 @@ import React, { useEffect, useMemo } from 'react'
 import { useChartHover } from '../../core/chart-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
+import { seriesValueRange } from '../../core/scales'
 import type { ChartTheme, LineChartConfig, Series } from '../../core/types'
 import { LineChart } from '../LineChart/LineChart'
 
@@ -25,6 +26,17 @@ export interface SparklineProps {
     className?: string
     dataAttr?: string
     onError?: (error: Error, info: React.ErrorInfo) => void
+}
+
+/** Hug the data range: a fixed domain (no tick-nicing) puts the lowest point on the plot bottom
+ *  instead of floating over a zero baseline, so a flat series runs along the bottom edge.
+ *  `undefined` (no finite values) falls back to the scale's own domain. */
+export function sparklineValueDomain(data: number[]): [number, number] | undefined {
+    const { min, max, count } = seriesValueRange([{ key: 'sparkline', label: 'sparkline', data }])
+    if (count === 0) {
+        return undefined
+    }
+    return [min, max === min ? min + 1 : max]
 }
 
 const SPARKLINE_CONFIG: LineChartConfig = {
@@ -76,16 +88,9 @@ function SparklineInner({
         ],
         [data, resolvedColor, fillOpacity, dashedFromIndex]
     )
-    // Hug the data range: a fixed domain (no tick-nicing) puts the lowest point on the plot bottom
-    // instead of floating over a zero baseline, so a flat series runs along the bottom edge.
     const config = useMemo<LineChartConfig>(() => {
-        const finite = data.filter((v) => Number.isFinite(v))
-        if (finite.length === 0) {
-            return SPARKLINE_CONFIG
-        }
-        const min = Math.min(...finite)
-        const max = Math.max(...finite)
-        return { ...SPARKLINE_CONFIG, valueDomain: [min, max === min ? min + 1 : max] }
+        const valueDomain = sparklineValueDomain(data)
+        return valueDomain ? { ...SPARKLINE_CONFIG, valueDomain } : SPARKLINE_CONFIG
     }, [data])
     const wrapperStyle = useMemo<React.CSSProperties | undefined>(() => (fill ? undefined : { height }), [fill, height])
 

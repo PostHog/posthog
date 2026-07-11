@@ -374,7 +374,7 @@ export function MetricSubtitle({
 
 /** Sparkline, bled out to the card edges. Renders nothing when no series was supplied to the root. */
 export function MetricSparkline({
-    className = '-mx-4 -mb-4 mt-4 relative top-[6px] flex-1',
+    className = '-mx-4 -mb-4 mt-4 flex-1',
 }: {
     className?: string
 }): React.ReactElement | null {
@@ -384,7 +384,9 @@ export function MetricSparkline({
     }
     // A fixed-height sparkline drops to the bottom of a taller card via `mt-auto`; a filling sparkline
     // grows into the free space itself, so it must not also claim that space with a margin. `-mx-4`/`-mb-4`
-    // cancel the card's content padding so the chart reaches the left/right/bottom edges.
+    // cancel the card's content padding so the chart reaches the left/right/bottom edges. The 6px shift
+    // pushes the canvas's bottom hover-ring margin past the card edge so the line rests on it —
+    // always applied, so callers overriding `className` only manage margins.
     const pinBottom = sparkline.fill ? '' : 'mt-auto'
     return (
         <Sparkline
@@ -397,7 +399,7 @@ export function MetricSparkline({
             fillOpacity={sparkline.fillOpacity}
             dashedFromIndex={sparkline.dashedFromIndex}
             onHoverIndexChange={sparkline.setHoverIndex}
-            className={cn(pinBottom, className)}
+            className={cn('relative top-[6px]', pinBottom, className)}
             dataAttr="metric-sparkline"
         />
     )
