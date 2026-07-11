@@ -767,7 +767,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     return handler(params, searchParams, hashParams, payload)
                 } catch (error) {
                     posthog.captureException(error, { extra: { source: 'sceneLogic.urlToAction' } })
-                    actions.loadScene(Scene.Error404, undefined, emptySceneParams, payload?.method ?? 'REPLACE')
+                    actions.loadScene(Scene.Error404, undefined, emptySceneParams, payload.method)
                 }
             }
 
