@@ -237,6 +237,30 @@ class DeltaBatchConsumerAdapter:
             limit=limit,
         )
         for ref in refs:
+            # A producer can enqueue a batch into a run after fail_run swept it (the
+            # extraction is still in flight when a sibling batch exhausts retries).
+            # Such stragglers stay 'pending' forever — unclaimable, but counted by the
+            # freshness gauge and the CDC backpressure probe — so re-sweep the run here.
+            # No-op (one indexed statement) when the run has no non-terminal batches.
+            try:
+                stragglers = await BatchQueue.fail_run(
+                    conn,
+                    run_uuid=ref.run_uuid,
+                    reason="enqueued into an already-failed run (reconcile sweep)",
+                )
+            except Exception as e:
+                logger.exception("reconcile_straggler_sweep_failed", run_uuid=ref.run_uuid)
+                capture_exception(e)
+            else:
+                if stragglers:
+                    logger.warning(
+                        "reconcile_swept_straggler_batches",
+                        run_uuid=ref.run_uuid,
+                        team_id=ref.team_id,
+                        external_data_schema_id=ref.schema_id,
+                        batch_count=stragglers,
+                    )
+
             try:
                 reconciled = await sync_to_async(mark_job_failed_if_not_terminal)(
                     job_id=ref.job_id,

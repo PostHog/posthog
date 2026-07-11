@@ -824,6 +824,39 @@ class TestReconcileFailedRuns:
         mock_release.assert_called_once_with(team_id=ref.team_id, schema_id=ref.schema_id, token=ref.workflow_run_id)
 
     @pytest.mark.asyncio
+    async def test_sweeps_stragglers_even_for_already_terminal_run(self):
+        # A batch enqueued into a run after fail_run swept it stays 'pending' forever
+        # (unclaimable, but it pins the freshness gauge and holds the CDC backpressure
+        # guard down) unless the reconcile sweep re-fails the run — seen in production.
+        # The sweep must run before the already-terminal gate, not behind it.
+        consumer = _make_consumer()
+        ref = _make_failed_run_ref()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+                return_value=[ref],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_fail_run,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.mark_job_failed_if_not_terminal",
+                return_value=False,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.release_v3_pipeline_lock",
+            ),
+        ):
+            await consumer._reconcile_failed_runs()
+
+        mock_fail_run.assert_called_once()
+        assert mock_fail_run.call_args.kwargs["run_uuid"] == ref.run_uuid
+
+    @pytest.mark.asyncio
     async def test_skips_already_terminal_run(self):
         consumer = _make_consumer()
         ref = _make_failed_run_ref()
