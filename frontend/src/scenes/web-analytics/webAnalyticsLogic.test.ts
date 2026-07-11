@@ -164,6 +164,29 @@ describe('webAnalyticsLogic focus mode', () => {
         })
     })
 
+    describe('remove replay tile experiment', () => {
+        const hasReplayTile = (): boolean => logic.values.tiles.some((tile) => tile.tileId === TileId.REPLAY)
+
+        it('shows the session replay tile by default', async () => {
+            await expectLogic(logic).toMatchValues({ productTab: ProductTab.ANALYTICS })
+            expect(hasReplayTile()).toBe(true)
+        })
+
+        it('keeps the session replay tile for the control variant', () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_REMOVE_REPLAY_TILE], {
+                [FEATURE_FLAGS.WEB_ANALYTICS_REMOVE_REPLAY_TILE]: 'control',
+            })
+            expect(hasReplayTile()).toBe(true)
+        })
+
+        it('removes the session replay tile for the test variant', () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_REMOVE_REPLAY_TILE], {
+                [FEATURE_FLAGS.WEB_ANALYTICS_REMOVE_REPLAY_TILE]: 'test',
+            })
+            expect(hasReplayTile()).toBe(false)
+        })
+    })
+
     describe('onboarding', () => {
         const loadUser = (hasSeenProductIntroFor: Record<string, boolean>): void => {
             userLogic.actions.loadUserSuccess({

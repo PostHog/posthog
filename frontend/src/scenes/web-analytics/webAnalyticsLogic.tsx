@@ -1380,6 +1380,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
+                const removeReplayTile = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REMOVE_REPLAY_TILE] === 'test'
 
                 const includeHostMenuItem: LemonMenuItem | null =
                     useTileHeaderV2 && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST]
@@ -2343,7 +2344,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal
+                    !conversionGoal && !removeReplayTile
                         ? {
                               kind: 'replay',
                               tileId: TileId.REPLAY,
