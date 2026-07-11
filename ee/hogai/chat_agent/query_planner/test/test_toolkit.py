@@ -369,7 +369,10 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
                 toolkit.retrieve_event_or_action_property_values(item, "id"),
                 "9, 8, 7, 6, 5, 4, 3, 2, 1, 0",
             )
-            self.assertEqual(toolkit.retrieve_event_or_action_property_values(item, "date"), '"2024-01-01 00:00:00"')
+            self.assertEqual(
+                toolkit.retrieve_event_or_action_property_values(item, "date"),
+                f'"{datetime(2024, 1, 1).isoformat()}"',
+            )
 
     @patch.object(DummyToolkit, "_retrieve_event_or_action_taxonomy")
     def test_retrieve_event_or_action_property_values_accepts_virtual_event_properties(self, mock_retrieve):

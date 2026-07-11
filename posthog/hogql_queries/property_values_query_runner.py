@@ -236,17 +236,20 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         for row in rows:
             raw = row[0]
             if self._use_new_events_schema:
-                values.append(json.loads(raw))
-            elif isinstance(raw, float | int | bool | uuid.UUID):
+                raw = json.loads(raw)
+
+            if isinstance(raw, float | int | bool | uuid.UUID):
                 values.append(raw)
-            else:
+            elif isinstance(raw, str):
                 # ClickHouse strips outer quotes from string values but leaves inner \" escapes,
                 # so '["a","b"]' comes back as [\"a\",\"b\"] — unescape before parsing.
-                cleaned = raw.replace('\\"', '"') if isinstance(raw, str) else raw
+                cleaned = raw.replace('\\"', '"')
                 try:
                     values.append(json.loads(cleaned))
-                except (json.JSONDecodeError, TypeError):
+                except json.JSONDecodeError:
                     values.append(cleaned)
+            else:
+                values.append(raw)
         return self._to_property_value_items(values)
 
     def _format_table_results(self, rows: list) -> list[PropertyValueItem]:
