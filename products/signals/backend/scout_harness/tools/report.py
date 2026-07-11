@@ -18,6 +18,7 @@ that may have succeeded.
 
 from __future__ import annotations
 
+import re
 import uuid
 import asyncio
 import logging
@@ -414,17 +415,25 @@ def _clip(value: str | None, limit: int) -> str | None:
 REPORT_KIND_SELF_IMPROVEMENT = "self_improvement"
 REPORT_KIND_FINDING = "finding"
 
+# Tolerant matcher for `SELF_IMPROVEMENT_REPORT_TITLE_PREFIX` ("Scout self-improvement:"): anchored at
+# the start of the title, but forgiving of the case, spacing, and hyphen drift LLM-authored titles show
+# ("scout self improvement :", "  Scout Self-Improvement:"). A missed match silently undercounts the
+# self-improvement funnel, so lenient-but-anchored beats exact. Keep in sync with the prompt constant.
+_SELF_IMPROVEMENT_TITLE_RE = re.compile(r"^\s*scout\s+self[\s-]?improvement\s*:", re.IGNORECASE)
+# Import-time guard: if the prompt's mandated prefix ever changes shape, classification must be
+# updated with it — fail loudly here rather than silently undercounting.
+assert _SELF_IMPROVEMENT_TITLE_RE.match(SELF_IMPROVEMENT_REPORT_TITLE_PREFIX)
+
 
 def _report_classification_props(effective_title: str | None) -> dict[str, Any]:
     """Derived classification dimensions stamped on both report-channel lifecycle events (and their
     customer-facing copies): `report_kind` (enum, breakdown-friendly) + `is_self_improvement_report`
     (bool, filter-friendly). Classified server-side off the title contract the prompt mandates
-    (`SELF_IMPROVEMENT_REPORT_TITLE_PREFIX`) rather than scout-declared, so the flag can't be omitted
-    by the model and needs no tool-schema change. Tolerant of case/whitespace drift in an LLM-authored
-    title, but the prefix itself must match. This helper is the single extension point for future
-    derived telemetry dimensions — add them here so the emit and edit events never drift apart."""
-    normalized = (effective_title or "").strip().lower()
-    is_self_improvement = normalized.startswith(SELF_IMPROVEMENT_REPORT_TITLE_PREFIX.lower())
+    (`SELF_IMPROVEMENT_REPORT_TITLE_PREFIX`, matched leniently via `_SELF_IMPROVEMENT_TITLE_RE`) rather
+    than scout-declared, so the flag can't be omitted by the model and needs no tool-schema change.
+    This helper is the single extension point for future derived telemetry dimensions — add them here
+    so the emit and edit events never drift apart."""
+    is_self_improvement = _SELF_IMPROVEMENT_TITLE_RE.match(effective_title or "") is not None
     return {
         "report_kind": REPORT_KIND_SELF_IMPROVEMENT if is_self_improvement else REPORT_KIND_FINDING,
         "is_self_improvement_report": is_self_improvement,
@@ -941,8 +950,20 @@ def _do_edit_report(
     )
     # Resolve the report's effective title for the edited event's classification — the rewritten title
     # when this edit set one, else the stored title (one indexed read; the edits above already proved
-    # the report exists for this team).
-    report_title = title if title is not None else get_scout_report_title(team_id=team.id, report_id=report_id)
+    # the report exists for this team). Telemetry-only and best-effort: the edit has already committed,
+    # so a transient read failure here must not fail the call (or skip the tally below) — degrade to an
+    # unclassified event instead.
+    if title is not None:
+        report_title = title
+    else:
+        try:
+            report_title = get_scout_report_title(team_id=team.id, report_id=report_id)
+        except Exception:
+            logger.warning(
+                "signals_scout.edit_report: failed to resolve report title for telemetry",
+                extra={"team_id": team.id, "report_id": report_id},
+            )
+            report_title = None
     result = EditReportResult(
         report_id=report_id,
         updated_fields=updated_fields,

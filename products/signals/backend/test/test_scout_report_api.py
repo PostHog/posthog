@@ -550,6 +550,8 @@ class TestReportClassificationProps(SimpleTestCase):
             ("exact_prefix", "Scout self-improvement: my-scout – dead trigger", True),
             # LLM-authored titles drift in case/whitespace; the classifier must tolerate that.
             ("case_and_whitespace_drift", "  scout SELF-improvement: my-scout – topic", True),
+            ("space_before_colon", "Scout self-improvement : my-scout – topic", True),
+            ("hyphen_dropped", "Scout self improvement: my-scout – topic", True),
             ("finding_title", "Checkout p99 regressed after 4.2", False),
             # The phrase mid-title (e.g. a finding *about* the escalation flow) is not a prefix match.
             ("prefix_mid_title", "Fix the Scout self-improvement: escalation flow", False),
