@@ -102,7 +102,7 @@ export function KpiTiles({
             format: (n) => formatPercentage(n, { compact: true }),
             color: theme.colors[4],
             loading: kpisLoading,
-            summaryLabel: 'Avg',
+            summaryLabel: 'Latest',
         },
         {
             label: 'p95 latency',

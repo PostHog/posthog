@@ -363,9 +363,12 @@ describe('mcpDashboardOverviewLogic', () => {
                 deltaPct: 100,
                 goodDirection: 'down',
             })
-            expect(kpis.errorRatePct.value).toBeCloseTo(6.667, 2)
-            expect(kpis.errorRatePct.previousValue).toBeCloseTo(10, 5)
-            expect(kpis.errorRatePct.goodDirection).toBe('down')
+            expect(kpis.errorRatePct).toMatchObject({
+                value: 7.5,
+                previousValue: 10,
+                deltaPct: -25,
+                goodDirection: 'down',
+            })
         })
 
         it('returns null deltas when there is no prior-period data', () => {
