@@ -1108,11 +1108,11 @@
 
     // allowing @import to be first
     /* stylelint-disable-next-line order/order */
-    *,
-    ::after,
-    ::before,
-    ::backdrop,
-    ::file-selector-button {
+    html *,
+    html ::after,
+    html ::before,
+    html ::backdrop,
+    html ::file-selector-button {
         border-color: var(--color-border-primary, currentColor);
     }
 
