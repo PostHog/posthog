@@ -582,13 +582,17 @@ def test_validate_credentials_maps_api_error_to_friendly_message(api_message, ex
 
 
 @pytest.mark.parametrize(
-    "auth_error",
+    "auth_error,expect_retry_hint",
     [
-        google_auth_exceptions.RefreshError("A server error occurred."),
-        google_auth_exceptions.TransportError("A server error occurred."),
+        # Transient Google-side blip (token endpoint 5xx) — google-auth flags it retryable.
+        (google_auth_exceptions.RefreshError("A server error occurred.", retryable=True), True),
+        (google_auth_exceptions.TransportError("connection reset", retryable=True), True),
+        # Persistent problem with our own service-account key (e.g. invalid_grant) — not retryable,
+        # so the copy must not tell the user it's merely temporary.
+        (google_auth_exceptions.RefreshError({"error": "invalid_grant"}, retryable=False), False),
     ],
 )
-def test_validate_credentials_maps_transient_google_auth_error(auth_error):
+def test_validate_credentials_maps_google_auth_error(auth_error, expect_retry_hint):
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client"
     ) as mock_client:
@@ -599,4 +603,7 @@ def test_validate_credentials_maps_transient_google_auth_error(auth_error):
     assert is_valid is False
     # The raw Google token-endpoint message ("A server error occurred.") must not reach the user.
     assert "A server error occurred." not in (error_message or "")
-    assert "try again" in (error_message or "").lower()
+    if expect_retry_hint:
+        assert "try again in a moment" in (error_message or "").lower()
+    else:
+        assert "try again in a moment" not in (error_message or "").lower()
