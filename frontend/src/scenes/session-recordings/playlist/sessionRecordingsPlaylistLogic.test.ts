@@ -85,7 +85,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ],
                 },
 
-                'api/projects/:team/property_definitions/seen_together': { $pageview: true },
+                '/api/projects/:team_id/property_definitions/seen_together': ({ request }) => {
+                    const eventNames = new URL(request.url).searchParams.getAll('event_names')
+                    return [200, Object.fromEntries(eventNames.map((name) => [name, name === '$pageview']))]
+                },
 
                 '/api/environments/:team_id/session_recordings': ({ request }) => {
                     const { searchParams } = new URL(request.url)
@@ -448,6 +451,39 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         },
                     },
                 })
+            })
+        })
+
+        describe('unusableEventsInFilter', () => {
+            // the "All events" pseudo-entity has no id and matches any event, so it must never be
+            // flagged as unusable (the group page pins it, so flagging it breaks every group page)
+            const allEventsFilter = {
+                name: 'All events',
+                type: 'events',
+                properties: [{ key: "$group_0 = 'test'", type: PropertyFilterType.HogQL }],
+            } as ActionFilter
+            const unseenEventFilter = { id: 'backend_event', name: 'backend_event', type: 'events' } as ActionFilter
+
+            it.each<[string, ActionFilter[], string[]]>([
+                ['only "All events"', [allEventsFilter], []],
+                [
+                    '"All events" plus an event without $session_id',
+                    [allEventsFilter, unseenEventFilter],
+                    ['backend_event'],
+                ],
+            ])('flags no pseudo-entities when filtering by %s', async (_, eventFilters, expected) => {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [{ type: FilterLogicalOperator.And, values: eventFilters }],
+                        },
+                    })
+                })
+                    .toDispatchActions(['loadEventsHaveSessionIdSuccess'])
+                    .toMatchValues({
+                        unusableEventsInFilter: expected,
+                    })
             })
         })
 

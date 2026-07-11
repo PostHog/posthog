@@ -33,6 +33,8 @@ import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
 import { LabeledRow } from '../../components/LabeledRow'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
+import { formatCredits } from '../../utils/credits'
+import { promptUnchangedSince } from '../../utils/labelStats'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { MODEL_OPTIONS, ReplayScanner, SAMPLING_MODE_OPTIONS, ScannerType } from '../types'
 
@@ -133,22 +135,49 @@ function BehaviorCardContent({ scanner }: { scanner: ReplayScanner }): JSX.Eleme
     )
 }
 
-function PromptVersionHistory({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const { observationStatsApi } = useValues(replayScannerLogic({ id: scannerId }))
+function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Element | null {
+    const { observationStatsApi } = useValues(replayScannerLogic({ id: scanner.id }))
     const markers = observationStatsApi?.labels.version_markers ?? []
-    if (markers.length === 0) {
+    // A freshly applied prompt has no scans yet and no marker, so show the live config as its own entry.
+    const currentVersion = scanner.scanner_version
+    const currentPrompt = scanner.scanner_config.prompt
+    const showCurrentEntry = Boolean(currentPrompt) && !markers.some((marker) => marker.version === currentVersion)
+    if (markers.length === 0 && !showCurrentEntry) {
         return null
     }
-    // Newest version first; the top entry is the prompt currently in use (or closest to it).
     const newestFirst = [...markers].sort((a, b) => b.version - a.version)
+    // Versions bump on any config change, so flag same-prompt versions instead of looking like duplicates.
+    const unchangedSince = promptUnchangedSince(markers)
+    const newestMarker = newestFirst[0]
+    const currentUnchangedFrom =
+        newestMarker && currentPrompt === newestMarker.prompt
+            ? (unchangedSince.get(newestMarker.version) ?? newestMarker.version)
+            : null
     return (
         <LemonCard className="p-4" hoverEffect={false}>
             <CardHeader icon={<IconPencil />} title="Prompt versions" />
             <div className="flex flex-col gap-3">
+                {showCurrentEntry && (
+                    <div className="border rounded p-3 space-y-2" id={`prompt-v${currentVersion}`}>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                            <LemonTag type="warning" className="font-mono">
+                                v{currentVersion}
+                            </LemonTag>
+                            <span>current · no scans yet</span>
+                            {currentUnchangedFrom !== null && (
+                                <span>· prompt unchanged from v{currentUnchangedFrom}</span>
+                            )}
+                        </div>
+                        <div className="whitespace-pre-wrap font-mono text-xs">{currentPrompt}</div>
+                    </div>
+                )}
                 {newestFirst.map((marker) => (
                     <div key={marker.version} className="border rounded p-3 space-y-2" id={`prompt-v${marker.version}`}>
                         <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                            <LemonTag type={marker === newestFirst[0] ? 'warning' : 'muted'} className="font-mono">
+                            <LemonTag
+                                type={marker.version === currentVersion ? 'warning' : 'muted'}
+                                className="font-mono"
+                            >
                                 v{marker.version}
                             </LemonTag>
                             <span>from {dayjs(marker.date).format('MMM D, YYYY')}</span>
@@ -158,6 +187,9 @@ function PromptVersionHistory({ scannerId }: { scannerId: string }): JSX.Element
                             <span className="flex items-center gap-1">
                                 <IconThumbsDownFilled className="text-danger" /> {marker.down}
                             </span>
+                            {unchangedSince.has(marker.version) && (
+                                <span>· prompt unchanged from v{unchangedSince.get(marker.version)}</span>
+                            )}
                         </div>
                         <div className="whitespace-pre-wrap font-mono text-xs">{marker.prompt || '—'}</div>
                     </div>
@@ -314,10 +346,13 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconGraph />} title="Usage" />
                     <div className="flex flex-col gap-3">
-                        <LabeledRow label="Estimated monthly observations">
-                            {scanner.estimated_monthly_observations != null ? (
+                        <LabeledRow label="Estimated monthly cost">
+                            {scanner.estimated_monthly_credits != null ? (
                                 <span className="tabular-nums">
-                                    {scanner.estimated_monthly_observations.toLocaleString()}
+                                    {formatCredits(scanner.estimated_monthly_credits)}{' '}
+                                    <span className="text-muted">
+                                        ({(scanner.estimated_monthly_observations ?? 0).toLocaleString()} observations)
+                                    </span>
                                 </span>
                             ) : (
                                 <span className="text-muted">—</span>
@@ -343,7 +378,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                     </div>
                 </LemonCard>
             </div>
-            {qualityEnabled && <PromptVersionHistory scannerId={scanner.id} />}
+            {qualityEnabled && <PromptVersionHistory scanner={scanner} />}
         </div>
     )
 }

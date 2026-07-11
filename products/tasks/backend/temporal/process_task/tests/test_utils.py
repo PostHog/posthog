@@ -324,7 +324,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
     USER_ID = 7
     API_BASE = "https://us.posthog.com"
 
-    MOCK_FACADE = "products.tasks.backend.temporal.process_task.utils.get_active_installations"
+    MOCK_FACADE = "products.tasks.backend.temporal.process_task.utils.get_installations_for_sandbox"
     MOCK_API_URL = "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url"
 
     def _make_installation(self, **kwargs) -> ActiveInstallationInfo:
@@ -351,7 +351,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
 
         configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
 
-        mock_facade.assert_called_once_with(self.TEAM_ID, self.USER_ID)
+        mock_facade.assert_called_once_with(self.TEAM_ID, user_id=self.USER_ID, include_personal=True)
         assert configs == [
             McpServerConfig(
                 type="http",
@@ -382,6 +382,17 @@ class TestFetchUserMcpServerConfigs(TestCase):
         )
 
         assert configs[0].headers == self._expected_user_headers(consumer=expected_consumer)
+
+    @parameterized.expand([(True,), (False,)])
+    @patch(MOCK_API_URL)
+    @patch(MOCK_FACADE)
+    def test_include_personal_is_forwarded_to_facade(self, include_personal: bool, mock_facade, mock_api_url) -> None:
+        mock_api_url.return_value = self.API_BASE
+        mock_facade.return_value = []
+
+        get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, include_personal=include_personal)
+
+        mock_facade.assert_called_once_with(self.TEAM_ID, user_id=self.USER_ID, include_personal=include_personal)
 
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)

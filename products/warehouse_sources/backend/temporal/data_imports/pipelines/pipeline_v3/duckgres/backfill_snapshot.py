@@ -15,6 +15,7 @@ from urllib.parse import unquote
 from django.conf import settings
 
 from products.warehouse_sources.backend.models import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 CHUNK_TARGET_BYTES = 1024**3  # ~1 GiB of parquet per chunk statement
 MAX_FILES_PER_CHUNK = 512  # bound the read_parquet([...]) literal list
@@ -40,7 +41,32 @@ class BackfillSnapshotPlan:
 
 
 def delta_table_uri(schema: ExternalDataSchema) -> str:
-    return f"{settings.BUCKET_URL}/{schema.folder_path()}/{schema.normalized_name}"
+    return f"{settings.BUCKET_URL}/{schema.folder_path()}/{_delta_table_folder(schema)}"
+
+
+def _delta_table_folder(schema: ExternalDataSchema) -> str:
+    """The Delta table's own folder segment, as the loader actually wrote it.
+
+    The loader names the folder after the DLT resource (the unqualified table
+    name), so it diverges from schema.normalized_name for schema-qualified
+    sources: Postgres "public.foo" normalizes to "public_foo", but the Delta
+    folder is "foo". Reading normalized_name here points the backfill at a
+    prefix with no _delta_log (surfaces as "No files in log segment"). The
+    catalog table's url_pattern is the authoritative location — it is what the
+    query engine reads — so take the leaf from there, and fall back to
+    normalized_name only when no table row exists yet (nothing to backfill).
+
+    url_pattern is a user-writable field, so the leaf is normalized through the
+    same convention the writer used to produce it. This is a no-op for every
+    legitimate folder (they are already normalize_identifier output) and strips
+    any injected separators so the leaf can never escape the schema's own prefix.
+    """
+    table = schema.table
+    if table and table.url_pattern:
+        segments = [seg for seg in table.url_pattern.rstrip("/").split("/") if seg and seg not in ("*", "**")]
+        if segments:
+            return NamingConvention.normalize_identifier(segments[-1])
+    return schema.normalized_name
 
 
 def _delta_storage_options() -> dict[str, str]:

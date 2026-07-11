@@ -57,9 +57,11 @@ export function useDragToZoomEnabled(): boolean {
 
 /** Adapts a quill chart's drag-to-zoom callback to the host's `onZoom(dateFrom, dateTo)` by mapping
  *  the dragged label indices into `dates` — the date value for each x position (trends result days,
- *  a SQL date column's values). Returns undefined when zooming is unavailable — drag-to-zoom is
- *  opt-in: it only surfaces behind the rollout flag, where the host passes a handler, and when the
- *  x positions map to dates. */
+ *  a SQL date column's values). Both emitted dates are bucket *starts*; widening the end to the
+ *  last bucket's end is the host's job (insights do it in `zoomDateRange`, which knows the query's
+ *  interval). Returns undefined when zooming is unavailable — drag-to-zoom is opt-in: it only
+ *  surfaces behind the rollout flag, where the host passes a handler, and when the x positions map
+ *  to dates. */
 export function useDateRangeZoom(
     dates: string[] | undefined,
     onZoom: ((dateFrom: string, dateTo: string) => void) | undefined

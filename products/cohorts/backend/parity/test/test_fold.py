@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.cohorts.backend.parity.fold import fold_membership_changes, members, parse_last_updated
+from products.cohorts.backend.parity.fold import fold_membership_changes, members, observed, parse_last_updated
 
 SINCE = datetime(2026, 7, 7, 19, 0, tzinfo=UTC)
 
@@ -35,6 +35,21 @@ class TestFold(SimpleTestCase):
         self.assertEqual(members(state[10]), {"p1"})
         self.assertEqual(stats.folded, 5)
         self.assertEqual(stats.cohorts_seen, {10})
+
+    def test_observed_counts_both_entered_and_left(self) -> None:
+        # The O-bounded diff hinges on `observed` returning every decided person, so a
+        # person whose final state is `left` must still count as observed (unlike members).
+        state, _stats = fold_membership_changes(
+            [
+                _msg("entered", "2026-07-07 19:01:00.000001", person_id="P1"),
+                _msg("left", "2026-07-07 19:02:00.000001", person_id="P1"),
+                _msg("entered", "2026-07-07 19:01:00.000001", person_id="P2"),
+            ],
+            team_id=2,
+            since=SINCE,
+        )
+        self.assertEqual(observed(state[10]), {"p1", "p2"})
+        self.assertEqual(members(state[10]), {"p2"})
 
     def test_out_of_order_older_record_does_not_shadow_newer(self) -> None:
         state, _stats = fold_membership_changes(

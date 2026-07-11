@@ -23,6 +23,7 @@ from posthog.test.base import (
 from unittest.mock import MagicMock, Mock, patch
 
 from django.apps import apps
+from django.db import connection
 from django.test import TestCase
 from django.utils.timezone import now
 
@@ -672,7 +673,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mobile_recording_bytes_in_period": 6,
                     "mobile_recording_count_in_period": 1,
                     "mobile_billable_recording_count_in_period": 0,
-                    "recording_observations_count_in_period": 0,
+                    "replay_vision_credits_used_in_period": 0,
                     "group_types_total": 2,
                     "dashboard_count": 2,
                     "dashboard_template_count": 0,
@@ -748,7 +749,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_recording_bytes_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
-                            "recording_observations_count_in_period": 0,
+                            "replay_vision_credits_used_in_period": 0,
                             "group_types_total": 2,
                             "dashboard_count": 2,
                             "dashboard_template_count": 0,
@@ -818,7 +819,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_recording_bytes_in_period": 6,
                             "mobile_recording_count_in_period": 1,
                             "mobile_billable_recording_count_in_period": 0,
-                            "recording_observations_count_in_period": 0,
+                            "replay_vision_credits_used_in_period": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -911,7 +912,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mobile_recording_bytes_in_period": 0,
                     "mobile_recording_count_in_period": 0,
                     "mobile_billable_recording_count_in_period": 0,
-                    "recording_observations_count_in_period": 0,
+                    "replay_vision_credits_used_in_period": 0,
                     "group_types_total": 0,
                     "dashboard_count": 0,
                     "dashboard_template_count": 0,
@@ -987,7 +988,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_recording_bytes_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
-                            "recording_observations_count_in_period": 0,
+                            "replay_vision_credits_used_in_period": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -5122,12 +5123,18 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         Team.objects.all().delete()
         Organization.objects.all().delete()
 
-        # Create a fresh team for testing
-        self.team = Team.objects.create(organization=Organization.objects.create(name="test"))
-
-        # Create analytics team for AI credits tests (team 2 for US region)
+        # Create analytics team for AI credits tests (team 2 for US region). The explicit
+        # pk doesn't advance the id sequence, so bump it past the max to keep the auto-pk
+        # team below from being handed id 2 and colliding.
         analytics_org = Organization.objects.create(name="PostHog Analytics")
         self.analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT setval(pg_get_serial_sequence('posthog_team', 'id'), (SELECT MAX(id) FROM posthog_team))"
+            )
+
+        # Create a fresh team for testing
+        self.team = Team.objects.create(organization=Organization.objects.create(name="test"))
 
         # Create test events across a time period
         self.begin = datetime(2023, 1, 1, 0, 0)

@@ -78,13 +78,15 @@ Tracked when `TaskRun.mark_completed()` is called. Additional properties:
 
 ### `task_run_failed`
 
-Tracked when `TaskRun.mark_failed()` is called. Additional properties:
+Captured exactly once per failed run, by whichever component performs the DB transition to `FAILED`:
+`TaskRun.mark_failed()` (janitor sweeps via the facade), the `update_task_run_status` Temporal activity (workflow failures), the facade run PATCH path (agent-reported failures), or `_terminalize_unstarted_task_run` (workflow dispatch failures).
+Additional properties:
 
-| Property           | Type    | Description                            |
-| ------------------ | ------- | -------------------------------------- |
-| `error_type`       | `str`   | Exception class name                   |
-| `error_message`    | `str`   | Error message (truncated to 500 chars) |
-| `duration_seconds` | `float` | Time from creation to failure          |
+| Property           | Type    | Description                                                                                                                                                                                                    |
+| ------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `error_type`       | `str`   | Stable failure source: exception class name (workflow failures), `agent_reported`, `stale_queued_cleanup`, `workflow_start_failed`, `followup_delivery_failed`, `stale_run_reaped`; `unspecified` when unknown |
+| `error_message`    | `str`   | Error message (truncated to the **last** 500 chars — the root cause sits at the tail)                                                                                                                          |
+| `duration_seconds` | `float` | Time from creation to failure                                                                                                                                                                                  |
 
 ## Workflow Events
 
@@ -127,17 +129,18 @@ Tracked when the workflow is cancelled via `CancelledError`.
 | `repository` | `str` | Repository in `org/repo` format |
 | `team_id`    | `int` | Team ID                         |
 
-### `task_run_failed` (workflow)
+### `task_run_failed` (workflow, metrics only)
 
-Tracked when the workflow fails with an exception.
+Recorded when the workflow fails with an exception — **not captured as an analytics event** (the `update_task_run_status` activity owns the analytics capture on the DB transition, see above).
+The workflow emission feeds the `posthog_tasks_task_run_failed_total` Prometheus counter and structured logging with these properties:
 
-| Property        | Type  | Description                            |
-| --------------- | ----- | -------------------------------------- |
-| `run_id`        | `str` | UUID of the run                        |
-| `task_id`       | `str` | UUID of the task                       |
-| `error_type`    | `str` | Exception class name                   |
-| `error_message` | `str` | Error message (truncated to 500 chars) |
-| `sandbox_id`    | `str` | Sandbox identifier (if available)      |
+| Property        | Type  | Description                                 |
+| --------------- | ----- | ------------------------------------------- |
+| `run_id`        | `str` | UUID of the run                             |
+| `task_id`       | `str` | UUID of the task                            |
+| `error_type`    | `str` | Exception class name                        |
+| `error_message` | `str` | Error message (truncated to last 500 chars) |
+| `sandbox_id`    | `str` | Sandbox identifier (if available)           |
 
 ## Webhook Events
 
