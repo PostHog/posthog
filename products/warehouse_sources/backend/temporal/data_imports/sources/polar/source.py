@@ -108,6 +108,8 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
                     False,
                     "Your Polar Organization Access Token does not have the required permissions. Please check the token's scopes in Polar and reconnect.",
                 )
+            if status_code is None:
+                return False, "Polar returned an unexpected error while validating your token. Please try again."
             return (
                 False,
                 f"Polar returned an unexpected error (HTTP {status_code}) while validating your token. Please try again.",
