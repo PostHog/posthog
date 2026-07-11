@@ -49,11 +49,9 @@ def _nullable_json_subcolumn_types(subcolumns: dict[str, str]) -> dict[str, str]
     }
 
 
-# The declared (pre-wrap) types carry mat-column parity semantics: a plain "String" property reads
-# like a non-nullable materialized column ('' scrubs to NULL), while a declared "Nullable(...)"
-# property reads bare (NULL means missing, '' is a real value). Scalar JSON subcolumns are wrapped as
-# Nullable in _nullable_json_subcolumn_types; arrays and maps stay non-nullable because ClickHouse does not support
-# Nullable(Array(...)) or Nullable(Map(...)).
+# Scalar JSON subcolumns are wrapped as Nullable so missing/JSON-null values stay distinct from scalar defaults such as
+# an empty string. Arrays and maps stay non-nullable because ClickHouse does not support Nullable(Array(...)) or
+# Nullable(Map(...)).
 EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$active_feature_flags": "Array(String)",
     "$ai_experiment_id": "Nullable(String)",

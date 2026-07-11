@@ -19,6 +19,7 @@ class TestModifiers(BaseTest):
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             column = "events.properties.`$browser`"
             source = "events_json AS events"
+            return f"SELECT {column} AS `$browser` FROM {source}"
         elif materialization_mode == MaterializationMode.DISABLED:
             return (
                 "SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), "

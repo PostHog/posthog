@@ -1,4 +1,5 @@
 import re
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
@@ -17,9 +18,17 @@ from unittest.mock import patch
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
+from hypothesis import (
+    HealthCheck,
+    example,
+    given,
+    settings as hypothesis_settings,
+    strategies as st,
+)
+from hypothesis.extra.django import TestCase as HypothesisDjangoTestCase
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -39,7 +48,9 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.type_system import ComparisonCompatibility
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import PropertyDefinition, Team
+from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.models.group.util import create_group
 from posthog.models.property.util import get_property_string_expr
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -1086,6 +1097,107 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             assert extract_values != access_values
         else:
             assert extract_values == access_values
+
+
+_JSON_SCHEMA_PARITY_TEXT = st.text(alphabet=st.characters(blacklist_categories=["Cc", "Cs"]), max_size=20)
+
+_JSON_SCHEMA_PARITY_PROPERTIES = st.fixed_dictionaries(
+    {
+        "dynamic_value": st.one_of(
+            st.booleans(),
+            st.integers(min_value=-1000, max_value=1000),
+            _JSON_SCHEMA_PARITY_TEXT,
+        )
+    },
+    optional={
+        "$active_feature_flags": st.lists(_JSON_SCHEMA_PARITY_TEXT, max_size=3),
+        "$browser": st.one_of(st.none(), st.sampled_from(["", "null", "Chrome", "Firefox"])),
+    },
+)
+
+
+@pytest.mark.skipif(
+    not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+    reason="requires both event tables created by the new-schema CI variant (#63448)",
+)
+class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCase, BaseTest):
+    def _query_properties(self, event_uuid: str, use_new_events_schema: bool) -> tuple[Any, ...]:
+        response = execute_hogql_query(
+            "SELECT properties, properties.dynamic_value, properties.$active_feature_flags, "
+            "JSONHas(properties, '$active_feature_flags'), properties.$browser, JSONHas(properties, '$browser') "
+            f"FROM events WHERE uuid = '{event_uuid}'",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
+            context=HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                use_new_events_schema=use_new_events_schema,
+            ),
+        )
+        assert response.results is not None
+        assert len(response.results) == 1
+        return response.results[0]
+
+    @given(properties=_JSON_SCHEMA_PARITY_PROPERTIES)
+    @example(properties={"dynamic_value": "value"})
+    @example(properties={"dynamic_value": "value", "$active_feature_flags": []})
+    @example(properties={"dynamic_value": "value", "$active_feature_flags": ["flag"]})
+    @example(properties={"dynamic_value": "value", "$browser": None})
+    @example(properties={"dynamic_value": "value", "$browser": ""})
+    @example(properties={"dynamic_value": "value", "$browser": "null"})
+    @hypothesis_settings(
+        max_examples=10,
+        deadline=None,
+        suppress_health_check=[HealthCheck.differing_executors],
+    )
+    def test_property_results_match_except_native_json_storage_defaults(self, properties: dict[str, object]) -> None:
+        event_uuid = _create_event(
+            team=self.team,
+            distinct_id="schema-parity",
+            event="schema-parity",
+            properties=properties,
+        )
+        flush_persons_and_events()
+
+        legacy = self._query_properties(event_uuid, use_new_events_schema=False)
+        native = self._query_properties(event_uuid, use_new_events_schema=True)
+
+        legacy_document = json.loads(legacy[0])
+        native_document = json.loads(native[0])
+        # Native JSON cannot preserve JSON nulls, and declared containers use the same default for missing and empty.
+        expected_native_document = {key: value for key, value in legacy_document.items() if value is not None}
+        if expected_native_document.get("$active_feature_flags") == []:
+            del expected_native_document["$active_feature_flags"]
+
+        assert native_document == expected_native_document
+        assert native[1] == legacy[1]
+
+        browser = properties.get("$browser")
+        assert native[4] == legacy[4]
+
+        flags_present = "$active_feature_flags" in properties
+        flags = properties.get("$active_feature_flags")
+        if flags_present and flags == []:
+            assert legacy[2:4] == ("[]", True)
+            assert native[2:4] == (None, False)
+        else:
+            assert native[2:4] == legacy[2:4]
+
+        if "$browser" in properties and browser is None:
+            assert legacy[5] == 1
+            assert native[5] == 0
+        else:
+            assert native[5] == legacy[5]
+
+        raw_native_document = json.loads(
+            sync_execute(
+                f"SELECT toJSONString(properties) FROM {DISTRIBUTED_EVENTS_JSON_TABLE} WHERE uuid = %(uuid)s",
+                {"uuid": event_uuid},
+            )[0][0]
+        )
+        # Typed paths physically exist with defaults even when the captured document omitted them.
+        assert raw_native_document["$active_feature_flags"] == properties.get("$active_feature_flags", [])
+        assert raw_native_document["$browser"] == properties.get("$browser")
 
 
 # ── Timezone index pruning tests ──────────────────────────────────────────────

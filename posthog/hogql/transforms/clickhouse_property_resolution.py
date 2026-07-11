@@ -47,9 +47,7 @@ from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumn
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
-    EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES,
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
-    PERSON_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES,
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
 )
 from posthog.models.property import PropertyName, TableColumn
@@ -89,9 +87,6 @@ class MaterializedPropertySource:
     has_ngram_lower_index: bool = False
     has_bloom_filter_index: bool = False
     has_bloom_filter_lower_index: bool = False
-    # Mat-column parity for typed JSON subcolumns: declared-String properties scrub '' to NULL like a
-    # non-nullable materialized column; declared-Nullable ones read bare.
-    scrub_empty: bool = False
 
 
 def _unwrap_to_table_type(field_type: ast.FieldType) -> ast.TableType | None:
@@ -179,12 +174,12 @@ def resolve_json_subcolumn_source(
     if table_name not in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
         return None
     json_subcolumns_by_field = {
-        "properties": (EVENTS_PROPERTIES_JSON_SUBCOLUMNS, EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES),
-        "person_properties": (PERSON_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES),
+        "properties": EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+        "person_properties": PERSON_PROPERTIES_JSON_SUBCOLUMNS,
     }
     if field_name not in json_subcolumns_by_field:
         return None
-    subcolumns, declared_types = json_subcolumns_by_field[field_name]
+    subcolumns = json_subcolumns_by_field[field_name]
 
     column_type = subcolumns.get(property_name)
     if column_type is None:
@@ -200,7 +195,6 @@ def resolve_json_subcolumn_source(
         column=property_name,
         is_nullable=column_type.startswith("Nullable("),
         column_type=column_type,
-        scrub_empty=not declared_types[property_name].startswith("Nullable("),
     )
 
 
@@ -322,7 +316,6 @@ def _materialized_head_expr(
             [first_key],
             source=source,
             as_json=not is_single or _is_json_container_column(source),
-            materialization_mode=materialization_mode,
         )
 
     if source.kind == "property_group":
@@ -469,7 +462,6 @@ def _json_subcolumn_value_expr(
     *,
     source: MaterializedPropertySource,
     as_json: bool = False,
-    materialization_mode: MaterializationMode | None,
 ) -> ast.Expr:
     value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=source.is_nullable)
     if _is_dynamic_json_source(source):
@@ -511,16 +503,7 @@ def _json_subcolumn_value_expr(
                 type=ast.StringType(nullable=True),
             )
         return serialized
-    if not _is_string_column(source) or not source.scrub_empty:
-        return value
-
-    # Declared-String subcolumns scrub like non-nullable materialized columns — '' (and the 'null'
-    # sentinel) read as NULL — so both schemas agree on missing-value reads. Declared-Nullable ones
-    # read bare above, like nullable materialized columns.
-    scrubbed_empty = ast.Call(name="nullIf", args=[value, _sentinel("")])
-    if materialization_mode == MaterializationMode.LEGACY_NULL_AS_STRING:
-        return scrubbed_empty
-    return ast.Call(name="nullIf", args=[scrubbed_empty, _sentinel("null")])
+    return value
 
 
 def _map_value_read(blob: ast.Expr, key: str) -> ast.Expr:
@@ -581,7 +564,6 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
                 [first_key],
                 source=source,
                 as_json=not _is_string_column(source),
-                materialization_mode=context.modifiers.materializationMode,
             )
             return ast.PropertyAccess(expr=subcolumn_head, keys=deeper_keys, type=ast.StringType(nullable=True))
 
@@ -599,7 +581,6 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
             subcolumn_keys,
             source=source,
             as_json=bool(remaining_keys),
-            materialization_mode=context.modifiers.materializationMode,
         )
         if not remaining_keys:
             return subcolumn_head
@@ -967,7 +948,6 @@ class ClickHousePropertyResolver(CloningVisitor):
             [property_name],
             source=source,
             as_json=True,
-            materialization_mode=self.context.modifiers.materializationMode,
         )
 
     def _rewrite_json_extract_on_events_json_subcolumn(self, node: ast.Call) -> ast.Expr | None:
@@ -1014,7 +994,6 @@ class ClickHousePropertyResolver(CloningVisitor):
             [property_name],
             source=source,
             as_json=True,
-            materialization_mode=self.context.modifiers.materializationMode,
         )
         return ast.Call(
             start=node.start,
@@ -1077,7 +1056,6 @@ class ClickHousePropertyResolver(CloningVisitor):
                 [first_key],
                 source=source,
                 as_json=not _is_string_column(source),
-                materialization_mode=self.context.modifiers.materializationMode,
             )
             return ast.Call(
                 start=node.start,
@@ -1468,7 +1446,6 @@ class ClickHousePropertyResolver(CloningVisitor):
                 prop.field_type,
                 [prop.key],
                 source=prop.source,
-                materialization_mode=self.context.modifiers.materializationMode,
             )
             value = _const(constant_expr.value)
             if node.op == ast.CompareOperationOp.Eq:
