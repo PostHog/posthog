@@ -52,6 +52,7 @@ from products.tasks.backend.logic.services.image_builder import (
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
+    ChannelFeedMessage,
     CodeInvite,
     CodeInviteRedemption,
     CodeWorkflowConfig,
@@ -4712,13 +4713,33 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
     return [_channel_to_dto(channel) for channel in channels]
 
 
+def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
+    """Announce a newly-created public channel in its own feed as a system row
+    ("Ann created this context"). Server-emitted so the announcement appears no
+    matter which client (or integration) created the channel. Best-effort — a
+    feed-write failure must never break channel creation."""
+    try:
+        ChannelFeedMessage.objects.create(
+            team_id=channel.team_id,
+            channel_id=channel.id,
+            author_id=user_id,
+            author_kind=ChannelFeedMessage.AuthorKind.SYSTEM,
+            event="channel_created",
+            payload={"channel_name": channel.name},
+        )
+    except Exception:
+        logger.exception("Failed to emit channel_created feed message", extra={"channel_id": str(channel.id)})
+
+
 def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contracts.ChannelDTO | None:
-    """Resolve-or-create a public channel by (normalized) name. ``None`` for empty names."""
+    """Resolve-or-create a public channel by (normalized) name. ``None`` for empty names.
+    Emits a ``channel_created`` feed message the first time a channel is created."""
     normalized = normalize_channel_name(name)
     if not normalized:
         return None
+    created = False
     try:
-        channel, _ = Channel.objects.select_related("created_by").get_or_create(
+        channel, created = Channel.objects.select_related("created_by").get_or_create(
             team_id=team_id,
             name=normalized,
             channel_type=Channel.ChannelType.PUBLIC,
@@ -4729,6 +4750,8 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contract
         channel = Channel.objects.select_related("created_by").get(
             team_id=team_id, name=normalized, channel_type=Channel.ChannelType.PUBLIC, deleted=False
         )
+    if created:
+        _emit_channel_created(channel, user_id)
     return _channel_to_dto(channel)
 
 
@@ -4761,6 +4784,74 @@ def delete_channel(channel_id: str | UUID, team_id: int) -> str:
     channel.deleted = True
     channel.save(update_fields=["deleted", "updated_at"])
     return "ok"
+
+
+def _channel_feed_message_to_dto(message: ChannelFeedMessage) -> contracts.ChannelFeedMessageDTO:
+    return contracts.ChannelFeedMessageDTO(
+        id=message.id,
+        channel=message.channel_id,
+        author_kind=message.author_kind,
+        event=message.event,
+        payload=message.payload or {},
+        content=message.content,
+        created_at=message.created_at,
+        author=_user_basic_info(message.author if message.author_id else None),
+    )
+
+
+def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
+    """A channel the requester may read: any live public channel on the team, or their
+    own personal channel. ``None`` when it's missing or someone else's personal channel."""
+    channel = Channel.objects.select_related("created_by").filter(id=channel_id, team_id=team_id, deleted=False).first()
+    if channel is None:
+        return None
+    if channel.channel_type == Channel.ChannelType.PERSONAL and channel.created_by_id != user_id:
+        return None
+    return channel
+
+
+def list_channel_feed_messages(
+    channel_id: str | UUID, team_id: int, user_id: int | None
+) -> list[contracts.ChannelFeedMessageDTO] | None:
+    """A channel's system-announcement feed, ascending. ``None`` when the channel isn't visible."""
+    if _visible_channel(channel_id, team_id, user_id) is None:
+        return None
+    messages = (
+        ChannelFeedMessage.objects.filter(channel_id=channel_id, team_id=team_id, deleted=False)
+        .select_related("author")
+        .order_by("created_at", "id")
+    )
+    return [_channel_feed_message_to_dto(message) for message in messages]
+
+
+def create_channel_feed_message(
+    channel_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    event: str,
+    payload: dict,
+    created_at: datetime | None = None,
+) -> contracts.ChannelFeedMessageDTO | None:
+    """Post a system announcement into a channel's feed as the requester. ``None`` when
+    the channel isn't visible. The row is authored by the system; ``author`` records the
+    acting user so the client can render "Adam …". ``created_at`` lets a client order a
+    burst of announcements deterministically (else the server stamps ``now``)."""
+    if _visible_channel(channel_id, team_id, user_id) is None:
+        return None
+    fields: dict = {
+        "team_id": team_id,
+        "channel_id": channel_id,
+        "author_id": user_id,
+        "author_kind": ChannelFeedMessage.AuthorKind.SYSTEM,
+        "event": event,
+        "payload": payload or {},
+    }
+    if created_at is not None:
+        fields["created_at"] = created_at
+    message = ChannelFeedMessage.objects.create(**fields)
+    # Fresh row: author lazy-loads once for the DTO.
+    return _channel_feed_message_to_dto(message)
 
 
 def _thread_message_to_dto(message: TaskThreadMessage) -> contracts.TaskThreadMessageDTO:

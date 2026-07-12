@@ -161,6 +161,20 @@ class TaskThreadMessageDTO:
 
 
 @dataclass(frozen=True)
+class ChannelFeedMessageDTO:
+    """The HTTP representation of one system announcement in a channel's feed."""
+
+    id: UUID
+    channel: UUID
+    author_kind: str
+    event: str
+    payload: dict
+    content: str
+    created_at: datetime
+    author: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
 class TaskMentionDTO:
     """One @-mention of the requesting user in a task's thread, for the mentions feed."""
 

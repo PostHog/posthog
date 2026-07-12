@@ -329,3 +329,100 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         self.assertEqual(self.peer_client.get(self._mentions_url()).json(), [])
         other_team_mentions = self.peer_client.get(f"/api/projects/{other_team.id}/task_mentions/").json()
         self.assertEqual(len(other_team_mentions), 1)
+
+
+class ChannelFeedMessageAPITestCase(TestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Feed Org")
+        self.team = Team.objects.create(organization=self.organization, name="Feed Team")
+        self.user = User.objects.create_user(email="owner@example.com", first_name="Ann", password="password")
+        self.other_user = User.objects.create_user(email="peer@example.com", first_name="Bob", password="password")
+        for user in (self.user, self.other_user):
+            self.organization.members.add(user)
+            OrganizationMembership.objects.filter(user=user, organization=self.organization).update(
+                level=OrganizationMembership.Level.ADMIN
+            )
+
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        self.other_client = APIClient()
+        self.other_client.force_authenticate(self.other_user)
+
+    def _channels_url(self) -> str:
+        return f"/api/projects/{self.team.id}/task_channels/"
+
+    def _feed_url(self, channel_id) -> str:
+        return f"/api/projects/{self.team.id}/task_channels/{channel_id}/feed/"
+
+    def _public_channel(self) -> str:
+        return self.client.post(self._channels_url(), {"name": "mobile"}).json()["id"]
+
+    def test_post_and_list_feed_message(self):
+        channel_id = self._public_channel()
+        response = self.client.post(
+            self._feed_url(channel_id),
+            {"event": "context_created", "payload": {"context_name": "mobile"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        body = response.json()
+        self.assertEqual(body["event"], "context_created")
+        self.assertEqual(body["author_kind"], "system")
+        self.assertEqual(body["author"]["id"], self.user.id)
+        self.assertEqual(body["payload"], {"context_name": "mobile"})
+
+        listing = self.client.get(self._feed_url(channel_id)).json()
+        # Creating the channel auto-emits a channel_created row, so the feed holds
+        # both that and the posted context_created.
+        self.assertEqual([m["event"] for m in listing], ["channel_created", "context_created"])
+        self.assertIn(body["id"], [m["id"] for m in listing])
+
+    def test_feed_message_is_visible_to_the_team(self):
+        channel_id = self._public_channel()
+        self.client.post(
+            self._feed_url(channel_id),
+            {"event": "context_md_building", "payload": {"context_name": "mobile"}},
+            format="json",
+        )
+        peer_listing = self.other_client.get(self._feed_url(channel_id)).json()
+        events = [m["event"] for m in peer_listing]
+        # The peer sees the team-visible feed: the auto channel_created + the post.
+        self.assertEqual(events, ["channel_created", "context_md_building"])
+
+    def test_invalid_event_is_rejected(self):
+        channel_id = self._public_channel()
+        response = self.client.post(self._feed_url(channel_id), {"event": "nope"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_unknown_channel_is_404(self):
+        response = self.client.get(self._feed_url("00000000-0000-0000-0000-000000000000"))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_personal_channel_feed_is_owner_only(self):
+        # Listing provisions the requester's personal channel.
+        mine = self.client.get(self._channels_url()).json()
+        personal_id = next(c["id"] for c in mine if c["channel_type"] == "personal")
+        self.client.post(
+            self._feed_url(personal_id),
+            {"event": "context_created", "payload": {"context_name": "me"}},
+            format="json",
+        )
+        # A peer cannot read someone else's personal channel feed.
+        peer = self.other_client.get(self._feed_url(personal_id))
+        self.assertEqual(peer.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_channel_creation_emits_channel_created(self):
+        channel_id = self._public_channel()
+        feed = self.client.get(self._feed_url(channel_id)).json()
+        created = [m for m in feed if m["event"] == "channel_created"]
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0]["author_kind"], "system")
+        self.assertEqual(created[0]["author"]["id"], self.user.id)
+        self.assertEqual(created[0]["payload"], {"channel_name": "mobile"})
+
+    def test_resolving_existing_channel_does_not_reemit(self):
+        channel_id = self._public_channel()
+        # Resolve the same name again — must not add a second channel_created.
+        self.client.post(self._channels_url(), {"name": "mobile"})
+        feed = self.client.get(self._feed_url(channel_id)).json()
+        self.assertEqual(len([m for m in feed if m["event"] == "channel_created"]), 1)

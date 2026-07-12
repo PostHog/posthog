@@ -872,6 +872,46 @@ class TaskThreadMessageMention(TeamScopedRootMixin):
         return f"Mention of user {self.mentioned_user_id} in message {self.message_id}"
 
 
+class ChannelFeedMessage(TeamScopedRootMixin):
+    """A durable, team-visible announcement in a channel's feed — rendered alongside
+    task cards as a "PostHog agent" system row (e.g. "Adam created this context").
+    The channel feed is otherwise a task list, so these give channel lifecycle events
+    a home without shoe-horning them into tasks. ``author`` is the user whose action
+    produced the row (for "Adam …"); ``author_kind`` says who authored it."""
+
+    class AuthorKind(models.TextChoices):
+        HUMAN = "human", "Human"
+        SYSTEM = "system", "System"
+        AGENT = "agent", "Agent"
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team/user FKs: adding an FK constraint to those hot
+    # tables locks them and stalls deploys; Django still enforces the relation and
+    # on_delete at the app level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="feed_messages")
+    author = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    author_kind = models.CharField(max_length=16, choices=AuthorKind, default=AuthorKind.SYSTEM)
+    # A stable event key the client maps to copy (e.g. "context_created"), plus a
+    # structured payload (e.g. {"context_name": "mobile"}) so rendering survives renames.
+    event = models.CharField(max_length=64)
+    payload = models.JSONField(default=dict, blank=True)
+    # Optional freeform fallback when there is no structured event.
+    content = models.TextField(blank=True, default="")
+    deleted = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_channel_feed_message"
+        indexes = [models.Index(fields=["channel", "created_at"], name="task_channel_feed_msg_created")]
+
+    def __str__(self):
+        return f"Feed message {self.id} on channel {self.channel_id}"
+
+
 class TaskAutomationManager(models.Manager):
     def get_queryset(self):
         return (

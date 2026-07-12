@@ -18,6 +18,7 @@ from posthog.models.user_integration import UserIntegration
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import (
     ChannelDTO,
+    ChannelFeedMessageDTO,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     TaskAutomationDTO,
@@ -1277,6 +1278,33 @@ class TaskThreadMessageWriteSerializer(serializers.Serializer):
     """Request body for posting a thread message."""
 
     content = serializers.CharField(help_text="Message text.")
+
+
+# The lifecycle events a client may post into a channel's feed. Kept narrow so the
+# feed stays a curated set of announcements, not an open write surface.
+CHANNEL_FEED_EVENTS = ["context_created", "context_md_building"]
+
+
+class ChannelFeedMessageSerializer(DataclassSerializer):
+    """Response shape for one system announcement in a channel's feed."""
+
+    author = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = ChannelFeedMessageDTO
+        fields = ["id", "channel", "author", "author_kind", "event", "payload", "content", "created_at"]
+
+
+class ChannelFeedMessageWriteSerializer(serializers.Serializer):
+    """Request body for posting a system announcement into a channel's feed."""
+
+    event = serializers.ChoiceField(choices=CHANNEL_FEED_EVENTS, help_text="Lifecycle event key.")
+    payload = serializers.JSONField(
+        required=False, default=dict, help_text='Structured event data, e.g. {"context_name": "mobile"}.'
+    )
+    created_at = serializers.DateTimeField(
+        required=False, help_text="Optional explicit timestamp, so a client can order a burst of announcements."
+    )
 
 
 class TaskMentionQuerySerializer(serializers.Serializer):
