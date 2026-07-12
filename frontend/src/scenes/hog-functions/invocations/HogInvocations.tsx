@@ -476,7 +476,7 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
                     <LemonInput
                         type="search"
                         size="small"
-                        placeholder="Search by invocation, event, distinct, or person ID…"
+                        placeholder="Search by invocation, event, distinct, or person ID, or person email…"
                         fullWidth
                         value={filters.search ?? ''}
                         onChange={(value) => setFilters({ search: value || undefined })}

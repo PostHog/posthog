@@ -319,6 +319,35 @@ export const problemClauseFor = (
 }
 
 /**
+ * Free-text search predicate, shared by the runs list and the sparkline so both
+ * match on the same rows. Matches the ID columns exactly, and — when the term
+ * looks like an email (`@`) — also resolves it to person ids via a `persons`
+ * subquery so users can paste a person's email instead of looking up their ID.
+ * The invocations table has no email column of its own; `person_id` is a String
+ * field, so the subquery casts `persons.id` with `toString`. Returns an empty
+ * clause when there's no search term. `escapeHogQLString` guards interpolation.
+ */
+export const searchClauseFor = (filters: HogInvocationsFilters): ReturnType<typeof hogql.raw> => {
+    const trimmedSearch = filters.search?.trim()
+    if (!trimmedSearch) {
+        return hogql.raw('')
+    }
+    const escaped = escapeHogQLString(trimmedSearch)
+    const emailClause = trimmedSearch.includes('@')
+        ? `OR person_id IN (SELECT toString(id) FROM persons WHERE properties.email = ${escaped})`
+        : ''
+    return hogql.raw(
+        `AND (
+            invocation_id = ${escaped}
+            OR event_uuid = ${escaped}
+            OR distinct_id = ${escaped}
+            OR person_id = ${escaped}
+            ${emailClause}
+        )`
+    )
+}
+
+/**
  * Tier selection for the sparkline. Each tier carries both the HogQL bucket
  * expression and the equivalent client-side interval (in ms) so we can
  * generate every bucket boundary in the filter range, not just the ones CH
@@ -384,17 +413,7 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
     const optionalErrorKindClause = filters.error_kind?.length
         ? hogql.raw(`AND error_kind IN (${filters.error_kind.map(escapeHogQLString).join(',')})`)
         : hogql.raw('')
-    const trimmedSearch = filters.search?.trim()
-    const optionalSearchClause = trimmedSearch
-        ? hogql.raw(
-              `AND (
-                  invocation_id = ${escapeHogQLString(trimmedSearch)}
-                  OR event_uuid = ${escapeHogQLString(trimmedSearch)}
-                  OR distinct_id = ${escapeHogQLString(trimmedSearch)}
-                  OR person_id = ${escapeHogQLString(trimmedSearch)}
-              )`
-          )
-        : hogql.raw('')
+    const optionalSearchClause = searchClauseFor(filters)
 
     const kindClause = kindClauseFor(props, filters)
     const dateClause = dateClauseFor(filters)
@@ -475,17 +494,7 @@ async function fetchRunsPage(
     const optionalErrorKindClause = filters.error_kind?.length
         ? hogql.raw(`AND error_kind IN (${filters.error_kind.map(escapeHogQLString).join(', ')})`)
         : hogql.raw('')
-    const trimmedSearch = filters.search?.trim()
-    const optionalSearchClause = trimmedSearch
-        ? hogql.raw(
-              `AND (
-                  invocation_id = ${escapeHogQLString(trimmedSearch)}
-                  OR event_uuid = ${escapeHogQLString(trimmedSearch)}
-                  OR distinct_id = ${escapeHogQLString(trimmedSearch)}
-                  OR person_id = ${escapeHogQLString(trimmedSearch)}
-              )`
-          )
-        : hogql.raw('')
+    const optionalSearchClause = searchClauseFor(filters)
 
     // `ORDER BY max(scheduled_at)` is safe only because the SELECT alias isn't
     // named `scheduled_at` — otherwise HogQL substitutes the alias and produces
