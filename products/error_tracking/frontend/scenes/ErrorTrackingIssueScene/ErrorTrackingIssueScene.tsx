@@ -2,6 +2,7 @@ import '../ErrorTrackingIssueScene/ErrorTrackingIssueScene.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
@@ -57,6 +58,7 @@ import {
     ErrorTrackingIssueSceneLogicProps,
     errorTrackingIssueSceneLogic,
     parseErrorTrackingIssueSceneIdentifier,
+    rawErrorTrackingIssueIdentifier,
 } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -66,7 +68,12 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
     logic: errorTrackingIssueSceneLogic,
     paramsToProps: ({ params: { identifier }, searchParams: { fingerprint, timestamp } }) => ({
-        ...parseErrorTrackingIssueSceneIdentifier(identifier, fingerprint),
+        // Decode from the raw pathname, not the router's already-decodeURI'd `identifier` param —
+        // decoding that a second time crashes on a literal `%` and mangles `%XX` fingerprints.
+        ...parseErrorTrackingIssueSceneIdentifier(
+            rawErrorTrackingIssueIdentifier(router.values.location.pathname) ?? identifier,
+            fingerprint
+        ),
         isScene: true,
         timestamp,
     }),

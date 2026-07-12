@@ -72,13 +72,34 @@ export interface ErrorTrackingIssueSceneLogicProps {
 }
 
 export function parseErrorTrackingIssueSceneIdentifier(
-    encodedIdentifier: string,
+    rawIdentifierSegment: string,
     legacyFingerprint?: string
 ): Pick<ErrorTrackingIssueSceneLogicProps, 'identifier' | 'legacyFingerprint'> {
     if (legacyFingerprint) {
         return { identifier: legacyFingerprint, legacyFingerprint: true }
     }
-    return { identifier: decodeURIComponent(encodedIdentifier), legacyFingerprint: false }
+    return { identifier: decodeIssueIdentifierSegment(rawIdentifierSegment), legacyFingerprint: false }
+}
+
+// kea-router runs decodeURI(pathname) before matching the route, so the `:identifier` param it
+// hands paramsToProps is already partially decoded. Decoding that a second time turns an encoded
+// literal `%` into a bare `%` (throwing URIError) and silently mangles `%XX` sequences. Callers
+// must pass the raw, still-percent-encoded path segment (see rawErrorTrackingIssueIdentifier);
+// we decode it exactly once here and fall back to the raw text if it isn't valid encoding.
+function decodeIssueIdentifierSegment(rawSegment: string): string {
+    try {
+        return decodeURIComponent(rawSegment)
+    } catch {
+        return rawSegment
+    }
+}
+
+// Recover the original encoded issue segment from the raw pathname. kea-router keeps
+// location.pathname percent-encoded — only the transient match inside urlToAction runs decodeURI —
+// so this is the single source that survives one clean decodeURIComponent.
+export function rawErrorTrackingIssueIdentifier(pathname: string): string | null {
+    const match = pathname.match(/\/error_tracking\/([^/]+)\/?$/)
+    return match ? match[1] : null
 }
 
 export type ErrorTrackingIssueSceneIssue = ErrorTrackingRelationalIssue &

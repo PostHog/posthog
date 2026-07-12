@@ -14,6 +14,7 @@ import {
     ErrorTrackingIssueSceneLogicProps,
     errorTrackingIssueSceneLogic,
     parseErrorTrackingIssueSceneIdentifier,
+    rawErrorTrackingIssueIdentifier,
 } from './errorTrackingIssueSceneLogic'
 
 jest.mock('../../generated/api', () => ({
@@ -82,6 +83,24 @@ describe('errorTrackingIssueSceneLogic', () => {
         })
         expect(parseErrorTrackingIssueSceneIdentifier('path%2Ffingerprint', '')).toEqual({
             identifier: 'path/fingerprint',
+            legacyFingerprint: false,
+        })
+    })
+
+    // Regression: the scene must decode the fingerprint from the raw pathname, not re-decode the
+    // param kea-router already ran decodeURI over. A fingerprint with a literal `%` used to throw
+    // URIError (scene crash) and a `%XX` sequence used to be silently mangled to a different issue.
+    it.each([
+        ['50%off', '50%25off'],
+        ['%41', '%2541'],
+    ])('recovers fingerprint %s from the raw pathname without double-decoding', (fingerprint, encodedSegment) => {
+        router.actions.push(urls.errorTrackingIssue(fingerprint))
+
+        const rawSegment = rawErrorTrackingIssueIdentifier(router.values.location.pathname)
+
+        expect(rawSegment).toBe(encodedSegment)
+        expect(parseErrorTrackingIssueSceneIdentifier(rawSegment!)).toEqual({
+            identifier: fingerprint,
             legacyFingerprint: false,
         })
     })
