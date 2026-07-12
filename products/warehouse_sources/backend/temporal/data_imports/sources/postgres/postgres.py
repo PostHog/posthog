@@ -1065,18 +1065,6 @@ def _is_unsupported_function_error(error: Exception, function_name: str) -> bool
     return any(marker in message for marker in ("does not exist", "unknown function", "not found", "no function"))
 
 
-def _is_unsupported_statement_timeout_error(error: Exception) -> bool:
-    """True when the engine refuses to set `statement_timeout`.
-
-    Postgres always supports it, but some Postgres-wire-compatible engines (e.g. Aurora DSQL)
-    reject `SET [LOCAL] statement_timeout` with `FeatureNotSupported` ("setting configuration
-    parameter \"statement_timeout\" not supported"). The best-effort metadata lookups here open
-    with that SET purely as a guard against a runaway catalog scan, so a rejection is an expected
-    incompatibility, not a bug — degrade quietly instead of alerting.
-    """
-    return isinstance(error, psycopg.errors.FeatureNotSupported) and "statement_timeout" in str(error).lower()
-
-
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1095,11 +1083,19 @@ def _rls_active_from_conn(
     """
     try:
         with connection.cursor() as cursor:
-            cursor.execute(
-                sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
-                    timeout=sql.Literal(1000 * 30)  # 30 secs
+            try:
+                cursor.execute(
+                    sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                        timeout=sql.Literal(1000 * 30)  # 30 secs
+                    )
                 )
-            )
+            except psycopg.errors.FeatureNotSupported:
+                # Some Postgres-wire-compatible engines (e.g. Aurora DSQL) don't implement setting
+                # statement_timeout. This SET is only a best-effort guard against a runaway catalog
+                # scan, so its rejection is an expected incompatibility — degrade quietly instead of
+                # flooding error tracking. Scoped to this statement so an unrelated FeatureNotSupported
+                # from the catalog queries below still reaches the capture path.
+                return {}
             discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
             if not discovered_tables:
                 return {}
@@ -1142,17 +1138,15 @@ def _rls_active_from_conn(
         # already-handled downstream symptoms, not bugs in this lookup, so don't re-capture them
         # (mirrors `_get_partition_settings` and the caller's own connection-level handler).
         #
-        # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, Aurora DSQL, etc.) accept our
-        # connection but don't implement everything real Postgres does. A missing `row_security_active`
-        # (RLS is a Postgres-only concept there) or a refused `SET LOCAL statement_timeout` is an
-        # expected incompatibility, not a bug — degrade quietly rather than flooding error tracking.
-        # Still capture genuinely unexpected failures.
+        # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, etc.) accept our connection
+        # but don't implement `row_security_active`. RLS is a Postgres-only concept there, so a
+        # missing-function error is an expected "no RLS" answer, not a bug — degrade quietly rather
+        # than flooding error tracking. Still capture genuinely unexpected failures.
         if (
             not connection.closed
             and not connection.broken
             and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
             and not _is_unsupported_function_error(e, "row_security_active")
-            and not _is_unsupported_statement_timeout_error(e)
         ):
             capture_exception(e)
         return {}

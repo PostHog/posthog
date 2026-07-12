@@ -6374,8 +6374,9 @@ class TestRlsActiveFromConnErrorHandling:
 
     def test_unsupported_statement_timeout_error_is_not_captured(self):
         # Some Postgres-wire-compatible engines (e.g. Aurora DSQL) reject the `SET LOCAL
-        # statement_timeout` guard this lookup opens with. That's an expected incompatibility, not a
-        # bug — degrade quietly instead of flooding error tracking.
+        # statement_timeout` guard this lookup opens with (raising FeatureNotSupported on that first
+        # statement). That's an expected incompatibility, not a bug — degrade quietly instead of
+        # flooding error tracking.
         conn = self._conn_raising(
             psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported')
         )
@@ -6386,12 +6387,15 @@ class TestRlsActiveFromConnErrorHandling:
         assert result == {}
         capture_mock.assert_not_called()
 
-    def test_unrelated_feature_not_supported_error_is_still_captured(self):
-        # Only the statement_timeout rejection is expected — an unrelated FeatureNotSupported must
-        # still surface so we don't blanket-swallow a real incompatibility.
-        conn = self._conn_raising(
-            psycopg.errors.FeatureNotSupported("cannot execute SELECT in a read-only transaction")
-        )
+    def test_feature_not_supported_after_timeout_guard_is_still_captured(self):
+        # The statement_timeout tolerance is scoped to the SET guard only. A FeatureNotSupported from
+        # a catalog query after it is a genuinely unexpected shape and must still surface, not be
+        # blanket-swallowed.
+        conn = mock.MagicMock()
+        conn.closed = False
+        conn.broken = False
+        cursor = conn.cursor.return_value.__enter__.return_value
+        cursor.execute.side_effect = [None, psycopg.errors.FeatureNotSupported("cannot open cursor on this engine")]
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as capture_mock:
