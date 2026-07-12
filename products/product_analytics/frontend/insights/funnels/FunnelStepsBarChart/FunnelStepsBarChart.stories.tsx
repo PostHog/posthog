@@ -2,7 +2,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import {
     createInsightStory,
     expandFirstPropertyFilter,
@@ -84,7 +83,6 @@ export const Breakdown: Story = {
 // each capped at its period's entry level so a shorter period leaves a blank volume gap above its track.
 export const Compare: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomCompareFixture} />,
-    parameters: { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] },
 }
 
 // Breakdown + compare: each breakdown value shows its own conversion within its period, and the two
@@ -92,7 +90,6 @@ export const Compare: Story = {
 // larger period filling the column and the smaller one proportionally short, leaving a blank gap above.
 export const BreakdownAndCompare: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownCompareFixture} />,
-    parameters: { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] },
 }
 
 // Full insight scene in edit mode — the steps funnel editor, and the funnels query kind's full data pipeline

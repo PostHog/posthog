@@ -123,6 +123,15 @@ export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
         '$exception_types',
         '$exception_values',
     ],
+    $mcp_tool_call: [
+        '$mcp_tool_name',
+        '$mcp_tool_category',
+        '$mcp_is_error',
+        '$mcp_error_type',
+        '$mcp_duration_ms',
+        '$mcp_client_name',
+        '$mcp_intent',
+    ],
 }
 export type KNOWN_PROMOTED_PROPERTY_PARENTS = keyof typeof POSTHOG_EVENT_PROMOTED_PROPERTIES
 

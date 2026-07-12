@@ -97,7 +97,9 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = ["--junitxml=junit.xml", "--reruns=2", "--reruns-delay=5"]
+# No --reruns: retries mask the raw flake signal Trunk quarantining relies on.
+# xunit1 keeps per-test file paths in the junit XML for Trunk flake attribution.
+addopts = ["--junitxml=junit.xml", "-o", "junit_family=xunit1"]
 
 [tool.mypy]
 python_version = "3.13"

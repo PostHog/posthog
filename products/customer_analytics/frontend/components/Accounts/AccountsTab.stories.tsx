@@ -206,6 +206,7 @@ async function expandAndOpenTab(canvasElement: HTMLElement, tab: 'Usage' | 'Spen
 // expanded-row content turns a lost expansion into a retry instead of a flaky collapsed capture.
 const EXPANDED_ROW_TEST_OPTIONS = {
     waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-expansion"]'],
+    waitForSelectorTimeout: 30000,
 }
 
 function mockAccountsQuery(rows: AccountRow[]): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
@@ -383,6 +384,7 @@ export const RowExpandedUsageNotFound: Story = {
     render: () => <App />,
     parameters: {
         testOptions: {
+            ...EXPANDED_ROW_TEST_OPTIONS,
             waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-billing-insight-not-found"]'],
         },
     },
@@ -396,9 +398,7 @@ export const RowExpandedUsageNotFound: Story = {
 export const RowExpandedUsagePopulated: Story = {
     render: () => <App />,
     parameters: {
-        testOptions: {
-            waitForSelector: ['[data-attr="accounts-refresh"]', '.DataVisualization canvas'],
-        },
+        testOptions: EXPANDED_ROW_TEST_OPTIONS,
     },
     decorators: billingTabDecorators(
         insightsResponse(USAGE_INSIGHT),
@@ -406,9 +406,10 @@ export const RowExpandedUsagePopulated: Story = {
     ),
     play: async ({ canvasElement }) => {
         await expandAndOpenTab(canvasElement, 'Usage')
-        // Wait for the chart canvas to render before handing off to the snapshot.
-        // The play function timeout (~60s) is much more generous than waitForSelector (10s),
-        // so this prevents flaky timeouts under CI load.
+        // Wait for both the chart canvas AND the sidebar links to be present simultaneously.
+        // The tab switch can trigger a re-render cycle that briefly unmounts the sidebar;
+        // gating on both ensures the snapshot captures a fully settled state.
+        const canvas = within(canvasElement)
         await waitFor(
             () => {
                 if (!canvasElement.querySelector('.DataVisualization canvas')) {
@@ -417,5 +418,8 @@ export const RowExpandedUsagePopulated: Story = {
             },
             { timeout: 30000, interval: 500 }
         )
+        // Re-confirm sidebar links are still rendered after the canvas settled —
+        // guards against the re-fetch race that causes the "Useful links" flicker.
+        await canvas.findByText('Organization', {}, { timeout: 10000 })
     },
 }
