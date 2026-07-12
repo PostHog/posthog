@@ -148,8 +148,8 @@ describe('webAnalyticsAchievementsLogic', () => {
             .toDispatchActions([
                 'loadAchievementsSuccess',
                 'acknowledgeCelebration',
-                'acknowledgeCelebration',
                 'markCelebrated',
+                'acknowledgeCelebration',
                 'markCelebrated',
             ])
             .toFinishAllListeners()
