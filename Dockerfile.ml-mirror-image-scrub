@@ -36,4 +36,4 @@ USER posthog
 
 ENV NODE_ENV=production
 
-CMD ["pnpm", "start"]
+CMD ["node_modules/.bin/tsx", "src/main.ts"]
