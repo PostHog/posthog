@@ -111,11 +111,13 @@ Approach (revised on review): rather than restructuring the generated products m
 - [x] `HeatmapEventsPanel` → `PersonDisplay`: replaced with a plain span (PersonDisplay renders exactly that for a distinct_id-only person with `noPopover`); `TZLabel` → teamLogic edge now shimmed at resolve time (`~/scenes/teamLogic` matching)
 - [ ] `TZLabel` → urls; `eventUsageLogic` → preflight/web-analytics edges; move `KeyboardShortcut` out of `layout/navigation-3000` into `lib/`
 
-### Step 7 — lazy boundaries in toolbar source
+### Step 7 — lazy boundaries in toolbar source (in review: `rafa/toolbar-migration-6-lazy-menus`)
 
-- [ ] Convert the nine `visibleMenu` bodies in `frontend/src/toolbar/bar/Toolbar.tsx` + `SurveySidebar`/`ProductToursSidebar`/modals to `React.lazy(() => retryImport(() => import(...)))` with `Spinner` fallback. Largest first: actions/TaxonomicFilter, experiments, surveys, heatmaps, web-vitals, debugger (react-json-view), product tours
-- [ ] Audit eagerly-mounted per-tab logics (e.g. `webVitalsToolbarLogic.mount()` in `ToolbarApp.tsx`) — keep a slim eager core where background collection is deliberate
-- [ ] Ratchet the eager budget down
+- [x] The nine `visibleMenu` bodies + `ProductToursSidebar`/`SurveySidebar`/`FieldNotesOverlay` are `React.lazy(() => retryImport(() => import(...)))` behind `Suspense` (Spinner fallback in the menu container, null for sidebars). `eventDebugMenuLogic` (and its 225KB taxonomy JSON) is component-only so it defers with the debugger menu
+- [x] `productToursLogic` imports `generateStepHtml` (tiptap/prosemirror/highlight.js, ~500KB) dynamically via a memoized `retryImport` — only fetched when a tour is edited/previewed; the two draft-compare subscriptions became async (module-cache awaits preserve call order after first load)
+- [x] Eager budget ratcheted 3.05 MB → 2.1 MB (measured 1,905,558 — eager JS down 31%, deferred now 1.93 MB ≈ 50% of app JS)
+- [x] New guard in `check-toolbar-size.mjs`: every CSS input in any chunk stylesheet must also be in the entry stylesheet (the only one the shadow root loads) — fails the build if a lazy feature's styles would silently never render. Watch out: with splitting, every dynamic-import target carries `entryPoint` in the metafile; use `findEntryOutput`
+- [ ] Audit eagerly-mounted per-tab logics (e.g. `webVitalsToolbarLogic.mount()` in `ToolbarApp.tsx`, `actionsLogic` via toolbarLogic dragging fuse.js) — keep a slim eager core where background collection is deliberate
 
 ### Step 8 — tree-shaking enablers + cleanup (highest breakage risk; last)
 
