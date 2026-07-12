@@ -146,10 +146,12 @@ class BillingConsumer(SQSConsumer):
         try:
             organization = Organization.objects.get(id=organization_id)
         except Organization.DoesNotExist:
-            logger.exception(f"Organization {organization_id} does not exist")
-            capture_exception(
-                Exception(f"Organization being consumed does not exist"),
-                {"organization_id": organization_id},
+            # Billing emits messages for every org, but each region/instance only holds a
+            # subset (orgs living in another region, or already-deleted orgs). Missing here
+            # is expected, not an error — log and drop the message without capturing it.
+            logger.info(
+                "billing_customer_update.organization_not_on_instance",
+                extra={"organization_id": organization_id},
             )
             return
 
@@ -197,10 +199,11 @@ class BillingConsumer(SQSConsumer):
         try:
             organization = Organization.objects.get(id=organization_id)
         except Organization.DoesNotExist:
-            logger.exception(f"Organization {organization_id} does not exist")
-            capture_exception(
-                Exception("Organization being consumed does not exist"),
-                {"organization_id": organization_id},
+            # See _process_billing_customer_update: an org absent from this instance is the
+            # expected cross-region/deleted case, so log and drop without capturing it.
+            logger.info(
+                "billing_activity.organization_not_on_instance",
+                extra={"organization_id": organization_id},
             )
             return
 

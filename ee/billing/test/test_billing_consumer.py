@@ -45,6 +45,24 @@ class TestBillingConsumerUsageSpike(BaseTest):
         mock_capture.assert_called_once()
 
 
+class TestBillingConsumerCustomerUpdate(BaseTest):
+    def _build_consumer(self) -> BillingConsumer:
+        with patch("ee.sqs.SQSConsumer.boto3"):
+            return BillingConsumer(queue_url="http://example/queue", region_name="us-east-1")
+
+    @patch(f"{CONSUMER}.BillingManager")
+    @patch(f"{CONSUMER}.capture_exception")
+    def test_org_absent_from_instance_skips_without_capturing(self, mock_capture, mock_billing_manager):
+        # An org not on this instance is expected (other region / deleted); drop it quietly
+        # instead of flooding error tracking with a fabricated exception.
+        self._build_consumer()._process_billing_customer_update(
+            {"organization_id": "00000000-0000-0000-0000-000000000000", "data": {}}
+        )
+
+        mock_capture.assert_not_called()
+        mock_billing_manager.assert_not_called()
+
+
 class TestBillingConsumerBillingActivity(BaseTest):
     def _build_consumer(self) -> BillingConsumer:
         with patch("ee.sqs.SQSConsumer.boto3"):
@@ -114,6 +132,17 @@ class TestBillingConsumerBillingActivity(BaseTest):
 
         assert not ActivityLog.objects.filter(scope="Billing").exists()
         mock_capture.assert_called_once()
+
+    @patch(f"{CONSUMER}.capture_exception")
+    def test_org_absent_from_instance_skips_without_capturing(self, mock_capture):
+        # Billing emits for orgs on other regions / already-deleted orgs; that expected case
+        # must be dropped quietly, not reported to error tracking.
+        self._build_consumer()._process_billing_activity(
+            self._message(organization_id="00000000-0000-0000-0000-000000000000")
+        )
+
+        assert not ActivityLog.objects.filter(scope="Billing").exists()
+        mock_capture.assert_not_called()
 
     def test_acks_updated_activity_with_no_changes(self):
         # An "updated" message with nothing to record must be acked (no write, no raise) so it
