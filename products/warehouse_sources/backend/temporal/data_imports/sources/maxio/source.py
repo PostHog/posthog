@@ -101,7 +101,7 @@ class MaxioSource(ResumableSource[MaxioSourceConfig, MaxioResumeConfig]):
         if not re.match(r"^[a-zA-Z0-9-]+$", subdomain):
             return False, "Maxio subdomain is incorrect"
 
-        return validate_maxio_credentials(config.api_key, config.subdomain, config.region)
+        return validate_maxio_credentials(config.api_key, subdomain, config.region)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MaxioResumeConfig]:
         return ResumableSourceManager[MaxioResumeConfig](inputs, MaxioResumeConfig)

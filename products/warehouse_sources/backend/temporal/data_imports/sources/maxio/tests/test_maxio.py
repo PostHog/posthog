@@ -139,7 +139,7 @@ class TestGetResource:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS.keys()))
     def test_full_refresh_has_no_incremental_params(self, endpoint: str) -> None:
         resource = get_resource(endpoint, should_use_incremental_field=False)
-        params = resource["endpoint"]["params"]
+        params = cast(dict[str, Any], resource["endpoint"]["params"])
 
         assert "date_field" not in params
         assert "start_datetime" not in params
@@ -160,7 +160,7 @@ class TestGetResource:
         self, endpoint: str, date_field: str, sort: str | None
     ) -> None:
         resource = get_resource(endpoint, should_use_incremental_field=True)
-        params = resource["endpoint"]["params"]
+        params = cast(dict[str, Any], resource["endpoint"]["params"])
 
         assert params["date_field"] == date_field
         assert params["start_datetime"]["type"] == "incremental"
@@ -172,7 +172,7 @@ class TestGetResource:
 
     def test_incremental_events_use_since_id(self) -> None:
         resource = get_resource("events", should_use_incremental_field=True)
-        params = resource["endpoint"]["params"]
+        params = cast(dict[str, Any], resource["endpoint"]["params"])
 
         assert params["since_id"]["type"] == "incremental"
         assert params["since_id"]["cursor_path"] == "id"
@@ -186,7 +186,7 @@ class TestGetResource:
         # These endpoints advertise no incremental fields; even if the pipeline asked for
         # incremental, no server-side filter params must be emitted.
         resource = get_resource(endpoint, should_use_incremental_field=True)
-        params = resource["endpoint"]["params"]
+        params = cast(dict[str, Any], resource["endpoint"]["params"])
 
         assert "date_field" not in params
         assert "start_datetime" not in params
