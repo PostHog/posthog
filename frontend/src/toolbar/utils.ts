@@ -25,16 +25,19 @@ export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'st
 // non-object). Turn both into a synthetic failed response so the toolbar's OAuth chain and its
 // callers can treat it as an ordinary request failure rather than crashing.
 export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    // Markers are booleans, not a `detail` string: `toolbarApi` surfaces any `detail`/string field
+    // on an error body as the user-facing toast, so an internal token here would override the
+    // caller's intended message. Keeping them non-string lets that fallback message win.
     let response: Response
     try {
         response = await fetch(input, init)
     } catch {
-        return new Response(JSON.stringify({ results: [], detail: 'fetch_failed' }), { status: 502 })
+        return new Response(JSON.stringify({ results: [], networkError: true }), { status: 502 })
     }
     if (response && typeof response === 'object') {
         return response
     }
-    return new Response(JSON.stringify({ results: [], detail: 'invalid_fetch_response' }), { status: 502 })
+    return new Response(JSON.stringify({ results: [], invalidResponse: true }), { status: 502 })
 }
 
 const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
