@@ -36,115 +36,115 @@ const featureFlagMatchMapping = {
     [FeatureFlagMatchReason.Disabled]: 'Disabled',
 }
 
+const columns: LemonTableColumns<RelatedFeatureFlag> = [
+    {
+        title: 'Key',
+        dataIndex: 'key',
+        className: 'ph-no-capture',
+        sticky: true,
+        width: '40%',
+        sorter: (a: RelatedFeatureFlag, b: RelatedFeatureFlag) => (a.key || '').localeCompare(b.key || ''),
+        render: function Render(_, featureFlag: RelatedFeatureFlag) {
+            const isExperiment = (featureFlag.experiment_set || []).length > 0
+            return (
+                <LemonTableLink
+                    to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined}
+                    title={
+                        <>
+                            {stringWithWBR(featureFlag.key, 17)}
+                            <LemonTag type={isExperiment ? 'completion' : 'default'} className="ml-2">
+                                {isExperiment ? 'Experiment' : 'Feature flag'}
+                            </LemonTag>
+                        </>
+                    }
+                    description={featureFlag.name}
+                />
+            )
+        },
+    },
+    {
+        title: 'Type',
+        width: 100,
+        render: function Render(_, featureFlag: RelatedFeatureFlag) {
+            return featureFlag.filters.multivariate
+                ? FeatureFlagReleaseType.Variants
+                : FeatureFlagReleaseType.ReleaseToggle
+        },
+    },
+    {
+        title: 'Value',
+        dataIndex: 'value',
+        width: 150,
+        render: function Render(_, featureFlag: RelatedFeatureFlag) {
+            return (
+                <div className="break-words">
+                    {featureFlag.active && featureFlag.value ? featureFlag.value.toString() : 'false'}
+                </div>
+            )
+        },
+    },
+    {
+        title: (
+            <div className="inline-flex items-center deprecated-space-x-1">
+                <div>Match evaluation</div>
+                <Tooltip
+                    docLink="https://posthog.com/docs/feature-flags/local-evaluation#step-3-evaluate-your-feature-flag"
+                    title={
+                        <div className="deprecated-space-y-2">
+                            <div>
+                                This column simulates the feature flag evaluation based on the selected distinct ID,
+                                current properties, and groups associated with the user. If the actual flag value
+                                differs, it could be due to different inputs used during evaluation.
+                            </div>
+                            <div>
+                                If you are using local flag evaluation, you must ensure that you provide any person
+                                properties, groups, or group properties used to evaluate the release conditions of the
+                                flag.
+                            </div>
+                        </div>
+                    }
+                >
+                    <IconInfo className="text-secondary text-base ml-1" />
+                </Tooltip>
+            </div>
+        ),
+        dataIndex: 'evaluation',
+        width: 150,
+        render: function Render(_, featureFlag: RelatedFeatureFlag) {
+            const matchesSet = featureFlag.evaluation.reason === FeatureFlagMatchReason.ConditionMatch
+            return (
+                <div>
+                    {featureFlag.active ? <>{featureFlagMatchMapping[featureFlag.evaluation.reason]}</> : '--'}
+
+                    {matchesSet && <LemonSnack>Set {(featureFlag.evaluation.condition_index ?? 0) + 1}</LemonSnack>}
+                </div>
+            )
+        },
+    },
+    {
+        title: 'Status',
+        dataIndex: 'active',
+        sorter: (a: RelatedFeatureFlag, b: RelatedFeatureFlag) => Number(a.active) - Number(b.active),
+        width: 100,
+        render: function RenderActive(_, featureFlag: RelatedFeatureFlag) {
+            return <span className="font-normal">{featureFlag.active ? 'Enabled' : 'Disabled'}</span>
+        },
+    },
+]
+
+const options = [
+    { label: 'All types', value: 'all' },
+    {
+        label: FeatureFlagReleaseType.ReleaseToggle,
+        value: FeatureFlagReleaseType.ReleaseToggle,
+    },
+    { label: FeatureFlagReleaseType.Variants, value: FeatureFlagReleaseType.Variants },
+]
+
 export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Props): JSX.Element {
     const relatedFlagsLogic = relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups })
     const { filteredMappedFlags, isLoading, searchTerm, filters, pagination } = useValues(relatedFlagsLogic)
     const { setSearchTerm, setFilters } = useActions(relatedFlagsLogic)
-
-    const columns: LemonTableColumns<RelatedFeatureFlag> = [
-        {
-            title: 'Key',
-            dataIndex: 'key',
-            className: 'ph-no-capture',
-            sticky: true,
-            width: '40%',
-            sorter: (a: RelatedFeatureFlag, b: RelatedFeatureFlag) => (a.key || '').localeCompare(b.key || ''),
-            render: function Render(_, featureFlag: RelatedFeatureFlag) {
-                const isExperiment = (featureFlag.experiment_set || []).length > 0
-                return (
-                    <LemonTableLink
-                        to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined}
-                        title={
-                            <>
-                                {stringWithWBR(featureFlag.key, 17)}
-                                <LemonTag type={isExperiment ? 'completion' : 'default'} className="ml-2">
-                                    {isExperiment ? 'Experiment' : 'Feature flag'}
-                                </LemonTag>
-                            </>
-                        }
-                        description={featureFlag.name}
-                    />
-                )
-            },
-        },
-        {
-            title: 'Type',
-            width: 100,
-            render: function Render(_, featureFlag: RelatedFeatureFlag) {
-                return featureFlag.filters.multivariate
-                    ? FeatureFlagReleaseType.Variants
-                    : FeatureFlagReleaseType.ReleaseToggle
-            },
-        },
-        {
-            title: 'Value',
-            dataIndex: 'value',
-            width: 150,
-            render: function Render(_, featureFlag: RelatedFeatureFlag) {
-                return (
-                    <div className="break-words">
-                        {featureFlag.active && featureFlag.value ? featureFlag.value.toString() : 'false'}
-                    </div>
-                )
-            },
-        },
-        {
-            title: (
-                <div className="inline-flex items-center deprecated-space-x-1">
-                    <div>Match evaluation</div>
-                    <Tooltip
-                        docLink="https://posthog.com/docs/feature-flags/local-evaluation#step-3-evaluate-your-feature-flag"
-                        title={
-                            <div className="deprecated-space-y-2">
-                                <div>
-                                    This column simulates the feature flag evaluation based on the selected distinct ID,
-                                    current properties, and groups associated with the user. If the actual flag value
-                                    differs, it could be due to different inputs used during evaluation.
-                                </div>
-                                <div>
-                                    If you are using local flag evaluation, you must ensure that you provide any person
-                                    properties, groups, or group properties used to evaluate the release conditions of
-                                    the flag.
-                                </div>
-                            </div>
-                        }
-                    >
-                        <IconInfo className="text-secondary text-base ml-1" />
-                    </Tooltip>
-                </div>
-            ),
-            dataIndex: 'evaluation',
-            width: 150,
-            render: function Render(_, featureFlag: RelatedFeatureFlag) {
-                const matchesSet = featureFlag.evaluation.reason === FeatureFlagMatchReason.ConditionMatch
-                return (
-                    <div>
-                        {featureFlag.active ? <>{featureFlagMatchMapping[featureFlag.evaluation.reason]}</> : '--'}
-
-                        {matchesSet && <LemonSnack>Set {(featureFlag.evaluation.condition_index ?? 0) + 1}</LemonSnack>}
-                    </div>
-                )
-            },
-        },
-        {
-            title: 'Status',
-            dataIndex: 'active',
-            sorter: (a: RelatedFeatureFlag, b: RelatedFeatureFlag) => Number(a.active) - Number(b.active),
-            width: 100,
-            render: function RenderActive(_, featureFlag: RelatedFeatureFlag) {
-                return <span className="font-normal">{featureFlag.active ? 'Enabled' : 'Disabled'}</span>
-            },
-        },
-    ]
-
-    const options = [
-        { label: 'All types', value: 'all' },
-        {
-            label: FeatureFlagReleaseType.ReleaseToggle,
-            value: FeatureFlagReleaseType.ReleaseToggle,
-        },
-        { label: FeatureFlagReleaseType.Variants, value: FeatureFlagReleaseType.Variants },
-    ]
 
     return (
         <>

@@ -11,6 +11,7 @@ import {
     LemonTableColumns,
     LemonTag,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -32,11 +33,12 @@ import { MetricTile } from '../components/MetricTile'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
 import { RunConclusionTag } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
-import { Section, SectionNav } from '../components/Section'
+import { Section } from '../components/Section'
 import type { WorkflowJobApi } from '../generated/api.schemas'
 import { compactUsd } from '../lib/format'
 import { githubCommitUrl, githubPrUrl } from '../lib/github'
 import { LifecycleSummary, WorkflowRun, isPassingConclusion } from '../lib/lifecycle'
+import { PushRound, pushRoundColor, pushRoundOf, pushRoundVerdictLabel } from '../lib/pushRounds'
 import {
     PrCommitRuns,
     PrRunRow,
@@ -70,12 +72,14 @@ interface TimelineNode {
     dotClass: string
     /** The connector leading into this node — dashed when the time span is still running. */
     dashedIncoming?: boolean
-    /** Small caption under the dot — relative time, "pushed", "now", … */
+    /** Small caption under the dot — relative time, the push's CI wall time, "now", … */
     sublabel?: ReactNode
     /** Round nodes render the sha in mono. */
     mono?: boolean
     /** Color the label red — a failed round / closed PR. */
     danger?: boolean
+    /** Push nodes carry their CI round: a bar above the dot (height = wall time, color = verdict). */
+    round?: PushRound
 }
 
 interface LifecycleStripProps {
@@ -93,17 +97,26 @@ function roundStart(group: PrCommitRuns): string | null {
 
 // Fixed row heights so dots and connectors line up across columns regardless of label/pill height.
 const ROW_LABEL = 'flex h-5 items-center'
+const ROW_BAR = 'flex h-10 items-end justify-center'
 const ROW_DOT = 'flex h-3 items-center'
 const ROW_SUB = 'flex h-4 items-center'
+// Tallest push bar in px — must fit inside ROW_BAR's h-10 (40px) with a little headroom.
+const BAR_MAX_PX = 34
+
+/** Dot color matching the round's verdict, so the timeline and the bars tell one story. */
+function roundDotClass(round: PushRound): string {
+    return round.failed ? 'bg-danger' : round.pending ? 'bg-warning' : 'bg-success'
+}
 
 // Cap push nodes so the strip fits on one line; older pushes collapse into a "+N earlier" node, and
 // every round stays reachable in the list below.
 const MAX_PUSH_NODES = 4
 
 /**
- * Horizontal lifecycle timeline: dots are milestones, the pill above each connector is the gap between
- * them. Chronological — a PR's head-SHA runs can start (and finish) after the merge. Each push is its own
- * node, red when that round had a failure; clicking it jumps to that round's run table below.
+ * Horizontal lifecycle timeline crossed with a per-push bar chart: dots are milestones, the pill above
+ * each connector is the gap between them, and each push node grows a bar — height is that push's
+ * wall-clock CI time (shared scale), color its verdict. Chronological — a PR's head-SHA runs can start
+ * (and finish) after the merge.
  */
 function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps): JSX.Element {
     const nodes: TimelineNode[] = [
@@ -120,28 +133,32 @@ function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps
     const collapseOlder = commitGroups.length > MAX_PUSH_NODES + 1
     const shownRounds = collapseOlder ? commitGroups.slice(0, MAX_PUSH_NODES) : commitGroups
     const hiddenRounds = collapseOlder ? commitGroups.slice(MAX_PUSH_NODES) : []
-    shownRounds.forEach((group, index) => {
+    shownRounds.forEach((group) => {
         const at = roundStart(group)
         if (!at) {
             return
         }
-        const hasFailure = group.runs.some((run) => run.conclusion != null && !isPassingConclusion(run.conclusion))
+        const round = pushRoundOf(group.headSha, group.runs)
         nodes.push({
             key: `round-${group.headSha}`,
             label: group.headSha.slice(0, 7),
             at,
-            dotClass: hasFailure ? 'bg-danger' : 'bg-muted',
+            dotClass: roundDotClass(round),
             mono: true,
-            danger: hasFailure,
-            // index 0 is the latest push (newest-first).
-            sublabel: index === 0 ? 'latest push' : 'pushed',
+            danger: round.failed,
+            // The bar carries the verdict; the sublabel answers "how long did CI take on this push".
+            sublabel:
+                round.wallSeconds != null
+                    ? humanFriendlyDuration(round.wallSeconds, { maxUnits: 1 })
+                    : round.pending
+                      ? 'running'
+                      : undefined,
+            round,
         })
     })
     if (hiddenRounds.length) {
         const at = roundStart(hiddenRounds[0])
-        const anyFailure = hiddenRounds.some((group) =>
-            group.runs.some((run) => run.conclusion != null && !isPassingConclusion(run.conclusion))
-        )
+        const anyFailure = hiddenRounds.some((group) => pushRoundOf(group.headSha, group.runs).failed)
         if (at) {
             nodes.push({
                 key: 'earlier-pushes',
@@ -195,6 +212,11 @@ function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps
     const totalSeconds = Math.max(1, dayjs(nodes[nodes.length - 1].at).diff(dayjs(nodes[0].at), 'second'))
     const minGrow = totalSeconds * 0.04
 
+    // Shared scale across the push bars, so their heights compare push-to-push.
+    const maxWall = Math.max(...nodes.map((node) => node.round?.wallSeconds ?? 0), 1)
+    const barPx = (round: PushRound): number =>
+        round.wallSeconds != null ? Math.max(6, Math.round((round.wallSeconds / maxWall) * BAR_MAX_PX)) : 6
+
     return (
         <LemonCard hoverEffect={false} className="px-5 py-4">
             <div className="flex items-center gap-6">
@@ -216,6 +238,7 @@ function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps
                                             {gapBetween(nodes[index - 1].at, node.at)}
                                         </span>
                                     </span>
+                                    <span className={ROW_BAR} />
                                     <span className={ROW_DOT}>
                                         <span className={connector(node.dashedIncoming)} />
                                     </span>
@@ -233,6 +256,30 @@ function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps
                                     >
                                         {node.label}
                                     </span>
+                                </span>
+                                <span className={cn(ROW_BAR, 'w-full')}>
+                                    {node.round && (
+                                        <Tooltip
+                                            title={`${node.round.headSha.slice(0, 7)} · ${
+                                                node.round.wallSeconds != null
+                                                    ? humanFriendlyDuration(node.round.wallSeconds)
+                                                    : 'no completed runs'
+                                            } · ${pushRoundVerdictLabel(node.round)}`}
+                                        >
+                                            <span
+                                                className={cn(
+                                                    'w-2.5 rounded-t-sm',
+                                                    node.round.pending && 'animate-pulse'
+                                                )}
+                                                // eslint-disable-next-line react/forbid-dom-props
+                                                style={{
+                                                    height: barPx(node.round),
+                                                    backgroundColor: pushRoundColor(node.round),
+                                                    opacity: node.round.failed ? 1 : node.round.pending ? 0.9 : 0.65,
+                                                }}
+                                            />
+                                        </Tooltip>
+                                    )}
                                 </span>
                                 <span className={cn(ROW_DOT, 'w-full')}>
                                     <span className={cn('flex-1', index > 0 && connector(node.dashedIncoming))} />
@@ -461,6 +508,16 @@ function PrWorkflowsTable({
     setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => void
 }): JSX.Element {
     const latestByWorkflow = latestRunPerWorkflow(filteredRuns)
+    const isWorkflowFailing = (workflowName: string): boolean => {
+        const latest = latestByWorkflow.get(workflowName)
+        return latest?.conclusion != null && !isPassingConclusion(latest.conclusion)
+    }
+    // Failing workflows first — the order a reviewer triages in — then alphabetical.
+    const orderedRows = [...rows].sort(
+        (a, b) =>
+            Number(isWorkflowFailing(b.workflowName)) - Number(isWorkflowFailing(a.workflowName)) ||
+            a.workflowName.localeCompare(b.workflowName)
+    )
     const columns: LemonTableColumns<PrWorkflowRow> = [
         {
             title: 'Workflow',
@@ -552,7 +609,7 @@ function PrWorkflowsTable({
     ]
     return (
         <LemonTable
-            dataSource={rows}
+            dataSource={orderedRows}
             columns={columns}
             size="small"
             loading={loading}
@@ -595,6 +652,7 @@ export function PullRequestDetailScene(): JSX.Element {
         prRunsLoading,
         prRunsFailed,
         prCost,
+        prCostLoading,
         pushes,
         rerunCycles,
         workflowFilter,
@@ -620,6 +678,9 @@ export function PullRequestDetailScene(): JSX.Element {
     const passed = runs.filter((run) => run.conclusion !== null && isPassingConclusion(run.conclusion)).length
     const failed = runs.filter((run) => run.conclusion !== null && !isPassingConclusion(run.conclusion)).length
     const running = runs.filter((run) => run.conclusion === null).length
+    // The newest push's CI round — the wall-time tile and the lifecycle strip's last bar agree by construction.
+    const latestRound = commitGroups[0] ? pushRoundOf(commitGroups[0].headSha, commitGroups[0].runs) : null
+    const tilesLoading = prRunsLoading && commitGroups.length === 0
 
     if (loadFailed) {
         return (
@@ -640,7 +701,7 @@ export function PullRequestDetailScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={pullRequest?.title ?? 'Pull request'}
+                name="Pull request"
                 resourceType={{ type: 'health' }}
                 actions={
                     githubUrl ? (
@@ -725,26 +786,38 @@ export function PullRequestDetailScene(): JSX.Element {
                             label="Latest push"
                             tooltip="Workflows green on the newest commit, one verdict per workflow."
                             value={latestPushStats ? `${latestPushStats.green} / ${latestPushStats.total}` : '—'}
-                            valueSuffix={latestPushStats ? 'passing' : undefined}
                             sub={
                                 latestPushStats && latestPushStats.failingWorkflows.length > 0
                                     ? `${latestPushStats.failingWorkflows.slice(0, 3).join(', ')} failing`
                                     : latestPushStats && latestPushStats.running > 0
                                       ? `${latestPushStats.running} still running`
-                                      : undefined
+                                      : latestPushStats
+                                        ? 'passing'
+                                        : undefined
                             }
+                            loading={tilesLoading}
+                        />
+                        <MetricTile
+                            label="CI wall time"
+                            tooltip="On the newest commit: earliest run start to latest completed run end."
+                            value={
+                                latestRound?.wallSeconds != null
+                                    ? humanFriendlyDuration(latestRound.wallSeconds, { maxUnits: 2 })
+                                    : '—'
+                            }
+                            sub={latestRound?.pending ? 'still running' : undefined}
+                            loading={tilesLoading}
                         />
                         <MetricTile
                             label="Pushes"
                             tooltip="Commits that triggered CI on this pull request."
                             value={`${pushes}`}
-                            delta={
+                            sub={
                                 rerunCycles > 0 ? (
-                                    <span className="text-xs font-semibold text-warning-dark">
-                                        +{rerunCycles} re-runs
-                                    </span>
+                                    <span className="font-semibold text-warning-dark">+{rerunCycles} re-runs</span>
                                 ) : undefined
                             }
+                            loading={tilesLoading}
                         />
                         <MetricTile
                             label="CI cost"
@@ -757,29 +830,13 @@ export function PullRequestDetailScene(): JSX.Element {
                             }
                             value={prCost?.jobs_available ? compactUsd(prCost.estimated_cost_usd) : '—'}
                             sub={prCost?.jobs_available ? undefined : 'Job-level source not synced'}
-                        />
-                        <MetricTile
-                            label={
-                                summary?.mergedAt ? 'Open → merge' : summary?.closedAt ? 'Open → close' : 'Open so far'
-                            }
-                            value={gapBetween(
-                                summary?.openedAt ?? pullRequest.created_at,
-                                summary?.mergedAt ?? summary?.closedAt ?? dayjs().toISOString()
-                            )}
+                            loading={prCostLoading && !prCost}
                         />
                     </div>
                 </>
             ) : (
                 <LemonSkeleton className="h-24 w-full" />
             )}
-
-            <SectionNav
-                items={[
-                    { id: 'pr-timeline', label: 'Lifecycle' },
-                    { id: 'pr-runs', label: 'CI runs' },
-                    { id: 'pr-failures', label: 'Failures' },
-                ]}
-            />
 
             <Section id="pr-timeline" title="Lifecycle">
                 {summary && pullRequest ? (
@@ -802,7 +859,6 @@ export function PullRequestDetailScene(): JSX.Element {
                             Cumulative · {pluralize(passed, 'run')} passed
                             {failed > 0 && <> · {failed} failed</>}
                             {running > 0 && <> · {running} still running</>}
-                            {commitGroups.length > 1 && <> · {pluralize(commitGroups.length, 'commit')}</>}
                         </span>
                     ) : undefined
                 }
