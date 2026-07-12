@@ -12,7 +12,7 @@ import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/typ
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { imageRef } from './ml-mirror-image-scrub/content-ref'
+import { hashImageBytes, imageRef, isImageRef } from './ml-mirror-image-scrub/content-ref'
 import { PSEUDONYM_TEAM, pseudonymize } from './ml-mirror/pseudonymize'
 import { ParseMessageStepInput, ParseMessageStepOutput, getContentEncoding, isGzipped } from './parse-message-step'
 
@@ -75,6 +75,14 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         let pseudoTeam = pseudoTeamCache.get(teamId)
         if (!pseudoTeam) {
             pseudoTeam = pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_TEAM, String(teamId))
+            // The consumer regex-validates every ref and silently drops non-matches, so a pseudonym
+            // format drift would zero the lane with no signal. Refuse to embed a ref the consumer
+            // would drop — those messages fall back to the inline blur, loudly.
+            if (!isImageRef(imageRef(pseudoTeam, hashImageBytes(Buffer.alloc(0))))) {
+                logger.error('🖼️', 'ml_image_scrub_pseudo_team_shape_invalid', { teamId })
+                SessionRecordingIngesterMetrics.incrementMlImagePseudoTeamInvalid()
+                return undefined
+            }
             pseudoTeamCache.set(teamId, pseudoTeam)
         }
         return pseudoTeam
@@ -233,5 +241,6 @@ function unpackCollectedImages(
             bytes: packed.subarray(entry.offset, entry.offset + entry.len),
         })
     }
+    SessionRecordingIngesterMetrics.incrementMlImagesCollected('collected', images.length)
     return images.length > 0 ? images : undefined
 }

@@ -108,10 +108,12 @@ impl ImageCollector {
 
 /// Decode the collectable payload of an image data URI. `None` (not collectable) for anything but
 /// a base64 raster image: SVG is a text format whose PII must stay on the inline scrub path, and
-/// non-base64 payloads mirror `blur_image_data_uri`'s refusal.
+/// non-base64 payloads mirror `blur_image_data_uri`'s refusal. MIME types are case-insensitive,
+/// so the checks run on a lowercased meta — `image/SVG+xml` must not dodge the SVG exclusion.
 pub fn collectable_data_uri_bytes(uri: &str) -> Option<Vec<u8>> {
     let rest = uri.strip_prefix("data:")?;
     let (meta, payload) = rest.split_once(',')?;
+    let meta = meta.to_ascii_lowercase();
     if !meta.starts_with("image/") || !meta.contains("base64") {
         return None;
     }
@@ -199,6 +201,18 @@ mod tests {
         assert!(collectable_data_uri_bytes("data:image/png;base64,%%%").is_none());
         assert_eq!(
             collectable_data_uri_bytes("data:image/png;base64,aGVsbG8=").as_deref(),
+            Some(b"hello".as_slice())
+        );
+    }
+
+    #[test]
+    fn collectable_mime_checks_are_case_insensitive() {
+        // MIME types are case-insensitive; a mixed-case SVG must not dodge the text-format
+        // exclusion, and a mixed-case raster/base64 marker must still collect.
+        assert!(collectable_data_uri_bytes("data:image/SVG+xml;base64,PHN2Zz4=").is_none());
+        assert!(collectable_data_uri_bytes("data:image/Svg+Xml;base64,PHN2Zz4=").is_none());
+        assert_eq!(
+            collectable_data_uri_bytes("data:image/PNG;BASE64,aGVsbG8=").as_deref(),
             Some(b"hello".as_slice())
         );
     }

@@ -9,6 +9,8 @@ export type MlAnonymizeImpl = 'rust' | 'ts'
 /** Rust engine that produced the output (tree = the parse fallback fired). `''` when not applicable. */
 export type MlAnonymizeRoute = 'stream' | 'tree' | ''
 
+export type MlImageLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed'
+
 export class SessionRecordingIngesterMetrics {
     private static readonly sessionsHandled = new Gauge({
         name: 'recording_blob_ingestion_v2_session_manager_count',
@@ -77,13 +79,18 @@ export class SessionRecordingIngesterMetrics {
 
     private static readonly mlImagesCollected = new Counter({
         name: 'recording_blob_ingestion_v2_ml_images_collected',
-        help: 'Images collected for the out-of-band scrub lane, by produce outcome',
+        help: 'Images through the out-of-band scrub lane, by stage: collected (returned by the addon), deduped (suppressed by the cross-message cache), queued (handed to the producer), produced (delivery acked), produce_failed (delivery failed; refs un-marked for natural retry)',
         labelNames: ['outcome'],
     })
 
     private static readonly mlImageBytesProduced = new Counter({
         name: 'recording_blob_ingestion_v2_ml_image_bytes_produced',
-        help: 'Bytes of collected images produced to the scrub topic',
+        help: 'Bytes of collected images delivered to the scrub topic (acked)',
+    })
+
+    private static readonly mlImagePseudoTeamInvalid = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_image_pseudo_team_invalid',
+        help: 'Messages whose derived team pseudonym failed the consumer ref-shape check; collection disabled for them (inline blur instead)',
     })
 
     public static incrementMessageReceived(partition: number): void {
@@ -131,11 +138,15 @@ export class SessionRecordingIngesterMetrics {
         this.mlAnonymizeFailed.labels(impl).inc()
     }
 
-    public static incrementMlImagesCollected(outcome: 'produced' | 'deduped' | 'produce_failed', count: number): void {
+    public static incrementMlImagesCollected(outcome: MlImageLaneStage, count: number): void {
         this.mlImagesCollected.labels(outcome).inc(count)
     }
 
     public static incrementMlImageBytesProduced(bytes: number): void {
         this.mlImageBytesProduced.inc(bytes)
+    }
+
+    public static incrementMlImagePseudoTeamInvalid(): void {
+        this.mlImagePseudoTeamInvalid.inc()
     }
 }

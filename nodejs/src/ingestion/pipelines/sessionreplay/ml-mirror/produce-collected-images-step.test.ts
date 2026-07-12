@@ -72,4 +72,15 @@ describe('produceCollectedImagesStep', () => {
         const result = await run(step, { collectedImages: [image('image:aa:h1')] })
         expect(result.type).toBe(PipelineResultType.OK)
     })
+
+    it('un-marks refs whose produce failed so a recurring image re-produces naturally', async () => {
+        queueMessages.mockRejectedValueOnce(new Error('broker down'))
+        const step = createProduceCollectedImagesStep(outputs)
+        await run(step, { collectedImages: [image('image:aa:h1')] })
+        await run(step, { collectedImages: [image('image:aa:h1')] })
+        expect(queueMessages).toHaveBeenCalledTimes(2)
+        // Once a produce succeeds, the ref dedups again.
+        await run(step, { collectedImages: [image('image:aa:h1')] })
+        expect(queueMessages).toHaveBeenCalledTimes(2)
+    })
 })

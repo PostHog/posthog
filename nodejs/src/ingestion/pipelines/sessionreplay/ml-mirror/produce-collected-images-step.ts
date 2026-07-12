@@ -45,17 +45,26 @@ export function createProduceCollectedImagesStep<T extends { collectedImages?: C
             producedRefs.add(image.ref)
             bytes += image.bytes.length
         }
-        SessionRecordingIngesterMetrics.incrementMlImagesCollected('produced', fresh.length)
-        SessionRecordingIngesterMetrics.incrementMlImageBytesProduced(bytes)
+        SessionRecordingIngesterMetrics.incrementMlImagesCollected('queued', fresh.length)
 
         const produce = outputs
             .queueMessages(
                 ML_IMAGE_SCRUB_OUTPUT,
                 fresh.map((image) => ({ key: image.ref, value: image.bytes }))
             )
+            .then(() => {
+                // queueMessages resolves on delivery acks, so `produced` counts what actually landed.
+                SessionRecordingIngesterMetrics.incrementMlImagesCollected('produced', fresh.length)
+                SessionRecordingIngesterMetrics.incrementMlImageBytesProduced(bytes)
+            })
             .catch((error) => {
                 // A dangling ref reads as a placeholder downstream, so a failed produce is logged,
-                // never re-thrown into the pipeline.
+                // never re-thrown into the pipeline. Un-mark the refs: the same image recurring in
+                // a later snapshot then re-produces naturally (one attempt per recurrence, no retry
+                // loop), and duplicates are idempotent downstream (S3 keyed by hash).
+                for (const image of fresh) {
+                    producedRefs.delete(image.ref)
+                }
                 logger.warn('🖼️', 'ml_image_scrub_produce_failed', { count: fresh.length, error: String(error) })
                 SessionRecordingIngesterMetrics.incrementMlImagesCollected('produce_failed', fresh.length)
             })

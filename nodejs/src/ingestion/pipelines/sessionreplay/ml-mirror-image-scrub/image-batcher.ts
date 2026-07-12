@@ -88,6 +88,7 @@ export class ImageBatcher {
     private async scrubOne(m: Message, signal: AbortSignal): Promise<ScrubbedImage | null> {
         const ref = m.key?.toString('utf8')
         if (!ref || !isImageRef(ref) || !m.value) {
+            ImageScrubConsumerMetrics.incInvalidKey()
             return null
         }
         const parsed = parseImageRef(ref)
