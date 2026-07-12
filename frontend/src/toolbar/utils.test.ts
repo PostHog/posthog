@@ -200,5 +200,15 @@ describe('utils', () => {
                 expect(result.status).toBe(502)
             }
         )
+
+        it('normalizes a rejected fetch (network/CORS/ad-blocker failure) into a synthetic failed response', async () => {
+            global.fetch = jest.fn(() => Promise.reject(new TypeError('Failed to fetch'))) as jest.Mock
+
+            const result = await safeFetch('https://example.com/api')
+
+            expect(result).toBeInstanceOf(Response)
+            expect(result.ok).toBe(false)
+            expect(result.status).toBe(502)
+        })
     })
 })
