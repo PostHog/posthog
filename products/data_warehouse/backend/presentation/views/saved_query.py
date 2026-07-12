@@ -452,6 +452,8 @@ class DataWarehouseSavedQuerySerializer(
                     }
                     view.columns = columns
 
+                # Persist the SELECT order explicitly; the columns jsonb field would otherwise scramble it.
+                view.column_order = list((view.columns or {}).keys())
                 view.external_tables = view.s3_tables
             except Exception as e:
                 capture_exception(e)
@@ -593,6 +595,8 @@ class DataWarehouseSavedQuerySerializer(
                         }
                         view.columns = columns
 
+                    # Persist the SELECT order explicitly; the columns jsonb field would otherwise scramble it.
+                    view.column_order = list((view.columns or {}).keys())
                     view.external_tables = view.s3_tables
                 except RecursionError:
                     raise serializers.ValidationError("Model contains a cycle")

@@ -148,6 +148,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 # Do NOT use get_columns because it runs the query, and these are possibly heavy
                 saved_query.query = view.query
                 saved_query.columns = view.columns
+                saved_query.column_order = list((view.columns or {}).keys())
                 saved_query.external_tables = external_tables_by_view[view.name]
                 saved_query.is_materialized = True
                 saved_query.sync_frequency_interval = timedelta(hours=12)
