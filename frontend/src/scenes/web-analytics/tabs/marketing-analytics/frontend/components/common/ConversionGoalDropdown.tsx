@@ -138,7 +138,8 @@ export function ConversionGoalDropdown({
                     // Override the schema with the schema from the data warehouse
                     if (data_warehouse?.[0]?.type === EntityTypes.DATA_WAREHOUSE) {
                         const dwNode = data_warehouse[0] as AnyDataWarehouseFilter &
-                            Record<ConversionGoalSchema, string>
+                            Record<ConversionGoalSchema, string> &
+                            Partial<Pick<DataWarehouseNode, 'id_field' | 'dw_source_type'>>
                         const schema = dwNode
                         const overrideSchema: Record<ConversionGoalSchema, string> = {
                             utm_campaign_name: schema[UTM_CAMPAIGN_NAME_SCHEMA_FIELD],
