@@ -900,6 +900,10 @@ snapshots:
         hash: v1.k794b7964.298a8b5041dd7d331feb2af9f05f88f46c3a7d9d09ff3518931bab2635105bac.riN9w_kEdcqhVqOTuZT46yyaIU2V9zSeTCjuCZ3D3hs
     components-hogcharts-slopechart--without-series-labels--light:
         hash: v1.k794b7964.03ec4e12d62a1f40c27d1c408c3f99fe35c895b4594b58e1c7732a4e5b1db38e.YofX1C439e9BBPGc_hkrYO2MgMPzWdrA4hk_XrYym_k
+    components-hogcharts-sparkline--bars--dark:
+        hash: v1.k794b7964.07530240026e946bc6e25333117d90c59940ab7e9f781ba4f4067a37f3870a79.FEXCKn2z4UQG-NJNzcNhVBIzZ0iJss7TgLSWYh0BK_E
+    components-hogcharts-sparkline--bars--light:
+        hash: v1.k794b7964.48157b40b3db233d512be726442898c4fb91228847c4f2a5aaab0cecb4e35616.7BH5SHAcN-xWcpncjUIM_0JXrPcN_xlDyJ5DwbE4SRE
     components-hogcharts-sparkline--custom-color--dark:
         hash: v1.k794b7964.fe78efe136cddcd6eb3b35c161f9ea1ab15383c31a7406f12fd66726d4ec37e9.1CoDmn7MkL3aQvQLXIWLG6CE4jgEm6T3uHEFOJzeAhg
     components-hogcharts-sparkline--custom-color--light:
@@ -916,10 +920,18 @@ snapshots:
         hash: v1.k794b7964.53fdc0d3c494d1ed89587f0c1867c77a2793f4e5bd02775451e3fa50080c3223.1q18RKBU3X_MI1FXD9koGx5irEnkztXov4yG-jFzNOw
     components-hogcharts-sparkline--flat--light:
         hash: v1.k794b7964.d786a4e2f7f586efb844c69f4c8469218df01fc8cb8fcf4f062f91cd901901e5.SktIyoMHAw_PGyJT-MFUaQ7wN_3QKUedaAU9mt9LUTM
+    components-hogcharts-sparkline--stacked-bars--dark:
+        hash: v1.k794b7964.54e69305ddd513385068777be8fed68d51762555e0e44802262603ef7cec26bc.-HTfmwGZaCaOA8HYSzz5Coeht6NG5rgkSDG1OxAZQzY
+    components-hogcharts-sparkline--stacked-bars--light:
+        hash: v1.k794b7964.66f3f5ff463287dd88ee1ecaf0a9e22893ed7236fbc2aa621d1a5274a680b61e.mfTQ4d8B896ZNHIsBv_OY6aMv8R4WbP6Z3eQQnZVwGY
     components-hogcharts-sparkline--volatile--dark:
         hash: v1.k794b7964.78c5852a35d0712e541e43742c092734fae98c4211006e5cd32de0008485092c.JRPUzMhsTjR1kj7t_k6dmc3J3afFEnp5MhYokgKnwok
     components-hogcharts-sparkline--volatile--light:
         hash: v1.k794b7964.43ae770e9ade45be47b529127a9836a97f508a6157f08ec81c81dd38bfbf1120.ZTO1dJnuVbYebO8PRQhm2TFf4Nwpdx5Vf--u-kHMDv4
+    components-hogcharts-sparkline--with-tooltip--dark:
+        hash: v1.k794b7964.111f64658c7df79aea9f2214d2e8d03dddeda94d29c45c4658fdd9adaaed6499.7UFbDNHh1CVeVxVeS2nF3yfgl4NHx5esZP-VQW9vih8
+    components-hogcharts-sparkline--with-tooltip--light:
+        hash: v1.k794b7964.b620c4de95000d73bfae09022e7da415f67615d3a66c15d99d301ce15e29fa12.ttyPKDDw4PQikkuHgGg8uvhvabRMh-L46Aydjae728g
     components-hogcharts-timeseriesbarchart--basic--dark:
         hash: v1.k794b7964.f31a9b390355debe67ab4c295f06cab7f858ec7e6e86f1bd45353000fadff5d7.i5bWMbjTSMyU8lL2xRmonD5JGtF8KDALH8Fo8xfg-f0
     components-hogcharts-timeseriesbarchart--basic--light:

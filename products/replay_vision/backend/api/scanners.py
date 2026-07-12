@@ -38,6 +38,7 @@ from products.replay_vision.backend.api.trigger import (
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.digest import provision_scanner_digest
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_actions_enabled
+from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
@@ -127,6 +128,35 @@ def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any
     return None
 
 
+class FeedbackThemeSessionSerializer(serializers.Serializer):
+    observation_id = serializers.CharField(help_text="Observation whose feedback comment backs this theme.")
+    session_id = serializers.CharField(help_text="Session recording the feedback comment was about.")
+
+
+class FeedbackThemeSerializer(serializers.Serializer):
+    theme = serializers.CharField(
+        help_text='Short failure mode in sentence case, for example "Review page mistaken for confirmation".'
+    )
+    count = serializers.IntegerField(help_text="How many feedback comments describe this failure mode.")
+    examples = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Up to two short representative quotes from the feedback comments.",
+    )
+    sessions = FeedbackThemeSessionSerializer(
+        many=True,
+        help_text="The rated sessions whose feedback comments back this theme. Empty for summaries generated "
+        "before session tracking.",
+    )
+
+
+class FeedbackThemesSerializer(serializers.Serializer):
+    themes = FeedbackThemeSerializer(many=True, help_text="Recurring failure modes, most frequent first.")
+    feedback_count = serializers.IntegerField(
+        help_text="Number of thumbs-down feedback comments the summary was generated from."
+    )
+    generated_at = serializers.DateTimeField(help_text="When the summary was generated.")
+
+
 class ReplayScannerSerializer(serializers.ModelSerializer):
     name = serializers.CharField(
         max_length=255,
@@ -214,6 +244,23 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="User who created the scanner.",
     )
+    feedback_themes = serializers.SerializerMethodField(
+        help_text="AI summary of the team's written thumbs-down feedback into recurring failure modes. "
+        "Refreshed with prompt recommendations; null until enough feedback accumulates."
+    )
+
+    @extend_schema_field(FeedbackThemesSerializer(allow_null=True))
+    def get_feedback_themes(self, scanner: ReplayScanner) -> dict[str, Any] | None:
+        cached = cached_feedback_themes(scanner)
+        if not cached:
+            return None
+        # The staleness fingerprint is internal bookkeeping, not API surface.
+        return {
+            # Summaries cached before session tracking lack the key, so default it to keep the shape stable.
+            "themes": [{**theme, "sessions": theme.get("sessions") or []} for theme in cached.get("themes") or []],
+            "feedback_count": cached.get("feedback_count", 0),
+            "generated_at": cached.get("generated_at"),
+        }
 
     class Meta:
         model = ReplayScanner
@@ -238,6 +285,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "feedback_themes",
         ]
         read_only_fields = [
             "id",
@@ -249,6 +297,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "feedback_themes",
         ]
 
     @extend_schema_field(serializers.IntegerField())

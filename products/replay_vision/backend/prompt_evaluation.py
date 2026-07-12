@@ -12,13 +12,12 @@ from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
-
-# The evaluation workflow's Temporal execution timeout. Lives outside temporal/ because importing
-# that package pulls in the activities, which import quota, which imports this module.
-EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
+from products.replay_vision.backend.temporal.constants import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
 
 # Each evaluated session is a full scanner run, so keep the bill bounded.
-EVALUATION_SESSION_CAP = 10
+EVALUATION_SESSION_CAP = 100
+# What a test run re-runs unless the caller picks a size, keeping the default spend small.
+EVALUATION_SESSION_DEFAULT = 10
 
 _EVALUATION_USAGE_NAMESPACE = uuid.UUID("8f6f5e56-9f0b-4c5a-9a3e-2b7d1c4e8a90")
 
