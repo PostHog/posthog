@@ -35,6 +35,12 @@ def _customer_page(count: int, start_id: int = 1) -> list[dict[str, Any]]:
     return [{"customer": {"id": start_id + i, "created_at": "2024-01-01T00:00:00Z"}} for i in range(count)]
 
 
+def _resource(endpoint_name: str, should_use_incremental_field: bool) -> dict[str, Any]:
+    # get_resource returns an EndpointResource TypedDict whose nested values are unions;
+    # cast to a plain dict so the structural assertions below stay readable.
+    return cast(dict[str, Any], get_resource(endpoint_name, should_use_incremental_field=should_use_incremental_field))
+
+
 class TestNormalizeSubdomain:
     @pytest.mark.parametrize(
         ("raw", "expected"),
@@ -138,8 +144,8 @@ class TestMaxioPaginator:
 class TestGetResource:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS.keys()))
     def test_full_refresh_has_no_incremental_params(self, endpoint: str) -> None:
-        resource = get_resource(endpoint, should_use_incremental_field=False)
-        params = cast(dict[str, Any], resource["endpoint"]["params"])
+        resource = _resource(endpoint, should_use_incremental_field=False)
+        params = resource["endpoint"]["params"]
 
         assert "date_field" not in params
         assert "start_datetime" not in params
@@ -159,8 +165,8 @@ class TestGetResource:
     def test_incremental_datetime_endpoints_set_window_and_sort(
         self, endpoint: str, date_field: str, sort: str | None
     ) -> None:
-        resource = get_resource(endpoint, should_use_incremental_field=True)
-        params = cast(dict[str, Any], resource["endpoint"]["params"])
+        resource = _resource(endpoint, should_use_incremental_field=True)
+        params = resource["endpoint"]["params"]
 
         assert params["date_field"] == date_field
         assert params["start_datetime"]["type"] == "incremental"
@@ -171,8 +177,8 @@ class TestGetResource:
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 
     def test_incremental_events_use_since_id(self) -> None:
-        resource = get_resource("events", should_use_incremental_field=True)
-        params = cast(dict[str, Any], resource["endpoint"]["params"])
+        resource = _resource("events", should_use_incremental_field=True)
+        params = resource["endpoint"]["params"]
 
         assert params["since_id"]["type"] == "incremental"
         assert params["since_id"]["cursor_path"] == "id"
@@ -185,15 +191,15 @@ class TestGetResource:
     def test_full_refresh_only_endpoints_never_get_incremental_params(self, endpoint: str) -> None:
         # These endpoints advertise no incremental fields; even if the pipeline asked for
         # incremental, no server-side filter params must be emitted.
-        resource = get_resource(endpoint, should_use_incremental_field=True)
-        params = cast(dict[str, Any], resource["endpoint"]["params"])
+        resource = _resource(endpoint, should_use_incremental_field=True)
+        params = resource["endpoint"]["params"]
 
         assert "date_field" not in params
         assert "start_datetime" not in params
         assert "since_id" not in params
 
     def test_invoices_include_breakdowns(self) -> None:
-        params = get_resource("invoices", should_use_incremental_field=False)["endpoint"]["params"]
+        params = _resource("invoices", should_use_incremental_field=False)["endpoint"]["params"]
         for flag in ("line_items", "discounts", "taxes", "credits", "payments", "refunds"):
             assert params[flag] == "true"
 

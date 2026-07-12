@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -60,9 +60,15 @@ class TestMaxioSource:
 
         fields_by_name = {f.name: f for f in config.fields}
         assert set(fields_by_name.keys()) == {"subdomain", "api_key", "region"}
-        assert fields_by_name["api_key"].secret is True
-        assert fields_by_name["region"].defaultValue == "us"
-        assert {option.value for option in fields_by_name["region"].options} == {"us", "eu"}
+
+        api_key_field = fields_by_name["api_key"]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
+        assert api_key_field.secret is True
+
+        region_field = fields_by_name["region"]
+        assert isinstance(region_field, SourceFieldSelectConfig)
+        assert region_field.defaultValue == "us"
+        assert {option.value for option in region_field.options} == {"us", "eu"}
 
     def test_connection_host_fields_cover_host_determining_fields(self) -> None:
         assert MaxioSource().connection_host_fields == ["subdomain", "region"]
