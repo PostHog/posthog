@@ -31,12 +31,12 @@ import pyarrow as pa
 import structlog
 from google.api_core.exceptions import BadRequest, Forbidden, InternalServerError, NotFound, ServiceUnavailable
 from google.api_core.retry import Retry, if_exception_type
-from google.auth.exceptions import RefreshError
 from google.auth import (
     aws as google_auth_aws,
     credentials as google_auth_credentials,
     impersonated_credentials as google_auth_impersonated_credentials,
 )
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
