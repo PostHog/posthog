@@ -82,20 +82,25 @@ _SNOWFLAKE_IDENTIFIER_QUOTER = AnsiIdentifierQuoter()
 # Snowflake exposes one metadata schema per database; everything else is user data.
 SNOWFLAKE_SYSTEM_SCHEMA = "INFORMATION_SCHEMA"
 
-# Bound each socket connect/read so a stalled/half-open connection (peer or network drop) fails fast
-# instead of hanging the worker thread. The sync activities are threaded and the heartbeater runs on
-# a separate event-loop task, so the stall isn't surfaced by a missed heartbeat — without a bound the
-# activity just runs until Temporal's `start_to_close_timeout` cancels the thread mid socket-read,
-# surfacing a misleading `WantReadError`/`CancelledError`. `socket_timeout` turns that into a fast,
-# retryable error well before the activity is cancelled.
-#
-# This deliberately uses `socket_timeout`, not `network_timeout`: the connector reuses
-# `network_timeout` as a client-side query "timebomb" that cancels the running query once it elapses
-# (raising `ProgrammingError` 000604/57014), so a finite `network_timeout` caps every query's total
-# wall-clock and kills legitimate long-running syncs of large tables. `socket_timeout` bounds only
-# each individual request; Snowflake executes queries via bounded polling round-trips, so a long
-# query never trips it.
-_SNOWFLAKE_SOCKET_TIMEOUT_SECONDS = 300
+# Bound the connector's per-request retry budget. `network_timeout` defaults to infinite, so a
+# stalled/half-open connection mid-request (peer or network drop) retries forever in the worker
+# thread. The sync activities are threaded and the heartbeater runs on a separate event-loop task,
+# so the stall isn't surfaced by a missed heartbeat — the activity just runs until Temporal's
+# `start_to_close_timeout` cancels the thread mid socket-read, surfacing a misleading
+# `WantReadError`/`CancelledError`. Bounding it turns the stall into a fast, retryable error well
+# before the activity is cancelled. It applies per HTTP request, so it never caps the total wall-clock
+# of a long-running query.
+_SNOWFLAKE_NETWORK_TIMEOUT_SECONDS = 300
+
+# The connector also reuses `network_timeout` as a client-side query "timebomb": it arms a timer on
+# `cursor.execute()` and cancels the running query once the timeout elapses, raising
+# `ProgrammingError` 000604 (57014, "SQL execution was cancelled by the client due to a timeout").
+# That's harmless for the short metadata queries, but it must not cancel a legitimately long
+# full-table data scan — so those pass this explicit, much larger per-query `timeout`, overriding the
+# timebomb while leaving the retry budget above intact. It mirrors the import activity's 6h
+# `start_to_close_timeout`, which is the real ceiling: the connector defers to Temporal rather than
+# pre-empting a sync that is still making progress.
+_SNOWFLAKE_QUERY_TIMEOUT_SECONDS = 6 * 60 * 60
 
 
 def _split_display_name(display_name: str, default_schema: Optional[str]) -> tuple[Optional[str], str]:
@@ -282,7 +287,7 @@ class SnowflakeImplementation(
             # `schema=""` would try `USE SCHEMA ""`, an invalid identifier, and fail at connect time.
             schema=normalize_namespace(config.schema),
             role=config.role,
-            socket_timeout=_SNOWFLAKE_SOCKET_TIMEOUT_SECONDS,
+            network_timeout=_SNOWFLAKE_NETWORK_TIMEOUT_SECONDS,
             **auth_connect_args,
         ) as connection:
             yield connection
@@ -536,7 +541,7 @@ class SnowflakeImplementation(
         try:
             query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
 
-            cursor.execute(query, inner_query_args)
+            cursor.execute(query, inner_query_args, timeout=_SNOWFLAKE_QUERY_TIMEOUT_SECONDS)
             row = cursor.fetchone()
 
             if row is None:
@@ -615,7 +620,7 @@ class SnowflakeImplementation(
                         row_filters=row_filters,
                     )
                     logger.debug(f"Snowflake query: {query.format(params)}")
-                    streaming_cursor.execute(query, params)
+                    streaming_cursor.execute(query, params, timeout=_SNOWFLAKE_QUERY_TIMEOUT_SECONDS)
 
                     # We cant control the batch size from snowflake when using the arrow function
                     # https://github.com/snowflakedb/snowflake-connector-python/issues/1712
