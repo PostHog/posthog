@@ -73,6 +73,22 @@ export function removeProjectIdIfPresent(path: string): string {
     return path
 }
 
+/**
+ * kea-router runs `decodeURI(pathname)` while matching routes. A stray `%` that isn't a valid
+ * escape (e.g. a distinct id like `50%off` in `/person/50%off`) makes `decodeURI` throw
+ * `URIError` synchronously inside the router, before any scene loads, crashing the whole app.
+ * Escape every `%` so the path stays decodable and routing falls through to the scene (or 404)
+ * instead of throwing. Well-formed paths are returned untouched.
+ */
+export function ensureRoutablePathname(path: string): string {
+    try {
+        decodeURI(path)
+        return path
+    } catch {
+        return path.replace(/%/g, '%25')
+    }
+}
+
 export function stripTrailingSlash(path: string): string {
     if (path.length > 1 && path.endsWith('/')) {
         return path.replace(/\/+$/, '')
