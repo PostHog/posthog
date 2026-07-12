@@ -21,7 +21,7 @@ export interface AnonymizeEventMeta {
 
 /** One collected original image: `offset..offset+len` in {@link AnonymizeKafkaPayloadResult.images}. */
 export interface AnonymizeImageEntry {
-    /** First 22 base64url chars of the sha256 of the bytes (the consumer's `hashImageBytes`). */
+    /** First 22 base64url chars of `HMAC-SHA256(contentKey, bytes)` (`hashImageBytes` in content-ref.ts). */
     hash: string
     offset: number
     len: number
@@ -44,7 +44,7 @@ export interface AnonymizeMeta {
     consoleWarnCount: number
     consoleErrorCount: number
     events: AnonymizeEventMeta[]
-    /** Collected original images (hash-sorted); present only when a `pseudoTeam` was passed and images were collected. */
+    /** Collected original images (hash-sorted); present only when the collection lane was enabled and images were collected. */
     images?: AnonymizeImageEntry[]
 }
 
@@ -112,17 +112,24 @@ export function initAnonymizer(allow: AllowListsInput): void {
  *
  * `cv` payloads re-emit as zstd; the reader dispatches on magic bytes.
  *
- * A non-empty `pseudoTeam` (the HMAC team pseudonym — never the raw team id) enables the
- * image-collection lane: inlined images are replaced with `image:<pseudoTeam>:<hash>` refs instead
- * of the inline blur, and the original bytes come back in `images`/`meta.images` for the caller to
- * produce to the scrub topic.
+ * Non-empty `pseudoTeam` + `contentKey` (the per-team HMAC pseudonym and content-hash key — never
+ * the raw team id or master secret) enable the image-collection lane: inlined images are replaced
+ * with `image:<pseudoTeam>:<hash>` refs (hash = keyed HMAC of the bytes) instead of the inline
+ * blur, and the original bytes come back in `images`/`meta.images` for the caller to produce to
+ * the scrub topic. Passing one without the other throws.
  */
 export async function anonymizeKafkaPayload(
     payload: Buffer,
     contentEncoding?: string | null,
-    pseudoTeam?: string | null
+    pseudoTeam?: string | null,
+    contentKey?: string | null
 ): Promise<AnonymizeKafkaPayloadResult> {
-    const result = await native.anonymizeKafkaPayload(payload, contentEncoding ?? undefined, pseudoTeam ?? undefined)
+    const result = await native.anonymizeKafkaPayload(
+        payload,
+        contentEncoding ?? undefined,
+        pseudoTeam ?? undefined,
+        contentKey ?? undefined
+    )
     // Timings are best-effort telemetry: a malformed timings blob must never fail the message.
     let timings: AnonymizeTimings | null = null
     if (typeof result.timings === 'string') {

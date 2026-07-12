@@ -3,22 +3,28 @@
 //! With collection enabled (an [`ImageCollection`] on the anonymize call), each inlined image is
 //! replaced by a stable content reference — `image:<pseudoTeam>:<hash>` — instead of the native
 //! blur, and the original bytes ride back to the caller on the message. The caller produces them
-//! to the `session_replay_image_scrub` Kafka topic keyed by the ref; the scrub consumer re-hashes
-//! the bytes against the key, blurs them out of process, and writes them to the ML bucket indexed
-//! by `(pseudo_team, hash)` — so the ref embedded in the mirrored lines is the join key.
+//! to the `session_replay_image_scrub` Kafka topic keyed by the ref; the scrub consumer trusts the
+//! ref (this producer is the only writer), blurs the bytes out of process, and writes them to the
+//! ML bucket indexed by `(pseudo_team, hash)` — so the ref embedded in the mirrored lines is the
+//! join key.
 //!
-//! The hash is pinned to the consumer's `hashImageBytes` (`ml-mirror-image-scrub/content-ref.ts`)
-//! by the shared `image-hash.json` fixture: any divergence makes the consumer drop every produced
-//! message as a key/bytes mismatch.
+//! The hash is a *keyed* HMAC, not a plain digest: the ML bucket is unencrypted, and a plain
+//! content hash would let any bucket reader confirm whether specific known bytes appeared in a
+//! session (and correlate identical images across teams). The per-team key is derived by the
+//! caller from the same KMS-held secret as the team pseudonym, so neither leaves the ingester.
+//! `image-hash.json` pins the construction against Node `createHmac` reference vectors.
 
 use std::collections::HashSet;
 
 use base64::Engine;
-use sha2::{Digest, Sha256};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 
-/// First 22 base64url chars of the sha256, exactly as `hashImageBytes` computes it.
-pub fn hash_image_bytes(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
+/// First 22 base64url chars of `HMAC-SHA256(content_key, bytes)`.
+pub fn hash_image_bytes(content_key: &[u8], bytes: &[u8]) -> String {
+    let mut mac = Hmac::<Sha256>::new_from_slice(content_key).expect("hmac accepts any key length");
+    mac.update(bytes);
+    let digest = mac.finalize().into_bytes();
     let mut b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest);
     b64.truncate(22);
     b64
@@ -48,6 +54,9 @@ pub struct ImageCollection {
     /// The non-reversible HMAC team pseudonym (32 hex chars), computed by the caller — the secret
     /// never crosses into this crate. Embedded verbatim in every emitted ref.
     pub pseudo_team: String,
+    /// Per-team key for the content HMAC, derived by the caller alongside the pseudonym. Its ASCII
+    /// bytes key [`hash_image_bytes`].
+    pub content_key: String,
 }
 
 pub struct CollectedImage {
@@ -59,6 +68,7 @@ pub struct CollectedImage {
 /// under different URIs (or after the per-URI memo misses) is collected once but still gets its ref.
 pub struct ImageCollector {
     pseudo_team: String,
+    content_key: String,
     images: Vec<CollectedImage>,
     seen: HashSet<String>,
     total_bytes: usize,
@@ -68,6 +78,7 @@ impl ImageCollector {
     pub fn new(collection: ImageCollection) -> Self {
         Self {
             pseudo_team: collection.pseudo_team,
+            content_key: collection.content_key,
             images: Vec::new(),
             seen: HashSet::new(),
             total_bytes: 0,
@@ -80,7 +91,7 @@ impl ImageCollector {
         if bytes.len() > MAX_IMAGE_BYTES {
             return None;
         }
-        let hash = hash_image_bytes(&bytes);
+        let hash = hash_image_bytes(self.content_key.as_bytes(), &bytes);
         if self.seen.contains(&hash) {
             return Some(image_ref(&self.pseudo_team, &hash));
         }
@@ -129,25 +140,31 @@ pub fn collectable_data_uri_bytes(uri: &str) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
 
+    const TEST_KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
+
     fn collector() -> ImageCollector {
         ImageCollector::new(ImageCollection {
             pseudo_team: "a".repeat(32),
+            content_key: String::from_utf8(TEST_KEY.to_vec()).unwrap(),
         })
     }
 
     #[test]
-    fn hash_is_22_base64url_chars() {
-        let hash = hash_image_bytes(b"hello world");
+    fn hash_is_22_base64url_chars_and_keyed() {
+        let hash = hash_image_bytes(TEST_KEY, b"hello world");
         assert_eq!(hash.len(), 22);
         assert!(hash
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        // Different keys must produce unrelated hashes for the same bytes — the keying is the
+        // point (no unkeyed content oracle in the ML bucket).
+        assert_ne!(hash, hash_image_bytes(b"another-key", b"hello world"));
     }
 
     #[test]
     fn ref_matches_consumer_shape() {
         // The consumer's REF_RE: image:<32 hex>:<22 base64url>.
-        let r = image_ref(&"ab".repeat(16), &hash_image_bytes(b"x"));
+        let r = image_ref(&"ab".repeat(16), &hash_image_bytes(TEST_KEY, b"x"));
         assert!(is_image_ref(&r));
         let parts: Vec<&str> = r.splitn(3, ':').collect();
         assert_eq!(parts[0], "image");

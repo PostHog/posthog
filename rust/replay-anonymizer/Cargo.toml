@@ -20,6 +20,7 @@ typed-parse = []
 ahash = { workspace = true }
 anyhow = { workspace = true }
 base64 = { workspace = true }
+hmac = { workspace = true }
 libdeflater = { workspace = true }
 lz4 = { workspace = true }
 memchr = "2"

@@ -37,14 +37,16 @@ fn allow_of(case: &Value) -> AllowLists {
 
 #[test]
 fn image_hash_fixtures() {
-    // Pins the content hash to the scrub consumer's `hashImageBytes` (content-ref.ts): a divergence
-    // makes the consumer drop every produced image as a key/bytes mismatch.
+    // Pins the keyed content hash against Node `createHmac('sha256', key)` reference vectors —
+    // the consumer trusts the producer, so this fixture is the only cross-implementation check
+    // on the construction (and what the training-side joins implicitly rely on).
     for case in fixtures("image-hash.json") {
+        let key = case["keyAscii"].as_str().unwrap();
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(case["bytesBase64"].as_str().unwrap())
             .unwrap();
         assert_eq!(
-            hash_image_bytes(&bytes),
+            hash_image_bytes(key.as_bytes(), &bytes),
             case["hash"].as_str().unwrap(),
             "image hash case: {}",
             case["name"]

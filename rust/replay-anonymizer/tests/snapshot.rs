@@ -786,10 +786,14 @@ fn image_collection_replaces_images_with_refs_and_returns_the_bytes() {
     use base64::Engine;
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
     let pseudo_team = "0123456789abcdef0123456789abcdef".to_string();
+    let content_key = "fedcba9876543210fedcba9876543210".to_string();
     let png = base64::engine::general_purpose::STANDARD
         .decode(COLLECT_PNG_B64)
         .unwrap();
-    let expected_ref = image_ref(&pseudo_team, &hash_image_bytes(&png));
+    let expected_ref = image_ref(
+        &pseudo_team,
+        &hash_image_bytes(content_key.as_bytes(), &png),
+    );
 
     for byte_walk in [true, false] {
         let mut bytes = collect_payload().into_bytes();
@@ -802,6 +806,7 @@ fn image_collection_replaces_images_with_refs_and_returns_the_bytes() {
             },
             Some(ImageCollection {
                 pseudo_team: pseudo_team.clone(),
+                content_key: content_key.clone(),
             }),
         )
         .expect("anonymizes (walk={byte_walk})");
@@ -820,7 +825,7 @@ fn image_collection_replaces_images_with_refs_and_returns_the_bytes() {
         // One image (deduped across all four funnels), bytes returned verbatim.
         assert_eq!(out.meta.images.len(), 1, "walk={byte_walk}");
         let entry = &out.meta.images[0];
-        assert_eq!(entry.hash, hash_image_bytes(&png));
+        assert_eq!(entry.hash, hash_image_bytes(content_key.as_bytes(), &png));
         assert_eq!(entry.offset, 0);
         assert_eq!(entry.len, png.len());
         assert_eq!(out.image_bytes, png, "walk={byte_walk}");
@@ -868,6 +873,7 @@ fn image_collection_svg_stays_on_the_inline_scrub_path() {
         AnonymizeOpts::default(),
         Some(ImageCollection {
             pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
+            content_key: "fedcba9876543210fedcba9876543210".to_string(),
         }),
     )
     .expect("anonymizes");

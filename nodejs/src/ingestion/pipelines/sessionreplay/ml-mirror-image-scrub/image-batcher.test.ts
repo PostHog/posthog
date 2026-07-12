@@ -6,9 +6,10 @@ import { ImageShardStore, ScrubbedImage } from './image-shard-store'
 import { ScrubClient } from './scrub-client'
 
 const pt = (n: number): string => String(n).padStart(32, '0')
+const CONTENT_KEY = 'fedcba9876543210fedcba9876543210'
 
 function msg(partition: number, offset: number, pseudoTeam: string, bytes: Buffer, keyOverride?: string): Message {
-    const ref = keyOverride ?? imageRef(pseudoTeam, hashImageBytes(bytes))
+    const ref = keyOverride ?? imageRef(pseudoTeam, hashImageBytes(CONTENT_KEY, bytes))
     return {
         topic: 'session_replay_image_scrub',
         partition,
@@ -62,7 +63,9 @@ describe('ImageBatcher', () => {
         expect(offsets.stored).toBe(1)
     })
 
-    it('drops a key/content mismatch without buffering it', async () => {
+    it('trusts the producer ref: the bytes are indexed under the key hash without recomputing it', async () => {
+        // The hash is a producer-side per-team HMAC; this consumer has no key and must not try to
+        // validate — it indexes the scrubbed bytes under whatever hash the ref carries.
         const store = new FakeStore()
         const batcher = new ImageBatcher(
             store as unknown as ImageShardStore,
@@ -72,10 +75,11 @@ describe('ImageBatcher', () => {
             0
         )
 
-        const forged = imageRef(pt(1), hashImageBytes(Buffer.from('other')))
-        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'), forged)], 1)
+        const ref = imageRef(pt(1), hashImageBytes('some-opaque-producer-key', Buffer.from('a')))
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'), ref)], 1)
 
-        expect(store.writes).toHaveLength(0)
+        expect(store.writes).toHaveLength(1)
+        expect(store.writes[0][0].hash).toBe(ref.split(':')[2])
     })
 
     it('does not store offsets when the shard write fails (at-least-once replay)', async () => {

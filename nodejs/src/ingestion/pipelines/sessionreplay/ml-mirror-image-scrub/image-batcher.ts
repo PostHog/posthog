@@ -3,7 +3,7 @@ import { Message, TopicPartitionOffset } from 'node-rdkafka'
 import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 
-import { hashImageBytes, isImageRef, parseImageRef } from './content-ref'
+import { isImageRef, parseImageRef } from './content-ref'
 import { ImageShardStore, ScrubbedImage } from './image-shard-store'
 import { ImageScrubConsumerMetrics } from './metrics'
 import { ScrubClient } from './scrub-client'
@@ -91,9 +91,11 @@ export class ImageBatcher {
             ImageScrubConsumerMetrics.incInvalidKey()
             return null
         }
+        // The ref's hash is a producer-side per-team HMAC; this consumer doesn't hold the key and
+        // trusts the producer (the topic's only writer) that the key names these bytes.
         const parsed = parseImageRef(ref)
-        if (!parsed || hashImageBytes(m.value) !== parsed.hash) {
-            ImageScrubConsumerMetrics.incMismatch()
+        if (!parsed) {
+            ImageScrubConsumerMetrics.incInvalidKey()
             return null
         }
         const bytes = await this.scrubClient.scrub(m.value, signal)

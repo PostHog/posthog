@@ -5,7 +5,7 @@ import { gzip } from 'zlib'
 import { PipelineResultType } from '~/ingestion/framework/results'
 
 import { imageRef } from './ml-mirror-image-scrub/content-ref'
-import { PSEUDONYM_TEAM, pseudonymize } from './ml-mirror/pseudonymize'
+import { PSEUDONYM_IMAGE_CONTENT_KEY, PSEUDONYM_TEAM, pseudonymize } from './ml-mirror/pseudonymize'
 import { createParseAndAnonymizeMessageStep } from './parse-and-anonymize-step'
 import { SessionReplayHeaders } from './pipeline-types'
 
@@ -16,8 +16,12 @@ const compressWithGzip = promisify(gzip)
 // assembly — not the scrub itself (that's covered by the Rust suite + shared fixtures).
 const mockAnonymizeKafkaPayload = jest.fn()
 jest.mock('@posthog/replay-anonymizer', () => ({
-    anonymizeKafkaPayload: (payload: Buffer, contentEncoding?: string | null, pseudoTeam?: string | null) =>
-        mockAnonymizeKafkaPayload(payload, contentEncoding, pseudoTeam),
+    anonymizeKafkaPayload: (
+        payload: Buffer,
+        contentEncoding?: string | null,
+        pseudoTeam?: string | null,
+        contentKey?: string | null
+    ) => mockAnonymizeKafkaPayload(payload, contentEncoding, pseudoTeam, contentKey),
 }))
 
 describe('createParseAndAnonymizeMessageStep', () => {
@@ -105,14 +109,14 @@ describe('createParseAndAnonymizeMessageStep', () => {
         const raw = Buffer.from(JSON.stringify({ distinct_id: 'user-1', data: '{}' }))
         const zipped = await compressWithGzip(raw)
         await step({ message: kafkaMessage(zipped), headers, team })
-        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(zipped, null, undefined)
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(zipped, null, undefined, undefined)
 
         mockAnonymizeKafkaPayload.mockClear()
         addonSuccess()
         const lz4Message = kafkaMessage(raw)
         lz4Message.headers = [{ 'content-encoding': Buffer.from('lz4') }]
         await step({ message: lz4Message, headers, team })
-        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(raw, 'lz4', undefined)
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(raw, 'lz4', undefined, undefined)
     })
 
     test.each([
@@ -168,6 +172,7 @@ describe('createParseAndAnonymizeMessageStep with image collection', () => {
     const secret = 'test-pseudonym-secret'
     const step = createParseAndAnonymizeMessageStep({ pseudonymSecret: secret })
     const pseudoTeam = pseudonymize(secret, PSEUDONYM_TEAM, '1')
+    const contentKey = pseudonymize(secret, PSEUDONYM_IMAGE_CONTENT_KEY, '1')
     const now = Date.now()
 
     const team = {
@@ -223,13 +228,15 @@ describe('createParseAndAnonymizeMessageStep with image collection', () => {
         mockAnonymizeKafkaPayload.mockReset()
     })
 
-    it('passes the cached per-team pseudonym to the addon', async () => {
+    it('passes the cached per-team pseudonym and content key to the addon', async () => {
         addonSuccessWithImages(null)
         await step({ message: kafkaMessage(), headers, team })
         await step({ message: kafkaMessage(), headers, team })
         expect(mockAnonymizeKafkaPayload).toHaveBeenCalledTimes(2)
         for (const call of mockAnonymizeKafkaPayload.mock.calls) {
             expect(call[3]).toBe(pseudoTeam)
+            expect(call[4]).toBe(contentKey)
+            expect(call[4]).not.toBe(call[3])
         }
     })
 

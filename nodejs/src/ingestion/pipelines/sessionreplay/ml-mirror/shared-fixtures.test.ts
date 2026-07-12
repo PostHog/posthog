@@ -219,15 +219,16 @@ describeAddon('native rust addon matches the shared fixtures', () => {
 })
 
 describe('image content hash matches the shared fixtures', () => {
-    // Pins hashImageBytes to the Rust collector's hash (tests/parity.rs runs the same fixture):
-    // a divergence makes the scrub consumer drop every produced image as a key/bytes mismatch.
+    // Pins the keyed hashImageBytes to the Rust collector's HMAC (tests/parity.rs runs the same
+    // fixture): the consumer trusts the producer, so this is the only cross-implementation check.
     interface HashCase {
         name: string
+        keyAscii: string
         bytesBase64: string
         hash: string
     }
     test.each(load<HashCase>('image-hash.json').map((c) => [c.name, c] as const))('hash: %s', (_name, c) => {
-        expect(hashImageBytes(Buffer.from(c.bytesBase64, 'base64'))).toBe(c.hash)
+        expect(hashImageBytes(c.keyAscii, Buffer.from(c.bytesBase64, 'base64'))).toBe(c.hash)
     })
 })
 
@@ -236,6 +237,7 @@ describeAddon('native image collection', () => {
     const PNG_B64 =
         'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAJUlEQVQokWN4plEBRyInbOAIlzjDINRAjCJk8cGoYRAG60iMBwA8H08Qor0ygQAAAABJRU5ErkJggg=='
     const PSEUDO_TEAM = '0123456789abcdef0123456789abcdef'
+    const CONTENT_KEY = 'fedcba9876543210fedcba9876543210'
 
     function imagePayload(): Buffer {
         const inner = JSON.stringify({
@@ -270,11 +272,17 @@ describeAddon('native image collection', () => {
 
     it('replaces the image with a consumer-parseable ref and returns the original bytes', async () => {
         rustAddon!.initAnonymizer({ text: [], url: [] })
-        const result = await rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, PSEUDO_TEAM)
+        const result = await rustAddon!.anonymizeKafkaPayload(
+            imagePayload(),
+            undefined,
+            undefined,
+            PSEUDO_TEAM,
+            CONTENT_KEY
+        )
         expect(result.failed).toBe(false)
 
         const png = Buffer.from(PNG_B64, 'base64')
-        const expectedRef = imageRef(PSEUDO_TEAM, hashImageBytes(png))
+        const expectedRef = imageRef(PSEUDO_TEAM, hashImageBytes(CONTENT_KEY, png))
         expect(isImageRef(expectedRef)).toBe(true)
         expect(result.lines!.toString()).toContain(expectedRef)
         expect(result.lines!.toString()).not.toContain(PNG_B64)
@@ -284,17 +292,24 @@ describeAddon('native image collection', () => {
         const entry = meta.images![0]
         const bytes = result.images!.subarray(entry.offset, entry.offset + entry.len)
         expect(Buffer.from(bytes)).toEqual(png)
-        // The consumer's own validation of the produced record must hold.
-        expect(hashImageBytes(Buffer.from(bytes))).toBe(entry.hash)
+        // The Rust-emitted hash must be the keyed HMAC of the returned bytes.
+        expect(hashImageBytes(CONTENT_KEY, Buffer.from(bytes))).toBe(entry.hash)
         expect(parseImageRef(expectedRef)).toEqual({ pseudoTeam: PSEUDO_TEAM, hash: entry.hash })
     })
 
-    it('collects nothing without a pseudoTeam and blurs inline instead', async () => {
+    it('collects nothing without the collection keys and blurs inline instead', async () => {
         rustAddon!.initAnonymizer({ text: [], url: [] })
         const result = await rustAddon!.anonymizeKafkaPayload(imagePayload())
         expect(result.failed).toBe(false)
         expect(result.images).toBeNull()
         expect(result.lines!.toString()).not.toContain(PNG_B64)
         expect(result.lines!.toString()).not.toContain('image:')
+    })
+
+    it('throws when pseudoTeam is passed without contentKey', () => {
+        rustAddon!.initAnonymizer({ text: [], url: [] })
+        expect(() => rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, PSEUDO_TEAM)).toThrow(
+            'must be passed together'
+        )
     })
 })

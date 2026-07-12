@@ -8180,6 +8180,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "flate2",
+ "hmac",
  "image",
  "jpeg-decoder",
  "libdeflater",
