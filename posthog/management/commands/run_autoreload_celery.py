@@ -31,7 +31,7 @@ class Command(BaseCommand):
         from posthog.celery import app as celery_app
 
         if process_type == "beat":
-            celery_app.start(argv=["beat", "--scheduler", "redbeat.RedBeatScheduler"])
+            celery_app.start(argv=["beat", "--scheduler", "posthog.celery_redbeat.ResilientRedBeatScheduler"])
         else:
             celery_app.worker_main(
                 argv=[
