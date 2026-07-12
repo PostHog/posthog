@@ -2236,7 +2236,9 @@ class MatomoSourceConfig(config.Config):
 
 @config.config
 class MaxioSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
