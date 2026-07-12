@@ -54,7 +54,13 @@ export function IntegrationChoice({
     // infinite update loop (React #185).
     const autoSelected = useRef(false)
     useEffect(() => {
-        if (autoSelectFirstIntegration && !integrationsLoading && !value && integrationsOfKind?.length && !autoSelected.current) {
+        if (
+            autoSelectFirstIntegration &&
+            !integrationsLoading &&
+            !value &&
+            integrationsOfKind?.length &&
+            !autoSelected.current
+        ) {
             autoSelected.current = true
             onChange?.(integrationsOfKind[0].id)
         }
