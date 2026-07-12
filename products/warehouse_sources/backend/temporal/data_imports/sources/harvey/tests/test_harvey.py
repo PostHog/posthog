@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -30,6 +30,10 @@ NOW = datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC)
 NOW_EPOCH = int(NOW.timestamp())
 
 HARVEY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.harvey.harvey"
+
+# The undecorated function behind tenacity's retry wrapper, so failure-path tests don't sit
+# through the backoff schedule. mypy can't see tenacity's `__wrapped__`, hence the cast.
+_fetch_json_unretried = cast(Any, _fetch_json).__wrapped__
 
 
 class _FakeManager:
@@ -143,14 +147,13 @@ class TestHelpers:
     @pytest.mark.parametrize("status_code", [429, 500, 503])
     def test_fetch_json_raises_retryable_on_throttle_and_server_errors(self, status_code: int) -> None:
         session = _session_with([_response({}, status_code=status_code)])
-        # Call the undecorated function so the test doesn't sit through tenacity's backoff.
         with pytest.raises(HarveyRetryableError):
-            _fetch_json.__wrapped__(session, "https://api.harvey.ai/api/test", {}, mock.MagicMock())
+            _fetch_json_unretried(session, "https://api.harvey.ai/api/test", {}, mock.MagicMock())
 
     def test_fetch_json_raises_http_error_on_client_errors(self) -> None:
         session = _session_with([_response({"error": "Unauthorized"}, status_code=401)])
         with pytest.raises(HTTPError):
-            _fetch_json.__wrapped__(session, "https://api.harvey.ai/api/test", {}, mock.MagicMock())
+            _fetch_json_unretried(session, "https://api.harvey.ai/api/test", {}, mock.MagicMock())
 
 
 class TestValidateCredentials:
