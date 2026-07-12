@@ -148,9 +148,12 @@ class TestMaxioSource:
             "products.warehouse_sources.backend.temporal.data_imports.sources.maxio.source.validate_maxio_credentials",
             return_value=result,
         ) as mock_validate:
-            valid, error = MaxioSource().validate_credentials(_config(), team_id=123)
+            valid, error = MaxioSource().validate_credentials(
+                _config(subdomain="https://acme.chargify.com/"), team_id=123
+            )
 
         assert (valid, error) == result
+        # A pasted URL must reach the probe as the normalized bare subdomain.
         mock_validate.assert_called_once_with("test-key", "acme", "us")
 
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
