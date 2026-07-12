@@ -1,6 +1,7 @@
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
+import psycopg.errors
 import temporalio.exceptions
 from opentelemetry import trace
 from posthoganalytics import api_key, capture_exception
@@ -19,6 +20,22 @@ from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
+
+
+def _is_expected_cancellation(e: BaseException) -> bool:
+    """Whether an activity error is cancellation-adjacent control flow we should not report.
+
+    Covers Temporal's own cancellations (worker drain, activity timeout, workflow cancellation)
+    and a psycopg ``QueryCanceled`` raised because the statement was cancelled at the client's
+    request — e.g. an async ``COPY ... FROM STDIN`` whose asyncio operation is cancelled mid-flight,
+    which psycopg turns into a server-side statement cancel that surfaces as
+    "canceling statement due to user request" rather than a Temporal cancellation. The activity is
+    retryable and recovers, so this is noise, not a defect. A ``statement_timeout`` shares the same
+    SQLSTATE (57014) but is a genuine condition worth reporting, so we match the "user request"
+    message specifically instead of the exception class."""
+    if temporalio.exceptions.is_cancelled_exception(e):
+        return True
+    return isinstance(e, psycopg.errors.QueryCanceled) and "canceling statement due to user request" in str(e)
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -66,11 +83,12 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
-            # Cancellations (worker drain, activity timeout, workflow cancellation) and our own
-            # egress-budget backpressure (a deliberate "defer and retry later" signal that our
-            # rate limiter already records via record_outbound_decision) are expected control flow,
-            # not defects — re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+            # Cancellations (worker drain, activity timeout, workflow cancellation, or a
+            # client-cancelled psycopg statement) and our own egress-budget backpressure (a
+            # deliberate "defer and retry later" signal that our rate limiter already records via
+            # record_outbound_decision) are expected control flow, not defects — re-raise without
+            # reporting them to error tracking.
+            if _is_expected_cancellation(e) or isinstance(e, EgressBudgetExhausted):
                 raise
             activity_info = activity.info()
             capture_kwargs = {

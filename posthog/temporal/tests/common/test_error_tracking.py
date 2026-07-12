@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+import psycopg.errors
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -109,6 +110,29 @@ class EgressBackpressureActivityWorkflow:
     async def run(self, inputs: OptionallyFailingInputs) -> None:
         await workflow.execute_activity(
             egress_backpressure_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@dataclass
+class QueryCanceledInputs:
+    message: str
+
+
+@activity.defn
+async def query_canceled_activity(inputs: QueryCanceledInputs) -> None:
+    raise psycopg.errors.QueryCanceled(inputs.message)
+
+
+@workflow.defn
+class QueryCanceledActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: QueryCanceledInputs) -> None:
+        await workflow.execute_activity(
+            query_canceled_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
             heartbeat_timeout=dt.timedelta(seconds=5),
@@ -223,6 +247,49 @@ async def test_cancellation_is_not_captured(temporal_client: Client):
                 )
 
         mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "message,expect_captured",
+    [
+        # A client-cancelled statement (e.g. an async COPY whose asyncio op is cancelled mid-flight)
+        # is cancellation-adjacent control flow — the activity retries and recovers — so skip it.
+        ("canceling statement due to user request", False),
+        # A statement_timeout shares SQLSTATE 57014 but is a genuine condition, so it must still be reported.
+        ("canceling statement due to statement timeout", True),
+    ],
+)
+@pytest.mark.asyncio
+async def test_client_cancelled_query_is_not_captured(message: str, expect_captured: bool, temporal_client: Client):
+    """A psycopg QueryCanceled raised by a client cancel ("due to user request") is expected control
+    flow, not a defect, so the interceptor must re-raise it without reporting it to error tracking —
+    while a statement_timeout QueryCanceled (same SQLSTATE) stays reported."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[QueryCanceledActivityWorkflow],
+            activities=[query_canceled_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "QueryCanceledActivityWorkflow",
+                    QueryCanceledInputs(message=message),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        if expect_captured:
+            assert mock_ph_capture.call_count == 1
+            assert isinstance(mock_ph_capture.call_args_list[0][0][0], psycopg.errors.QueryCanceled)
+        else:
+            mock_ph_capture.assert_not_called()
 
 
 @pytest.mark.asyncio
