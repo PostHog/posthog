@@ -98,6 +98,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _is_partitioned_table,
     _is_read_replica,
     _is_unsupported_function_error,
+    _is_unsupported_set_local_timeout_error,
     _next_recovery_conflict_chunk_size,
     _normalize_function_names,
     _pk_uniqueness_probe_timeout_error,
@@ -6307,6 +6308,27 @@ class TestIsUnsupportedFunctionError:
         assert _is_unsupported_function_error(error, "row_security_active") is expected
 
 
+class TestIsUnsupportedSetLocalTimeoutError:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            # Transaction-mode poolers (Supabase/PgBouncer) reject `SET LOCAL statement_timeout` with
+            # SQLSTATE 0A000 -> psycopg.errors.FeatureNotSupported. Expected shape, degrade quietly.
+            (
+                psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported'),
+                True,
+            ),
+            # A FeatureNotSupported about something else is not our concern -> still capture.
+            (psycopg.errors.FeatureNotSupported("cannot use aggregate function in this context"), False),
+            # Same message text but not the 0A000 class -> not swallowed.
+            (Exception('setting configuration parameter "statement_timeout" not supported'), False),
+            (psycopg.OperationalError("the connection is closed"), False),
+        ],
+    )
+    def test_recognises_pooler_rejecting_set_local_timeout(self, error, expected):
+        assert _is_unsupported_set_local_timeout_error(error) is expected
+
+
 class TestRlsActiveFromConnErrorHandling:
     @staticmethod
     def _conn_raising(exc: Exception):
@@ -6320,6 +6342,20 @@ class TestRlsActiveFromConnErrorHandling:
         # A Postgres-wire engine without `row_security_active` is an expected shape: degrade to no
         # RLS warnings without flooding error tracking.
         conn = self._conn_raising(psycopg.errors.InternalError(_FLIGHT_MISSING_FUNCTION_MSG))
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_unsupported_set_local_timeout_error_is_not_captured(self):
+        # A transaction-mode pooler (Supabase/PgBouncer) rejects the opening `SET LOCAL
+        # statement_timeout` with FeatureNotSupported. Expected shape: degrade to no RLS warnings
+        # without flooding error tracking.
+        conn = self._conn_raising(
+            psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported')
+        )
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as capture_mock:
