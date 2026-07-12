@@ -36,6 +36,10 @@ import {
 } from '~/ingestion/common/outputs/producers'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+import {
+    FlushBatchStoresOutputs,
+    createGroupProducePromises,
+} from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
@@ -164,6 +168,10 @@ export class IngestionApiServer implements NodeServer {
     private pubsub?: PubSub
     private personsStore?: BatchWritingPersonsStore
     private groupStore?: BatchWritingGroupStore
+    // Held so shutdown cleanup can produce ClickHouse messages returned by a
+    // bare groupStore.flush() — the store itself no longer holds outputs
+    // (moved to caller-side production so create and flush share one path).
+    private ingestionOutputs?: FlushBatchStoresOutputs
 
     private joinedPipeline!: ReturnType<
         typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
@@ -279,6 +287,7 @@ export class IngestionApiServer implements NodeServer {
             this.config
         )
         const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
+        this.ingestionOutputs = ingestionOutputs
         const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
         const topicFailures = await ingestionOutputs.checkTopics()
@@ -546,7 +555,15 @@ export class IngestionApiServer implements NodeServer {
                     await this.personsStore.shutdown()
                 }
                 if (this.groupStore) {
-                    await this.groupStore.flush()
+                    const groupFlushResults = await this.groupStore.flush()
+                    // flush() returns messages for the caller to produce (it no
+                    // longer awaits ClickHouse delivery inline) — mirror
+                    // personsStore.flushAndProduceMessages() so a drain at
+                    // shutdown doesn't write Postgres but silently drop the
+                    // corresponding ClickHouse row.
+                    if (groupFlushResults.length > 0 && this.ingestionOutputs) {
+                        await Promise.all(createGroupProducePromises(groupFlushResults, this.ingestionOutputs))
+                    }
                     await this.groupStore.shutdown()
                 }
                 this.cookielessManager?.shutdown()
