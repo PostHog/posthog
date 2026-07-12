@@ -1065,6 +1065,21 @@ def _is_unsupported_function_error(error: Exception, function_name: str) -> bool
     return any(marker in message for marker in ("does not exist", "unknown function", "not found", "no function"))
 
 
+def _is_unsupported_statement_timeout_error(error: Exception) -> bool:
+    """True when the engine rejects setting `statement_timeout` as an unsupported feature.
+
+    The best-effort `SET statement_timeout` guarding these metadata scans is a Postgres-only
+    convenience. Some Postgres-wire-compatible engines (CrateDB, Materialize, and similar
+    analytical/streaming proxies) accept the connection but expose a limited GUC set, raising
+    `FeatureNotSupported` — `setting configuration parameter "statement_timeout" not supported`.
+    That's an expected engine limitation, not a bug, so callers degrade quietly rather than
+    flooding error tracking (mirrors `_is_unsupported_function_error`). A genuine timeout
+    cancellation reads `canceling statement due to statement timeout`, so it can't match here.
+    """
+    message = str(error).lower()
+    return "statement_timeout" in message and "not supported" in message
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1139,6 +1154,7 @@ def _rls_active_from_conn(
             and not connection.broken
             and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
             and not _is_unsupported_function_error(e, "row_security_active")
+            and not _is_unsupported_statement_timeout_error(e)
         ):
             capture_exception(e)
         return {}
@@ -1195,7 +1211,12 @@ def _xmin_capable_tables_from_conn(
         # Best-effort like the PK/RLS/index lookups it runs alongside: losing the `supports_xmin`
         # hint just hides the option for this listing. A non-Postgres engine may lack `relkind`
         # semantics entirely, so degrade quietly.
-        if not connection.closed and not connection.broken and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
+        if (
+            not connection.closed
+            and not connection.broken
+            and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
+            and not _is_unsupported_statement_timeout_error(e)
+        ):
             structlog.get_logger().warning("Failed to detect xmin-capable tables for Postgres schemas", exc_info=e)
         return set()
 
