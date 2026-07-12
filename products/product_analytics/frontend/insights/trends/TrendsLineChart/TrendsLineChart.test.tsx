@@ -350,8 +350,13 @@ describe('TrendsLineChart', () => {
             })
 
             await screen.findByLabelText(/chart with/i)
-            expect(getHogChart().xAxisLabel()).toBe('Signup date')
-            expect(getHogChart().yAxisLabel()).toBe('Unique users')
+            // Axis titles are a layout-dependent overlay that commits a tick after the
+            // chart's aria-label appears (like referenceLines/valueLabels below), so read
+            // them through waitFor rather than synchronously.
+            await waitFor(() => {
+                expect(getHogChart().xAxisLabel()).toBe('Signup date')
+                expect(getHogChart().yAxisLabel()).toBe('Unique users')
+            })
         })
     })
 

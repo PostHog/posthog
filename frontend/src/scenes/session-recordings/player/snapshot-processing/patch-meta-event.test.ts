@@ -4,13 +4,14 @@ import { EventType } from 'posthog-js/rrweb-types'
 import { ReplayTelemetry } from '@posthog/replay-shared'
 import {
     ProcessingCache,
+    SnapshotSourceType,
     ViewportResolution,
     clearThrottle,
     keyForSource,
     processAllSnapshots,
 } from '@posthog/replay-shared'
 
-import { RecordingSnapshot, SessionRecordingSnapshotSource, SnapshotSourceType } from '~/types'
+import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 const posthogTelemetry: ReplayTelemetry = {
     capture: (event, properties) => posthog.capture(event, properties),

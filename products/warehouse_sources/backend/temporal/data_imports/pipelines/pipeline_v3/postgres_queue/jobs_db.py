@@ -162,9 +162,16 @@ def _bulk_fail_dual_write_sql(where_sql: str) -> str:
     """
 
 
-# Shared between the async consumer path and the sync ops command so both agree
-# on what counts as a pending (fail-able) batch.
+# Both fail-run variants share _bulk_fail_dual_write_sql so the async consumer
+# path and the sync ops command agree on what counts as a pending (fail-able)
+# batch. The ops command targets by run_uuid alone (human-driven); consumer
+# paths always know the run's group, so they scope by it too — guards against
+# cross-group writes on a run_uuid collision and keeps the scan on the
+# team/schema indexes.
 FAIL_RUN_SQL = _bulk_fail_dual_write_sql("b.run_uuid = %(run_uuid)s")
+FAIL_RUN_SCOPED_SQL = _bulk_fail_dual_write_sql(
+    "b.run_uuid = %(run_uuid)s AND b.team_id = %(team_id)s AND b.schema_id = %(schema_id)s"
+)
 
 
 def _state_claim_candidates_sql() -> str:
@@ -708,13 +715,17 @@ class BatchQueue:
         conn: psycopg.AsyncConnection[Any],
         *,
         run_uuid: str,
+        team_id: int,
+        schema_id: str,
         reason: str,
     ) -> int:
         """Mark every pending batch in a run as failed. Returns the count of batches failed."""
         cursor = await conn.execute(
-            FAIL_RUN_SQL,
+            FAIL_RUN_SCOPED_SQL,
             {
                 "run_uuid": run_uuid,
+                "team_id": team_id,
+                "schema_id": schema_id,
                 "error_response": json.dumps({"error": reason}),
             },
         )
@@ -852,6 +863,51 @@ class BatchQueue:
                 """
             )
             row = await cur.fetchone()
+        if row is None or row[0] is None:
+            return None
+        return float(row[0])
+
+    @staticmethod
+    def get_oldest_non_terminal_batch_age_seconds(
+        conn: psycopg.Connection[Any],
+        *,
+        team_id: int,
+        schema_ids: list[str],
+    ) -> float | None:
+        """Age in seconds of the oldest batch still working through the queue for these schemas, or None.
+
+        Non-terminal means unclaimed ('pending', 'waiting') or claimed but unfinished
+        ('executing', 'waiting_retry'), read from the denormalized state columns.
+        Runs containing a 'failed' batch are excluded, mirroring the loader's claim
+        gate: their remaining batches can never be claimed (a batch enqueued into a
+        run after ``fail_run`` swept it stays 'pending' forever — seen in production),
+        so counting them would hold the backpressure guard down for the whole pruning
+        window. Sync because its caller is the CDC producer's backpressure guard,
+        which runs in synchronous activity code. Bounded to the pruning window —
+        older batches are gone anyway.
+        """
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT EXTRACT(EPOCH FROM (now() - min(b.created_at)))
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                  AND b.team_id = %(team_id)s
+                  AND b.schema_id = ANY(%(schema_ids)s)
+                  AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM {BATCH_TABLE} b_failed
+                      WHERE b_failed.run_uuid = b.run_uuid
+                          AND b_failed.team_id = b.team_id
+                          AND b_failed.schema_id = b.schema_id
+                          AND b_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                          AND b_failed.latest_state = 'failed'
+                  )
+                """,
+                {"team_id": team_id, "schema_ids": schema_ids},
+            )
+            row = cur.fetchone()
         if row is None or row[0] is None:
             return None
         return float(row[0])
