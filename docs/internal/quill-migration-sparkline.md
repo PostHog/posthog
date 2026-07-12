@@ -151,7 +151,7 @@ Reviewing #70231 surfaced the **two-population** framing at the top of this doc.
 
 The step-1 capabilities (`HighlightedRange` overlay, per-bar hatch) had **zero live consumers**: nothing in `frontend/` or `products/` imports the overlay or sets `bars[i].hatch`, and the app's `highlightedRange` usages all flow through the legacy Chart.js `Sparkline`. They were speculative infra for a population-B migration that has not started. Reverted in [#70252](https://github.com/PostHog/posthog/pull/70252) — clean inverse, no dangling references, pre-existing hatch machinery (`stroke.partial` dashes, `bars.track`) untouched. Rebuild during step 4 with the real requirements (and resolve the `ComboChart` `scales.extent` gap then).
 
-#70236 (Sparkline bar/series/tooltip) was **kept** — #70231 consumes it for population-A bar sparklines.
+PR #70236 (Sparkline bar/series/tooltip) was **kept** — #70231 consumes it for population-A bar sparklines.
 
 ### Next up
 
