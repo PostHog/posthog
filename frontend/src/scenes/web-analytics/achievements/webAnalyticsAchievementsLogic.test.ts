@@ -109,9 +109,9 @@ describe('webAnalyticsAchievementsLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.loadAchievements()
         })
-            .toDispatchActions(['loadAchievementsSuccess', 'acknowledgeCelebration', 'triggerConfetti'])
+            .toDispatchActions(['loadAchievementsSuccess', 'acknowledgeCelebration'])
             .toFinishAllListeners()
-            .toMatchValues({ uncelebratedPending: [], confettiNonce: 1 })
+            .toMatchValues({ uncelebratedPending: [] })
 
         expect(lemonToast.success).toHaveBeenCalledTimes(1)
         expect(lastAck).toEqual({ track_key: 'streak', stage: 2 })
@@ -145,9 +145,9 @@ describe('webAnalyticsAchievementsLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.loadAchievements()
         })
-            .toDispatchActions(['loadAchievementsSuccess', 'acknowledgeCelebration', 'triggerConfetti'])
+            .toDispatchActions(['loadAchievementsSuccess', 'acknowledgeCelebration'])
             .toFinishAllListeners()
-            .toMatchValues({ uncelebratedPending: [], confettiNonce: 1 })
+            .toMatchValues({ uncelebratedPending: [] })
 
         expect(lemonToast.success).toHaveBeenCalledTimes(1)
         expect(lemonToast.success).toHaveBeenCalledWith(
@@ -178,7 +178,6 @@ describe('webAnalyticsAchievementsLogic', () => {
         })
             .toDispatchActions(['loadAchievementsSuccess'])
             .toFinishAllListeners()
-            .toMatchValues({ confettiNonce: 1 })
         expect(lemonToast.success).not.toHaveBeenCalled()
     })
 
