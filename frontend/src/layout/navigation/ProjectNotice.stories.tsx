@@ -13,7 +13,6 @@ const meta: Meta = {
     title: 'Layout/Project Notice',
     parameters: {
         layout: 'padded',
-        testOptions: { include: false },
     },
     decorators: [mswDecorator({})],
 }
