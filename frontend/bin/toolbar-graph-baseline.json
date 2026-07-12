@@ -1,13 +1,7 @@
 {
     "//": "Toolbar -> app-zone import edges that exist today, enforced by bin/check-toolbar-graph.mjs. Do not add entries; delete them as the migration (.agents/toolbar-migration.md) cuts each edge.",
     "edges": [
-        "src/lib/components/HedgehogMode/HedgehogMode.tsx -> src/layout/navigation-3000/themeLogic.ts",
-        "src/lib/components/JSONViewer.tsx -> src/layout/navigation-3000/themeLogic.ts",
         "src/lib/components/PropertyKeyInfo.tsx -> src/scenes/surveys/surveyQuestionLabelsLogic.ts",
-        "src/lib/lemon-ui/LemonColor/LemonColorButton.tsx -> src/scenes/dataThemeLogic.tsx",
-        "src/lib/lemon-ui/LemonColor/LemonColorGlyph.tsx -> src/layout/navigation-3000/themeLogic.ts",
-        "src/lib/lemon-ui/LemonColor/LemonColorGlyph.tsx -> src/scenes/dataThemeLogic.tsx",
-        "src/lib/lemon-ui/LemonColor/LemonColorPicker.tsx -> src/scenes/dataThemeLogic.tsx",
         "src/lib/lemon-ui/Link/Link.tsx -> src/scenes/notebooks/AddToNotebook/DraggableToNotebook.tsx",
         "src/lib/utils/eventUsageLogic.ts -> src/scenes/product-tours/constants.ts",
         "src/taxonomy/helpers.ts -> src/scenes/surveys/surveyQuestionLabelsLogic.ts",

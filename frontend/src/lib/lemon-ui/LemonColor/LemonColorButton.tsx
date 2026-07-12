@@ -3,8 +3,8 @@ import './LemonColorButton.scss'
 import { useValues } from 'kea'
 
 import { DataColorToken } from 'lib/colors'
+import { dataThemeLogic } from 'lib/logic/dataThemeLogic'
 import { cn } from 'lib/utils/css-classes'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { LemonButton, LemonButtonWithoutSideActionProps } from '../LemonButton'
 import { LemonColorGlyph } from './LemonColorGlyph'
