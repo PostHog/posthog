@@ -95,16 +95,39 @@ describe('webAnalyticsAchievementsLogic', () => {
             })
     })
 
-    it('toasts and acknowledges each pending celebration on load', async () => {
+    it('toasts and acknowledges a pending celebration on a passive load without firing confetti', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadAchievements()
         })
-            .toDispatchActions(['loadAchievementsSuccess', 'acknowledgeCelebration', 'triggerConfetti'])
+            .toDispatchActions(['loadAchievementsSuccess', 'acknowledgeCelebration', 'markCelebrated'])
             .toFinishAllListeners()
-            .toMatchValues({ uncelebratedPending: [], confettiNonce: 1 })
+            // confettiNonce stays 0 — the burst is queued for a deliberate modal open, not fired on this passive load.
+            .toMatchValues({ uncelebratedPending: [], confettiNonce: 0, celebrationConfettiQueue: ['streak'] })
 
         expect(lemonToast.success).toHaveBeenCalledTimes(1)
         expect(lastAck).toEqual({ track_key: 'streak', stage: 2 })
+    })
+
+    it('fires the celebratory burst only when the user opens the modal after an unlock', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadAchievements()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                confettiNonce: 0,
+                celebrationConfettiQueue: ['streak'],
+                pendingTrackKeys: new Set(['streak']),
+            })
+
+        await expectLogic(logic, () => {
+            logic.actions.openModal()
+        })
+            .toDispatchActions(['openModal', 'triggerConfetti'])
+            .toMatchValues({ confettiNonce: 1 })
+
+        await expectLogic(logic, () => {
+            logic.actions.closeModal()
+        }).toMatchValues({ celebrationConfettiQueue: [], pendingTrackKeys: new Set() })
     })
 
     it('collapses multiple pending celebrations into a single toast and still acknowledges each', async () => {
@@ -135,9 +158,15 @@ describe('webAnalyticsAchievementsLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.loadAchievements()
         })
-            .toDispatchActions(['loadAchievementsSuccess', 'acknowledgeCelebration', 'triggerConfetti'])
+            .toDispatchActions([
+                'loadAchievementsSuccess',
+                'acknowledgeCelebration',
+                'markCelebrated',
+                'acknowledgeCelebration',
+                'markCelebrated',
+            ])
             .toFinishAllListeners()
-            .toMatchValues({ uncelebratedPending: [], confettiNonce: 1 })
+            .toMatchValues({ uncelebratedPending: [], confettiNonce: 0 })
 
         expect(lemonToast.success).toHaveBeenCalledTimes(1)
         expect(lemonToast.success).toHaveBeenCalledWith(
@@ -168,7 +197,7 @@ describe('webAnalyticsAchievementsLogic', () => {
         })
             .toDispatchActions(['loadAchievementsSuccess'])
             .toFinishAllListeners()
-            .toMatchValues({ confettiNonce: 1 })
+            .toMatchValues({ confettiNonce: 0 })
         expect(lemonToast.success).not.toHaveBeenCalled()
     })
 

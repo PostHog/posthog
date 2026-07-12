@@ -59,6 +59,9 @@ interface HogfettiHook {
     HogfettiComponent: React.FC
 }
 
+const prefersReducedMotion = (): boolean =>
+    typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+
 export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
     const [particleSets, setParticleSets] = useState<Particle[][]>([])
     const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight })
@@ -89,6 +92,11 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
     }
 
     const trigger = useCallback((): void => {
+        // Respect the OS-level reduced-motion preference — no burst for users who opted out of animations.
+        if (prefersReducedMotion()) {
+            return
+        }
+
         const centerX = Math.random() * dimensions.width
         const centerY = Math.random() * dimensions.height * 0.5
 

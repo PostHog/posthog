@@ -57,6 +57,7 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
         acknowledgeCelebration: (trackKey: string, stage: number) => ({ trackKey, stage }),
         markCelebrated: (key: string) => ({ key }),
         triggerConfetti: true,
+        enqueueCelebrationConfetti: (trackKeys: string[]) => ({ trackKeys }),
         toggleTrackExpanded: (trackKey: string) => ({ trackKey }),
     }),
     loaders(({ values }) => ({
@@ -87,6 +88,15 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
             0,
             {
                 triggerConfetti: (state) => state + 1,
+            },
+        ],
+        // Tracks with a fresh unlock waiting to be celebrated the next time the user opens the modal.
+        // Populated on load, drained when the modal closes so a burst fires once per batch, not on every passive visit.
+        celebrationConfettiQueue: [
+            [] as string[],
+            {
+                enqueueCelebrationConfetti: (state, { trackKeys }) => Array.from(new Set([...state, ...trackKeys])),
+                closeModal: () => [],
             },
         ],
         expandedTracks: [
@@ -146,10 +156,7 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                     progressByTrack
                 ),
         ],
-        pendingTrackKeys: [
-            (s) => [s.uncelebratedPending],
-            (pending): Set<string> => new Set(pending.map((entry) => entry.track_key)),
-        ],
+        pendingTrackKeys: [(s) => [s.celebrationConfettiQueue], (queue): Set<string> => new Set(queue)],
         unlockedStages: [
             (s) => [s.definitions, s.progressByTrack],
             (definitions, progressByTrack): number =>
@@ -163,6 +170,10 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
     listeners(({ values, actions }) => ({
         openModal: () => {
             posthog.capture('web_analytics_achievements_opened')
+            // Celebrate now that the user has deliberately opened the modal, rather than on a passive dashboard visit.
+            if (values.celebrationConfettiQueue.length > 0) {
+                actions.triggerConfetti()
+            }
             actions.loadAchievements()
         },
         loadAchievementsSuccess: () => {
@@ -190,10 +201,14 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                     },
                 })
             }
+            // Queue a celebratory burst for the next deliberate modal open instead of firing it on this passive visit.
+            actions.enqueueCelebrationConfetti(pending.map((entry) => entry.track_key))
+            if (values.modalOpen) {
+                actions.triggerConfetti()
+            }
             pending.forEach((entry) => {
                 actions.acknowledgeCelebration(entry.track_key, entry.stage)
             })
-            actions.triggerConfetti()
         },
         acknowledgeCelebration: async ({ trackKey, stage }) => {
             const track = values.definitions.find((t) => t.key === trackKey)
