@@ -82,16 +82,20 @@ _SNOWFLAKE_IDENTIFIER_QUOTER = AnsiIdentifierQuoter()
 # Snowflake exposes one metadata schema per database; everything else is user data.
 SNOWFLAKE_SYSTEM_SCHEMA = "INFORMATION_SCHEMA"
 
-# Bound the connector's per-request retry budget. `network_timeout` defaults to infinite, so a
-# stalled/half-open connection mid-request (peer or network drop) retries forever in the worker
-# thread. The sync activities are threaded and the heartbeater runs on a separate event-loop task,
-# so the stall isn't surfaced by a missed heartbeat — the activity just runs until Temporal's
-# `start_to_close_timeout` cancels the thread mid socket-read, surfacing a misleading
-# `WantReadError`/`CancelledError`. Bounding it turns the stall into a fast, retryable
-# `OperationalError` well before the activity is cancelled. It applies per request, so it never caps
-# a long-running streaming sync. Kept comfortably under the schema-discovery activity's 10-minute
-# `start_to_close_timeout` while leaving ample room for legitimate per-request round-trips and retries.
-_SNOWFLAKE_NETWORK_TIMEOUT_SECONDS = 300
+# Bound each socket connect/read so a stalled/half-open connection (peer or network drop) fails fast
+# instead of hanging the worker thread. The sync activities are threaded and the heartbeater runs on
+# a separate event-loop task, so the stall isn't surfaced by a missed heartbeat — without a bound the
+# activity just runs until Temporal's `start_to_close_timeout` cancels the thread mid socket-read,
+# surfacing a misleading `WantReadError`/`CancelledError`. `socket_timeout` turns that into a fast,
+# retryable error well before the activity is cancelled.
+#
+# This deliberately uses `socket_timeout`, not `network_timeout`: the connector reuses
+# `network_timeout` as a client-side query "timebomb" that cancels the running query once it elapses
+# (raising `ProgrammingError` 000604/57014), so a finite `network_timeout` caps every query's total
+# wall-clock and kills legitimate long-running syncs of large tables. `socket_timeout` bounds only
+# each individual request; Snowflake executes queries via bounded polling round-trips, so a long
+# query never trips it.
+_SNOWFLAKE_SOCKET_TIMEOUT_SECONDS = 300
 
 
 def _split_display_name(display_name: str, default_schema: Optional[str]) -> tuple[Optional[str], str]:
@@ -278,7 +282,7 @@ class SnowflakeImplementation(
             # `schema=""` would try `USE SCHEMA ""`, an invalid identifier, and fail at connect time.
             schema=normalize_namespace(config.schema),
             role=config.role,
-            network_timeout=_SNOWFLAKE_NETWORK_TIMEOUT_SECONDS,
+            socket_timeout=_SNOWFLAKE_SOCKET_TIMEOUT_SECONDS,
             **auth_connect_args,
         ) as connection:
             yield connection

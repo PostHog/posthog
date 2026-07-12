@@ -17,7 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
-    _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS,
+    _SNOWFLAKE_SOCKET_TIMEOUT_SECONDS,
     SnowflakeImplementation,
     _build_query,
     _parse_clustering_key_leading_column,
@@ -339,19 +339,25 @@ class TestConnect:
                 pass
             assert mock_connect.call_args.kwargs["schema"] == "SALES"
 
-    def test_bounds_network_timeout(self, impl):
-        # Without a bounded `network_timeout` the connector retries a stalled request forever, so the
-        # threaded sync activity hangs until Temporal cancels it mid socket-read (a noisy WantReadError
-        # / "Cancelled"). Keep a finite bound so the stall becomes a fast, retryable error instead.
+    def test_bounds_socket_timeout(self, impl):
+        # A stalled/half-open connection must fail fast instead of hanging the threaded sync activity
+        # until Temporal cancels it mid socket-read (a noisy WantReadError / "Cancelled"). The bound
+        # goes on `socket_timeout`, not `network_timeout`: the connector reuses `network_timeout` as a
+        # client-side query timebomb that cancels the running query when it elapses (ProgrammingError
+        # 000604/57014), so a finite `network_timeout` would cap every query and kill legitimate
+        # long-running syncs of large tables.
         with patch("snowflake.connector.connect") as mock_connect:
             mock_connect.return_value.__enter__.return_value = MagicMock()
             with impl.connect(_make_config()):
                 pass
-            network_timeout = mock_connect.call_args.kwargs["network_timeout"]
+            kwargs = mock_connect.call_args.kwargs
+            socket_timeout = kwargs["socket_timeout"]
             # A finite, positive bound is the invariant. `0` reads as infinite to the connector, so
             # guard that explicitly — equality alone can't catch the constant regressing to `0`.
-            assert network_timeout == _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS
-            assert network_timeout > 0
+            assert socket_timeout == _SNOWFLAKE_SOCKET_TIMEOUT_SECONDS
+            assert socket_timeout > 0
+            # No finite `network_timeout` — it would arm the query timebomb and cancel long queries.
+            assert kwargs.get("network_timeout") is None
 
 
 class TestSourceRequiresSsl:
