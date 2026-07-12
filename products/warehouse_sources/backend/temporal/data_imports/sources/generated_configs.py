@@ -95,9 +95,9 @@ class SnowflakeAuthTypeConfig(config.Config):
 
 @config.config
 class StripeAuthMethodConfig(config.Config):
-    stripe_secret_key: str
-    stripe_integration_id: int = config.value(converter=config.str_to_int)
+    stripe_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
     selection: Literal["api_key", "oauth"] = "api_key"
+    stripe_secret_key: str | None = None
 
 
 @config.config
