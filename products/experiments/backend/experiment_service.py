@@ -538,8 +538,12 @@ class ExperimentService:
     }
 
     @classmethod
-    def validate_stats_config(cls, stats_config: dict | None, variant_keys: list[str] | None = None) -> None:
+    def validate_stats_config(cls, stats_config: object, variant_keys: list[str] | None = None) -> None:
         """Validate stats_config shape, method value, and baseline variant key.
+
+        Accepts ``object`` because the input arrives from a DRF ``JSONField``, which can
+        deserialize to any JSON shape (a bare string, number, list). The validator narrows
+        defensively so a malformed value returns a 400 rather than crashing on ``.get()``.
 
         When ``variant_keys`` is provided, a ``baseline_variant_key`` set in
         ``stats_config`` must be one of them. When ``variant_keys`` is None/empty,
@@ -548,6 +552,8 @@ class ExperimentService:
         """
         if not stats_config:
             return
+        if not isinstance(stats_config, dict):
+            raise ValidationError(f"stats_config must be an object, got {type(stats_config).__name__}")
         method = stats_config.get("method")
         if method is not None and method not in cls.VALID_STATS_METHODS:
             raise ValidationError(

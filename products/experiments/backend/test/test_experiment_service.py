@@ -6387,12 +6387,16 @@ class TestExperimentService(APIBaseTest):
             ("empty_stats_config", {}, VARIANT_KEYS, False),
             ("unknown_baseline_no_variant_keys", {"baseline_variant_key": "nonexistent"}, None, False),
             ("unknown_baseline_empty_variant_keys", {"baseline_variant_key": "nonexistent"}, [], False),
+            # A truthy non-dict (e.g. a bare JSON string) used to slip past the falsy guard and
+            # crash on `.get()` with a 500; it must now be rejected as a clean 400.
+            ("non_dict_string", "bayesian", VARIANT_KEYS, True),
+            ("non_dict_list", ["bayesian"], VARIANT_KEYS, True),
         ]
     )
     def test_validate_stats_config_baseline_variant_key(
         self,
         _name: str,
-        stats_config: dict | None,
+        stats_config: object,
         variant_keys: list[str] | None,
         expect_error: bool,
     ) -> None:

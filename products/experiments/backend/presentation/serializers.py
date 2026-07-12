@@ -649,6 +649,14 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
         return exposure_criteria
 
+    def validate_stats_config(self, stats_config: Any):
+        # stats_config is auto-mapped from the model JSONField, which accepts any JSON shape
+        # (a bare string, number, list). Narrow it here so a malformed value surfaces as a
+        # clean 400 instead of crashing on `.get()` downstream. Variant-key validation runs in
+        # the service against the resolved feature-flag variants.
+        ExperimentService.validate_stats_config(stats_config)
+        return stats_config
+
     def _validate_metrics_list(self, metrics: list | None) -> list | None:
         ExperimentService.validate_experiment_metrics(metrics)
         return metrics
