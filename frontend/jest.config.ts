@@ -87,6 +87,7 @@ function rootDirectories(): string[] {
         '<rootDir>/../products',
         '<rootDir>/../packages/quill/packages/charts/src',
         '<rootDir>/../packages/quill/packages/components/src',
+        '<rootDir>/../packages/quill/packages/blocks/src',
     ]
 }
 

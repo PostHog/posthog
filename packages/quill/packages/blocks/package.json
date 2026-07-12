@@ -32,7 +32,8 @@
     "dependencies": {
         "@posthog/quill-components": "workspace:^",
         "@posthog/quill-primitives": "workspace:^",
-        "@posthog/quill-tokens": "workspace:^"
+        "@posthog/quill-tokens": "workspace:^",
+        "date-fns": "^4.0.0"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.1.17",
