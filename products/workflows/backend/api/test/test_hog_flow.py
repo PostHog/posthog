@@ -94,6 +94,37 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
         return response.json()["id"]
 
+    def test_mcp_list_is_metadata_only_and_hides_action_secrets(self):
+        # A webhook action whose headers carry a bearer token — the kind of credential-like value
+        # that must not leak from a workflow *listing*.
+        secret = "Bearer super-secret-token-abc123"
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                    "headers": {"value": {"Authorization": secret}},
+                },
+            }
+        )
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+
+        mcp_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows", HTTP_X_POSTHOG_CLIENT="mcp")
+        assert mcp_response.status_code == 200, mcp_response.json()
+        result = mcp_response.json()["results"][0]
+        assert "actions" not in result
+        assert "edges" not in result
+        assert secret not in mcp_response.content.decode()
+
+        # The web app / raw API still get the full graph they rely on (e.g. client-side duplication) —
+        # and it does carry the secret, proving the MCP omission above is the summary serializer at
+        # work, not validation quietly dropping the header.
+        web_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows")
+        assert web_response.status_code == 200, web_response.json()
+        assert "actions" in web_response.json()["results"][0]
+        assert secret in web_response.content.decode()
+
     def test_stale_update_is_rejected_with_409(self):
         flow_id = self._create_simple_flow()
         flow = HogFlow.objects.get(pk=flow_id)
