@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db.utils import IntegrityError
 
@@ -189,7 +190,10 @@ class TestActivityLogModel(BaseTest):
         )
 
     def test_does_not_throw_if_cannot_log_activity(self) -> None:
-        with self.assertLogs(level="WARN") as log:
+        # Assert on the module logger directly instead of assertLogs: the root logger sits at
+        # ERROR under test settings, so whether the warning reaches a root handler depends on
+        # global logging state other tests may have touched
+        with patch("posthog.models.activity_logging.activity_log.logger") as mock_logger:
             with self.settings(TEST=False):  # Enable production-level silencing
                 try:
                     log_activity(
@@ -207,16 +211,13 @@ class TestActivityLogModel(BaseTest):
                 except Exception as e:
                     raise pytest.fail(f"Should not have raised exception: {e}")
 
-            logged_warning = log.records[0].__dict__
-            self.assertEqual(logged_warning["levelname"], "WARNING")
-            self.assertEqual(
-                logged_warning["msg"]["event"],
-                "activity_log.failed_to_write_to_activity_log",
-            )
-            self.assertEqual(logged_warning["msg"]["scope"], "testing throwing exceptions on create")
-            self.assertEqual(logged_warning["msg"]["team"], 1)
-            self.assertEqual(logged_warning["msg"]["activity"], "does not explode")
-            self.assertIsInstance(logged_warning["msg"]["exception"], ValueError)
+            warning = mock_logger.warn.call_args
+            self.assertIsNotNone(warning)
+            self.assertEqual(warning.args[0], "activity_log.failed_to_write_to_activity_log")
+            self.assertEqual(warning.kwargs["scope"], "testing throwing exceptions on create")
+            self.assertEqual(warning.kwargs["team"], 1)
+            self.assertEqual(warning.kwargs["activity"], "does not explode")
+            self.assertIsInstance(warning.kwargs["exception"], ValueError)
 
 
 class TestActivityLogVisibilityManager(BaseTest):
