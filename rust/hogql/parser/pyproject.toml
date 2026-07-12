@@ -9,7 +9,7 @@ build-backend = "maturin"
 [project]
 name = "hogql_parser_rs"
 # Mirrors `rust/hogql/parser/Cargo.toml` (always identical). Tracks but is NOT locked to `common/hogql_parser/setup.py`: the Rust port is versioned independently and bumped on its own whenever the hand-rolled parser changes.
-version = "1.3.107"
+version = "1.3.108"
 description = "Hand-rolled Rust HogQL parser with C++-parity AST output"
 readme = "README.md"
 requires-python = ">=3.12"
