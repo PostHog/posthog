@@ -89,6 +89,8 @@ def validate_graph(actions: list[dict], edges: list[dict], abort_action: Optiona
     # agent_task has the same shape: branch index 0 is the task-completed path, continue is failure/timeout.
     for action in actions:
         action_type = action.get("type")
+        if not action_type:
+            continue
         resolution = _RESOLUTION_EDGE_STEP_TYPES.get(action_type)
         if resolution and (action.get("id"), 0) not in seen_branch_keys:
             errors.append(
