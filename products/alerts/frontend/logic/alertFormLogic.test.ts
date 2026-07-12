@@ -25,6 +25,7 @@ import { InsightLogicProps, InsightShortId } from '~/types'
 import { supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import {
+    alertAlreadyDeleted,
     alertFormLogic,
     canCheckOngoingInterval,
     ongoingIntervalField,
@@ -308,6 +309,48 @@ describe('alertFormLogic', () => {
         expect(updateSpy).toHaveBeenCalledTimes(1)
         expect(errorToastSpy).not.toHaveBeenCalled()
         expect(successToastSpy).toHaveBeenCalledWith('Alert saved.')
+    })
+
+    function mountFormForExistingAlert(onEditSuccess: jest.Mock = jest.fn()): ReturnType<typeof alertFormLogic.build> {
+        const existingAlert = makeSavedAlert({ id: 'alert-existing-id' })
+        const logic = alertFormLogic({
+            alert: existingAlert,
+            insightId: 42,
+            onEditSuccess,
+            insightVizDataLogicProps: insightLogicProps,
+            insightInterval: 'day',
+        })
+        logic.mount()
+        return logic
+    }
+
+    // A 404 on delete means the alert is already gone server-side (deleted in another tab/session),
+    // so the desired end state is reached — swallow it and run the normal cleanup instead of surfacing
+    // an unhandled "Not found." error. Regresses if the try/catch around api.alerts.delete is removed.
+    it('treats a 404 on delete as success (alert already gone)', async () => {
+        jest.spyOn(api.alerts, 'delete').mockRejectedValueOnce(
+            new ApiError('Not found.', 404, undefined, { detail: 'Not found.' })
+        )
+        const onEditSuccess = jest.fn()
+        const logic = mountFormForExistingAlert(onEditSuccess)
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteAlert()
+        }).toFinishAllListeners()
+
+        expect(successToastSpy).toHaveBeenCalledWith('Alert deleted.')
+        expect(errorToastSpy).not.toHaveBeenCalled()
+        expect(onEditSuccess).toHaveBeenCalledWith(undefined)
+    })
+
+    // Guards the discrimination behind the delete swallow: only a 404 is treated as already-gone.
+    // Any other status, or a non-ApiError, must keep surfacing so real failures aren't hidden.
+    it.each([
+        ['a 404 ApiError', new ApiError('Not found.', 404), true],
+        ['a non-404 ApiError', new ApiError('Server error', 500), false],
+        ['a plain Error', new Error('network down'), false],
+    ])('alertAlreadyDeleted(%s) === %s', (_name, error, expected) => {
+        expect(alertAlreadyDeleted(error)).toBe(expected)
     })
 
     it('blocks save when threshold alert has no lower or upper bound', async () => {

@@ -187,6 +187,12 @@ function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType): void {
     unmount()
 }
 
+/** A 404 on delete means the alert is already gone server-side (e.g. deleted in another tab), so the
+ * desired end state is reached — the caller can treat it as success rather than surfacing an error. */
+export function alertAlreadyDeleted(error: unknown): boolean {
+    return error instanceof ApiError && error.status === 404
+}
+
 function formatSaveError(error: unknown): string {
     if (error instanceof ApiError) {
         const field = error.attr?.replace(/_/g, ' ')
@@ -626,7 +632,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot delete alert that doesn't exist")
                 }
-                await api.alerts.delete(values.alertForm.id)
+                try {
+                    await api.alerts.delete(values.alertForm.id)
+                } catch (error: unknown) {
+                    // Already-gone is the desired end state, so fall through to the cleanup; re-throw anything else.
+                    if (!alertAlreadyDeleted(error)) {
+                        throw error
+                    }
+                }
                 lemonToast.success('Alert deleted.')
                 const parent = getParentLogic()
                 if (parent) {
