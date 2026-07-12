@@ -16,6 +16,7 @@ from posthog.utils import get_machine_id
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    DELTA_MISSING_DATA_FILES_KEY,
     DeltaTableHelper,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -306,10 +307,17 @@ async def handle_corrupted_delta_log(
     delta_table_helper: DeltaTableHelper,
     logger: FilteringBoundLogger,
 ) -> bool:
-    """Detect and revive a Delta table whose `_delta_log` is unreadable, before extraction.
+    """Detect and revive a Delta table that can no longer be synced, before extraction.
 
-    Interrupted repartition swaps and OOM-crashed merges can leave `_delta_log` inconsistent (open raises
-    DeltaError / FileNotFoundError), after which every sync fails to open the table and loops forever.
+    Two failure modes are handled, both of which otherwise make every subsequent sync fail and loop
+    forever:
+
+    - Unreadable `_delta_log`: interrupted repartition swaps and OOM-crashed merges can leave the log
+      inconsistent, so opening the table raises (DeltaError / FileNotFoundError).
+    - Missing partition data file: a merge in an earlier run read a partition file the log still
+      references but that is gone from S3, and flagged the table via `DELTA_MISSING_DATA_FILES_KEY`.
+      Such a table opens fine, so is_table_corrupted can't see it — the marker is how we detect it here.
+
     Runs before extraction so the table self-heals in the same run:
 
     - Salvage: an interrupted repartition swap that left a `ready` temp table is finished from temp (no
@@ -319,15 +327,19 @@ async def handle_corrupted_delta_log(
 
     Returns True if a revive happened. Best-effort: any failure here must not block the sync.
     """
+    missing_data_files = bool((schema.sync_type_config or {}).get(DELTA_MISSING_DATA_FILES_KEY))
     try:
-        if not await delta_table_helper.is_table_corrupted():
-            return False
+        corrupted = await delta_table_helper.is_table_corrupted()
     except Exception as e:
         capture_exception(e)
+        corrupted = False
+
+    if not corrupted and not missing_data_files:
         return False
 
+    reason = "unreadable delta log" if corrupted else "partition data file missing from S3"
     await logger.awarning(
-        f"handle_corrupted_delta_log: unreadable delta log detected, reviving schema_id={schema.id}",
+        f"handle_corrupted_delta_log: {reason} detected, reviving schema_id={schema.id}",
         schema_id=str(schema.id),
     )
 
@@ -378,14 +390,15 @@ async def handle_corrupted_delta_log(
     await delta_table_helper.reset_table()
     await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
     await database_sync_to_async_pool(update_sync_type_config_keys)(
-        schema.id, schema.team_id, removes=["repartition_pending", "repartition_swap"]
+        schema.id, schema.team_id, removes=["repartition_pending", "repartition_swap", DELTA_MISSING_DATA_FILES_KEY]
     )
     was_billable = bool(job.billable)
     if job.billable:
         job.billable = False
         await database_sync_to_async_pool(job.save)(update_fields=["billable"])
 
-    _capture_delta_revived(schema, job, outcome="reset_rebuild", made_non_billable=was_billable)
+    outcome = "missing_data_files_rebuild" if missing_data_files and not corrupted else "reset_rebuild"
+    _capture_delta_revived(schema, job, outcome=outcome, made_non_billable=was_billable)
     await logger.awarning(
         f"handle_corrupted_delta_log: reset corrupt table for non-billable rebuild schema_id={schema.id}",
         schema_id=str(schema.id),
