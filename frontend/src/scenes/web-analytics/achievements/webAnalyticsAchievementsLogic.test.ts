@@ -109,7 +109,7 @@ describe('webAnalyticsAchievementsLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.loadAchievements()
         })
-            .toDispatchActions(['loadAchievementsSuccess', 'acknowledgeCelebration'])
+            .toDispatchActions(['loadAchievementsSuccess', 'acknowledgeCelebration', 'markCelebrated'])
             .toFinishAllListeners()
             .toMatchValues({ uncelebratedPending: [] })
 
@@ -145,7 +145,13 @@ describe('webAnalyticsAchievementsLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.loadAchievements()
         })
-            .toDispatchActions(['loadAchievementsSuccess', 'acknowledgeCelebration'])
+            .toDispatchActions([
+                'loadAchievementsSuccess',
+                'acknowledgeCelebration',
+                'acknowledgeCelebration',
+                'markCelebrated',
+                'markCelebrated',
+            ])
             .toFinishAllListeners()
             .toMatchValues({ uncelebratedPending: [] })
 
