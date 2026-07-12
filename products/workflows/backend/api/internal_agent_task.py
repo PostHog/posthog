@@ -2,6 +2,7 @@ import uuid
 
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -71,6 +72,10 @@ class InternalWorkflowsAgentTaskViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     serializer_class = _FallbackSerializer
     authentication_classes = [WorkflowsTasksAPIAuthentication]
 
+    # Excluded from the OpenAPI schema: no generated-type consumers (the caller is the Node CDP
+    # executor), and schema introspection's mock request can't satisfy the dedicated-secret
+    # authenticator, which fails closed.
+    @extend_schema(exclude=True)
     def create(self, request: Request, team_id: str) -> Response:
         try:
             team = Team.objects.select_related("organization").get(id=int(team_id))
@@ -146,6 +151,7 @@ class InternalWorkflowsAgentTaskViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
 
         return Response({"task_run_id": str(created.latest_run.id), "status": created.latest_run.status})
 
+    @extend_schema(exclude=True)
     def retrieve(self, request: Request, team_id: str, pk: str) -> Response:
         try:
             team_id_int = int(team_id)
