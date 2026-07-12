@@ -204,6 +204,13 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         billable=True,
     ),
+    # Stamphog's daily merged-PR digest summarization. Low volume, cheap model, internal infra.
+    "stamphog": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+        billable=False,
+    ),
 }
 
 

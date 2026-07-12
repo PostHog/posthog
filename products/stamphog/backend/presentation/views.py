@@ -16,8 +16,8 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from ..models import ReviewRun, StamphogRepoConfig
-from .serializers import ReviewRunSerializer, StamphogRepoConfigSerializer
+from ..models import DigestChannel, DigestRun, ReviewRun, StamphogRepoConfig
+from .serializers import DigestChannelSerializer, DigestRunSerializer, ReviewRunSerializer, StamphogRepoConfigSerializer
 
 
 class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -103,6 +103,56 @@ class ReviewRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
             ),
         ],
         responses={200: ReviewRunSerializer(many=True)},
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        return super().list(request, **kwargs)
+
+
+class DigestChannelViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """Per-audience Slack destinations for the daily merged-PR digest."""
+
+    scope_object = "INTERNAL"
+    serializer_class = DigestChannelSerializer
+    # Unscoped base: the fail-closed manager raises at class-body eval if scoped here.
+    # safely_get_queryset re-applies the team filter per request.
+    queryset = DigestChannel.objects.unscoped()
+
+    def safely_get_queryset(self, queryset: QuerySet[DigestChannel]) -> QuerySet[DigestChannel]:
+        return queryset.filter(team_id=self.team_id).order_by("audience_key")
+
+    def perform_create(self, serializer: DigestChannelSerializer) -> None:
+        serializer.save(team_id=self.team_id)
+
+
+class DigestRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    """Read-only history of posted (or attempted) digests, filterable by digest channel."""
+
+    scope_object = "INTERNAL"
+    serializer_class = DigestRunSerializer
+    # Unscoped base: the fail-closed manager raises at class-body eval if scoped here.
+    # safely_get_queryset re-applies the team filter per request.
+    queryset = DigestRun.objects.unscoped()
+
+    def safely_get_queryset(self, queryset: QuerySet[DigestRun]) -> QuerySet[DigestRun]:
+        queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")
+
+        digest_channel = self.request.query_params.get("digest_channel")
+        if digest_channel:
+            queryset = queryset.filter(digest_channel=digest_channel)
+
+        return queryset
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "digest_channel",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by digest channel ID.",
+            ),
+        ],
+        responses={200: DigestRunSerializer(many=True)},
     )
     def list(self, request: Request, **kwargs) -> Response:
         return super().list(request, **kwargs)

@@ -15,7 +15,7 @@ from django.db import models
 
 from posthog.models.scoping.product_mixin import ProductTeamModel
 
-from .facade.enums import ReviewRunStatus, ReviewVerdict
+from .facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewVerdict
 
 
 # Lives on a separate product database (see products/db_routing.yaml), so it
@@ -31,6 +31,9 @@ class StamphogRepoConfig(ProductTeamModel):
     repository = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True)
     installation_id = models.CharField(max_length=64)
+    # Opt-in: capture merged PRs and fold them into the daily Slack digest. Independent of
+    # `enabled` (review) so a repo can be reviewed without digests, or vice versa.
+    digest_enabled = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -79,3 +82,104 @@ class ReviewRun(ProductTeamModel):
 
     def __str__(self) -> str:
         return f"{self.repo_config.repository}#{self.pr_number} ({self.status})"
+
+
+class DigestChannel(ProductTeamModel):
+    """One Slack destination for a digest audience.
+
+    The `audience_key` is a plain opaque string produced by the single audience cascade at
+    capture time (see logic/audiences.py): PR author -> GitHub team slug -> "repo:{repository}"
+    fallback. A row can be created by a human (API) or auto-provisioned when the workspace has a
+    channel named exactly like the audience_key (see logic/channel_resolution.py) —
+    `resolution_source` records which.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    audience_key = models.CharField(max_length=255)
+    # Plain id of a main-DB posthog.Integration row (kind="slack"). No FK: this model lives on a
+    # separate product DB and can't hold a cross-database constraint — the id is resolved against
+    # the main DB (with a team_id + kind guard) when the digest is posted.
+    slack_integration_id = models.BigIntegerField()
+    slack_channel_id = models.CharField(max_length=64)
+    slack_channel_name = models.CharField(max_length=255, blank=True)
+    # How this row came to exist — manual (API/human), an automatic Slack-name match, or (future)
+    # an owners.yaml contact.slack resolution. Auto-provisioned rows never override a human's.
+    resolution_source = models.CharField(
+        max_length=32,
+        choices=[(s.value, s.value) for s in ChannelResolutionSource],
+        default=ChannelResolutionSource.MANUAL,
+    )
+    enabled = models.BooleanField(default=True)
+    last_digest_at = models.DateTimeField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team_id", "audience_key"], name="unique_stamphog_digest_audience_per_team"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.audience_key} -> {self.slack_channel_name or self.slack_channel_id}"
+
+
+class DigestRun(ProductTeamModel):
+    """One posted (or attempted) daily digest for a channel."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    digest_channel = models.ForeignKey(DigestChannel, on_delete=models.CASCADE, related_name="runs")
+    status = models.CharField(
+        max_length=32,
+        choices=[(s.value, s.value) for s in DigestRunStatus],
+        default=DigestRunStatus.PENDING,
+    )
+    pr_count = models.IntegerField(default=0)
+    # LLM (or fallback) summary output that was rendered into the Slack message.
+    summary = models.JSONField(default=dict)
+    slack_message_ts = models.CharField(max_length=32, blank=True)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    posted_at = models.DateTimeField(null=True)
+
+    def __str__(self) -> str:
+        return f"digest {self.digest_channel_id} ({self.status})"
+
+
+class MergedPullRequest(ProductTeamModel):
+    """A merged PR captured from the webhook, awaiting inclusion in a digest.
+
+    A row is linked to a `DigestRun` once it has been summarized and posted. Unlinked rows
+    (digest_run is NULL) are what the next digest picks up, so a failed post leaves them for
+    tomorrow to retry.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    repo_config = models.ForeignKey(StamphogRepoConfig, on_delete=models.CASCADE, related_name="merged_pull_requests")
+    pr_number = models.IntegerField()
+    pr_url = models.CharField(max_length=512)
+    title = models.CharField(max_length=512)
+    author_login = models.CharField(max_length=255)
+    merged_at = models.DateTimeField()
+    merge_commit_sha = models.CharField(max_length=64)
+    head_branch = models.CharField(max_length=255, blank=True)
+    additions = models.IntegerField(default=0)
+    deletions = models.IntegerField(default=0)
+    changed_files = models.IntegerField(default=0)
+    # Trimmed PR description, capped at capture time to keep rows (and the LLM prompt) bounded.
+    body_excerpt = models.TextField(blank=True)
+    # Digest bucket resolved at capture time by the audience cascade (see logic/audiences.py).
+    audience_key = models.CharField(max_length=255, blank=True)
+    # GitHub webhook delivery id — unique so a redelivered merge event dedupes.
+    delivery_id = models.CharField(max_length=64, null=True, unique=True)
+    digest_run = models.ForeignKey(DigestRun, on_delete=models.SET_NULL, null=True, related_name="merged_pull_requests")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team_id", "repo_config", "pr_number"], name="unique_stamphog_merged_pr"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.repo_config.repository}#{self.pr_number} (merged)"

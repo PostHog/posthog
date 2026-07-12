@@ -327,6 +327,62 @@ class StamphogGitHubClient:
             )
         return self._json(response, path)
 
+    def get_user_team_slugs(self, org: str, login: str) -> list[str]:
+        """Return the sorted GitHub team slugs ``login`` belongs to within ``org`` (GraphQL).
+
+        Best-effort: this feeds digest audience routing, never a hard requirement, so every failure
+        mode (HTTP error, GraphQL ``errors`` — typically the App installation missing the org's
+        "Members: read" permission — or a null organization) logs a warning and returns ``[]`` instead
+        of raising.
+        """
+        query = (
+            "query($org: String!, $login: String!) { "
+            "organization(login: $org) { teams(first: 100, userLogins: [$login]) { nodes { slug } } } }"
+        )
+        try:
+            response = self._request(
+                "POST",
+                "/graphql",
+                endpoint="/graphql",
+                json_body={"query": query, "variables": {"org": org, "login": login}},
+            )
+        except Exception:
+            logger.warning("stamphog_github_team_lookup_request_failed", org=org, login=login, exc_info=True)
+            return []
+
+        if response.status_code != 200:
+            logger.warning(
+                "stamphog_github_team_lookup_http_error",
+                org=org,
+                login=login,
+                status_code=response.status_code,
+                body=response.text[:200],
+            )
+            return []
+
+        try:
+            data = self._json(response, "/graphql")
+        except StamphogGitHubError:
+            logger.warning("stamphog_github_team_lookup_non_json_response", org=org, login=login)
+            return []
+
+        if not isinstance(data, dict) or data.get("errors"):
+            logger.warning(
+                "stamphog_github_team_lookup_graphql_errors",
+                org=org,
+                login=login,
+                errors=(data or {}).get("errors") if isinstance(data, dict) else None,
+            )
+            return []
+
+        organization = (data.get("data") or {}).get("organization")
+        if not organization:
+            logger.warning("stamphog_github_team_lookup_null_organization", org=org, login=login)
+            return []
+
+        nodes = (organization.get("teams") or {}).get("nodes") or []
+        return sorted({node["slug"] for node in nodes if isinstance(node, dict) and node.get("slug")})
+
     def _find_sticky_comment_id(self, repo: str, number: int) -> int | None:
         """Return the id of the existing sticky comment on the PR, or ``None`` if there isn't one."""
         for page in range(1, _MAX_PAGES + 1):
