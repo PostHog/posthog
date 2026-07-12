@@ -300,7 +300,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 if self.text(t).starts_with("F'") {
                     return Err(self.err("mismatched input 'F''"));
                 }
-                parse_template_body(&self.emit, self.src, t.start + 2, t.end - 1)?
+                parse_template_body(&self.emit, self.src, t.start + 2, t.end - 1, false)?
             }
             _ => {
                 return Err(self.err(format!(

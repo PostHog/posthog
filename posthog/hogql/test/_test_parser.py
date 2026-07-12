@@ -3733,6 +3733,30 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ],
             )
 
+        def test_full_template_string_backslash_escapes(self):
+            # `F'…'` full template strings use the `FULL_STRING_TEXT` lexer rule, whose char
+            # set (`~([{])`) admits a bare backslash — so a `\` that starts no recognized
+            # escape stays a literal backslash and the following char is taken literally too.
+            # This differs from inline `f'…'` (`STRING_TEXT`), where an unknown `\X` ends the
+            # token and drops the sequence. rust-py applied the inline behaviour to full
+            # strings, dropping `\ ` and splitting the value into a `concat` where cpp keeps
+            # one literal `Constant` (shadow-comparison AST divergence). Compare against cpp
+            # (the escape-semantics baseline), positions included.
+            for src in (
+                r"*🔑 Activity*\ new$$_POSTHOG_ANY_$$} signup started",
+                r"a\ b",
+                r"a\'b",
+                r"a\}b",
+                r"trailing\\",
+                r"a\ b {1} c\ d",
+                r"a\qb\ c",
+            ):
+                self.assertEqual(
+                    parse_string_template(src, backend="cpp-json"),
+                    parse_string_template(src, backend=backend),
+                    msg=src,
+                )
+
         def test_program_variable_declarations(self):
             code = "let a := '123'; let b := a - 2; print(b);"
             program = self._program(code)

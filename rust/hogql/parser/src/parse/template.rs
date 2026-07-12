@@ -23,19 +23,31 @@ use crate::lex::{Lexer, TokenKind};
 /// get absolute positions because their sub-parser sees the full source
 /// up to the closing brace.
 ///
-/// Escapes follow cpp's f-string `STRING_TEXT` lexer rule and the
-/// `parse_string_text_ctx` visitor: `\{`, `\'`, `\\`, `\n`, `\t`, `\r`,
+/// Escapes follow cpp's f-string lexer rules and the
+/// `parse_string_text_ctx` visitor: `\{`, `\\`, `\n`, `\t`, `\r`,
 /// `\b`, `\f`, `\a`, `\v` decode in place, `\0` contributes nothing,
-/// and `\xHH` is kept verbatim. Any other `\X` is one the lexer rule
-/// cannot span — cpp ends the `STRING_TEXT` token there, drops the
-/// `\X`, and starts a fresh token, so the body splitter does the same:
-/// it closes the current literal chunk and opens a new one (an extra
-/// `concat` argument).
+/// and `\xHH` is kept verbatim.
+///
+/// The two f-string flavours have *different* lexer rules for a
+/// backslash that starts neither an `ESCAPE_CHAR_COMMON` escape nor `\{`,
+/// so `full` selects between them:
+///   - inline `f'…'` (`STRING_TEXT`, `full == false`) excludes a bare
+///     backslash from its char set, so `\'` decodes to `'` and any other
+///     `\X` is one the token cannot span — cpp ends the `STRING_TEXT`
+///     token there, drops the `\X`, and starts a fresh token, so the
+///     splitter closes the current literal chunk and opens a new one (an
+///     extra `concat` argument).
+///   - full `F'…'` (`FULL_STRING_TEXT`, `full == true`) admits a bare
+///     backslash via its `~([{])` char set, so a backslash that isn't
+///     part of a recognized escape stays a literal `\` and the following
+///     character is taken literally too (no chunk split, no drop). This
+///     also means `\'` and `\}` keep their backslash in full mode.
 pub(super) fn parse_template_body<E: Emitter + Clone>(
     emit: &E,
     full_src: &str,
     body_offset: usize,
     body_end: usize,
+    full: bool,
 ) -> Result<E::Value, ParseError> {
     let body = &full_src[body_offset..body_end];
     let bytes = body.as_bytes();
@@ -59,12 +71,12 @@ pub(super) fn parse_template_body<E: Emitter + Clone>(
                     i += 2;
                     continue;
                 }
-                b'}' => {
+                b'}' if !full => {
                     literal.push('}');
                     i += 2;
                     continue;
                 }
-                b'\'' => {
+                b'\'' if !full => {
                     literal.push('\'');
                     i += 2;
                     continue;
@@ -120,6 +132,17 @@ pub(super) fn parse_template_body<E: Emitter + Clone>(
                     // doesn't decode it, and `parse_string_text_ctx`
                     // copies the backslash + the 'x' + the two hex
                     // digits literally.
+                    literal.push('\\');
+                    i += 1;
+                    continue;
+                }
+                _ if full => {
+                    // `FULL_STRING_TEXT` admits a bare backslash via its
+                    // `~([{])` char set, so a `\` that starts no recognized
+                    // escape is a literal `\`; the escaped char is left for
+                    // the next loop iteration to copy verbatim. No chunk
+                    // split, no drop — cpp keeps `\ `, `\'`, `\}`, `\q`, … as
+                    // literal backslash plus the following character.
                     literal.push('\\');
                     i += 1;
                     continue;
@@ -299,6 +322,49 @@ fn wrap_literal_chunk<E: Emitter>(
     let start_pos = pos_in_source(emit, full_src, start);
     let end_pos = pos_in_source(emit, full_src, end);
     emit.with_pos(constant, start_pos, end_pos)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::parse::parse_full_template_string;
+
+    /// `F'…'` full template strings (`FULL_STRING_TEXT`) keep a bare backslash literal
+    /// when it starts no recognized escape, unlike inline `f'…'` (`STRING_TEXT`) where an
+    /// unknown `\X` splits the value. Regression for the shadow-comparison divergence on
+    /// `\ ` next to an injected autocomplete placeholder.
+    #[test]
+    fn full_template_backslash_before_non_escape_stays_literal() {
+        // The standalone entry mirrors the Python wrapper: `F'` prefix, body runs to EOF
+        // (no closing quote). Single literal chunk with the backslash preserved — NOT a
+        // `concat` split.
+        let v = parse_full_template_string(r"F'a\ b").expect("parses");
+        assert_eq!(v["node"], "Constant");
+        assert_eq!(v["value"], r"a\ b");
+
+        // `\'` and `\}` also keep their backslash in full mode.
+        assert_eq!(
+            parse_full_template_string(r"F'x\'y").expect("parses")["value"],
+            r"x\'y"
+        );
+        assert_eq!(
+            parse_full_template_string(r"F'x\}y").expect("parses")["value"],
+            r"x\}y"
+        );
+
+        // Recognized escapes still decode: `\n` → newline, `\{` → `{`, `\\` → `\`.
+        assert_eq!(
+            parse_full_template_string(r"F'a\nb").expect("parses")["value"],
+            "a\nb"
+        );
+        assert_eq!(
+            parse_full_template_string(r"F'a\{b").expect("parses")["value"],
+            "a{b"
+        );
+        assert_eq!(
+            parse_full_template_string(r"F'a\\b").expect("parses")["value"],
+            r"a\b"
+        );
+    }
 }
 
 /// Compute the cpp-shape `{line, column, offset}` envelope for an
