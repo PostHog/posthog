@@ -10,6 +10,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
+import { emptyPaginated } from '~/test/mocks/taxonomicFilterApiMock'
 
 import { TaxonomicFilterHeadless } from '../headless'
 import { __clearTaxonomicResourceCache } from '../hooks/useTaxonomicResource'
@@ -26,22 +27,7 @@ jest.mock('posthog-js', () => ({
     default: { capture: jest.fn() },
 }))
 
-jest.mock('lib/api', () => {
-    const emptyPaginated = (): Promise<{ results: any[]; count: number; next: null }> =>
-        Promise.resolve({ results: [], count: 0, next: null })
-    return {
-        __esModule: true,
-        default: {
-            get: jest.fn().mockImplementation(emptyPaginated),
-            actions: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dataWarehouseSavedQueries: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dataWarehouseTables: { list: jest.fn().mockImplementation(emptyPaginated) },
-            queryTabState: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dashboards: { list: jest.fn().mockImplementation(emptyPaginated) },
-            cohorts: { listPaginated: jest.fn().mockImplementation(emptyPaginated) },
-        },
-    }
-})
+jest.mock('lib/api', () => require('~/test/mocks/taxonomicFilterApiMock').buildTaxonomicFilterApiMock())
 
 const apiGet = jest.requireMock('lib/api').default.get as jest.MockedFunction<any>
 const captureMock = jest.requireMock('posthog-js').default.capture as jest.Mock
@@ -74,6 +60,7 @@ function renderAll(options: {
     pinnedEntries?: any[]
     searchQuery?: string
     onCommit?: any
+    eventNames?: string[]
 }): ReturnType<typeof render> {
     return render(
         <Provider>
@@ -81,6 +68,7 @@ function renderAll(options: {
                 taxonomicGroupTypes={options.groupTypes}
                 onChange={jest.fn()}
                 searchQuery={options.searchQuery ?? ''}
+                eventNames={options.eventNames}
             >
                 <MenuFilterCombobox
                     drillTo="all"
@@ -100,10 +88,23 @@ function rowTexts(): string[] {
     )
 }
 
+// The category Select popup portal — scoping option lookups here avoids matching
+// row badges/labels that repeat the option text (e.g. "Recent", "Pinned").
+async function openedCategoryPopup(): Promise<HTMLElement> {
+    return await waitFor(() => {
+        const popup = document.querySelector<HTMLElement>('[data-slot="select-content"]')
+        if (!popup) {
+            throw new Error('category select popup not open')
+        }
+        return popup
+    })
+}
+
 describe('MenuFilterCombobox', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
         apiGet.mockReset()
+        apiGet.mockImplementation(emptyPaginated)
         captureMock.mockClear()
         ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
         useMocks({})
@@ -435,6 +436,37 @@ describe('MenuFilterCombobox', () => {
         expect(contentIdx).toBeGreaterThan(recentIdx)
     })
 
+    it("promotes the context event's primary property after recents, above the content rows", async () => {
+        apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            eventNames: ['$mcp_tool_call'],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'my_recent_event', 'Events')],
+        })
+
+        await waitFor(() => expect(rowTexts().some((t) => t.includes('autocapture'))).toBe(true))
+        const rows = rowTexts()
+        expect(rows[0]).toContain('my_recent_event')
+        expect(rows[1]).toContain('MCP tool name')
+        const contentIdx = rows.findIndex((t) => t.includes('autocapture'))
+        expect(contentIdx).toBeGreaterThan(1)
+    })
+
+    it('shows a promoted property that is also a recent only once, under recents', async () => {
+        apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            eventNames: ['$mcp_tool_call'],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.EventProperties, '$mcp_tool_name', 'Event properties')],
+        })
+
+        await waitFor(() => expect(rowTexts().some((t) => t.includes('autocapture'))).toBe(true))
+        const promotedRows = rowTexts().filter((t) => t.includes('MCP tool name') || t.includes('$mcp_tool_name'))
+        expect(promotedRows).toHaveLength(1)
+    })
+
     it('shows a recent that is also in the catalog only once (deduped from content)', async () => {
         apiGet.mockResolvedValue({ results: [{ id: 1, name: 'pageview' }], count: 1 })
 
@@ -536,8 +568,8 @@ describe('MenuFilterCombobox', () => {
                 groupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PageviewUrls],
             })
 
-            await user.click(screen.getByRole('combobox', { name: 'Filter category' }))
-            expect(screen.queryByRole('option', { name: 'Pageview URLs' })).not.toBeInTheDocument()
+            await user.click(screen.getByLabelText('Filter category'))
+            expect(within(await openedCategoryPopup()).queryByText('Pageview URLs')).not.toBeInTheDocument()
         })
 
         it('commits the typed query as the value so it becomes $current_url contains <query>', async () => {
@@ -571,7 +603,11 @@ describe('MenuFilterCombobox', () => {
                 if (url.includes('property_definitions')) {
                     return Promise.resolve({ results: [{ id: 1, name: '$browser' }], count: 1 })
                 }
-                return Promise.resolve([])
+                if (url.includes('events/values')) {
+                    return Promise.resolve([])
+                }
+                // Paginated floor for everything else (dashboardsModel & co load on mount)
+                return Promise.resolve({ results: [], count: 0 })
             })
             // What TaxonomicPopoverMenu builds when reopening an existing
             // `$current_url icontains <value>` filter picked via the shortcut.
@@ -600,7 +636,7 @@ describe('MenuFilterCombobox', () => {
             // (pageview_urls is not a navigable option) and the All-surface
             // content must render rather than an empty hidden-category list.
             await waitFor(() => expect(rowTexts().some((t) => t.includes('$browser'))).toBe(true))
-            expect(screen.getByRole('combobox', { name: 'Filter category' })).toHaveTextContent('All')
+            expect(screen.getByLabelText('Filter category')).toHaveTextContent('All')
             // The committed selection stays reachable via the selected-entry prepend.
             expect(rowTexts().some((t) => t.includes('checkout'))).toBe(true)
         })
@@ -631,7 +667,7 @@ describe('MenuFilterCombobox', () => {
 
             await waitFor(() => expect(rowTexts().some((t) => t.includes('recent_signup'))).toBe(true))
             expect(rowTexts().some((t) => t.includes('pinned_purchase'))).toBe(true)
-            expect(screen.getByRole('combobox', { name: 'Filter category' })).toHaveTextContent('All')
+            expect(screen.getByLabelText('Filter category')).toHaveTextContent('All')
         })
 
         it('opens focused on All, not the selected item category, when an event is already selected', async () => {
@@ -655,7 +691,7 @@ describe('MenuFilterCombobox', () => {
                 </Provider>
             )
 
-            const category = await screen.findByRole('combobox', { name: 'Filter category' })
+            const category = await screen.findByLabelText('Filter category')
             // Wait for the Select to paint its active-category label before asserting.
             await waitFor(() => expect(category.textContent || '').toMatch(/All|Events/))
             expect(category).toHaveTextContent('All')
@@ -785,9 +821,10 @@ describe('MenuFilterCombobox', () => {
             pinnedEntries: [makeEntry(TaxonomicFilterGroupType.EventProperties, 'p', 'Event properties')],
         })
 
-        await user.click(screen.getByRole('combobox', { name: 'Filter category' }))
-        expect(await screen.findByRole('option', { name: 'Recent' })).toBeInTheDocument()
-        expect(screen.getByRole('option', { name: 'Pinned' })).toBeInTheDocument()
+        await user.click(screen.getByLabelText('Filter category'))
+        const popup = await openedCategoryPopup()
+        expect(await within(popup).findByText('Recent')).toBeInTheDocument()
+        expect(within(popup).getByText('Pinned')).toBeInTheDocument()
     })
 
     it('forwards row selection context on commit and does not emit the legacy event itself', async () => {
@@ -962,7 +999,7 @@ describe('MenuFilterCombobox', () => {
         )
 
         const callsBeforeOptIn = apiGet.mock.calls.length
-        await user.click(await screen.findByRole('button', { name: 'Include stale events' }))
+        await user.click(await screen.findByText('Include stale events'))
 
         // Opting in emits the legacy toggle event…
         expect(captureMock).toHaveBeenCalledWith(
@@ -988,10 +1025,10 @@ describe('MenuFilterCombobox', () => {
         })
 
         // Narrow to a single category so the cross-category jump becomes relevant
-        await user.click(screen.getByRole('combobox', { name: 'Filter category' }))
-        await user.click(await screen.findByRole('option', { name: 'Cohorts' }))
+        await user.click(screen.getByLabelText('Filter category'))
+        await user.click(await within(await openedCategoryPopup()).findByText('Cohorts'))
 
-        const jumpButton = await screen.findByRole('button', { name: 'Check for results in other categories' })
+        const jumpButton = await screen.findByText('Check for results in other categories')
         await user.click(jumpButton)
 
         expect(captureMock).toHaveBeenCalledWith(
@@ -1000,10 +1037,8 @@ describe('MenuFilterCombobox', () => {
         )
         // Back on the All scope, the jump no longer applies
         await waitFor(() => {
-            expect(screen.getByRole('combobox', { name: 'Filter category' })).toHaveTextContent('All')
-            expect(
-                screen.queryByRole('button', { name: 'Check for results in other categories' })
-            ).not.toBeInTheDocument()
+            expect(screen.getByLabelText('Filter category')).toHaveTextContent('All')
+            expect(screen.queryByText('Check for results in other categories')).not.toBeInTheDocument()
         })
     })
 
@@ -1016,7 +1051,7 @@ describe('MenuFilterCombobox', () => {
         })
 
         await waitFor(() => expect(screen.getByTestId('menu-filter-empty')).toBeInTheDocument())
-        expect(screen.queryByRole('button', { name: 'Check for results in other categories' })).not.toBeInTheDocument()
+        expect(screen.queryByText('Check for results in other categories')).not.toBeInTheDocument()
     })
 
     describe('reveal barrier', () => {
@@ -1062,7 +1097,7 @@ describe('MenuFilterCombobox', () => {
             // Change query: the refetch is in flight. `keepPreviousData` means the stale
             // `alpha_prop` is still in the list data, but the barrier must hide it behind a
             // skeleton rather than leaking it (the bug this ports the legacy barrier to fix).
-            await user.click(screen.getByRole('button', { name: 'change-query' }))
+            await user.click(screen.getByText('change-query'))
             await waitFor(() => expect(screen.getByTestId('menu-filter-loading')).toBeInTheDocument())
             expect(rowTexts().some((t) => t.includes('alpha_prop'))).toBe(false)
 

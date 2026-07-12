@@ -16,7 +16,15 @@ pub fn changelog_message_key(team_id: i64, person_id: i64) -> String {
 /// Produce a person state changelog message to Kafka.
 ///
 /// Encodes the `Person` proto as the message payload and uses
-/// `{team_id}:{person_id}` as the key for compaction and partitioning.
+/// `{team_id}:{person_id}` as the key for compaction. The message is
+/// produced to an explicit partition — the person's routing partition —
+/// rather than relying on the producer's key partitioner. Warming rebuilds
+/// one routing partition's cache by consuming the same-numbered Kafka
+/// partition, so the two numbering schemes must agree; producing explicitly
+/// makes that alignment structural instead of depending on the partitioner
+/// config matching the router's murmur2 (librdkafka's default partitioner
+/// is CRC32-based and routes keys differently). A partition-count mismatch
+/// fails loudly at produce time instead of silently mis-sharding.
 /// Returns `Ok(())` on successful delivery, or an error string on failure.
 ///
 /// The handoff protocol relies on "handler returned Ok == message durable in Kafka."
@@ -27,12 +35,16 @@ pub fn changelog_message_key(team_id: i64, person_id: i64) -> String {
 pub async fn produce_person_changelog(
     producer: &FutureProducer<KafkaContext>,
     topic: &str,
+    partition: u32,
     person: &Person,
 ) -> Result<(), String> {
     let key = changelog_message_key(person.team_id, person.id);
     let payload = person.encode_to_vec();
 
-    let record = FutureRecord::to(topic).key(&key).payload(&payload);
+    let record = FutureRecord::to(topic)
+        .partition(partition as i32)
+        .key(&key)
+        .payload(&payload);
 
     match producer.send_result(record) {
         Ok(delivery_future) => match delivery_future.await {

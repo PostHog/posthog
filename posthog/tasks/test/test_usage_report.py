@@ -22,6 +22,8 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, Mock, patch
 
+from django.apps import apps
+from django.db import connection
 from django.test import TestCase
 from django.utils.timezone import now
 
@@ -58,6 +60,7 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     capture_event,
+    capture_report,
     get_all_event_metrics_in_period,
     get_instance_metadata,
     get_teams_with_query_metric,
@@ -77,7 +80,6 @@ from products.batch_exports.backend.models.batch_export import (
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
@@ -91,7 +93,17 @@ from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.models.license import License
 
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
+
 logger = structlog.get_logger(__name__)
+
+
+def test_usage_report_parent_task_acks_early_while_capture_task_acks_late() -> None:
+    assert send_all_org_usage_reports.acks_late is False
+    assert send_all_org_usage_reports.reject_on_worker_lost is False
+
+    assert capture_report.acks_late is True
+    assert capture_report.reject_on_worker_lost is True
 
 
 def _setup_replay_data(team_id: int, include_mobile_replay: bool, include_zero_duration: bool = False) -> None:
@@ -661,7 +673,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mobile_recording_bytes_in_period": 6,
                     "mobile_recording_count_in_period": 1,
                     "mobile_billable_recording_count_in_period": 0,
-                    "recording_observations_count_in_period": 0,
+                    "replay_vision_credits_used_in_period": 0,
                     "group_types_total": 2,
                     "dashboard_count": 2,
                     "dashboard_template_count": 0,
@@ -737,7 +749,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_recording_bytes_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
-                            "recording_observations_count_in_period": 0,
+                            "replay_vision_credits_used_in_period": 0,
                             "group_types_total": 2,
                             "dashboard_count": 2,
                             "dashboard_template_count": 0,
@@ -807,7 +819,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_recording_bytes_in_period": 6,
                             "mobile_recording_count_in_period": 1,
                             "mobile_billable_recording_count_in_period": 0,
-                            "recording_observations_count_in_period": 0,
+                            "replay_vision_credits_used_in_period": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -900,7 +912,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mobile_recording_bytes_in_period": 0,
                     "mobile_recording_count_in_period": 0,
                     "mobile_billable_recording_count_in_period": 0,
-                    "recording_observations_count_in_period": 0,
+                    "replay_vision_credits_used_in_period": 0,
                     "group_types_total": 0,
                     "dashboard_count": 0,
                     "dashboard_template_count": 0,
@@ -976,7 +988,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_recording_bytes_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
-                            "recording_observations_count_in_period": 0,
+                            "replay_vision_credits_used_in_period": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -4383,6 +4395,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             ("product_analytics",),
             ("surveys",),
             ("subscriptions",),
+            ("replay_vision",),
         ]
     )
     @patch("posthog.tasks.usage_report.get_instance_region")
@@ -4519,12 +4532,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         posthog_code_result = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
 
-        # posthog_code: 2.0 USD * 100 * 1.2 = 240 — only the posthog_code event, not the signals one.
-        self.assertEqual(posthog_code_result, [(self.org_1_team_1.id, 240)])
+        # posthog_code bills at cost (no markup): 2.0 USD * 100 * 1.0 = 200 — only the
+        # posthog_code event, not the signals one.
+        self.assertEqual(posthog_code_result, [(self.org_1_team_1.id, 200)])
 
     @parameterized.expand(
         [
-            ("billable", True, 480),
+            ("billable", True, 400),
             ("non_billable", False, None),
         ]
     )
@@ -4556,7 +4570,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_posthog_code",
-                "$ai_total_cost_usd": 4.0,  # 4.0 USD * 100 * 1.2 = 480 credits
+                "$ai_total_cost_usd": 4.0,  # 4.0 USD * 100 * 1.0 (no markup) = 400 credits
                 "$ai_billable": billable,
                 "ai_product": "posthog_code",
                 "$group_1": "https://us.posthog.com",
@@ -5109,12 +5123,18 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         Team.objects.all().delete()
         Organization.objects.all().delete()
 
-        # Create a fresh team for testing
-        self.team = Team.objects.create(organization=Organization.objects.create(name="test"))
-
-        # Create analytics team for AI credits tests (team 2 for US region)
+        # Create analytics team for AI credits tests (team 2 for US region). The explicit
+        # pk doesn't advance the id sequence, so bump it past the max to keep the auto-pk
+        # team below from being handed id 2 and colliding.
         analytics_org = Organization.objects.create(name="PostHog Analytics")
         self.analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT setval(pg_get_serial_sequence('posthog_team', 'id'), (SELECT MAX(id) FROM posthog_team))"
+            )
+
+        # Create a fresh team for testing
+        self.team = Team.objects.create(organization=Organization.objects.create(name="test"))
 
         # Create test events across a time period
         self.begin = datetime(2023, 1, 1, 0, 0)

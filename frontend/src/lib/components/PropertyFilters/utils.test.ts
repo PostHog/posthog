@@ -3,6 +3,7 @@ import {
     convertPropertiesToPropertyGroup,
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
+    isAnyPropertyfilter,
     isGroupCardFilterKey,
     isValidPropertyFilter,
     normalizePropertyFilterValue,
@@ -264,6 +265,20 @@ describe('normalizePropertyFilterValue()', () => {
     })
 })
 
+describe('isAnyPropertyfilter()', () => {
+    // A taxonomic-backed attribute filter that isn't recognized here resolves to no
+    // activeTaxonomicGroup, so its value picker loses `valuesEndpoint` and falls back to a
+    // bogus `api/<type>/values` URL that returns nothing. Guards that regression for each
+    // attribute family (metric_attribute broke exactly this way).
+    it.each([PropertyFilterType.MetricAttribute, PropertyFilterType.LogAttribute, PropertyFilterType.SpanAttribute])(
+        'recognizes %s as a property filter',
+        (type) => {
+            const filter = { type, key: 'env', operator: PropertyOperator.Exact, value: ['prod'] } as AnyPropertyFilter
+            expect(isAnyPropertyfilter(filter)).toBe(true)
+        }
+    )
+})
+
 describe('type mapping round-trip', () => {
     it.each([
         [PropertyFilterType.Event, TaxonomicFilterGroupType.EventProperties],
@@ -284,6 +299,14 @@ describe('type mapping round-trip', () => {
 
         const backToPropertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicType)
         expect(backToPropertyType).toEqual(propertyType)
+    })
+
+    it('MCPProperties maps one-way to the Event property filter type', () => {
+        // The rebuild menu commits with the tab's own group type, so without this
+        // mapping an MCP-tab selection would produce a filter with no type.
+        expect(taxonomicFilterTypeToPropertyFilterType(TaxonomicFilterGroupType.MCPProperties)).toEqual(
+            PropertyFilterType.Event
+        )
     })
 
     it('Group type round-trips with group_type_index preserved', () => {

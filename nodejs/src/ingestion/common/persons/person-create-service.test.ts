@@ -136,18 +136,18 @@ describe('PersonCreateService', () => {
                 )
             ).rejects.toThrow(PersonPropertiesSizeViolationError)
 
-            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
-                mockOutputs,
-                teamId,
-                'person_properties_size_violation',
-                {
-                    personId: 'test-person-id',
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, teamId, {
+                type: 'person_properties_size_violation',
+                details: {
+                    // uuidFromDistinctId(teamId, 'test-distinct-id')
+                    personId: 'f75d0be1-213b-5c13-8aec-acd632d76425',
                     distinctId: 'test-distinct-id',
                     eventUuid: creatorEventUuid,
                     teamId: teamId,
                     message: 'Person properties exceeds size limit and was rejected',
-                }
-            )
+                },
+                pipelineStep: 'person-store',
+            })
         })
 
         it('should handle creation conflict and fetch existing person', async () => {

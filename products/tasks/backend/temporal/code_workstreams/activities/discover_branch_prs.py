@@ -1,3 +1,4 @@
+import random
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Optional
@@ -8,7 +9,7 @@ from django.utils import timezone
 import requests
 from temporalio import activity
 
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.temporal.common.utils import close_db_connections
 
@@ -106,6 +107,9 @@ def discover_branch_prs_for_team(
         return DiscoverBranchPrsOutput(prs=[])
 
     candidates = _collect_branch_candidates(team_id)
+    # A shed sweep breaks mid-list; shuffling gives the tail equal coverage across cycles instead
+    # of the same recency-ordered prefix consuming the budget every run.
+    random.shuffle(candidates)
     integrations: dict[str, GitHubIntegrationBase | None] = {}
     found: dict[str, PrRef] = {}
 
@@ -142,6 +146,10 @@ def discover_branch_prs_for_team(
 
         try:
             urls = integration.find_pull_request_urls_for_branch(candidate.repository, candidate.branch)
+        except GitHubEgressBudgetExhausted:
+            # Our own limiter shed the sweep — stop for this cycle; the next scheduled run resumes.
+            activity.logger.warning("code_workstreams_discover_budget_exhausted", repository=candidate.repository)
+            break
         except Exception as e:
             activity.logger.warning(
                 "code_workstreams_discover_branch_failed",

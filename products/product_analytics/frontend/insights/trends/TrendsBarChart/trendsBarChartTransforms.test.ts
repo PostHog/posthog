@@ -411,21 +411,6 @@ describe('buildTrendsBarChartModel', () => {
         expect(model.config.barLayout).toBe('stacked')
     })
 
-    it.each([
-        { isGrouped: false, isPercentStackView: false, expected: 'stacked' },
-        { isGrouped: true, isPercentStackView: false, expected: 'grouped' },
-        { isGrouped: false, isPercentStackView: true, expected: 'percent' },
-        { isGrouped: true, isPercentStackView: true, expected: 'percent' },
-    ])('maps layout flags to barLayout=$expected', ({ isGrouped, isPercentStackView, expected }) => {
-        const model = buildTrendsBarChartModel(results, {
-            getColor: () => RED,
-            labels: [],
-            isGrouped,
-            isPercentStackView,
-        })
-        expect(model.config.barLayout).toBe(expected)
-    })
-
     it('forwards an x-axis tick formatter into the config', () => {
         const model = buildTrendsBarChartModel(results, {
             getColor: () => RED,

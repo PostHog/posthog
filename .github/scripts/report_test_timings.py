@@ -69,6 +69,7 @@ class TestCase:
     end: datetime
     outcome: str  # passed | failed | error | skipped | xfailed | rerun_passed
     attempts: int  # 1 + number of pytest-rerunfailures retries before final outcome
+    selector: str  # runnable 'path/test.py::Class::test' from JUnit's `file`; '' when file is absent
 
 
 @dataclass(frozen=True)
@@ -188,6 +189,24 @@ def to_nodeid(classname: str, name: str) -> str:
     return f"{classname.replace('.', '/')}::{name}" if classname else name
 
 
+def to_selector(file: str, classname: str, name: str) -> str:
+    """Runnable pytest selector 'path/to/test_x.py::TestClass::test_y' from JUnit's `file` + `classname`.
+
+    Unlike `to_nodeid`, JUnit's `file` gives the exact module boundary, so nothing is guessed: the
+    class portion is `classname` with the file's module prefix stripped. Returns '' when JUnit omits
+    `file` (external shards) or the shape is unexpected — consumers fall back to the nodeid.
+    """
+    if not file or not name:
+        return ""
+    module = file[:-3].replace("/", ".") if file.endswith(".py") else ""
+    if not classname:
+        return f"{file}::{name}"
+    if module and classname.startswith(module):
+        class_part = classname[len(module) :].lstrip(".")
+        return f"{file}::{class_part}::{name}" if class_part else f"{file}::{name}"
+    return ""
+
+
 def parse_iso_utc(value: str) -> datetime | None:
     """Parse an ISO 8601 timestamp (pytest emits naive); treat as UTC."""
     if not value:
@@ -251,6 +270,7 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
     for tc in suite_elem.iter("testcase"):
         classname = tc.get("classname", "")
         name = tc.get("name", "")
+        file = tc.get("file", "")
         outcome, attempts = classify_testcase(tc)
         try:
             duration = float(tc.get("time", "0"))
@@ -264,6 +284,7 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
                 nodeid=to_nodeid(classname, name),
                 classname=classname,
                 name=name,
+                selector=to_selector(file, classname, name),
                 duration_seconds=duration,
                 start=test_start,
                 end=test_end,
@@ -474,6 +495,8 @@ def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str) -> bool
             test_span.set_attribute("test.attempts", test.attempts)
             test_span.set_attribute("test.classname", test.classname)
             test_span.set_attribute("test.name", test.name)
+            if test.selector:
+                test_span.set_attribute("test.selector", test.selector)
             if test.outcome in ("failed", "error"):
                 test_span.set_status(Status(StatusCode.ERROR))
                 has_error = True

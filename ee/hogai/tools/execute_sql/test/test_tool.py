@@ -120,6 +120,19 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(right_y_axis_settings.label, "People")
         self.assertEqual(right_y_axis_settings.showTicks, False)
 
+        tool_call_message = artifact_messages.messages[1]
+        assert isinstance(tool_call_message, AssistantToolCallMessage)
+        ui_payload = tool_call_message.ui_payload
+        assert ui_payload is not None
+        payload = ui_payload["execute_sql"]
+        self.assertEqual(payload["kind"], "DataVisualizationNode")
+        self.assertEqual(payload["display"], "ActionsBar")
+        self.assertEqual(payload["chartSettings"]["xAxisLabel"], "Event name")
+        self.assertEqual(
+            payload["source"]["query"],
+            "SELECT event, count() AS events, uniq(distinct_id) AS people FROM events GROUP BY event",
+        )
+
     async def test_artifact_id_in_output(self):
         _create_event(team=self.team, distinct_id="user1", event="test_event")
 

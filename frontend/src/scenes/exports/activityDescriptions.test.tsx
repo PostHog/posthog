@@ -70,10 +70,17 @@ describe('exported asset activity descriptions', () => {
     })
 
     it('returns no description for a non-export scope', () => {
-        const { description } = exportedAssetActivityDescriber(
-            makeLogItem({ scope: ActivityScope.INSIGHT, detail: makeDetail('x') })
-        )
-        expect(description).toBeNull()
+        // the describer deliberately reports the scope mismatch via console.error
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        try {
+            const { description } = exportedAssetActivityDescriber(
+                makeLogItem({ scope: ActivityScope.INSIGHT, detail: makeDetail('x') })
+            )
+            expect(description).toBeNull()
+            expect(consoleErrorSpy).toHaveBeenCalledWith('exported asset describer received a non-export activity')
+        } finally {
+            consoleErrorSpy.mockRestore()
+        }
     })
 
     it('delegates unknown activities to the default describer', () => {

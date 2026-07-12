@@ -17,6 +17,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -26,11 +27,14 @@ import { QuarantineTestModal } from '../components/QuarantineTestModal'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { StatCard } from '../components/StatCard'
 import {
+    FlakyTestRow,
+    FlakyTestWindow,
     QuarantineEntryRow,
     QuarantineLifecycle,
     QuarantineLifecycleFilter,
     QuarantineModeFilter,
     engineeringAnalyticsLogic,
+    flakyEvidenceReason,
 } from './engineeringAnalyticsLogic'
 
 function relativeExpiry(daysUntilExpiry: number): string {
@@ -76,11 +80,193 @@ function ModeTag({ mode }: { mode: QuarantineEntryRow['mode'] }): JSX.Element {
     )
 }
 
+function FlakyTestLeaderboard(): JSX.Element {
+    const { flakyTests, flakyTestsLoading, flakyTestsStatus, flakyTestWindow } = useValues(engineeringAnalyticsLogic)
+    const { setFlakyTestWindow, openQuarantineModal } = useActions(engineeringAnalyticsLogic)
+
+    const columns: LemonTableColumns<FlakyTestRow> = [
+        {
+            title: 'Test',
+            key: 'nodeid',
+            render: (_, row) => (
+                <div className="flex max-w-[32rem] flex-col gap-0.5">
+                    <Tooltip title={row.nodeid}>
+                        <span className="truncate font-mono text-xs">{row.nodeid}</span>
+                    </Tooltip>
+                    {row.xfailedCount > 0 && (
+                        <div>
+                            <Tooltip
+                                title={`Failed ${pluralize(row.xfailedCount, 'time')} while quarantined (runs as xfail) — already masked in CI, still flaky.`}
+                            >
+                                <LemonTag type="warning" size="small">
+                                    Quarantined, still failing
+                                </LemonTag>
+                            </Tooltip>
+                        </div>
+                    )}
+                </div>
+            ),
+        },
+        {
+            title: 'Pass on retry',
+            key: 'rerunPassedCount',
+            width: 120,
+            align: 'right',
+            tooltip:
+                'Failed, then passed on an automatic retry — the strongest flaky signal. Only CI lanes running with retries emit it.',
+            sorter: (a, b) => a.rerunPassedCount - b.rerunPassedCount,
+            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.rerunPassedCount)}</span>,
+        },
+        {
+            title: 'Failures',
+            key: 'failedCount',
+            width: 100,
+            align: 'right',
+            tooltip:
+                'Runs whose final outcome was failed or error. An absolute count, not a rate — passing runs are mostly not recorded.',
+            sorter: (a, b) => a.failedCount - b.failedCount,
+            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.failedCount)}</span>,
+        },
+        {
+            title: 'PRs hit',
+            key: 'failedPrCount',
+            width: 100,
+            align: 'right',
+            tooltip:
+                'Distinct pull requests the failures landed on. Failures on master carry no PR and are not counted here.',
+            sorter: (a, b) => a.failedPrCount - b.failedPrCount,
+            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.failedPrCount)}</span>,
+        },
+        {
+            title: 'Branches',
+            key: 'branchCount',
+            width: 100,
+            align: 'right',
+            tooltip: 'Distinct git branches across the test’s flaky-signal runs in the window.',
+            sorter: (a, b) => a.branchCount - b.branchCount,
+            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.branchCount)}</span>,
+        },
+        {
+            title: 'Last seen',
+            key: 'lastSeenAt',
+            width: 120,
+            align: 'right',
+            sorter: (a, b) => a.lastSeenAt.localeCompare(b.lastSeenAt),
+            render: (_, row) => (
+                <Tooltip title={dayjs(row.lastSeenAt).format('YYYY-MM-DD HH:mm:ss')}>
+                    <span className="text-xs whitespace-nowrap text-secondary">{dayjs(row.lastSeenAt).fromNow()}</span>
+                </Tooltip>
+            ),
+        },
+        {
+            title: '',
+            key: 'actions',
+            width: 120,
+            render: (_, row) => (
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={() =>
+                        openQuarantineModal({
+                            action: 'quarantine',
+                            selector: row.selector,
+                            // The evidence is the reason; the cause is the tracking issue's job to find.
+                            reason: flakyEvidenceReason(row, flakyTestWindow),
+                            owner: '',
+                            issue: '',
+                            mode: 'run',
+                            confirm: true,
+                        })
+                    }
+                    data-attr="eng-analytics-flaky-quarantine"
+                >
+                    Quarantine…
+                </LemonButton>
+            ),
+        },
+    ]
+
+    return (
+        <div className="flex flex-col gap-4">
+            <div className="flex items-start justify-between gap-2">
+                <div className="flex flex-col gap-0.5">
+                    <h3 className="m-0 text-base font-semibold">Flaky test leaderboard</h3>
+                    <p className="m-0 text-xs text-tertiary">
+                        Backend tests that passed on retry or failed across several PRs — quarantine candidates, ranked
+                        by flakiness signal.
+                    </p>
+                </div>
+                <LemonSegmentedButton
+                    size="small"
+                    value={flakyTestWindow}
+                    onChange={(value) => setFlakyTestWindow(value as FlakyTestWindow)}
+                    options={[
+                        { value: '-7d', label: '7d' },
+                        { value: '-14d', label: '14d' },
+                        { value: '-30d', label: '30d' },
+                    ]}
+                />
+            </div>
+            {flakyTestsStatus === 'error' ? (
+                <LemonBanner type="warning">Couldn't load flaky test data. Try refreshing.</LemonBanner>
+            ) : (
+                <>
+                    <LemonTable
+                        data-attr="engineering-analytics-flaky-tests-table"
+                        size="small"
+                        columns={columns}
+                        dataSource={flakyTests?.rows ?? []}
+                        rowKey={(row) => row.nodeid}
+                        loading={flakyTestsLoading}
+                        pagination={{ pageSize: 25 }}
+                        useURLForSorting={false}
+                        emptyState="No flaky tests detected in this window."
+                        nouns={['flaky test', 'flaky tests']}
+                    />
+                    {flakyTests?.truncated && (
+                        <div className="text-xs text-tertiary">
+                            Showing the {flakyTests.limit} strongest signals — more tests qualified in this window.
+                        </div>
+                    )}
+                </>
+            )}
+        </div>
+    )
+}
+
 export function EngineeringAnalyticsTestHealth(): JSX.Element {
+    const { quarantineLoadFailed, quarantineModal, quarantineOwnerOptions, quarantineSubmitLoading } =
+        useValues(engineeringAnalyticsLogic)
+    const { closeQuarantineModal, submitQuarantine } = useActions(engineeringAnalyticsLogic)
+
+    // Production with no GitHub source and no local checkout: the endpoint 400s, same as the other tabs.
+    if (quarantineLoadFailed) {
+        return <ConnectGitHubSource />
+    }
+
+    return (
+        <div className="flex flex-col gap-8">
+            {/* Tab-level: both sections read the same source, so the picker scopes them together. */}
+            <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
+            <FlakyTestLeaderboard />
+            <QuarantineRegister />
+            {/* Rendered once for the whole tab: the leaderboard rows, the register rows, and the
+                register's no-file empty state all open it. */}
+            <QuarantineTestModal
+                modal={quarantineModal}
+                ownerOptions={quarantineOwnerOptions}
+                submitting={quarantineSubmitLoading}
+                onClose={closeQuarantineModal}
+                onSubmit={(input) => submitQuarantine({ input })}
+            />
+        </div>
+    )
+}
+
+function QuarantineRegister(): JSX.Element {
     const {
         quarantine,
         quarantineLoading,
-        quarantineLoadFailed,
         filteredQuarantineEntries,
         quarantineCounts,
         quarantineOwnerOptions,
@@ -90,8 +276,6 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
         quarantineOwner,
         activeQuarantineCard,
         hasActiveQuarantineFilters,
-        quarantineModal,
-        quarantineSubmitLoading,
     } = useValues(engineeringAnalyticsLogic)
     const {
         setQuarantineSearch,
@@ -101,7 +285,6 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
         applyQuarantineCard,
         resetQuarantineFilters,
         openQuarantineModal,
-        closeQuarantineModal,
         submitQuarantine,
     } = useActions(engineeringAnalyticsLogic)
 
@@ -142,52 +325,29 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
         })
     }
 
-    // Rendered alongside every branch that can open it, so the modal survives the no-file empty state.
-    const modalElement = (
-        <QuarantineTestModal
-            modal={quarantineModal}
-            ownerOptions={quarantineOwnerOptions}
-            submitting={quarantineSubmitLoading}
-            onClose={closeQuarantineModal}
-            onSubmit={(input) => submitQuarantine({ input })}
-        />
-    )
-
-    // Rendered on every data-bearing branch: the quarantine file is per-repo, so multi-source teams
-    // need the source picker here too — including on the wrong-repo empty states.
-    const scopeBar = <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
-
-    // Production with no GitHub source and no local checkout: the endpoint 400s, same as the other tabs.
-    if (quarantineLoadFailed) {
-        return <ConnectGitHubSource />
-    }
-
     // A fetch failure (timeout, 5xx, unsafe repo) also comes back as available:false, but with
     // parse_errors set — surface those instead of the "no file" explainer, which only fits a true 404.
     if (quarantine && !quarantine.available && quarantine.parseErrors.length > 0) {
         return (
-            <div className="flex flex-col gap-4">
-                {scopeBar}
-                <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-primary p-10 text-center">
-                    <IconShieldLock className="size-8 text-tertiary" />
-                    <div className="text-lg font-semibold">Couldn't read the quarantine file</div>
-                    <div className="w-full max-w-xl">
-                        <LemonBanner type="warning">
-                            <ul className="ml-4 list-disc text-left">
-                                {quarantine.parseErrors.map((error, index) => (
-                                    <li key={index} className="font-mono text-xs">
-                                        {error}
-                                    </li>
-                                ))}
-                            </ul>
-                        </LemonBanner>
-                    </div>
-                    {quarantine.repoFullName && (
-                        <p className="text-sm text-secondary">
-                            Repository: <span className="font-mono">{quarantine.repoFullName}</span>
-                        </p>
-                    )}
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-primary p-10 text-center">
+                <IconShieldLock className="size-8 text-tertiary" />
+                <div className="text-lg font-semibold">Couldn't read the quarantine file</div>
+                <div className="w-full max-w-xl">
+                    <LemonBanner type="warning">
+                        <ul className="ml-4 list-disc text-left">
+                            {quarantine.parseErrors.map((error, index) => (
+                                <li key={index} className="font-mono text-xs">
+                                    {error}
+                                </li>
+                            ))}
+                        </ul>
+                    </LemonBanner>
                 </div>
+                {quarantine.repoFullName && (
+                    <p className="text-sm text-secondary">
+                        Repository: <span className="font-mono">{quarantine.repoFullName}</span>
+                    </p>
+                )}
             </div>
         )
     }
@@ -195,23 +355,19 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
     // A file that does not exist is a normal state, not an error — offer to start one.
     if (quarantine && !quarantine.available) {
         return (
-            <div className="flex flex-col gap-4">
-                {scopeBar}
-                <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-primary p-10 text-center">
-                    <IconShieldLock className="size-8 text-tertiary" />
-                    <div className="text-lg font-semibold">No test quarantine yet</div>
-                    <p className="max-w-xl text-sm text-secondary">
-                        {quarantine.repoFullName
-                            ? `${quarantine.repoFullName} has no .test_quarantine.json. `
-                            : 'This repo has no .test_quarantine.json. '}
-                        Quarantine masks a flaky test in CI with a hard expiry, so it stops blocking merges while its
-                        owner fixes it. The first quarantine opens a PR that creates the file.
-                    </p>
-                    <LemonButton type="primary" onClick={openNewQuarantine} data-attr="eng-analytics-quarantine-open">
-                        Quarantine a test
-                    </LemonButton>
-                    {modalElement}
-                </div>
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-primary p-10 text-center">
+                <IconShieldLock className="size-8 text-tertiary" />
+                <div className="text-lg font-semibold">No test quarantine yet</div>
+                <p className="max-w-xl text-sm text-secondary">
+                    {quarantine.repoFullName
+                        ? `${quarantine.repoFullName} has no .test_quarantine.json. `
+                        : 'This repo has no .test_quarantine.json. '}
+                    Quarantine masks a flaky test in CI with a hard expiry, so it stops blocking merges while its owner
+                    fixes it. The first quarantine opens a PR that creates the file.
+                </p>
+                <LemonButton type="primary" onClick={openNewQuarantine} data-attr="eng-analytics-quarantine-open">
+                    Quarantine a test
+                </LemonButton>
             </div>
         )
     }
@@ -331,7 +487,6 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            {scopeBar}
             <div className="flex items-start justify-between gap-2">
                 <div className="flex flex-col gap-0.5">
                     <h3 className="m-0 text-base font-semibold">Quarantine register</h3>
@@ -465,7 +620,7 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
                 dataSource={filteredQuarantineEntries}
                 rowKey={(row) => `${row.runner}:${row.id}`}
                 loading={quarantineLoading}
-                pagination={{ pageSize: 50 }}
+                pagination={{ pageSize: 25 }}
                 useURLForSorting={false}
                 emptyState={
                     hasActiveQuarantineFilters ? (
@@ -487,7 +642,6 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
                 Quarantining, extending, or removing opens a pull request, so the file stays the source of truth. A
                 merged edit only affects CI runs that start after it lands.
             </div>
-            {modalElement}
         </div>
     )
 }

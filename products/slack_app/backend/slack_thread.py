@@ -14,6 +14,13 @@ UPSTREAM_PROVIDER_FAILURE_MESSAGE = (
     "The upstream AI provider failed to process the request. Please retry the task in a few minutes."
 )
 UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = re.compile(r"\bapi error:\s*(?:429|5\d\d)\b", re.IGNORECASE)
+DEFAULT_FAILURE_RECOVERY_HINT = (
+    "Reply in this thread with `retry` to try again from the latest checkpoint, "
+    "or add the missing details and I'll re-plan before continuing."
+)
+DEFAULT_CANCELLED_RECOVERY_HINT = (
+    "Reply in this thread when you want to resume, and include any new direction I should follow."
+)
 
 
 _TASK_FIELD_LIMIT = 256
@@ -420,7 +427,9 @@ class SlackThreadHandler:
 
         self._delete_progress_and_post(header, blocks)
 
-    def post_error(self, error: str, task_url: str | None) -> None:
+    def post_error(
+        self, error: str, task_url: str | None, recovery_hint: str | None = DEFAULT_FAILURE_RECOVERY_HINT
+    ) -> None:
         """Post error message with link to PostHog for details."""
         header = "*Task Failed* :x:"
         error = _format_task_error(error)
@@ -430,6 +439,8 @@ class SlackThreadHandler:
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
             {"type": "section", "text": {"type": "mrkdwn", "text": truncated_error}},
         ]
+        if recovery_hint:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": recovery_hint}})
         if task_url:
             blocks.append(
                 {
@@ -450,13 +461,15 @@ class SlackThreadHandler:
 
         self._delete_progress_and_post(f"{header}\n{truncated_error}", blocks)
 
-    def post_cancelled(self, task_url: str | None) -> None:
+    def post_cancelled(self, task_url: str | None, recovery_hint: str | None = DEFAULT_CANCELLED_RECOVERY_HINT) -> None:
         """Post cancelled message with link to PostHog for details."""
         header = "*Sandbox stopped* :hedgehog:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
         ]
+        if recovery_hint:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": recovery_hint}})
         if task_url:
             blocks.append(
                 {
@@ -476,6 +489,13 @@ class SlackThreadHandler:
             )
 
         self._delete_progress_and_post(header, blocks)
+
+    def post_note(self, text: str) -> None:
+        """Post a plain one-line note to the thread, replacing any progress message."""
+        blocks: list[dict[str, Any]] = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+        ]
+        self._delete_progress_and_post(text, blocks)
 
     def delete_progress(self) -> None:
         """Delete the progress message if it exists."""

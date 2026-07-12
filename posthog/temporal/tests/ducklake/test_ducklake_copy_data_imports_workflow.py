@@ -10,6 +10,7 @@ import temporalio.converter
 from temporalio import activity as temporal_activity
 from temporalio.testing import WorkflowEnvironment
 
+from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
 from posthog.ducklake.storage import compute_staging_uri
 from posthog.ducklake.verification import DuckLakeCopyVerificationParameter, DuckLakeCopyVerificationQuery
 from posthog.sync import database_sync_to_async
@@ -121,6 +122,10 @@ async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
     # must drop those — but keep copying non-v3 sources the sink never follows. The
     # exclusion is per-source, not the old wholesale team-level skip.
     monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: ["created_at"])
+    monkeypatch.setattr(ducklake_module, "is_dev_mode", lambda: False)
+    # get_duckgres_server_by_team_org resolves the staging URI via its own module-level
+    # is_dev_mode, so it needs the same override or it short-circuits to None in tests.
+    monkeypatch.setattr("posthog.ducklake.common.is_dev_mode", lambda: False)
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.feature_enabled_or_false",
         lambda *args, **kwargs: True,  # duckgres-batch-sink on
@@ -130,6 +135,15 @@ async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
     monkeypatch.setattr(
         create_job_model, "is_pipeline_v3_enabled", lambda team_id, source_type: source_type == "Postgres"
     )
+
+    server = await database_sync_to_async(DuckgresServer.objects.create)(
+        organization_id=ateam.organization_id,
+        host="h",
+        username="root",
+        password="x",
+        bucket="bucket",
+    )
+    membership = await database_sync_to_async(DuckgresServerTeam.objects.create)(server=server, team=ateam)
 
     credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
         team=ateam, access_key="k", access_secret="s"
@@ -165,6 +179,11 @@ async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
 
     # v3 source dropped (sink owns it); non-v3 source still copied.
     assert [m.source_schema_id for m in result] == [str(non_v3_schema.id)]
+
+    await database_sync_to_async(membership.delete)()
+    result_without_membership = await prepare_data_imports_ducklake_metadata_activity(inputs)
+
+    assert {m.source_schema_id for m in result_without_membership} == {str(v3_schema.id), str(non_v3_schema.id)}
 
 
 @pytest.mark.asyncio

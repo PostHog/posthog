@@ -19,6 +19,7 @@ export function ShareRow({
     color,
     to,
     avatar,
+    fullWidthBar = false,
 }: {
     rank?: number
     label: ReactNode
@@ -30,6 +31,9 @@ export function ShareRow({
     color?: string
     to?: string
     avatar?: string
+    /** Fixed-width label + a bar that fills the row, so bar lengths compare across rows (magnitude
+     *  breakdown). Default keeps the compact narrow bar with a flexible label (leaderboard style). */
+    fullWidthBar?: boolean
 }): JSX.Element {
     const row = (
         <div
@@ -42,7 +46,7 @@ export function ShareRow({
                 <span className="w-4 shrink-0 text-right text-xs tabular-nums text-tertiary">{rank}.</span>
             )}
             {avatar && <Lettermark name={avatar} />}
-            <span className="min-w-0 flex-1">
+            <span className={cn('min-w-0', fullWidthBar ? 'w-48 shrink-0' : 'flex-1')}>
                 <span className="block truncate text-[13px] font-semibold text-primary">{label}</span>
                 {sub && <span className="block truncate text-[11px] text-tertiary">{sub}</span>}
             </span>
@@ -52,7 +56,7 @@ export function ShareRow({
                     strokeColor={color ?? 'var(--brand-blue)'}
                     bgColor="var(--color-bg-fill-tertiary)"
                     smoothing={false}
-                    className="w-40 max-w-[30%] shrink-0"
+                    className={fullWidthBar ? 'flex-1' : 'w-40 max-w-[30%] shrink-0'}
                 />
             )}
             <span className="shrink-0 text-right">

@@ -14,6 +14,7 @@ import {
     PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,
+    UniversalFiltersGroup,
 } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
@@ -84,7 +85,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ],
                 },
 
-                'api/projects/:team/property_definitions/seen_together': { $pageview: true },
+                '/api/projects/:team_id/property_definitions/seen_together': ({ request }) => {
+                    const eventNames = new URL(request.url).searchParams.getAll('event_names')
+                    return [200, Object.fromEntries(eventNames.map((name) => [name, name === '$pageview']))]
+                },
 
                 '/api/environments/:team_id/session_recordings': ({ request }) => {
                     const { searchParams } = new URL(request.url)
@@ -447,6 +451,39 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         },
                     },
                 })
+            })
+        })
+
+        describe('unusableEventsInFilter', () => {
+            // the "All events" pseudo-entity has no id and matches any event, so it must never be
+            // flagged as unusable (the group page pins it, so flagging it breaks every group page)
+            const allEventsFilter = {
+                name: 'All events',
+                type: 'events',
+                properties: [{ key: "$group_0 = 'test'", type: PropertyFilterType.HogQL }],
+            } as ActionFilter
+            const unseenEventFilter = { id: 'backend_event', name: 'backend_event', type: 'events' } as ActionFilter
+
+            it.each<[string, ActionFilter[], string[]]>([
+                ['only "All events"', [allEventsFilter], []],
+                [
+                    '"All events" plus an event without $session_id',
+                    [allEventsFilter, unseenEventFilter],
+                    ['backend_event'],
+                ],
+            ])('flags no pseudo-entities when filtering by %s', async (_, eventFilters, expected) => {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [{ type: FilterLogicalOperator.And, values: eventFilters }],
+                        },
+                    })
+                })
+                    .toDispatchActions(['loadEventsHaveSessionIdSuccess'])
+                    .toMatchValues({
+                        unusableEventsInFilter: expected,
+                    })
             })
         })
 
@@ -1305,29 +1342,111 @@ describe('sessionRecordingsPlaylistLogic', () => {
             jest.spyOn(posthog, 'getFeatureFlag').mockImplementation((key) => flags[key as string] as any)
         }
 
-        const cases: [string, Record<string, string | boolean>, string][] = [
+        const intentPinnedFilters: UniversalFiltersGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: 'events',
+                    name: 'All events',
+                    properties: [{ key: "$group_0 = 'abc'", type: 'hogql' }],
+                } as ActionFilter,
+            ],
+        }
+
+        const cases: [
+            string,
+            Record<string, string | boolean>,
+            string,
+            { personUUID?: string; pinnedFilters?: UniversalFiltersGroup },
+        ][] = [
             [
                 'test arm defaults to relevance',
                 { [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'test' },
                 'surfacing_score',
+                {},
             ],
             [
                 'control arm keeps recency',
                 { [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'control' },
                 DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                {},
             ],
-            ['not enrolled keeps recency', {}, DEFAULT_RECORDING_FILTERS_ORDER_BY],
+            ['not enrolled keeps recency', {}, DEFAULT_RECORDING_FILTERS_ORDER_BY, {}],
             [
                 'surfacing-score rollout flag forces relevance',
                 { [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true },
                 'surfacing_score',
+                {},
+            ],
+            [
+                'test arm on a person page keeps recency',
+                { [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'test' },
+                DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                { personUUID: 'some-person-uuid' },
+            ],
+            [
+                'test arm with pinned filters keeps recency',
+                { [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'test' },
+                DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                { pinnedFilters: intentPinnedFilters },
+            ],
+            [
+                'surfacing-score rollout on a person page keeps recency',
+                { [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true },
+                DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                { personUUID: 'some-person-uuid' },
             ],
         ]
 
-        it.each(cases)('%s', (_name, flags, expectedOrder) => {
+        it.each(cases)('%s', (_name, flags, expectedOrder, { personUUID, pinnedFilters }) => {
             mockFlags(flags)
-            expect(getDefaultFilters().order).toBe(expectedOrder)
+            expect(getDefaultFilters(personUUID, pinnedFilters).order).toBe(expectedOrder)
         })
+
+        it.each<[string, Partial<RecordingUniversalFilters>, Record<string, unknown>, string]>([
+            ['defaults to recency when the URL omits order', {}, {}, DEFAULT_RECORDING_FILTERS_ORDER_BY],
+            [
+                'respects an explicit order in the URL filters',
+                { order: 'console_error_count' },
+                {},
+                'console_error_count',
+            ],
+            // order arriving as its own URL search param beside filters takes a separate code path
+            ['respects a standalone order URL param', {}, { order: 'console_error_count' }, 'console_error_count'],
+        ])(
+            'deep link with pre-applied filters %s for the test arm',
+            async (_name, extraFilters, extraSearchParams, expectedOrder) => {
+                mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'test' })
+                logic = sessionRecordingsPlaylistLogic({
+                    logicKey: 'relevance-deep-link-test',
+                    updateSearchParams: true,
+                })
+                logic.mount()
+
+                // "View recordings" style navigation carrying pre-applied filters
+                router.actions.push('/replay', {
+                    filters: {
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                                },
+                            ],
+                        },
+                        ...extraFilters,
+                    },
+                    ...extraSearchParams,
+                })
+
+                await expectLogic(logic)
+                    .toDispatchActions(['setFilters'])
+                    .toMatchValues({
+                        filters: expect.objectContaining({ order: expectedOrder }),
+                    })
+            }
+        )
     })
 
     describe('pinnedFilters', () => {

@@ -139,10 +139,10 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                             <>
                                 the event{eventNames.length > 1 ? 's' : ''}{' '}
                                 {eventNames.map((e, index) => (
-                                    <>
+                                    <span key={e}>
                                         {index === 0 ? '' : index === eventNames.length - 1 ? ' and ' : ', '}
                                         <strong>"{e}"</strong>
-                                    </>
+                                    </span>
                                 ))}
                             </>
                         ) : (
@@ -248,6 +248,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.SessionProperties ||
         listGroupType === TaxonomicFilterGroupType.MaxAIContext ||
         listGroupType === TaxonomicFilterGroupType.ErrorTrackingProperties ||
+        listGroupType === TaxonomicFilterGroupType.MCPProperties ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
@@ -464,7 +465,10 @@ export const InfiniteListRow = ({
 
     const normalizedValue = typeof itemValue === 'number' && typeof value === 'string' ? Number(value) : value
 
-    const isSelected = listGroupType === groupType && itemValue === normalizedValue
+    // On the aggregated Suggested filters tab, a row's own group (via `itemGroup`) is the
+    // source group it was promoted from, not `listGroupType` — compare against that so a
+    // cross-group promoted row still gets the selected treatment.
+    const isSelected = (itemGroup?.type ?? listGroupType) === groupType && itemValue === normalizedValue
 
     const isHighlighted = rowIndex === highlightedIndex && isActiveTab
 

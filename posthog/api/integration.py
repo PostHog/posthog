@@ -6,11 +6,11 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
-import requests
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
@@ -73,6 +73,8 @@ from posthog.models.integration import (
     S3CompatibleIntegration,
     S3CredentialIntegrationError,
     SlackIntegration,
+    SnowflakeIntegration,
+    SnowflakeIntegrationError,
     StripeIntegration,
     TwilioIntegration,
     defer_repository_cache_fields,
@@ -91,14 +93,12 @@ from posthog.tasks.email import send_integration_access_request
 from posthog.utils import is_relative_url
 
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
+from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
-
-# Short TTL for the Search Console sites dropdown — just enough to dedupe repeated UI loads.
-GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS = 60
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -353,25 +353,6 @@ class SlackChannelsResponseSerializer(serializers.Serializer):
     )
 
 
-class GoogleSearchConsoleSiteSerializer(serializers.Serializer):
-    siteUrl = serializers.CharField(
-        help_text=(
-            "Site URL in canonical Google format — `https://example.com/` for URL-prefix "
-            "properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties."
-        )
-    )
-    permissionLevel = serializers.CharField(
-        help_text=(
-            "The connected user's permission level for this site. One of `siteOwner`, "
-            "`siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`."
-        )
-    )
-
-
-class GoogleSearchConsoleSitesResponseSerializer(serializers.Serializer):
-    sites = GoogleSearchConsoleSiteSerializer(many=True)
-
-
 class IntegrationAccessRequestSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=Integration.IntegrationKind.choices,
@@ -408,6 +389,34 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         return value
 
     def create(self, validated_data: Any) -> Any:
+        team_id = self.context["team_id"]
+        kind = validated_data["kind"]
+
+        # `create` is a POST with upsert semantics: each kind's helper does an `update_or_create`
+        # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
+        # existing integration instead of adding a new one. Adding is allowed for any project
+        # member, but overwriting an existing integration is an edit and requires admin. If a
+        # non-admin's request resolves to an integration that already existed, roll the write back
+        # and reject.
+        with transaction.atomic():
+            existing_integration_ids = set(
+                Integration.objects.filter(team_id=team_id, kind=kind).values_list("integration_id", flat=True)
+            )
+            instance = self._build_integration(validated_data)
+            is_overwrite = instance.integration_id in existing_integration_ids
+            if is_overwrite and not github_callback_state.has_team_management_access(
+                self.context["request"].user, self.context["get_team"]()
+            ):
+                raise PermissionDenied("Editing an existing integration requires project admin access.")
+        report_user_action(
+            self.context["request"].user,
+            "integration created",
+            {"integration_kind": kind, "is_overwrite": is_overwrite},
+            team=self.context["get_team"](),
+        )
+        return instance
+
+    def _build_integration(self, validated_data: Any) -> Any:
         request = self.context["request"]
         team_id = self.context["team_id"]
 
@@ -555,6 +564,24 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                     created_by=request.user,
                 )
             except DatabricksIntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "snowflake":
+            config = validated_data.get("config", {})
+            try:
+                instance = SnowflakeIntegration.integration_from_config(
+                    team_id=team_id,
+                    name=config.get("name"),
+                    account=config.get("account"),
+                    user=config.get("user"),
+                    authentication_type=config.get("authentication_type", "password"),
+                    password=config.get("password"),
+                    private_key=config.get("private_key"),
+                    private_key_passphrase=config.get("private_key_passphrase"),
+                    created_by=request.user,
+                )
+            except SnowflakeIntegrationError as e:
                 raise ValidationError(str(e))
             return instance
 
@@ -869,9 +896,6 @@ class IntegrationViewSet(
         "github_oauth_authorize",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
-        # Enumerates every Search Console property on the connected Google account — gate behind
-        # manage access so read-only members can't discover unrelated domains (info disclosure).
-        "google_search_console_sites",
     ]
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = defer_repository_cache_fields(Integration.objects.all())
@@ -887,22 +911,19 @@ class IntegrationViewSet(
         return super().handle_exception(exc)
 
     def dangerously_get_permissions(self):
+        base_permissions = [
+            IsAuthenticated(),
+            APIScopePermission(),
+            AccessControlPermission(),
+            TeamMemberAccessPermission(),
+        ]
+        # Adding (connecting) an integration only requires project membership; editing or removing
+        # one still requires admin, enforced by the default TeamMemberStrictManagementPermission.
+        # The GitHub browser callback applies the same create-vs-modify split (see github_callback).
+        if self.action in ("create", "github_link_existing", "github_oauth_authorize", "request_access"):
+            return base_permissions
         if self.action == "refresh_github_repos":
-            return [
-                IsAuthenticated(),
-                APIScopePermission(),
-                AccessControlPermission(),
-                TeamMemberAccessPermission(),
-                TeamMemberLightManagementPermission(),
-            ]
-        # Any project member may ask an admin to connect an integration — connecting still requires admin.
-        if self.action == "request_access":
-            return [
-                IsAuthenticated(),
-                APIScopePermission(),
-                AccessControlPermission(),
-                TeamMemberAccessPermission(),
-            ]
+            return [*base_permissions, TeamMemberLightManagementPermission()]
         raise NotImplementedError()
 
     def get_throttles(self):
@@ -932,23 +953,23 @@ class IntegrationViewSet(
                 "Update them to use a different integration before disconnecting it."
             )
 
+        if instance.kind == "github":
+            live_run_count = count_in_progress_runs_for_github_integration(
+                team_id=instance.team_id, integration_id=instance.id
+            )
+            if live_run_count:
+                raise ValidationError(
+                    f"This GitHub integration is being used by {live_run_count} in-progress background agent "
+                    f"run{'s' if live_run_count != 1 else ''}. Wait for them to finish or cancel them before "
+                    "disconnecting it."
+                )
+
         if instance.kind == "stripe":
             try:
                 stripe_integration = StripeIntegration(instance)
                 stripe_integration.clear_posthog_secrets()
             except Exception as e:
                 capture_exception(e)
-        elif instance.kind == "email" and instance.config.get("provider") == "ses":
-            domain = instance.config.get("domain")
-            if (
-                domain
-                and not Integration.objects.filter(kind="email", config__domain=domain).exclude(pk=instance.pk).exists()
-            ):
-                try:
-                    EmailIntegration(instance).ses_provider.delete_identity(domain)
-                except Exception as e:
-                    capture_exception(e)
-
         if instance.kind == "github" and instance.integration_id:
             # Team integrations own the installation; personal ones are subordinate. When the
             # last team integration for an installation is removed, tear it down everywhere:
@@ -1162,47 +1183,6 @@ class IntegrationViewSet(
 
         response_data = {"accessibleAccounts": google_ads.list_google_ads_accessible_accounts()}
         cache.set(key, response_data, 60)
-        return Response(response_data)
-
-    @extend_schema(responses={200: GoogleSearchConsoleSitesResponseSerializer})
-    @action(methods=["GET"], detail=True, url_path="google_search_console_sites")
-    def google_search_console_sites(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """List the Search Console properties the connected Google account has access to."""
-        # Lazy import — keeps the Google data-imports SDK dependency off the api/ module
-        # import path, mirroring how other ad-platform endpoints stay self-contained.
-        from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console import (  # noqa: PLC0415 — keeps the heavy dep off the import path
-            google_search_console_session,
-            list_sites,
-        )
-
-        instance = self.get_object()
-        if instance.kind != "google-search-console":
-            raise ValidationError(
-                "google_search_console_sites endpoint is only supported for Google Search Console integrations"
-            )
-        _ensure_oauth_token_valid(instance)
-
-        cache_key = f"google_search_console/{instance.id}/sites"
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return Response(cached)
-
-        session = google_search_console_session(instance.id, instance.team_id)
-        try:
-            sites = list_sites(session)
-        except requests.HTTPError as e:
-            status_code = e.response.status_code if e.response is not None else None
-            if status_code in (401, 403):
-                # The token refreshed fine but the connected Google account isn't authorized to
-                # read Search Console — a customer-side connection issue, not a PostHog bug. Return
-                # an actionable 400 rather than letting the HTTPError surface as an unhandled 500.
-                raise ValidationError(
-                    "Google Search Console rejected the credentials. Please reconnect your account "
-                    "and ensure it has read access to the property."
-                )
-            raise
-        response_data = {"sites": sites}
-        cache.set(cache_key, response_data, GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS)
         return Response(response_data)
 
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")

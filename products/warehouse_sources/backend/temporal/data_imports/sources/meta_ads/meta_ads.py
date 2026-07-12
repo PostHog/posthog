@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from django.db import OperationalError, close_old_connections
 
 from requests import Response
+from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
 
@@ -218,11 +219,11 @@ PAGE_LIMIT_FALLBACK_SIZES = [500, 100, 50]
 
 # Meta's Graph API intermittently returns HTTP 200 with a truncated/partial JSON
 # body — a server-side serialization hiccup under load — so ``response.json()``
-# raises ``JSONDecodeError``. The body is fully received but unparseable, so the
-# only recovery is to re-issue the same request; a couple of immediate retries
-# almost always returns a complete body. If it stays malformed we let the error
-# propagate (it remains retryable, so Temporal re-runs the activity from saved
-# resume state) rather than silently dropping the page.
+# raises ``requests.exceptions.JSONDecodeError``. The body is fully received but
+# unparseable, so the only recovery is to re-issue the same request; a couple of
+# immediate retries almost always returns a complete body. If it stays malformed
+# we let the error propagate (it remains retryable, so Temporal re-runs the
+# activity from saved resume state) rather than silently dropping the page.
 MALFORMED_JSON_MAX_ATTEMPTS = 3
 
 
@@ -379,10 +380,13 @@ def _iter_simple_pagination(
 
         try:
             response_payload = response.json()
-        except json.JSONDecodeError:
+        except RequestsJSONDecodeError:
             # Truncated 200 body — re-issue the same request. Re-fetching is safe
             # (the initial request has yielded nothing yet, and a cursor points at
-            # the start of the next not-yet-yielded page).
+            # the start of the next not-yet-yielded page). ``response.json()`` raises
+            # requests' own JSONDecodeError, which subclasses simplejson's (not the
+            # stdlib json's) when simplejson is installed — catching the stdlib type
+            # would miss it entirely.
             malformed_json_attempts += 1
             if malformed_json_attempts >= MALFORMED_JSON_MAX_ATTEMPTS:
                 raise
@@ -514,7 +518,7 @@ def _iter_time_range_pagination(
 
             try:
                 response_payload = response.json()
-            except json.JSONDecodeError:
+            except RequestsJSONDecodeError:
                 # Truncated 200 body — re-issue whichever request produced it. A
                 # cursor points at the start of the not-yet-yielded page and the
                 # initial chunk request has yielded nothing, so no rows are re-emitted.
