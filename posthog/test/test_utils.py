@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
-from unittest.mock import call, patch
+from unittest.mock import PropertyMock, call, patch
 
 from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
@@ -1382,3 +1382,18 @@ class TestReadPreloadManifest(SimpleTestCase):
         path = self._write_manifest(content)
 
         assert _read_preload_manifest(path, include_authenticated_shell=True) == ("", (), "")
+
+
+class TestRenderTemplateProjectGuard(BaseTest):
+    def test_home_page_survives_team_without_project(self) -> None:
+        # A team missing its parent project must degrade to no current_project rather than 500ing
+        # the authenticated home page via _build_template_context's `user.team.project` access.
+        from posthog.models.project import Project
+
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get("/").status_code, 200)
+
+        with patch.object(Team, "project", new_callable=PropertyMock, side_effect=Project.DoesNotExist):
+            response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)

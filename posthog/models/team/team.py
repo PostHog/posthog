@@ -83,7 +83,36 @@ class AvailableExtraSettings:
     pass
 
 
+class TeamQuerySet(models.QuerySet):
+    def create(self, **kwargs):
+        from ..project import Project
+
+        with transaction.atomic(using=self.db):
+            if "id" not in kwargs:
+                kwargs["id"] = Team.objects.increment_id_sequence()
+            if kwargs.get("project") is None and kwargs.get("project_id") is None:
+                # If a parent project is not provided for this team, ensure there is one.
+                # This should be removed once environments are fully rolled out.
+                # Living on the queryset (not just TeamManager.create) means get_or_create /
+                # update_or_create — which call QuerySet.create — also provision the project
+                # instead of leaving project_id NULL and tripping project_id_is_not_null.
+                project_kwargs = {}
+                if organization := kwargs.get("organization"):
+                    project_kwargs["organization"] = organization
+                elif organization_id := kwargs.get("organization_id"):
+                    project_kwargs["organization_id"] = organization_id
+                if name := kwargs.get("name"):
+                    project_kwargs["name"] = name
+                kwargs["project"] = Project.objects.db_manager(self.db).create(id=kwargs["id"], **project_kwargs)
+            return super().create(**kwargs)
+
+
 class TeamManager(models.Manager):
+    # Wire the queryset in via `_queryset_class` (rather than `Manager.from_queryset(...)` as a
+    # base) so the `get_queryset()` override below composes cleanly for mypy/django-stubs. This
+    # routes `create`/`get_or_create`/`update_or_create` through `TeamQuerySet.create`.
+    _queryset_class = TeamQuerySet
+
     def get_queryset(self):
         return super().get_queryset().defer(*DEPRECATED_ATTRS)
 
@@ -169,25 +198,6 @@ class TeamManager(models.Manager):
 
         return team
 
-    def create(self, **kwargs):
-        from ..project import Project
-
-        with transaction.atomic(using=self.db):
-            if "id" not in kwargs:
-                kwargs["id"] = self.increment_id_sequence()
-            if kwargs.get("project") is None and kwargs.get("project_id") is None:
-                # If a parent project is not provided for this team, ensure there is one
-                # This should be removed once environments are fully rolled out
-                project_kwargs = {}
-                if organization := kwargs.get("organization"):
-                    project_kwargs["organization"] = organization
-                elif organization_id := kwargs.get("organization_id"):
-                    project_kwargs["organization_id"] = organization_id
-                if name := kwargs.get("name"):
-                    project_kwargs["name"] = name
-                kwargs["project"] = Project.objects.db_manager(self.db).create(id=kwargs["id"], **project_kwargs)
-            return super().create(**kwargs)
-
     def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
         if not token:
             return None
@@ -229,11 +239,26 @@ class TeamManager(models.Manager):
     def increment_id_sequence(self) -> int:
         """Increment the `Team.id` field's sequence and return the latest value.
 
-        Use only when actually neeeded to avoid wasting sequence values."""
-        cursor = connection.cursor()
-        cursor.execute("SELECT nextval('posthog_team_id_seq')")
-        result = cursor.fetchone()
-        return result[0]
+        `Team` and `Project` share this one sequence. If it lags behind the rows that
+        already exist (e.g. after a DB restore or a fixture seed that set ids explicitly
+        without advancing the sequence), a plain `nextval` can hand back an id that is
+        already taken and trip a duplicate-PK error. Guard against that by fast-forwarding
+        the sequence past the current max Team/Project id before returning.
+
+        Use only when actually needed to avoid wasting sequence values."""
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT nextval('posthog_team_id_seq')")
+            next_id = cursor.fetchone()[0]
+            cursor.execute(
+                "SELECT GREATEST("
+                "COALESCE((SELECT MAX(id) FROM posthog_team), 0), "
+                "COALESCE((SELECT MAX(id) FROM posthog_project), 0)) + 1"
+            )
+            min_free_id = cursor.fetchone()[0]
+            if next_id < min_free_id:
+                cursor.execute("SELECT setval('posthog_team_id_seq', %s, true)", [min_free_id])
+                next_id = cursor.fetchone()[0]
+            return next_id
 
 
 def get_default_data_attributes() -> list[str]:

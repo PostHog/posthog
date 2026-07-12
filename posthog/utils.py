@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import ProgrammingError, models
 from django.db.models.functions import Coalesce, Lower
 from django.db.utils import DatabaseError
@@ -630,12 +631,20 @@ def _build_template_context(
                     posthog_app_context["current_team"] = team_serialized.data
 
                 with tracer.start_as_current_span("template.project_serializer"):
-                    project_serialized = ProjectSerializer(
-                        user.team.project,
-                        context={"request": request, "user_permissions": user_permissions},
-                        many=False,
-                    )
-                    posthog_app_context["current_project"] = project_serialized.data
+                    # A team should always have a parent project, but a misconfigured one
+                    # (e.g. seeded/self-hosted rows created via a manager-bypassing path) can
+                    # lack it. Degrade to no current_project rather than 500ing the home page.
+                    try:
+                        team_project = user.team.project
+                    except ObjectDoesNotExist:
+                        team_project = None
+                    if team_project is not None:
+                        project_serialized = ProjectSerializer(
+                            team_project,
+                            context={"request": request, "user_permissions": user_permissions},
+                            many=False,
+                        )
+                        posthog_app_context["current_project"] = project_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
                 event_info = get_default_event_info(user.team)
                 posthog_app_context["default_event_name"] = event_info["default_event_name"]
