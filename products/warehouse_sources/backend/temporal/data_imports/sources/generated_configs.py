@@ -1667,7 +1667,8 @@ class HarnessSourceConfig(config.Config):
 
 @config.config
 class HarveySourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu", "au"] = config.value(default="us")
 
 
 @config.config
