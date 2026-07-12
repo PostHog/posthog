@@ -1,8 +1,13 @@
 use anyhow::{anyhow, Context, Result};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::{
+    iter::{IntoParallelIterator, ParallelIterator},
+    ThreadPool, ThreadPoolBuilder,
+};
 use reqwest::blocking::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Debug, iter, thread::sleep, time::Duration};
+use std::{
+    collections::HashMap, fmt::Debug, iter, num::NonZeroUsize, thread::sleep, time::Duration,
+};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
@@ -14,6 +19,7 @@ use crate::{
 const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
 const FINISH_UPLOAD_ERROR_MESSAGE: &str =
     "Failed to finalize symbol upload; maps were not attached";
+pub const DEFAULT_UPLOAD_CONCURRENCY: NonZeroUsize = NonZeroUsize::new(10).unwrap();
 
 #[derive(Error, Debug)]
 pub enum UploadError {
@@ -78,7 +84,32 @@ pub fn upload_with_retry(
     force: bool,
     skip_on_conflict: bool,
 ) -> Result<()> {
-    let res = upload_inner(&input_sets, batch_size, force, skip_on_conflict);
+    upload_with_retry_and_concurrency(
+        input_sets,
+        batch_size,
+        skip_release_on_fail,
+        force,
+        skip_on_conflict,
+        DEFAULT_UPLOAD_CONCURRENCY,
+    )
+}
+
+pub fn upload_with_retry_and_concurrency(
+    input_sets: Vec<SymbolSetUpload>,
+    batch_size: usize,
+    skip_release_on_fail: bool,
+    force: bool,
+    skip_on_conflict: bool,
+    concurrency: NonZeroUsize,
+) -> Result<()> {
+    let thread_pool = build_upload_thread_pool(concurrency)?;
+    let res = upload_inner(
+        &input_sets,
+        batch_size,
+        force,
+        skip_on_conflict,
+        &thread_pool,
+    );
     match res {
         Ok(()) => Ok(()),
         Err(UploadError::ReleaseIdMismatch) if skip_release_on_fail => {
@@ -91,11 +122,24 @@ pub fn upload_with_retry(
                     data: s.data,
                 })
                 .collect();
-            upload_inner(&sets_without_release, batch_size, force, skip_on_conflict)
-                .map_err(|e| e.into())
+            upload_inner(
+                &sets_without_release,
+                batch_size,
+                force,
+                skip_on_conflict,
+                &thread_pool,
+            )
+            .map_err(|e| e.into())
         }
         Err(e) => Err(e.into()),
     }
+}
+
+fn build_upload_thread_pool(concurrency: NonZeroUsize) -> Result<ThreadPool> {
+    ThreadPoolBuilder::new()
+        .num_threads(concurrency.get())
+        .build()
+        .context("Failed to initialize symbol set upload thread pool")
 }
 
 fn upload_inner(
@@ -103,6 +147,7 @@ fn upload_inner(
     batch_size: usize,
     force: bool,
     skip_on_conflict: bool,
+    thread_pool: &ThreadPool,
 ) -> Result<(), UploadError> {
     let upload_requests: Vec<_> = input_sets
         .iter()
@@ -129,20 +174,22 @@ fn upload_inner(
             batch.len() - start_response.id_map.len()
         );
 
-        let res: Result<HashMap<String, String>> = start_response
-            .id_map
-            .into_par_iter()
-            .map(|(chunk_id, data)| {
-                debug!("uploading chunk {}", chunk_id);
-                let upload = id_map.get(chunk_id.as_str()).ok_or(anyhow!(
-                    "Got a chunk ID back from posthog that we didn't expect!"
-                ))?;
+        let res: Result<HashMap<String, String>> = thread_pool.install(|| {
+            start_response
+                .id_map
+                .into_par_iter()
+                .map(|(chunk_id, data)| {
+                    debug!("uploading chunk {}", chunk_id);
+                    let upload = id_map.get(chunk_id.as_str()).ok_or(anyhow!(
+                        "Got a chunk ID back from posthog that we didn't expect!"
+                    ))?;
 
-                let content_hash = content_hash([&upload.data]);
-                upload_to_s3(data.presigned_url.clone(), &upload.data)?;
-                Ok((data.symbol_set_id, content_hash))
-            })
-            .collect();
+                    let content_hash = content_hash([&upload.data]);
+                    upload_to_s3(data.presigned_url.clone(), &upload.data)?;
+                    Ok((data.symbol_set_id, content_hash))
+                })
+                .collect()
+        });
 
         let content_hashes = res?;
 
@@ -440,6 +487,13 @@ mod tests {
             .count();
 
         assert_eq!(retry_logs, 2);
+    }
+
+    #[test]
+    fn upload_thread_pool_uses_configured_concurrency() {
+        let thread_pool = build_upload_thread_pool(NonZeroUsize::new(3).unwrap()).unwrap();
+
+        assert_eq!(thread_pool.current_num_threads(), 3);
     }
 
     #[test]

@@ -1,5 +1,4 @@
 use posthog_cli::{cmd, invocation_context::init_posthog_telemetry};
-use rayon::ThreadPoolBuilder;
 
 fn main() {
     let subscriber = tracing_subscriber::fmt()
@@ -10,12 +9,6 @@ fn main() {
                 .from_env_lossy(),
         )
         .finish();
-
-    // Init the rayon thread pool
-    ThreadPoolBuilder::new()
-        .num_threads(10)
-        .build_global()
-        .expect("We successfully install a global thread pool");
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
     init_posthog_telemetry();
