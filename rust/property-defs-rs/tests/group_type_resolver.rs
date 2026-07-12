@@ -508,7 +508,11 @@ async fn test_personhog_resolves_multiple_teams() {
 }
 
 #[tokio::test]
-async fn test_personhog_unresolved_group_type_cleared() {
+async fn test_personhog_unresolved_group_type_preserved_not_cleared() {
+    // On a resolution miss we must keep the Unresolved(name) form rather than clearing to
+    // None: batch_ingestion drops it either way, but preserving the name keeps the shared
+    // dedup-cache key recoverable so the dropped entry can be evicted and retried, instead
+    // of the entry poisoning the cache and permanently blocking the def.
     let mock = MockPersonHogService::with_mappings(vec![GroupTypeMappingsByKey {
         key: 1,
         mappings: vec![],
@@ -523,9 +527,74 @@ async fn test_personhog_unresolved_group_type_cleared() {
     resolver.resolve(&mut updates).await.unwrap();
 
     match &updates[0] {
-        Update::Property(p) => assert!(p.group_type_index.is_none()),
+        Update::Property(p) => assert_eq!(
+            p.group_type_index,
+            Some(GroupType::Unresolved("nonexistent".to_string()))
+        ),
         _ => panic!("expected Property update"),
     }
+}
+
+#[tokio::test]
+async fn test_negative_cache_skips_personhog_within_ttl() {
+    // A miss is cached for the TTL window so repeated unresolvable keys don't re-hit personhog.
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let mock = MockPersonHogService::with_mappings_counted(
+        vec![GroupTypeMappingsByKey {
+            key: 1,
+            mappings: vec![],
+        }],
+        call_count.clone(),
+    );
+
+    let addr = start_mock_server(mock).await;
+    let config = make_config(&format!("http://{addr}")); // default TTL is 30s
+    let resolver = GroupTypeResolver::new(&config);
+
+    let mut updates = vec![make_group_update(1, "nonexistent")];
+    resolver.resolve(&mut updates).await.unwrap();
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+    // Second resolve of the same key is served from the negative cache: no personhog call,
+    // and the update is still left Unresolved so it gets dropped + evicted downstream.
+    let mut updates2 = vec![make_group_update(1, "nonexistent")];
+    resolver.resolve(&mut updates2).await.unwrap();
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+    match &updates2[0] {
+        Update::Property(p) => assert_eq!(
+            p.group_type_index,
+            Some(GroupType::Unresolved("nonexistent".to_string()))
+        ),
+        _ => panic!("expected Property update"),
+    }
+}
+
+#[tokio::test]
+async fn test_negative_cache_reattempts_after_ttl_expiry() {
+    // With TTL=0 the negative entry is immediately expired, so a subsequent event re-attempts
+    // resolution via personhog (this is what lets a legitimate new group resolve once its
+    // mapping lands).
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let mock = MockPersonHogService::with_mappings_counted(
+        vec![GroupTypeMappingsByKey {
+            key: 1,
+            mappings: vec![],
+        }],
+        call_count.clone(),
+    );
+
+    let addr = start_mock_server(mock).await;
+    let mut config = make_config(&format!("http://{addr}"));
+    config.group_type_negative_ttl_secs = 0;
+    let resolver = GroupTypeResolver::new(&config);
+
+    let mut updates = vec![make_group_update(1, "nonexistent")];
+    resolver.resolve(&mut updates).await.unwrap();
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+    let mut updates2 = vec![make_group_update(1, "nonexistent")];
+    resolver.resolve(&mut updates2).await.unwrap();
+    assert_eq!(call_count.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]
