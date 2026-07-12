@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { subDays, subMonths } from 'date-fns'
+import * as React from 'react'
 
-import { Label, Switch } from '@posthog/quill-primitives'
+import { Button, Label, Switch, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
 
 import { DateRangeFilter, type DateRangeFilterPreset } from './date-range-filter'
 
@@ -38,9 +39,67 @@ export const PresetList: Story = {
     ),
 }
 
+// Mirrors the insight date filter's footer: a compact "Days" row that expands day-of-week
+// chips on demand, plus an exclude toggle — all host-supplied through the listFooter slot.
+function DayOfWeekFooter(): React.ReactElement {
+    const [days, setDays] = React.useState<string[]>([])
+    const [expanded, setExpanded] = React.useState(false)
+    const labels: Record<string, string> = { 1: 'M', 2: 'T', 3: 'W', 4: 'T', 5: 'F', 6: 'S', 7: 'S' }
+    const summary =
+        days.length === 0 || days.length === 7
+            ? 'All days'
+            : ['1', '2', '3', '4', '5'].every((d) => days.includes(d)) && days.length === 5
+              ? 'Weekdays'
+              : days.length === 2 && days.includes('6') && days.includes('7')
+                ? 'Weekends'
+                : `${days.length} days`
+    return (
+        <div className="flex flex-col p-1">
+            <Button
+                variant="default"
+                left
+                className="w-full justify-between"
+                aria-expanded={expanded}
+                onClick={() => setExpanded((prev) => !prev)}
+            >
+                <span>Days</span>
+                <span className="text-muted-foreground">
+                    {summary} {expanded ? '▴' : '▾'}
+                </span>
+            </Button>
+            {expanded && (
+                <div className="flex flex-col gap-1 px-1 py-1">
+                    <ToggleGroup multiple size="sm" className="w-full max-w-60" value={days} onValueChange={setDays}>
+                        {Object.keys(labels).map((day) => (
+                            <ToggleGroupItem key={day} value={day} className="flex-1">
+                                {labels[day]}
+                            </ToggleGroupItem>
+                        ))}
+                    </ToggleGroup>
+                    <div className="flex w-full max-w-60 items-center justify-center gap-2">
+                        <Button variant="link" size="xs" onClick={() => setDays(['1', '2', '3', '4', '5'])}>
+                            Weekdays
+                        </Button>
+                        <Button variant="link" size="xs" onClick={() => setDays(['6', '7'])}>
+                            Weekends
+                        </Button>
+                        <Button variant="link" size="xs" onClick={() => setDays([])}>
+                            All days
+                        </Button>
+                    </div>
+                </div>
+            )}
+            <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+                <Label htmlFor="story-exclude-incomplete">Exclude incomplete period</Label>
+                <Switch id="story-exclude-incomplete" size="sm" />
+            </div>
+        </div>
+    )
+}
+
 export const WithListFooter: Story = {
     render: () => (
-        <div className="h-96">
+        <div className="h-120">
             <DateRangeFilter
                 label="Last 7 days"
                 presets={ANALYTICS_PRESETS}
@@ -48,12 +107,7 @@ export const WithListFooter: Story = {
                 onPresetSelect={() => {}}
                 onCustomApply={() => {}}
                 defaultOpen
-                listFooter={
-                    <div className="flex items-center gap-2 px-2 py-2">
-                        <Label htmlFor="story-exclude-incomplete">Exclude incomplete period</Label>
-                        <Switch id="story-exclude-incomplete" size="sm" />
-                    </div>
-                }
+                listFooter={<DayOfWeekFooter />}
             />
         </div>
     ),
