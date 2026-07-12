@@ -324,6 +324,26 @@ fn wrap_literal_chunk<E: Emitter>(
     emit.with_pos(constant, start_pos, end_pos)
 }
 
+/// Compute the cpp-shape `{line, column, offset}` envelope for an
+/// absolute byte offset in `src`. `offset` is the character index
+/// (Unicode code points), matching cpp's ANTLR `getStartIndex()`
+/// semantics; `column` is character-position-in-line.
+pub(crate) fn pos_in_source<E: Emitter>(emit: &E, src: &str, byte_offset: usize) -> E::Value {
+    // Line: count `\n` bytes before `byte_offset`.
+    let preceding = &src[..byte_offset.min(src.len())];
+    let line_breaks = preceding.bytes().filter(|&b| b == b'\n').count();
+    let line = (line_breaks + 1) as u32;
+    // Column + char offset: count chars in the preceding-source slice.
+    let line_start = preceding.rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let column = src[line_start..byte_offset.min(src.len())].chars().count() as u32;
+    let char_offset = if src.is_ascii() {
+        byte_offset
+    } else {
+        preceding.chars().count()
+    };
+    emit.position(line, column, char_offset)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::parse::parse_full_template_string;
@@ -365,24 +385,4 @@ mod tests {
             r"a\b"
         );
     }
-}
-
-/// Compute the cpp-shape `{line, column, offset}` envelope for an
-/// absolute byte offset in `src`. `offset` is the character index
-/// (Unicode code points), matching cpp's ANTLR `getStartIndex()`
-/// semantics; `column` is character-position-in-line.
-pub(crate) fn pos_in_source<E: Emitter>(emit: &E, src: &str, byte_offset: usize) -> E::Value {
-    // Line: count `\n` bytes before `byte_offset`.
-    let preceding = &src[..byte_offset.min(src.len())];
-    let line_breaks = preceding.bytes().filter(|&b| b == b'\n').count();
-    let line = (line_breaks + 1) as u32;
-    // Column + char offset: count chars in the preceding-source slice.
-    let line_start = preceding.rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let column = src[line_start..byte_offset.min(src.len())].chars().count() as u32;
-    let char_offset = if src.is_ascii() {
-        byte_offset
-    } else {
-        preceding.chars().count()
-    };
-    emit.position(line, column, char_offset)
 }
