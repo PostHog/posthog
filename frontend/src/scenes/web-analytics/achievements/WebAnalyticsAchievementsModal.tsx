@@ -385,7 +385,7 @@ function WebAnalyticsAchievementsModalInner(): JSX.Element {
         totalStages,
     } = useValues(webAnalyticsAchievementsLogic)
     const { closeModal, toggleTrackExpanded } = useActions(webAnalyticsAchievementsLogic)
-    const { trigger, HogfettiComponent } = useHogfetti({ count: 80, duration: 2500 })
+    const { trigger, HogfettiComponent } = useHogfetti({ count: 50, duration: 2000 })
 
     useEffect(() => {
         if (confettiNonce > 0) {

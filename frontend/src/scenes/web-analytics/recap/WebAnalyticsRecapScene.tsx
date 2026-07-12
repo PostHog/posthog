@@ -156,7 +156,7 @@ export function WebAnalyticsRecapScene(): JSX.Element {
         goToWebAnalytics,
     } = useActions(webAnalyticsRecapLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti({ count: 60, power: 6, duration: 2500 })
+    const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti({ count: 40, power: 6, duration: 2000 })
 
     const endRef = useRef<HTMLDivElement>(null)
     const celebratedRef = useRef(false)
