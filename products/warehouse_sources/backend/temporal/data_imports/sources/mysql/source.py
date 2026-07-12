@@ -168,7 +168,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "Can't connect to MySQL server on": None,
-            "No primary key defined for table": None,
+            "No primary key defined for table": (
+                "This table needs a primary key to sync incrementally, but none is set. Choose a primary "
+                "key for the table in its sync settings, or switch it to full table replication, then "
+                "re-enable the sync."
+            ),
             # MySQL/MariaDB error 1045 (ER_ACCESS_DENIED_ERROR): the user/password (or the
             # user's host grant) is wrong. Surface it as an auth failure — mirroring the Postgres
             # source — so the user fixes credentials instead of the generic "check connection

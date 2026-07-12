@@ -100,8 +100,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "(private key, passphrase, or username and password) on the source's SSH tunnel "
         "configuration, then re-enable the sync."
     ),
-    "Primary key required for incremental syncs": None,
-    "The primary keys for this table are not unique": None,
+    "Primary key required for incremental syncs": (
+        "This table needs a primary key to sync incrementally, but none is set. Choose a primary key "
+        "for the table in its sync settings, or switch it to full table replication, then re-enable the sync."
+    ),
+    "The primary keys for this table are not unique": (
+        "The primary key set for this table isn't unique, so incremental syncing can't reliably match "
+        "rows to update. Choose a unique primary key in the table's sync settings, or switch it to full "
+        "table replication, then re-enable the sync."
+    ),
     "Integration matching query does not exist": "The connected account for this source is no longer available — it may have been disconnected. Please reconnect the source's account.",
     # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
     # REST-based source). The server refused the handshake, which is deterministic for a given
