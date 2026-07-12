@@ -476,6 +476,7 @@ describe('maxThreadLogic', () => {
         // it ships with no dashboard context and Max can't see the open dashboard.
         const mockLoadingDashboardScene = (): { values: { dashboard: any } } => {
             const fakeDashboardLogic: any = {
+                isMounted: () => true,
                 selectors: {
                     maxContext: () =>
                         fakeDashboardLogic.values.dashboard
