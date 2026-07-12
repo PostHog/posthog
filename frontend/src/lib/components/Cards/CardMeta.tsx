@@ -104,6 +104,12 @@ export function CardMeta({
         inStorybook() ||
         inStorybookTestRunner() ||
         (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
+    const extraControlsWithLabel = extraControls
+        ? React.cloneElement(extraControls, {
+              ...extraControls.props,
+              showLabel: showControlsLabels,
+          })
+        : null
 
     return (
         <div
@@ -160,11 +166,7 @@ export function CardMeta({
                                 </h5>
                                 <div className="CardMeta__controls">
                                     {refreshControl}
-                                    {extraControls &&
-                                        React.cloneElement(extraControls, {
-                                            ...extraControls.props,
-                                            showLabel: showControlsLabels,
-                                        })}
+                                    {extraControlsWithLabel}
                                     {showDetailsControls && setAreDetailsShown && (
                                         <Tooltip title={detailsTooltip}>
                                             <LemonButton

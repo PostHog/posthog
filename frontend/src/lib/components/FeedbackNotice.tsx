@@ -5,7 +5,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { supportLogic } from './Support/supportLogic'
 

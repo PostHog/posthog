@@ -112,6 +112,7 @@ const STATIC_ORDER_KEYS: Record<string, string> = {
     created_at: 'created_at',
     version: 'scanner_version',
     recording_subject: 'recording_subject_email',
+    confidence: 'result_confidence',
 }
 // Only monitor and scorer have a JSONB-backed Result sort key on the server.
 const RESULT_ORDER_KEY_BY_TYPE: Partial<Record<ScannerType, string>> = {
@@ -596,6 +597,36 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 verdictFilter.length > 0 ||
                 tagFilter.length > 0 ||
                 subjectFilter.trim().length > 0,
+        ],
+        // Carried into observation detail links so server-computed prev/next neighbors honor the table's filters + sort.
+        observationDetailLinkParams: [
+            (s) => [
+                s.observationStatusFilter,
+                s.observationTriggeredByFilter,
+                s.observationVerdictFilter,
+                s.observationTagFilter,
+                s.observationSubjectFilter,
+                s.observationsSort,
+                s.scanner,
+            ],
+            (
+                observationStatusFilter: ObservationStatusValue[],
+                observationTriggeredByFilter: ObservationTriggeredByValue[],
+                observationVerdictFilter: ObservationVerdictValue[],
+                observationTagFilter: string[],
+                observationSubjectFilter: string,
+                observationsSort: ObservationsSorting | null,
+                scanner: ReplayScanner | null
+            ): Record<string, string> =>
+                buildObservationListParams({
+                    observationStatusFilter,
+                    observationTriggeredByFilter,
+                    observationVerdictFilter,
+                    observationTagFilter,
+                    observationSubjectFilter,
+                    observationsSort,
+                    scanner,
+                }) as Record<string, string>,
         ],
         availableTags: [
             (s) => [s.observationStatsApi],

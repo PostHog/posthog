@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { Link, Spinner } from '@posthog/lemon-ui'
+import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -19,12 +19,10 @@ import { MetricTile } from '../components/MetricTile'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { formatCost, formatMinutes } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
-import { Section, SectionNav } from '../components/Section'
+import { Section } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
 import { AuthorLogicProps, authorLogic } from './authorLogic'
 import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
-
-const SHARE_COLORS = ['var(--brand-blue)', 'var(--success)', 'var(--warning)', 'var(--purple)', 'var(--danger)']
 
 // date_from only (the list floors on it); "all time" / week+month snaps and Custom are out. Every option
 // here stays within the list's 365d load window (max preset is 180d / YTD), so the client-side cost tiles
@@ -51,6 +49,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
         windowedRows,
         totalCostUsd,
         totalBillableMinutes,
+        totalLoops,
         openPrCount,
         workflowCosts,
         workflowCostsLoading,
@@ -61,7 +60,10 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
 
     const hubUrl = combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url
     const avatarUrl = prs[0]?.authorAvatarUrl
+    const costPerLoop = totalCostUsd != null && totalLoops > 0 ? totalCostUsd / totalLoops : null
     const workflowCostsTotal = workflowCosts.reduce((sum, c) => sum + (c.estimated_cost_usd ?? 0), 0)
+    // Ranked, biggest spend first; the bar length is each workflow's share of the window's total.
+    const rankedCosts = [...workflowCosts].sort((a, b) => (b.estimated_cost_usd ?? 0) - (a.estimated_cost_usd ?? 0))
     // A source can hold several repos, so the author's PRs may span repos. Only claim one repo (and link
     // per-workflow into it) when they all agree; otherwise the page is genuinely cross-repo.
     const repoSlugs = Array.from(new Set(prs.map((pr) => `${pr.repoOwner}/${pr.repoName}`)))
@@ -69,7 +71,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection name={handle} resourceType={{ type: 'health' }} />
+            <SceneTitleSection name="Author" resourceType={{ type: 'health' }} />
             <ScopeBar
                 repoSlot={
                     <RepoScopeChip
@@ -81,6 +83,15 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                 }
                 lensFilter={{ label: `author: ${handle}`, to: hubUrl }}
                 showDate={false}
+                extra={
+                    <DateFilter
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
+                        dateOptions={AUTHOR_DATE_OPTIONS}
+                        size="small"
+                    />
+                }
             />
             <EntityHeader
                 icon={
@@ -104,101 +115,107 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                 their CI cost. It carries no per-developer performance/ranking metric (no cycle time, no flaky
                 score): the cost figures are transparent spend, not a scoreboard (SPEC §2). */}
             <div className="flex flex-col gap-4">
-                {/* The picker scopes the cost tiles only — the PR list below stays the author's recent PRs. */}
-                <div className="flex flex-col gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-semibold tracking-wide text-secondary uppercase">CI cost</span>
-                        <span className="text-xs text-tertiary">for PRs opened in</span>
-                        <DateFilter
-                            dateFrom={dateFrom}
-                            dateTo={dateTo}
-                            onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
-                            dateOptions={AUTHOR_DATE_OPTIONS}
-                            size="small"
-                        />
-                    </div>
-                    <div className="flex flex-wrap gap-2.5">
-                        <MetricTile
-                            label="Pull requests opened"
-                            value={windowedRows.length.toLocaleString()}
-                            sub="in the selected window"
-                        />
-                        <MetricTile
-                            label="CI cost"
-                            tooltip="Full CI cost of the PRs opened in the selected window, across each PR's whole history — not only runs inside the window. The 'Where their CI minutes go' breakdown below counts CI runs started in the window instead, so the two won't reconcile exactly."
-                            value={formatCost(totalCostUsd)}
-                            sub={
-                                totalCostUsd != null
-                                    ? `${formatMinutes(totalBillableMinutes)} billable · ${formatCost(
-                                          windowedRows.length ? totalCostUsd / windowedRows.length : null
-                                      )} per PR`
-                                    : 'no cost data yet'
-                            }
-                        />
-                    </div>
+                {/* The scope-bar date picker scopes everything below it: these tiles, the PR list, and the
+                    breakdown. Tiles and list re-filter the already-loaded PRs client-side, so a date change
+                    updates them instantly (no skeleton); the skeleton is only for the initial PR fetch, so
+                    the tiles don't flash a zero before the list lands. */}
+                <div className="flex flex-wrap gap-2.5">
+                    <MetricTile
+                        label="Pull requests opened"
+                        value={windowedRows.length.toLocaleString()}
+                        sub="in the selected window"
+                        loading={prsLoading}
+                    />
+                    <MetricTile
+                        label="CI cost"
+                        tooltip="Full CI cost of the PRs opened in the selected window, across each PR's whole history — not only runs inside the window. The 'Where their CI minutes go' breakdown below counts CI runs started in the window instead, so the two won't reconcile exactly."
+                        value={formatCost(totalCostUsd)}
+                        sub={
+                            totalCostUsd != null
+                                ? `${formatMinutes(totalBillableMinutes)} billable`
+                                : 'no cost data yet'
+                        }
+                        loading={prsLoading}
+                    />
+                    <MetricTile
+                        label="Cost per loop"
+                        tooltip="A loop is one push and the CI it triggered. Cost per loop = total CI cost ÷ total pushes across the PRs opened in the window — the spend of one iteration, not a running total."
+                        value={formatCost(costPerLoop)}
+                        sub={
+                            costPerLoop != null
+                                ? `${totalLoops.toLocaleString()} loops in the window`
+                                : 'no cost data yet'
+                        }
+                        loading={prsLoading}
+                    />
                 </div>
 
-                <SectionNav
-                    items={[
-                        { id: 'author-prs', label: 'Pull requests' },
-                        { id: 'author-cost', label: 'Cost' },
-                    ]}
-                />
-
-                <Section
-                    id="author-prs"
-                    title="Pull requests"
-                    note="the shared PR table, filtered to one author"
-                    right={
-                        !prsLoading ? <span className="text-secondary">{pluralize(prs.length, 'PR')}</span> : undefined
-                    }
-                >
+                <Section id="author-prs" title="Pull requests">
                     <PullRequestTable
-                        rows={prs}
+                        rows={windowedRows}
                         loading={prsLoading}
                         sourceId={sourceId}
-                        costLensEnabled
                         showAuthor={false}
+                        showCreated
                         dataAttr="engineering-analytics-author-pr-table"
-                        emptyState={`No pull requests for ${handle} in the last year.`}
+                        emptyState={`No pull requests for ${handle} in the selected window.`}
                     />
                 </Section>
 
-                <Section
-                    id="author-cost"
-                    title="Where their CI minutes go"
-                    note="CI runs started in the selected window, split by workflow (attributed via this author's PRs)"
-                >
-                    {workflowCosts.length > 0 ? (
-                        <LemonCard hoverEffect={false} className="p-4 lg:max-w-xl">
-                            <h3 className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-secondary">
-                                By workflow
-                                {workflowCostsLoading && <Spinner className="text-xs" />}
-                            </h3>
-                            {workflowCosts.slice(0, 8).map((cost, i) => (
-                                <ShareRow
-                                    key={cost.workflow_name || '(unknown)'}
-                                    label={cost.workflow_name || '(unknown workflow)'}
-                                    sub={`${formatMinutes(cost.billable_minutes)} billable`}
-                                    value={formatCost(cost.estimated_cost_usd)}
-                                    share={
-                                        workflowCostsTotal > 0 ? (cost.estimated_cost_usd ?? 0) / workflowCostsTotal : 0
-                                    }
-                                    color={SHARE_COLORS[i % SHARE_COLORS.length]}
-                                    to={
-                                        singleRepo
-                                            ? combineUrl(
-                                                  urls.engineeringAnalyticsWorkflowRuns(
-                                                      singleRepo.repoOwner,
-                                                      singleRepo.repoName,
-                                                      cost.workflow_name
-                                                  ),
-                                                  sourceId ? { source: sourceId } : {}
-                                              ).url
-                                            : undefined
-                                    }
-                                />
+                <Section id="author-cost" title="Where their CI minutes go">
+                    {workflowCostsLoading ? (
+                        <LemonCard hoverEffect={false} className="p-4">
+                            <LemonSkeleton className="mb-3 h-4 w-24" />
+                            {Array.from({ length: 6 }).map((_, i) => (
+                                <div
+                                    key={i}
+                                    className="flex items-center gap-3 border-b border-primary px-1 py-2 last:border-b-0"
+                                >
+                                    <div className="w-48 shrink-0">
+                                        <LemonSkeleton className="h-3.5 w-32" />
+                                        <LemonSkeleton className="mt-1.5 h-2.5 w-20" />
+                                    </div>
+                                    <LemonSkeleton className="h-2 flex-1" />
+                                    <LemonSkeleton className="h-3.5 w-12 shrink-0" />
+                                </div>
                             ))}
+                        </LemonCard>
+                    ) : workflowCosts.length > 0 ? (
+                        <LemonCard hoverEffect={false} className="p-4">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                                <h3 className="m-0 text-xs font-semibold text-secondary">By workflow</h3>
+                                <span className="text-xs tabular-nums text-tertiary">
+                                    {formatCost(workflowCostsTotal)} total
+                                </span>
+                            </div>
+                            {rankedCosts.slice(0, 8).map((cost) => {
+                                const usd = cost.estimated_cost_usd ?? 0
+                                const share = workflowCostsTotal > 0 ? usd / workflowCostsTotal : 0
+                                return (
+                                    <ShareRow
+                                        key={cost.workflow_name || '(unknown)'}
+                                        label={cost.workflow_name || '(unknown workflow)'}
+                                        sub={`${formatMinutes(cost.billable_minutes)} billable`}
+                                        value={formatCost(usd)}
+                                        valueSub={`${Math.round(share * 100)}%`}
+                                        share={share}
+                                        color="var(--data-color-1)"
+                                        fullWidthBar
+                                        to={
+                                            singleRepo
+                                                ? combineUrl(
+                                                      urls.engineeringAnalyticsWorkflowRuns(
+                                                          singleRepo.repoOwner,
+                                                          singleRepo.repoName,
+                                                          cost.workflow_name
+                                                      ),
+                                                      sourceId ? { source: sourceId } : {}
+                                                  ).url
+                                                : undefined
+                                        }
+                                    />
+                                )
+                            })}
                             {workflowCosts.length > 8 && (
                                 <div className="pt-2 text-xs text-tertiary">
                                     +{workflowCosts.length - 8} more{' '}
@@ -208,9 +225,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                         </LemonCard>
                     ) : (
                         <span className="text-xs text-secondary">
-                            {workflowCostsLoading
-                                ? 'Loading…'
-                                : "No cost data — the job-level source isn't synced, or nothing ran in the window."}
+                            No cost data yet. The job-level source isn't synced, or nothing ran in the window.
                         </span>
                     )}
                 </Section>

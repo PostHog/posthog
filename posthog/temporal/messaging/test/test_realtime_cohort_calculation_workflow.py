@@ -1473,7 +1473,7 @@ class TestBatchUpdateCohortMetrics:
     """Tests for _batch_update_cohort_metrics timestamp handling regression."""
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     async def test_batch_update_cohort_metrics_timestamp_fix(self):
         """
         Regression test for timestamp bug fix.
@@ -1555,7 +1555,7 @@ class TestBatchUpdateCohortMetrics:
         assert duration_updates_count == 1  # Only cohort2 should have had duration updated
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     async def test_batch_update_cohort_metrics_first_calculation(self):
         """Test that first calculation always updates duration regardless of threshold."""
         from asgiref.sync import sync_to_async
@@ -1598,7 +1598,7 @@ class TestBatchUpdateCohortMetrics:
         assert duration_updates_count == 1
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     async def test_batch_update_cohort_metrics_zero_previous_duration(self):
         """Test that cohorts with zero previous duration always get updated."""
         from asgiref.sync import sync_to_async

@@ -104,6 +104,14 @@ class ReplayScanner(UUIDModel):
         help_text="Keyset tiebreaker; set when the last batch saturated so the next sweep resumes past session_end ties.",
     )
 
+    # Shape: feedback_themes.build_feedback_themes. Not version-tracked: themes describe the
+    # ratings, not the scanner's behavior.
+    feedback_themes = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="AI summary of the team's written thumbs-down feedback into recurring failure modes.",
+    )
+
     estimated_monthly_observations = models.PositiveIntegerField(
         null=True,
         blank=True,

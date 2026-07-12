@@ -1,7 +1,11 @@
+from typing import cast
+
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
+
+from posthog.schema import HogQLQuery
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -10,7 +14,11 @@ from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_guard
 
-from posthog.models import OrganizationMembership
+from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.models import OrganizationMembership, User
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 
 
 class TestAccessControlSystemTables(BaseTest):
@@ -838,6 +846,63 @@ class TestWarehouseViewAccessControl(BaseTest):
 
         assert "denied_view" not in database._denied_tables
         assert "allowed_view" not in database._denied_tables
+
+    def test_shared_link_user_skips_warehouse_view_acl_but_hides_system_tables(self):
+        self._create_ac(
+            resource="warehouse_view",
+            resource_id=str(self.denied_view.id),
+            access_level="none",
+            member=self._membership(),
+        )
+        viewer = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))
+
+        database = Database.create_for(team=self.team, user=viewer)
+
+        # A shared-link viewer executes without warehouse access control - the deny is skipped.
+        assert "denied_view" not in database._denied_tables
+        assert "allowed_view" not in database._denied_tables
+        # But scoped system tables stay hidden, exactly like a userless build.
+        assert "system.dashboards" in database._denied_tables
+
+    def test_shared_link_user_requires_enabled_configuration(self):
+        with self.assertRaises(ValueError):
+            SharedLinkUser(SharingConfiguration(team=self.team, enabled=False))
+
+    def test_shared_link_cache_key_differs_from_denied_member(self):
+        # Resource-level deny: no per-object IDs land in the cache payload, so the restriction
+        # lists alone must keep the two principals' cache keys apart.
+        self._create_ac(resource="warehouse_objects", access_level="none")
+        query = HogQLQuery(query="SELECT id FROM denied_view")
+        shared_user = cast(User, SharedLinkUser(SharingConfiguration(team=self.team, enabled=True)))
+
+        shared_key = get_query_runner(query, self.team, user=shared_user).get_cache_key()
+        denied_key = get_query_runner(query, self.team, user=self.user).get_cache_key()
+
+        # A shared-link run executes with the warehouse bypass and writes its result to cache;
+        # if the keys collided, the denied member would be served that result on a cache hit
+        assert shared_key != denied_key
+
+        # Queries touching no access-controlled tables keep sharing one cache entry across
+        # principals - the partition must not cost public dashboards their warmed cache results
+        events_query = HogQLQuery(query="SELECT count() FROM events")
+        assert (
+            get_query_runner(events_query, self.team, user=shared_user).get_cache_key()
+            == get_query_runner(events_query, self.team, user=self.user).get_cache_key()
+        )
+
+    def test_synthetic_principal_skips_warehouse_view_acl(self):
+        self._create_ac(
+            resource="warehouse_view",
+            resource_id=str(self.denied_view.id),
+            access_level="none",
+            member=self._membership(),
+        )
+
+        database = Database.create_for(team=self.team, user=SyntheticUser(self.team, "test-token"))
+
+        # Service-token principals bypass warehouse access control by design (see Database.create_for).
+        assert "denied_view" not in database._denied_tables
+        assert "system.dashboards" in database._denied_tables
 
     def _materialize(self, view):
         """Attach a same-named backing DataWarehouseTable to a saved query, mirroring materialization."""
