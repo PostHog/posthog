@@ -1154,6 +1154,105 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
         assert connect_mock.call_count == 1
 
 
+class TestSetupStatementTimeoutUnsupported:
+    """The row-serving setup connection raises a session `statement_timeout` before streaming.
+    Some Postgres-compatible engines/poolers reject `SET statement_timeout` with
+    FeatureNotSupported; that must degrade to the source's default rather than aborting the whole
+    import, mirroring the metadata-probe sites that already fall back."""
+
+    class _Cursor:
+        def __init__(self, *, is_setup: bool):
+            self._is_setup = is_setup
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+
+        def execute(self, query, *args, **kwargs):
+            # Only the setup connection's SET is unguarded in the reported crash; the streaming
+            # cursor's SETs go through a separate (patched) psycopg.Cursor and stay benign.
+            if self._is_setup and "statement_timeout" in str(query):
+                raise psycopg.errors.FeatureNotSupported(
+                    'setting configuration parameter "statement_timeout" not supported'
+                )
+            return None
+
+        def fetchmany(self, _n: int):
+            return []
+
+        def fetchone(self):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self):
+            self.autocommit = True
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+
+        def cursor(self, *args, **kwargs):
+            return TestSetupStatementTimeoutUnsupported._Cursor(is_setup="name" not in kwargs)
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def test_feature_not_supported_on_set_statement_timeout_degrades_gracefully(self):
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=self._Connection()),
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(is_setup=False)),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_rows_to_sync", return_value=0),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            # Setup completes and streaming runs to exhaustion; the rejected SET does not abort it.
+            assert list(cast(Iterable[Any], response.items())) == []
+
+
 class TestIsConnectionDroppedError:
     @pytest.mark.parametrize(
         "error",
