@@ -505,7 +505,7 @@ async def _run(
         assert table.queryable_folder is not None
         assert table.credential_id is None
 
-        query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+$")
+        query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+_[0-9a-f]{8}$")
         assert query_folder_pattern.match(table.queryable_folder)
 
     return workflow_id, inputs
@@ -959,7 +959,7 @@ async def test_delta_wrapper_files(team, stripe_balance_transaction, mock_stripe
         folder_path = await sync_to_async(latest_job.folder_path)()
 
         s3_objects = await minio_client.list_objects_v2(
-            Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_now.timestamp())}/"
+            Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_now.timestamp())}_"
         )
 
         assert len(s3_objects["Contents"]) != 0
@@ -3265,11 +3265,11 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
 
     # Check the query folders now - both sync folders should exist
     s3_objects_datetime_1 = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}/"
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}_"
     )
 
     s3_objects_datetime_2 = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}/"
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}_"
     )
 
     assert len(s3_objects_datetime_1["Contents"]) != 0
@@ -3283,15 +3283,15 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
 
     # Check the query folders now - all 3 sync folders should exist
     s3_objects_datetime_1 = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}/"
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}_"
     )
 
     s3_objects_datetime_2 = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}/"
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}_"
     )
 
     s3_objects_datetime_3 = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_3.timestamp())}/"
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_3.timestamp())}_"
     )
 
     assert len(s3_objects_datetime_1["Contents"]) != 0
@@ -3306,19 +3306,19 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
 
     # Check the query folders now - this should delete the first sync folder but keep three others
     s3_objects_datetime_1 = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}/"
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}_"
     )
 
     s3_objects_datetime_2 = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}/"
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}_"
     )
 
     s3_objects_datetime_3 = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_3.timestamp())}/"
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_3.timestamp())}_"
     )
 
     s3_objects_datetime_4 = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_4.timestamp())}/"
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_4.timestamp())}_"
     )
 
     assert len(s3_objects_datetime_1.get("Contents", [])) == 0  # first folder should be deleted
@@ -3337,23 +3337,23 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
 
     # Check the query folders now - this should delete all folders except the latest two
     s3_objects_datetime_1 = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}/"
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}_"
     )
 
     s3_objects_datetime_2 = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}/"
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}_"
     )
 
     s3_objects_datetime_3 = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_3.timestamp())}/"
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_3.timestamp())}_"
     )
 
     s3_objects_datetime_4 = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_4.timestamp())}/"
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_4.timestamp())}_"
     )
 
     s3_objects_datetime_5 = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_5.timestamp())}/"
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_5.timestamp())}_"
     )
 
     assert len(s3_objects_datetime_1.get("Contents", [])) == 0

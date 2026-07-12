@@ -2,6 +2,7 @@ import re
 import asyncio
 from datetime import datetime
 from typing import Literal, Optional
+from uuid import uuid4
 
 from django.conf import settings
 
@@ -78,16 +79,23 @@ async def prepare_s3_files_for_querying(
         s3_folder_for_querying = f"{normalized_table_name}__query"
         s3_path_for_querying = f"{s3_folder_for_job}/{s3_folder_for_querying}"
         if use_timestamped_folders:
-            timestamp = int(datetime.now().timestamp())
-            s3_path_for_querying = f"{s3_path_for_querying}_{timestamp}"
-            s3_folder_for_querying = f"{s3_folder_for_querying}_{timestamp}"
+            # Seconds first (the age-based GC below parses them), then a unique suffix:
+            # two syncs completing within the same second must not share a folder, or the
+            # additive copy below merges two parquet generations into one folder and the
+            # s3 glob read returns duplicate rows.
+            folder_suffix = f"{int(datetime.now().timestamp())}_{uuid4().hex[:8]}"
+            s3_path_for_querying = f"{s3_path_for_querying}_{folder_suffix}"
+            s3_folder_for_querying = f"{s3_folder_for_querying}_{folder_suffix}"
 
         files_to_delete: list[str] = []
         if delete_existing:
             if use_timestamped_folders:
                 # Match only directories belonging to this specific table.
                 # Keys may be bare folder names or full paths, so use (?:^|.+/) to handle both.
-                query_folder_pattern = re.compile(rf"(?:^|.+/){re.escape(normalized_table_name)}\_\_query\_(\d+)\/?$")
+                # The uniqueness suffix is optional so folders created before it existed still match.
+                query_folder_pattern = re.compile(
+                    rf"(?:^|.+/){re.escape(normalized_table_name)}\_\_query\_(\d+)(?:_[0-9a-f]{{8}})?\/?$"
+                )
 
                 all_files = await s3._ls(s3_folder_for_job, detail=True)
                 all_file_values = all_files.values() if isinstance(all_files, dict) else all_files
@@ -108,8 +116,9 @@ async def prepare_s3_files_for_querying(
 
                 for index, directory in enumerate(timestamped_query_folders):
                     directory_path, directory_timestamp = directory
+                    directory_name = directory_path.rstrip("/").split("/")[-1]
                     if existing_queryable_folder:
-                        if existing_queryable_folder == f"{normalized_table_name}__query_{directory_timestamp}":
+                        if existing_queryable_folder == directory_name:
                             await _log(f"Skipping deletion of existing querying folder: {directory_path}")
                             continue
                     else:
