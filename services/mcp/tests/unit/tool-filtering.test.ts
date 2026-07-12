@@ -777,9 +777,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'metrics',
                 'mcp-sql-schema-discovery',
                 'endpoints-ai-materialization-fix',
+                'revamped-py-notebooks',
             ])
         )
-        expect(flags).toHaveLength(21)
+        expect(flags).toHaveLength(22)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries
