@@ -421,15 +421,14 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             elif len(aggregations) > 0:
                 order_by = [ast.OrderExpr(expr=self._remove_aliases(aggregations[0]), order="DESC")]
             elif "created_at" in self.input_columns():
+                organization = getattr(self.user, "organization", None)
                 if (
                     self.strategy.field == "person"
                     and self.user
                     and feature_enabled(
                         "drop-person-list-order-by",
                         distinct_id=str(self.user.distinct_id),
-                        groups={"organization": str(self.user.organization.id)}
-                        if self.user.organization and self.user.organization.id
-                        else None,
+                        groups={"organization": str(organization.id)} if organization and organization.id else None,
                     )
                 ):
                     order_by = [ast.OrderExpr(expr=ast.Field(chain=["id"]))]

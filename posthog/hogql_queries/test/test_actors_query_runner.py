@@ -44,7 +44,9 @@ from posthog.hogql.visitor import clear_locations
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.group.util import create_group
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import UUIDT
+from posthog.shared_link_user import SharedLinkUser
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -186,6 +188,24 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(select=["properties.name", "count()"]))
         results = runner.calculate().results
         self.assertEqual(results, [[f"Mr Jacob {self.random_uuid}", 10]])
+
+    def test_created_at_order_by_with_shared_link_user_does_not_crash(self):
+        # SharedLinkUser (public shared dashboard/insight viewer) has no `organization`; the
+        # created_at order-by flag branch must read it safely instead of raising AttributeError.
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, enabled=True, access_token="shared_token"
+        )
+        runner = self._create_runner(ActorsQuery(select=["created_at"]))
+        runner.user = SharedLinkUser(sharing_configuration=sharing_configuration)
+
+        with patch(
+            "posthog.hogql_queries.actors_query_runner.feature_enabled", return_value=True
+        ) as mock_feature_enabled:
+            query = runner.to_query()
+
+        mock_feature_enabled.assert_called_once()
+        assert mock_feature_enabled.call_args.kwargs["groups"] is None
+        assert query.order_by == [ast.OrderExpr(expr=ast.Field(chain=["id"]))]
 
     def test_persons_query_order_by(self):
         self.random_uuid = self._create_random_persons()
