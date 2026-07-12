@@ -4,10 +4,11 @@
 use std::path::Path;
 use std::time::Instant;
 
+use base64::Engine;
 use posthog_replay_anonymizer::allow_lists::AllowLists;
 use posthog_replay_anonymizer::{
-    anonymize_event_str, anonymize_message, context::Ctx, text::scrub_text, url::scrub_url,
-    url::URL_SCHEME_ALLOWLIST,
+    anonymize_event_str, anonymize_message, collect::hash_image_bytes, context::Ctx,
+    text::scrub_text, url::scrub_url, url::URL_SCHEME_ALLOWLIST,
 };
 use serde_json::Value;
 
@@ -32,6 +33,23 @@ fn allow_of(case: &Value) -> AllowLists {
             .unwrap_or_default()
     };
     AllowLists::new(strings("text"), strings("url"))
+}
+
+#[test]
+fn image_hash_fixtures() {
+    // Pins the content hash to the scrub consumer's `hashImageBytes` (content-ref.ts): a divergence
+    // makes the consumer drop every produced image as a key/bytes mismatch.
+    for case in fixtures("image-hash.json") {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(case["bytesBase64"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(
+            hash_image_bytes(&bytes),
+            case["hash"].as_str().unwrap(),
+            "image hash case: {}",
+            case["name"]
+        );
+    }
 }
 
 #[test]

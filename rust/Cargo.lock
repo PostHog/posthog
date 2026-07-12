@@ -8187,6 +8187,7 @@ dependencies = [
  "memchr",
  "serde",
  "serde_json",
+ "sha2",
  "simd-json",
  "url",
  "zstd",

@@ -6,6 +6,7 @@ use base64::Engine;
 use simd_json::borrowed::{Object, Value};
 
 use crate::blur::{is_image_data_uri, split_data_uri, BLANK_PNG_BASE64};
+use crate::collect::is_image_ref;
 use crate::context::Ctx;
 use crate::images::ImageFallback;
 use crate::json::{
@@ -170,13 +171,19 @@ fn blur_blob_image(ctx: &Ctx<'_>, blob: &mut Object<'_>) -> bool {
         None => return false,
     };
     let original = format!("data:{mime};base64,{base64}");
-    // scrub_image never fails outward (fallbacks are baked in), so the split always succeeds; the
-    // stated fallback keeps the fail-safe explicit if the URI shape ever changes.
-    let (new_b64, new_type) =
-        match split_data_uri(&ctx.scrub_image(&original, ImageFallback::Blank)) {
+    // scrub_image never fails outward (fallbacks are baked in). The collection lane's ref
+    // replaces the payload wholesale (it is the consumer's join key, not decodable bytes) and
+    // keeps the mime; otherwise the split always succeeds — the stated fallback keeps the
+    // fail-safe explicit if the URI shape ever changes.
+    let scrubbed = ctx.scrub_image(&original, ImageFallback::Blank);
+    let (new_b64, new_type) = if is_image_ref(&scrubbed) {
+        (scrubbed, mime)
+    } else {
+        match split_data_uri(&scrubbed) {
             Some((m, b64)) => (b64, m),
             None => (BLANK_PNG_BASE64.to_string(), "image/png".to_string()),
-        };
+        }
+    };
     if let Some(ab) = blob
         .get_mut("data")
         .and_then(as_array_mut)

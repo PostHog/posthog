@@ -27,6 +27,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 jpeg-decoder = { version = "0.3", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 simd-json = { version = "0.15", features = ["serde_impl"] }
 url = { workspace = true }
 zstd = { workspace = true }

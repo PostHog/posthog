@@ -4,6 +4,8 @@ import { gzip } from 'zlib'
 
 import { PipelineResultType } from '~/ingestion/framework/results'
 
+import { imageRef } from './ml-mirror-image-scrub/content-ref'
+import { PSEUDONYM_TEAM, pseudonymize } from './ml-mirror/pseudonymize'
 import { createParseAndAnonymizeMessageStep } from './parse-and-anonymize-step'
 import { SessionReplayHeaders } from './pipeline-types'
 
@@ -14,8 +16,8 @@ const compressWithGzip = promisify(gzip)
 // assembly — not the scrub itself (that's covered by the Rust suite + shared fixtures).
 const mockAnonymizeKafkaPayload = jest.fn()
 jest.mock('@posthog/replay-anonymizer', () => ({
-    anonymizeKafkaPayload: (payload: Buffer, contentEncoding?: string | null) =>
-        mockAnonymizeKafkaPayload(payload, contentEncoding),
+    anonymizeKafkaPayload: (payload: Buffer, contentEncoding?: string | null, pseudoTeam?: string | null) =>
+        mockAnonymizeKafkaPayload(payload, contentEncoding, pseudoTeam),
 }))
 
 describe('createParseAndAnonymizeMessageStep', () => {
@@ -39,12 +41,13 @@ describe('createParseAndAnonymizeMessageStep', () => {
         } as Message
     }
 
-    function addonSuccess(metaOverrides: Record<string, unknown> = {}): void {
+    function addonSuccess(metaOverrides: Record<string, unknown> = {}, images: Buffer | null = null): void {
         mockAnonymizeKafkaPayload.mockResolvedValue({
             failed: false,
             reason: null,
             error: null,
             lines: Buffer.from('["window-1",{"type":3,"timestamp":' + now + '}]\n'),
+            images,
             meta: JSON.stringify({
                 distinctId: 'user-1',
                 sessionId: 'session-1',
@@ -101,15 +104,15 @@ describe('createParseAndAnonymizeMessageStep', () => {
         addonSuccess()
         const raw = Buffer.from(JSON.stringify({ distinct_id: 'user-1', data: '{}' }))
         const zipped = await compressWithGzip(raw)
-        await step({ message: kafkaMessage(zipped), headers })
-        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(zipped, null)
+        await step({ message: kafkaMessage(zipped), headers, team })
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(zipped, null, undefined)
 
         mockAnonymizeKafkaPayload.mockClear()
         addonSuccess()
         const lz4Message = kafkaMessage(raw)
         lz4Message.headers = [{ 'content-encoding': Buffer.from('lz4') }]
-        await step({ message: lz4Message, headers })
-        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(raw, 'lz4')
+        await step({ message: lz4Message, headers, team })
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(raw, 'lz4', undefined)
     })
 
     test.each([
@@ -158,5 +161,109 @@ describe('createParseAndAnonymizeMessageStep', () => {
         const result = await step({ message: kafkaMessage(null), headers })
         expect(result).toMatchObject({ type: PipelineResultType.DLQ, reason: 'message_value_or_timestamp_is_empty' })
         expect(mockAnonymizeKafkaPayload).not.toHaveBeenCalled()
+    })
+})
+
+describe('createParseAndAnonymizeMessageStep with image collection', () => {
+    const secret = 'test-pseudonym-secret'
+    const step = createParseAndAnonymizeMessageStep({ pseudonymSecret: secret })
+    const pseudoTeam = pseudonymize(secret, PSEUDONYM_TEAM, '1')
+    const now = Date.now()
+
+    const team = {
+        teamId: 1,
+        consoleLogIngestionEnabled: true,
+        aiTrainingOptedIn: true,
+    }
+    const headers: SessionReplayHeaders = {
+        token: 'token-1',
+        distinct_id: 'user-1',
+        session_id: 'session-1',
+    } as SessionReplayHeaders
+
+    function kafkaMessage(): Message {
+        return {
+            value: Buffer.from('{}'),
+            timestamp: now,
+            partition: 3,
+            topic: 'snapshots',
+            offset: 42,
+            size: 2,
+        } as Message
+    }
+
+    function addonSuccessWithImages(
+        images: Buffer | null,
+        imageEntries?: { hash: string; offset: number; len: number }[]
+    ): void {
+        mockAnonymizeKafkaPayload.mockResolvedValue({
+            failed: false,
+            reason: null,
+            error: null,
+            lines: Buffer.from('["window-1",{"type":3,"timestamp":' + now + '}]\n'),
+            images,
+            meta: JSON.stringify({
+                distinctId: 'user-1',
+                sessionId: 'session-1',
+                windowId: 'window-1',
+                snapshotSource: 'web',
+                snapshotLibrary: 'posthog-js',
+                startTs: now,
+                endTs: now + 1000,
+                consoleLogCount: 0,
+                consoleWarnCount: 0,
+                consoleErrorCount: 0,
+                events: [{ ts: now, flags: 0 }],
+                images: imageEntries,
+            }),
+        })
+    }
+
+    beforeEach(() => {
+        mockAnonymizeKafkaPayload.mockReset()
+    })
+
+    it('passes the cached per-team pseudonym to the addon', async () => {
+        addonSuccessWithImages(null)
+        await step({ message: kafkaMessage(), headers, team })
+        await step({ message: kafkaMessage(), headers, team })
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledTimes(2)
+        for (const call of mockAnonymizeKafkaPayload.mock.calls) {
+            expect(call[3]).toBe(pseudoTeam)
+        }
+    })
+
+    it('unpacks the packed image buffer into per-image produce records', async () => {
+        const packed = Buffer.concat([Buffer.from('aaa'), Buffer.from('bb')])
+        addonSuccessWithImages(packed, [
+            { hash: 'hashA', offset: 0, len: 3 },
+            { hash: 'hashB', offset: 3, len: 2 },
+        ])
+        const result = await step({ message: kafkaMessage(), headers, team })
+        expect(result.type).toBe(PipelineResultType.OK)
+        const images = (result as any).value.collectedImages
+        expect(images).toEqual([
+            { ref: imageRef(pseudoTeam, 'hashA'), bytes: Buffer.from('aaa') },
+            { ref: imageRef(pseudoTeam, 'hashB'), bytes: Buffer.from('bb') },
+        ])
+    })
+
+    it('skips out-of-bounds entries instead of failing the message', async () => {
+        addonSuccessWithImages(Buffer.from('aaa'), [
+            { hash: 'hashA', offset: 0, len: 3 },
+            { hash: 'hashBad', offset: 2, len: 5 },
+        ])
+        const result = await step({ message: kafkaMessage(), headers, team })
+        expect(result.type).toBe(PipelineResultType.OK)
+        expect((result as any).value.collectedImages).toEqual([
+            { ref: imageRef(pseudoTeam, 'hashA'), bytes: Buffer.from('aaa') },
+        ])
+    })
+
+    it('leaves collectedImages undefined when the addon collected nothing', async () => {
+        addonSuccessWithImages(null)
+        const result = await step({ message: kafkaMessage(), headers, team })
+        expect(result.type).toBe(PipelineResultType.OK)
+        expect((result as any).value.collectedImages).toBeUndefined()
     })
 })

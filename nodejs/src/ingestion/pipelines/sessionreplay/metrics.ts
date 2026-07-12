@@ -75,6 +75,17 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['impl'],
     })
 
+    private static readonly mlImagesCollected = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_images_collected',
+        help: 'Images collected for the out-of-band scrub lane, by produce outcome',
+        labelNames: ['outcome'],
+    })
+
+    private static readonly mlImageBytesProduced = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_image_bytes_produced',
+        help: 'Bytes of collected images produced to the scrub topic',
+    })
+
     public static incrementMessageReceived(partition: number): void {
         this.messageReceived.labels(partition.toString()).inc()
     }
@@ -118,5 +129,13 @@ export class SessionRecordingIngesterMetrics {
 
     public static incrementMlAnonymizeFailed(impl: MlAnonymizeImpl): void {
         this.mlAnonymizeFailed.labels(impl).inc()
+    }
+
+    public static incrementMlImagesCollected(outcome: 'produced' | 'deduped' | 'produce_failed', count: number): void {
+        this.mlImagesCollected.labels(outcome).inc(count)
+    }
+
+    public static incrementMlImageBytesProduced(bytes: number): void {
+        this.mlImageBytesProduced.inc(bytes)
     }
 }
