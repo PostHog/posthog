@@ -46,6 +46,8 @@ export interface DateRangeFilterProps<T = unknown> {
     maxDate?: Date
     defaultOpen?: boolean
     className?: string
+    /** Extra props for the popover surface (portaled to <body>) — e.g. skin opt-in data attributes. */
+    contentProps?: React.ComponentPropsWithoutRef<typeof PopoverContent>
 }
 
 /** Presets-first date filter: a trigger opening a quick-range list (instant apply), with an
@@ -72,6 +74,7 @@ export function DateRangeFilter<T = unknown>({
     maxDate,
     defaultOpen = false,
     className,
+    contentProps,
 }: DateRangeFilterProps<T>): React.ReactElement {
     const hasCustom = onCustomApply != null
     const [open, setOpen] = React.useState(defaultOpen)
@@ -111,7 +114,8 @@ export function DateRangeFilter<T = unknown>({
             />
             <PopoverContent
                 align="start"
-                className={cn('w-auto overflow-hidden p-0', className)}
+                {...contentProps}
+                className={cn('w-auto overflow-hidden p-0', className, contentProps?.className)}
                 data-slot="date-range-filter"
             >
                 {customView && hasCustom ? (
