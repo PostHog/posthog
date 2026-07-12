@@ -25,6 +25,7 @@ import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import {
     DELETE_CONFIRMATION_TEXT,
     MAX_SELECTED_RECORDINGS,
+    RecordingSortPreference,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
@@ -54,7 +55,7 @@ function getLabel(filters: RecordingUniversalFilters): string {
     return SortingKeyToLabel[order_field as keyof typeof SortingKeyToLabel]
 }
 
-type RecordingSort = { order: NonNullable<RecordingUniversalFilters['order']>; order_direction: 'ASC' | 'DESC' }
+type RecordingSort = RecordingSortPreference
 
 /** The analytics payload for a sort change, or null when the sort is unchanged so we don't log no-op switches. */
 export function getSortChangedEvent(
@@ -84,6 +85,16 @@ function SortedBy({
     const surfacingScoreEnabled = useFeatureFlag('REPLAY_PLAYLIST_SURFACING_SCORE')
     const inRelevanceSortExperiment = useFeatureFlag('REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT', 'test')
     const showRelevanceSort = surfacingScoreEnabled || inRelevanceSortExperiment
+
+    const { defaultSort } = useValues(sessionRecordingsPlaylistLogic)
+    const { setDefaultSort } = useActions(sessionRecordingsPlaylistLogic)
+
+    const currentSort: RecordingSort = {
+        order: filters.order || 'start_time',
+        order_direction: filters.order_direction || 'DESC',
+    }
+    const isCurrentSortDefault =
+        defaultSort?.order === currentSort.order && defaultSort?.order_direction === currentSort.order_direction
 
     // Track sort changes for the relevance-sort experiment
     const changeSort = (sort: RecordingSort): void => {
@@ -179,6 +190,14 @@ function SortedBy({
                     label: 'Expiration',
                     onClick: () => changeSort({ order: 'recording_ttl', order_direction: 'ASC' }),
                     active: filters.order === 'recording_ttl',
+                },
+                {
+                    label: isCurrentSortDefault ? 'Clear default sort' : 'Set as default sort',
+                    tooltip: isCurrentSortDefault
+                        ? 'Session replay opens with this sort by default. Clear it to go back to the standard sort.'
+                        : 'Open session replay with this sort by default. Saved for this project in this browser.',
+                    onClick: () => setDefaultSort(isCurrentSortDefault ? null : currentSort),
+                    'data-attr': 'session-recordings-set-default-sort',
                 },
             ]}
             icon={<IconSort className="text-lg" />}

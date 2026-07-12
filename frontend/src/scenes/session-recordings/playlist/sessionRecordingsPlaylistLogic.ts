@@ -18,7 +18,7 @@ import {
 } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { getCurrentTeamId, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { isString } from 'lib/utils/guards'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -26,7 +26,13 @@ import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
+import {
+    NodeKind,
+    RecordingOrder,
+    RecordingOrderDirection,
+    RecordingsQuery,
+    RecordingsQueryResponse,
+} from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,
@@ -158,6 +164,48 @@ const getDefaultFilterTestAccounts = (): boolean => {
     return stored === 'true'
 }
 
+export type RecordingSortPreference = {
+    order: RecordingOrder
+    order_direction: RecordingOrderDirection
+}
+
+const getDefaultSortStorageKey = (): string | null => {
+    const teamId = getCurrentTeamIdOrNone()
+    return teamId ? `replay_default_sort_${teamId}` : null
+}
+
+export const getDefaultRecordingSort = (): RecordingSortPreference | null => {
+    const storageKey = getDefaultSortStorageKey()
+    if (!storageKey) {
+        return null
+    }
+    try {
+        const stored = localStorage.getItem(storageKey)
+        if (!stored) {
+            return null
+        }
+        const parsed = JSON.parse(stored)
+        if (isValidRecordingOrder(parsed?.order) && ['ASC', 'DESC'].includes(parsed?.order_direction)) {
+            return { order: parsed.order, order_direction: parsed.order_direction }
+        }
+    } catch {
+        // an unreadable stored value falls back to the standard default below
+    }
+    return null
+}
+
+export const setDefaultRecordingSort = (sort: RecordingSortPreference | null): void => {
+    const storageKey = getDefaultSortStorageKey()
+    if (!storageKey) {
+        return
+    }
+    if (sort) {
+        localStorage.setItem(storageKey, JSON.stringify(sort))
+    } else {
+        localStorage.removeItem(storageKey)
+    }
+}
+
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
     date_from: '-3d',
@@ -178,17 +226,22 @@ export const getDefaultFilters = (
     // (urlFilters, e.g. "View recordings" CTAs) come with a specific session in mind,
     // where recency is the better default than relevance
     const hasSpecificIntent = !!personUUID || !!pinnedFilters || !!urlFilters
+    // A sort the user explicitly saved as their default wins over the flag-driven relevance default,
+    // but only on the plain landing page, since specific-intent pages assume recency
+    const preferredSort = hasSpecificIntent ? null : getDefaultRecordingSort()
     const defaults: RecordingUniversalFilters = {
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
         date_from: personUUID ? '-30d' : '-3d',
         // Default to sorting by relevance for the surfacing-score rollout or the relevance-sort experiment's test arm
-        order:
-            !hasSpecificIntent &&
-            (posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE) ||
-                posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT) === 'test')
-                ? 'surfacing_score'
-                : DEFAULT_RECORDING_FILTERS.order,
+        order: preferredSort
+            ? preferredSort.order
+            : !hasSpecificIntent &&
+                (posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE) ||
+                    posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT) === 'test')
+              ? 'surfacing_score'
+              : DEFAULT_RECORDING_FILTERS.order,
+        order_direction: preferredSort ? preferredSort.order_direction : DEFAULT_RECORDING_FILTERS.order_direction,
     }
     if (pinnedFilters) {
         defaults.filter_group = mergePinnedFilters(defaults.filter_group, pinnedFilters)
@@ -446,6 +499,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
     actions({
         setFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
+        setDefaultSort: (defaultSort: RecordingSortPreference | null) => ({ defaultSort }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         resetFilters: true,
@@ -691,6 +745,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 resetFilters: () => getDefaultFilters(props.personUUID, props.pinnedFilters),
             },
         ],
+        defaultSort: [
+            getDefaultRecordingSort() as RecordingSortPreference | null,
+            {
+                setDefaultSort: (_, { defaultSort }) => defaultSort,
+            },
+        ],
         showFilters: [
             true,
             {
@@ -823,6 +883,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadSessionRecordings(undefined, filters)
             props.onFiltersChange?.(values.filters)
             actions.loadEventsHaveSessionId()
+        },
+
+        setDefaultSort: ({ defaultSort }) => {
+            setDefaultRecordingSort(defaultSort)
+            posthog.capture('session recording default sort updated', {
+                sort_key: defaultSort?.order ?? null,
+                sort_direction: defaultSort?.order_direction ?? null,
+            })
+            lemonToast.success(
+                defaultSort ? 'Default sort saved. Session replay will open with this sort.' : 'Default sort cleared.'
+            )
         },
 
         resetFilters: () => {

@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -28,6 +30,7 @@ import {
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
     sessionRecordingsPlaylistLogic,
+    setDefaultRecordingSort,
 } from './sessionRecordingsPlaylistLogic'
 
 describe('sessionRecordingsPlaylistLogic', () => {
@@ -1330,6 +1333,90 @@ describe('sessionRecordingsPlaylistLogic', () => {
             const result = getDefaultFilters(undefined, pinnedFilters)
             const firstGroup = result.filter_group.values[0] as any
             expect(firstGroup.values).toContainEqual(pinnedFilters.values[0])
+        })
+    })
+
+    describe('default sort preference', () => {
+        const storageKey = `replay_default_sort_${MOCK_TEAM_ID}`
+
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it.each<
+            [
+                string,
+                Record<string, string | boolean>,
+                { personUUID?: string; urlFilters?: Partial<RecordingUniversalFilters> },
+                string,
+                string,
+            ]
+        >([
+            ['applies the saved sort on the landing page', {}, {}, 'start_time', 'ASC'],
+            [
+                'wins over the surfacing-score rollout flag',
+                { [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true },
+                {},
+                'start_time',
+                'ASC',
+            ],
+            [
+                'is ignored on person pages',
+                {},
+                { personUUID: 'person-uuid' },
+                DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                'DESC',
+            ],
+            [
+                'is ignored for deep links with pre-applied filters',
+                {},
+                { urlFilters: { date_from: '-7d' } },
+                DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                'DESC',
+            ],
+        ])('%s', (_name, flags, { personUUID, urlFilters }, expectedOrder, expectedDirection) => {
+            jest.spyOn(posthog, 'getFeatureFlag').mockImplementation((key) => flags[key as string] as any)
+            setDefaultRecordingSort({ order: 'start_time', order_direction: 'ASC' })
+
+            const result = getDefaultFilters(personUUID, undefined, urlFilters)
+
+            expect(result.order).toBe(expectedOrder)
+            expect(result.order_direction).toBe(expectedDirection)
+        })
+
+        it.each<[string, string]>([
+            ['not valid JSON', 'not-json'],
+            ['an unknown order key', JSON.stringify({ order: 'nonsense', order_direction: 'DESC' })],
+            ['an invalid direction', JSON.stringify({ order: 'start_time', order_direction: 'sideways' })],
+        ])('falls back to the standard default when the stored value is %s', (_name, storedValue) => {
+            localStorage.setItem(storageKey, storedValue)
+
+            const result = getDefaultFilters()
+
+            expect(result.order).toBe(DEFAULT_RECORDING_FILTERS_ORDER_BY)
+            expect(result.order_direction).toBe('DESC')
+        })
+
+        it('persists and clears the preference via setDefaultSort', () => {
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'default-sort-test' })
+            logic.mount()
+
+            logic.actions.setDefaultSort({ order: 'console_error_count', order_direction: 'DESC' })
+            expect(JSON.parse(localStorage.getItem(storageKey) ?? 'null')).toEqual({
+                order: 'console_error_count',
+                order_direction: 'DESC',
+            })
+            expect(logic.values.defaultSort).toEqual({ order: 'console_error_count', order_direction: 'DESC' })
+            expect(getDefaultFilters().order).toBe('console_error_count')
+
+            logic.actions.setDefaultSort(null)
+            expect(localStorage.getItem(storageKey)).toBeNull()
+            expect(logic.values.defaultSort).toBeNull()
+            expect(getDefaultFilters().order).toBe(DEFAULT_RECORDING_FILTERS_ORDER_BY)
         })
     })
 
