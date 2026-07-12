@@ -17,6 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     report_heartbeat_timeout,
     run_pre_write_defensive_compact,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    DELTA_MISSING_DATA_FILES_KEY,
+)
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
 
@@ -162,6 +165,28 @@ class TestHandleCorruptedDeltaLog:
         # A revival must be observable, tagged with how it recovered and that the rebuild was made non-billable.
         assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"
+        assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is True
+
+    def test_missing_data_files_marker_resets_non_billable(self, team):
+        # A table flagged with the missing-data-files marker opens fine, so is_table_corrupted is False.
+        # Honoring the marker is the only thing that breaks the loop where every merge re-reads a partition
+        # file that's gone from S3; it must reset + rebuild non-billable, clear the marker, and tag the
+        # recovery distinctly so it's not conflated with the unreadable-log case.
+        schema, job = self._schema_and_job(team)
+        schema.sync_type_config = {DELTA_MISSING_DATA_FILES_KEY: True}
+        schema.save(update_fields=["sync_type_config"])
+        helper = MagicMock(is_table_corrupted=AsyncMock(return_value=False), reset_table=AsyncMock())
+
+        with patch(f"{_EXTRACT_MODULE}.posthoganalytics") as ph:
+            result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
+
+        assert result is True
+        helper.reset_table.assert_awaited_once()
+        job.refresh_from_db()
+        assert job.billable is False
+        schema.refresh_from_db()
+        assert DELTA_MISSING_DATA_FILES_KEY not in (schema.sync_type_config or {})
+        assert ph.capture.call_args.kwargs["properties"]["outcome"] == "missing_data_files_rebuild"
         assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is True
 
     def test_corrupt_table_with_ready_swap_is_salvaged(self, team):

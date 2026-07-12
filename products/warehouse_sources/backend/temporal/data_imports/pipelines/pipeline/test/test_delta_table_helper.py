@@ -17,7 +17,9 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
+    DeltaTableMissingDataFilesError,
     _first_per_pk_table,
+    _is_missing_data_file_error,
     _realign_decimal_buffers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import evolve_pyarrow_schema
@@ -859,6 +861,66 @@ class TestRunMaintenance:
 
         assert result == 150
         vacuum_if_stale.assert_awaited_once_with(40, 100)
+
+
+class TestIsMissingDataFileError:
+    """Classifies a merge failure as 'a partition data file is gone from S3' — the signal that turns a
+    forever-looping FileNotFoundError into a one-shot reset + rebuild. Must catch delta-rs's
+    string-wrapped object-store not-found (the S3 symptom) without matching unrelated errors, which
+    would wrongly nuke a healthy table."""
+
+    @parameterized.expand(
+        [
+            ("python_file_not_found", FileNotFoundError("missing.parquet"), True),
+            ("s3_nosuchkey", Exception("Generic S3 error: NoSuchKey: the key does not exist"), True),
+            (
+                "delta_object_not_found",
+                deltalake.exceptions.DeltaError("Object not found: object at location part-0.parquet"),
+                True,
+            ),
+            ("local_no_such_file", OSError("No such file or directory (os error 2)"), True),
+            # delta-rs re-raises the underlying object-store error as its own type; the original is only
+            # reachable through the cause chain.
+            ("wrapped_in_cause", RuntimeError("merge failed"), True),
+            ("unrelated_schema_error", deltalake.exceptions.SchemaMismatchError("columns differ"), False),
+            ("unrelated_value_error", ValueError("bad predicate"), False),
+        ]
+    )
+    def test_classification(self, name: str, error: Exception, expected: bool) -> None:
+        if name == "wrapped_in_cause":
+            error.__cause__ = FileNotFoundError("part-0.parquet")
+        assert _is_missing_data_file_error(error) is expected
+
+
+class TestRunMergeMissingFileRecovery:
+    """A merge that reads a partition file missing from S3 must flag the table for rebuild and raise a
+    typed error (so the next run self-heals), while any other error propagates untouched."""
+
+    @pytest.mark.asyncio
+    async def test_missing_file_marks_and_raises_typed_error(self) -> None:
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+
+        def _boom(*_args: Any) -> dict:
+            raise FileNotFoundError("part-2024-w26.parquet")
+
+        with patch.object(helper, "_mark_needs_rebuild_from_missing_files", AsyncMock()) as mark:
+            with pytest.raises(DeltaTableMissingDataFilesError):
+                await helper._run_merge(_boom)
+
+        mark.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_unrelated_error_propagates_without_marking(self) -> None:
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+
+        def _boom(*_args: Any) -> dict:
+            raise ValueError("some other merge failure")
+
+        with patch.object(helper, "_mark_needs_rebuild_from_missing_files", AsyncMock()) as mark:
+            with pytest.raises(ValueError, match="some other merge failure"):
+                await helper._run_merge(_boom)
+
+        mark.assert_not_awaited()
 
 
 class TestIsTableCorrupted:

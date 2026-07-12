@@ -1,4 +1,5 @@
 import json
+import errno
 import asyncio
 from collections.abc import Callable, Sequence
 from typing import Any, Literal
@@ -49,6 +50,54 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 # Tune further once the admin fragmentation view gives per-customer distributions.
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
+
+# sync_type_config marker set when a merge reads a partition data file the Delta log still
+# references but that no longer exists on S3. Read pre-extraction by handle_corrupted_delta_log
+# to reset + rebuild the table on the next run, since such a table opens fine (its `_delta_log`
+# parses) and so slips past is_table_corrupted's open-only check — it would otherwise loop forever.
+DELTA_MISSING_DATA_FILES_KEY = "delta_missing_data_files"
+
+# Substrings that identify an object-store "the file is gone" error surfaced by delta-rs (which
+# wraps the underlying S3/filesystem error as a DeltaError, not a Python FileNotFoundError). S3 is
+# strongly consistent, so a not-found on a read means the object is genuinely absent, not a
+# transient blip — safe to treat as a signal to rebuild. Kept narrow to avoid matching unrelated
+# "not found" conditions (e.g. a missing table the create path already handles).
+_MISSING_FILE_ERROR_MARKERS = (
+    "no such file or directory",
+    "nosuchkey",
+    "the specified key does not exist",
+    "not found: object at location",
+)
+
+
+class DeltaTableMissingDataFilesError(Exception):
+    """A merge referenced a partition data file present in the Delta log but missing from S3.
+
+    Raised so the failure is distinguishable from an ordinary merge error; recovery (reset +
+    rebuild from source, marked non-billable) happens on the next run via handle_corrupted_delta_log.
+    """
+
+
+def _is_missing_data_file_error(e: BaseException) -> bool:
+    """True when `e` (or anything in its cause/context chain) means a data file is gone from S3.
+
+    Covers both a Python FileNotFoundError / ENOENT (local dev filesystem backend) and delta-rs's
+    string-wrapped object-store not-found (the S3 case that produces the historical-partition
+    symptom). Walks the chain because delta-rs re-raises the underlying error as its own type.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = e
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, FileNotFoundError):
+            return True
+        if isinstance(current, OSError) and current.errno == errno.ENOENT:
+            return True
+        message = str(current).lower()
+        if any(marker in message for marker in _MISSING_FILE_ERROR_MARKERS):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _write_deltalake(
@@ -304,6 +353,44 @@ class DeltaTableHelper:
 
         return await asyncio.to_thread(delta_table.file_uris)
 
+    async def _mark_needs_rebuild_from_missing_files(self) -> None:
+        """Persist a durable marker so the next run rebuilds this table from source.
+
+        Best-effort: if the marker write fails the merge still raises, so the sync fails loudly
+        rather than silently continuing against a broken table.
+        """
+        from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this module's load path
+            update_sync_type_config_keys,
+        )
+
+        await self._logger.aerror(
+            "write_to_deltalake: a merge referenced a partition data file missing from S3; "
+            "marking the table for a full rebuild on the next run"
+        )
+        try:
+            await database_sync_to_async_pool(update_sync_type_config_keys)(
+                self._job.schema_id, self._job.team_id, updates={DELTA_MISSING_DATA_FILES_KEY: True}
+            )
+        except Exception as e:
+            capture_exception(e)
+
+    async def _run_merge(self, fn: Callable[..., dict], *args: Any) -> dict:
+        """Run a delta merge off-thread, translating a missing-data-file failure into a rebuild.
+
+        A merge reads the target partition's existing files from S3. If one is gone (the log still
+        references it), delta-rs raises a not-found error that no retry can fix. Flag the table for
+        rebuild and raise a typed error so the next run self-heals instead of looping forever.
+        """
+        try:
+            return await asyncio.to_thread(fn, *args)
+        except Exception as e:
+            if _is_missing_data_file_error(e):
+                await self._mark_needs_rebuild_from_missing_files()
+                raise DeltaTableMissingDataFilesError(
+                    "Merge failed: a partition data file referenced by the Delta log is missing from S3"
+                ) from e
+            raise
+
     async def _dedupe_incremental_batch(
         self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
     ) -> pa.Table:
@@ -433,7 +520,7 @@ class DeltaTableHelper:
                             .execute()
                         )
 
-                    merge_stats = await asyncio.to_thread(_do_merge, filtered_table, predicate, merge_commit_properties)
+                    merge_stats = await self._run_merge(_do_merge, filtered_table, predicate, merge_commit_properties)
 
                     await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
 
@@ -456,7 +543,7 @@ class DeltaTableHelper:
                         .execute()
                     )
 
-                merge_stats = await asyncio.to_thread(_do_merge_unpartitioned, data, predicate_ops)
+                merge_stats = await self._run_merge(_do_merge_unpartitioned, data, predicate_ops)
                 await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
         elif (
             write_type == "full_refresh"
