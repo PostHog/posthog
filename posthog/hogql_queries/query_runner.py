@@ -1467,7 +1467,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     target_age=cached_response.cache_target_age,
                 )
 
-            if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
+            if not self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response)):
                 count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
@@ -1491,7 +1491,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
-                if self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
+                if self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
                     cached_response.query_status = self.enqueue_async_calculation(
                         cache_manager=cache_manager, user=user, analytics_props=analytics_props
                     )
@@ -1708,7 +1708,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
                                 last_refresh = last_refresh_from_cached_result(results)
                                 cache_tracking_props = {
-                                    "is_cache_stale": self._is_stale(last_refresh=last_refresh),
+                                    "is_cache_stale": self._is_stale_for_request(last_refresh=last_refresh),
                                     "calculation_trigger": results.calculation_trigger,
                                     "cache_age_seconds": round((datetime.now(UTC) - last_refresh).total_seconds(), 2)
                                     if last_refresh
@@ -2121,31 +2121,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         return cached_response, was_modified
 
-    def _get_cache_age_override(self, last_refresh: Optional[datetime]) -> Optional[datetime]:
-        """
-        Helper method for subclasses that override cache_target_age().
-        Returns the custom cache target age if _cache_age_override is set, otherwise None.
-
-        Subclasses can call this first in their cache_target_age() implementation:
-        ```
-        override = self._get_cache_age_override(last_refresh)
-        if override is not None:
-            return override
-        # ... custom logic
-        ```
-        """
-        if hasattr(self, "_cache_age_override") and self._cache_age_override is not None and last_refresh is not None:
-            return last_refresh + timedelta(seconds=self._cache_age_override)
-        return None
-
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
-
-        # Check for custom cache age override (e.g., from Endpoint)
-        override_target_age = self._get_cache_age_override(last_refresh)
-        if override_target_age is not None:
-            return override_target_age
 
         query_date_range = getattr(self, "query_date_range", None)
         interval = query_date_range.interval_name if query_date_range else "minute"
@@ -2197,21 +2175,28 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """Overridden by subclasses to add validation rules."""
         return ()
 
-    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
-        # If a custom cache age was provided (e.g., from Endpoint), use our override logic
-        target_age = None
-        if hasattr(self, "_cache_age_override") and self._cache_age_override is not None:
-            target_age = self.cache_target_age(last_refresh, lazy=lazy)
-            if not target_age:
-                return False
+    def _is_stale_for_request(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        """Staleness decision for this request, honoring `_cache_age_override` when set.
 
+        The override (shared force refresh, endpoint data freshness) replaces the runner's
+        own staleness policy. It is applied here, at the call site, rather than inside the
+        polymorphic `_is_stale`/`cache_target_age` hooks, so subclasses overriding those
+        cannot silently weaken or tighten the requested window — and it governs this one
+        staleness decision only, never the target age persisted on a cache write.
+        """
+        override = getattr(self, "_cache_age_override", None)
+        if override is None:
+            return self._is_stale(last_refresh, lazy=lazy)
+        if last_refresh is None:
+            return True
+        return datetime.now(UTC) > last_refresh + timedelta(seconds=override)
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         query_date_range = getattr(self, "query_date_range", None)
         date_to = query_date_range.date_to() if query_date_range else None
         interval = query_date_range.interval_name if query_date_range else "minute"
         mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
-        return is_stale(
-            self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode, target_age=target_age
-        )
+        return is_stale(self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode)
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)

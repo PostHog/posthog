@@ -450,6 +450,60 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
             mock_on_commit.assert_called_once()
 
+    @parameterized.expand(
+        [
+            # The override replaces the subclass staleness policy in both directions: a runner
+            # that considers a young cache stale must still serve it within the window, and a
+            # runner that pins a long freshness must still recompute past the window.
+            ("subclass_stale_within_window_serves_cache", True, timedelta(minutes=11), True),
+            ("subclass_fresh_past_window_recomputes", False, timedelta(minutes=31), False),
+        ]
+    )
+    def test_cache_age_override_governs_staleness_over_subclass_policy(
+        self,
+        _name: str,
+        subclass_says_stale: bool,
+        cache_age: timedelta,
+        expected_is_cached: bool,
+    ):
+        base = self.setup_test_query_runner_class()
+
+        class OpinionatedQueryRunner(base):  # type: ignore[misc, valid-type]
+            def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+                return subclass_says_stale
+
+            def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+                return last_refresh + timedelta(hours=24) if last_refresh else None
+
+        start = datetime(2023, 2, 4, 13, 37, 42, tzinfo=UTC)
+        with freeze_time(start):
+            OpinionatedQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            )
+
+        with freeze_time(start + cache_age):
+            response = OpinionatedQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                cache_age_seconds=1800,
+            )
+        self.assertEqual(response.is_cached, expected_is_cached)
+
+    def test_cache_age_override_not_persisted_on_cache_write(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42, tzinfo=UTC)):
+            response = runner.run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                cache_age_seconds=999,
+            )
+
+        # The override governs this request's staleness decision only; the target age written
+        # to the cache (served to authenticated viewers and driving cache warming) must stay
+        # the runner's default.
+        self.assertNotEqual(response.cache_target_age, response.last_refresh + timedelta(seconds=999))
+        self.assertEqual(response.cache_target_age, runner.cache_target_age(response.last_refresh))
+
     def test_modifier_passthrough(self):
         try:
             from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
