@@ -51,16 +51,16 @@ From `frontend/src/lib/components/Sparkline.tsx`:
 
 ### Population B — charts in disguise (→ quill `TimeSeriesBarChart`, separate work)
 
-| File | Chart features it uses |
-| --- | --- |
-| `products/logs/frontend/components/LogsViewer/LogsViewerSparkline/index.tsx` | onSelectionChange, highlightedRange, incompleteBars, withXScale, tooltipRowCutoff |
-| `products/tracing/frontend/TracingSparkline.tsx` | onSelectionChange, highlightedRange, withXScale, tooltipRowCutoff (dual mode: volume vs duration histogram) |
-| `products/tracing/frontend/OperationHistogram.tsx` | onSelectionChange, highlightedRange, withXScale, tooltipRowCutoff (log-spaced duration buckets) |
-| `frontend/src/scenes/hog-functions/invocations/InvocationsSparkline.tsx` | onSelectionChange, withXScale |
-| `products/metrics/frontend/components/MetricsSeriesChart.tsx` | withXScale (target `TimeSeriesLineChart` + `config.legend`; delete `MetricsChartLegend`) |
-| `products/metrics/frontend/components/MetricsViewer.tsx` | withXScale |
-| `products/customer_analytics/frontend/components/UsageMetricCard.tsx` | withXScale, withYScale (borderline — small stat card; consider quill `MetricCard` wholesale, or confirm the scale tweaks can drop) |
-| `products/logs/frontend/components/LogsSampling/LogsSamplingForm.tsx` | referenceLines |
+| File                                                                         | Chart features it uses                                                                                                             |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `products/logs/frontend/components/LogsViewer/LogsViewerSparkline/index.tsx` | onSelectionChange, highlightedRange, incompleteBars, withXScale, tooltipRowCutoff                                                  |
+| `products/tracing/frontend/TracingSparkline.tsx`                             | onSelectionChange, highlightedRange, withXScale, tooltipRowCutoff (dual mode: volume vs duration histogram)                        |
+| `products/tracing/frontend/OperationHistogram.tsx`                           | onSelectionChange, highlightedRange, withXScale, tooltipRowCutoff (log-spaced duration buckets)                                    |
+| `frontend/src/scenes/hog-functions/invocations/InvocationsSparkline.tsx`     | onSelectionChange, withXScale                                                                                                      |
+| `products/metrics/frontend/components/MetricsSeriesChart.tsx`                | withXScale (target `TimeSeriesLineChart` + `config.legend`; delete `MetricsChartLegend`)                                           |
+| `products/metrics/frontend/components/MetricsViewer.tsx`                     | withXScale                                                                                                                         |
+| `products/customer_analytics/frontend/components/UsageMetricCard.tsx`        | withXScale, withYScale (borderline — small stat card; consider quill `MetricCard` wholesale, or confirm the scale tweaks can drop) |
+| `products/logs/frontend/components/LogsSampling/LogsSamplingForm.tsx`        | referenceLines                                                                                                                     |
 
 Type-only importers (`SparklineTimeSeries`): `logsAlertDetailSceneLogic.ts`, `metricsViewerLogic.tsx`, `MetricsChartLegend.tsx` — update the import path.
 
