@@ -87,11 +87,10 @@ def resolve_github_tables(
     warehouse tables, so honoring it here is the only way the read path can. ``None`` (system/
     Temporal/CLI contexts with no request user) skips filtering — team scoping still holds.
     """
-    sources = _github_sources(team, user_access_control)
+    queryset = _github_sources(team, user_access_control)
     if source_id is not None:
-        sources = sources.filter(id=_as_source_uuid(source_id))
-    elif repo:
-        sources = _repo_first(sources, repo)
+        queryset = queryset.filter(id=_as_source_uuid(source_id))
+    sources: list[ExternalDataSource] = _repo_first(queryset, repo) if repo and source_id is None else list(queryset)
     for source in sources:
         tables = _synced_table_names(team=team, source=source)
         pull_requests = tables.get(PULL_REQUESTS_SCHEMA)
