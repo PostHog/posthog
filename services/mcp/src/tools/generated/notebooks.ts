@@ -9,6 +9,10 @@ import {
     NotebooksPartialUpdateBody,
     NotebooksPartialUpdateParams,
     NotebooksRetrieveParams,
+    NotebooksSqlV2RunCreateBody,
+    NotebooksSqlV2RunCreateParams,
+    NotebooksSqlV2RunsInterruptCreateParams,
+    NotebooksSqlV2RunsRetrieveParams,
 } from '@/generated/notebooks/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -137,10 +141,83 @@ const notebooksRetrieve = (): ToolBase<typeof NotebooksRetrieveSchema, WithPostH
     },
 })
 
+const NotebooksRunCellSchema = NotebooksSqlV2RunCreateParams.omit({ project_id: true }).extend(
+    NotebooksSqlV2RunCreateBody.shape
+)
+
+const notebooksRunCell = (): ToolBase<typeof NotebooksRunCellSchema, Schemas.NotebookSQLV2RunResponse> => ({
+    name: 'notebooks-run-cell',
+    schema: NotebooksRunCellSchema,
+    handler: async (context: Context, params: z.infer<typeof NotebooksRunCellSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.node_id !== undefined) {
+            body['node_id'] = params.node_id
+        }
+        if (params.node_type !== undefined) {
+            body['node_type'] = params.node_type
+        }
+        if (params.code !== undefined) {
+            body['code'] = params.code
+        }
+        if (params.output_name !== undefined) {
+            body['output_name'] = params.output_name
+        }
+        if (params.refs !== undefined) {
+            body['refs'] = params.refs
+        }
+        const result = await context.api.request<Schemas.NotebookSQLV2RunResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/sql_v2/run/`,
+            body,
+        })
+        return result
+    },
+})
+
+const NotebooksRunCellInterruptSchema = NotebooksSqlV2RunsInterruptCreateParams.omit({ project_id: true })
+
+const notebooksRunCellInterrupt = (): ToolBase<
+    typeof NotebooksRunCellInterruptSchema,
+    Schemas.NotebookSQLV2InterruptResponse
+> => ({
+    name: 'notebooks-run-cell-interrupt',
+    schema: NotebooksRunCellInterruptSchema,
+    handler: async (context: Context, params: z.infer<typeof NotebooksRunCellInterruptSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.NotebookSQLV2InterruptResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/sql_v2/runs/${encodeURIComponent(String(params.run_id))}/interrupt/`,
+        })
+        return result
+    },
+})
+
+const NotebooksRunCellResultSchema = NotebooksSqlV2RunsRetrieveParams.omit({ project_id: true })
+
+const notebooksRunCellResult = (): ToolBase<
+    typeof NotebooksRunCellResultSchema,
+    Schemas.NotebookSQLV2RunStatusResponse
+> => ({
+    name: 'notebooks-run-cell-result',
+    schema: NotebooksRunCellResultSchema,
+    handler: async (context: Context, params: z.infer<typeof NotebooksRunCellResultSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.NotebookSQLV2RunStatusResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/sql_v2/runs/${encodeURIComponent(String(params.run_id))}/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-create': notebooksCreate,
     'notebooks-destroy': notebooksDestroy,
     'notebooks-list': notebooksList,
     'notebooks-partial-update': notebooksPartialUpdate,
     'notebooks-retrieve': notebooksRetrieve,
+    'notebooks-run-cell': notebooksRunCell,
+    'notebooks-run-cell-interrupt': notebooksRunCellInterrupt,
+    'notebooks-run-cell-result': notebooksRunCellResult,
 }

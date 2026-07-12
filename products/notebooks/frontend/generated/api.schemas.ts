@@ -272,6 +272,126 @@ export interface NotebookCollabSaveApi {
     cursor_head?: number | null
 }
 
+/**
+ * * `hogql` - hogql
+ * * `local` - local
+ */
+export type NotebookCellRunRefKindEnumApi =
+    (typeof NotebookCellRunRefKindEnumApi)[keyof typeof NotebookCellRunRefKindEnumApi]
+
+export const NotebookCellRunRefKindEnumApi = {
+    Hogql: 'hogql',
+    Local: 'local',
+} as const
+
+export interface NotebookSQLV2RefApi {
+    /** ProseMirror node id of the upstream node this name points at. */
+    node_id: string
+    /** What the name resolves to: 'hogql' is a SQL node's query definition (resolved to its last-run HogQL); 'local' is a dataframe a Python node bound in the kernel namespace.
+     *
+     * * `hogql` - hogql
+     * * `local` - local */
+    kind?: NotebookCellRunRefKindEnumApi
+}
+
+/**
+ * Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's DuckDB; a python node materializes the hogql refs its code reads as pandas frames.
+ */
+export type NotebookSQLV2RunRequestApiRefs = { [key: string]: NotebookSQLV2RefApi }
+
+/**
+ * * `hogql` - hogql
+ * * `python` - python
+ */
+export type NotebookCellRunNodeTypeEnumApi =
+    (typeof NotebookCellRunNodeTypeEnumApi)[keyof typeof NotebookCellRunNodeTypeEnumApi]
+
+export const NotebookCellRunNodeTypeEnumApi = {
+    Hogql: 'hogql',
+    Python: 'python',
+} as const
+
+export interface NotebookSQLV2RunRequestApi {
+    /** ProseMirror node id of the SQLV2 node being run. */
+    node_id: string
+    /** Execution kind. 'hogql' is a SQL node — pushed to ClickHouse, or rerouted to the sandbox's DuckDB when it references a local frame; 'python' runs the code in the sandbox kernel, materializing referenced upstream nodes as pandas frames first.
+     *
+     * * `hogql` - hogql
+     * * `python` - python */
+    node_type?: NotebookCellRunNodeTypeEnumApi
+    /** The node's source — SQL for a hogql node, Python for a python node. Must not be blank. */
+    code: string
+    /** Kernel nodes only: the dataframe variable to bind the result to in the kernel namespace (a python node falls back to the last expression for its preview). */
+    output_name?: string
+    /** Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's DuckDB; a python node materializes the hogql refs its code reads as pandas frames. */
+    refs?: NotebookSQLV2RunRequestApiRefs
+}
+
+export interface NotebookSQLV2RunResponseApi {
+    /** Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal. */
+    run_id: string
+}
+
+export interface NotebookSQLV2MediaApi {
+    /** MIME type of the media, e.g. 'image/png' for a matplotlib figure. */
+    mime_type: string
+    /** Base64-encoded media bytes. */
+    data: string
+}
+
+export interface NotebookSQLV2EnvelopeApi {
+    /** Run outcome: 'ok', 'error', or 'interrupted' (user-requested stop). */
+    status: string
+    /** Captured stdout from a Python node run. */
+    stdout?: string
+    /** Captured stderr (including tracebacks) from a Python node run. */
+    stderr?: string
+    /** Rich outputs from a Python node run, e.g. matplotlib figures as PNGs. */
+    media?: NotebookSQLV2MediaApi[]
+    /** Result column names. */
+    columns?: string[]
+    /** ClickHouse type per column, as [name, type] pairs; used by the visualization tab. */
+    types?: string[][]
+    /** Number of rows in the result. */
+    row_count?: number
+    /** Whether ClickHouse has more rows beyond first_page (detected by fetching limit+1). */
+    has_more?: boolean
+    /** First page of result rows for display; each row is a list of cell values. */
+    first_page?: unknown[][]
+    /**
+     * Identifier of the materialized result, used as the paging key.
+     * @nullable
+     */
+    result_id?: string | null
+    /**
+     * Error message when status is 'error'.
+     * @nullable
+     */
+    error?: string | null
+}
+
+export interface NotebookSQLV2RunStatusResponseApi {
+    /** Run state: 'running' while executing (keep polling), or terminal 'done', 'failed', or 'interrupted' (user-requested stop). */
+    status: string
+    /** The result envelope once the run is done or interrupted: columns, a bounded first_page of rows, row_count, and for python cells the captured stdout/stderr and any figures. Null while running or failed. */
+    result?: NotebookSQLV2EnvelopeApi | null
+    /**
+     * Error message when the run failed or was interrupted; null otherwise.
+     * @nullable
+     */
+    error?: string | null
+}
+
+export interface NotebookSQLV2InterruptResponseApi {
+    /** The run's status after the interrupt request: usually still 'running' (the terminal 'interrupted' state arrives via the run result endpoint), or already-terminal state when nothing was stopped. */
+    status: string
+    /**
+     * Set when nothing was stopped, e.g. the run has not reached the kernel yet; retry shortly.
+     * @nullable
+     */
+    detail?: string | null
+}
+
 export type NotebooksListParams = {
     /**
      * Filter for notebooks that match a provided filter.

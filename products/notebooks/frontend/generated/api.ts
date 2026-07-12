@@ -13,6 +13,10 @@ import type {
     NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
     NotebookMarkdownSaveApi,
+    NotebookSQLV2InterruptResponseApi,
+    NotebookSQLV2RunRequestApi,
+    NotebookSQLV2RunResponseApi,
+    NotebookSQLV2RunStatusResponseApi,
     NotebooksListParams,
     PaginatedNotebookMinimalListApi,
     PatchedNotebookApi,
@@ -439,6 +443,71 @@ export const notebooksKernelStopCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(notebookApi),
     })
+}
+
+export const getNotebooksSqlV2RunCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/run/`
+}
+
+/**
+ * Dispatch a SQL (HogQL) or Python cell of a revamped notebook to its sandbox kernel. Returns a run_id immediately; poll the run result endpoint until the status is terminal. Requires the notebook's kernel to be running and the revamped-py-notebooks feature.
+ * @summary Run a notebook cell
+ */
+export const notebooksSqlV2RunCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookSQLV2RunRequestApi: NotebookSQLV2RunRequestApi,
+    options?: RequestInit
+): Promise<NotebookSQLV2RunResponseApi> => {
+    return apiMutator<NotebookSQLV2RunResponseApi>(getNotebooksSqlV2RunCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookSQLV2RunRequestApi),
+    })
+}
+
+export const getNotebooksSqlV2RunsRetrieveUrl = (projectId: string, shortId: string, runId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/runs/${runId}/`
+}
+
+/**
+ * Read a dispatched run's state. Poll until status is 'done', 'failed', or 'interrupted'; done and interrupted runs carry the result envelope (columns, first rows, and for python cells the captured stdout/stderr and figures).
+ * @summary Get a notebook cell run's status and result
+ */
+export const notebooksSqlV2RunsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<NotebookSQLV2RunStatusResponseApi> => {
+    return apiMutator<NotebookSQLV2RunStatusResponseApi>(getNotebooksSqlV2RunsRetrieveUrl(projectId, shortId, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksSqlV2RunsInterruptCreateUrl = (projectId: string, shortId: string, runId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/runs/${runId}/interrupt/`
+}
+
+/**
+ * Stop a running cell. The terminal 'interrupted' state (with any captured output) arrives via the run result endpoint; when no kernel is reachable the run is marked interrupted directly.
+ * @summary Interrupt a running notebook cell
+ */
+export const notebooksSqlV2RunsInterruptCreate = async (
+    projectId: string,
+    shortId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<NotebookSQLV2InterruptResponseApi> => {
+    return apiMutator<NotebookSQLV2InterruptResponseApi>(
+        getNotebooksSqlV2RunsInterruptCreateUrl(projectId, shortId, runId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getNotebooksAllActivityRetrieveUrl = (projectId: string) => {

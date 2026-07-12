@@ -538,6 +538,8 @@ SPECTACULAR_SETTINGS = {
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
+        "NotebookCellRunNodeTypeEnum": ["hogql", "python"],
+        "NotebookCellRunRefKindEnum": ["hogql", "local"],
         "PropertyGroupOperator": ["AND", "OR"],
         # bulk_update_tags exposes an identical add/remove/set `action` ChoiceField on both
         # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed

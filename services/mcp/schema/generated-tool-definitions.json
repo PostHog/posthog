@@ -5845,6 +5845,51 @@
             "readOnlyHint": true
         }
     },
+    "notebooks-run-cell": {
+        "description": "Dispatch a SQL (HogQL) or Python cell of a revamped notebook to its sandbox kernel. Set node_type to 'python' for python code (with output_name naming the dataframe it produces) and 'hogql' for SQL. Pass refs mapping each upstream dataframe name the code reads to its cell's node_id. Returns a run_id immediately; poll notebooks-run-cell-result until the status is terminal. The notebook's kernel must be running, and cells are the component tags (<SQLV2 .../>, <PythonV2 .../>) inside the notebook's markdown content.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Run a notebook cell",
+        "title": "Run a notebook cell",
+        "required_scopes": ["notebook:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "revamped-py-notebooks"
+    },
+    "notebooks-run-cell-interrupt": {
+        "description": "Stop a running cell by its run_id. The terminal 'interrupted' state (with any output captured before the stop) arrives via notebooks-run-cell-result.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Interrupt a running notebook cell",
+        "title": "Interrupt a running notebook cell",
+        "required_scopes": ["notebook:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "revamped-py-notebooks"
+    },
+    "notebooks-run-cell-result": {
+        "description": "Read a dispatched run's state by run_id. Poll every few seconds until status is 'done', 'failed', or 'interrupted'. Done and interrupted runs carry the result envelope: columns, a bounded first_page of rows, row_count, and for python cells the captured stdout/stderr (the run's logs) and any figures.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get a notebook cell run's result",
+        "title": "Get a notebook cell run's result",
+        "required_scopes": ["notebook:read", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "revamped-py-notebooks"
+    },
     "org-member-get-github-login": {
         "description": "Resolve the GitHub username (login) for a single organization member, given their PostHog user UUID (obtainable from org-members-list, or \"@me\" for the current user). Returns null if the member has no GitHub identity linked. Use this when you know which member you want and need their GitHub handle — for example to set suggested reviewers.",
         "category": "Platform Features",
