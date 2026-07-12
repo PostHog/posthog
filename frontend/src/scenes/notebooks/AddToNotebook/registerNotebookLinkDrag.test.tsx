@@ -1,6 +1,7 @@
 import { fireEvent, render } from '@testing-library/react'
 
 import { Link } from 'lib/lemon-ui/Link'
+import { resetLinkDragHook } from 'lib/lemon-ui/Link/useLinkDrag'
 
 import { initKeaTests } from '~/test/init'
 
@@ -9,6 +10,10 @@ import { registerNotebookLinkDrag } from './registerNotebookLinkDrag'
 describe('registerNotebookLinkDrag', () => {
     beforeEach(() => {
         initKeaTests()
+    })
+
+    afterEach(() => {
+        resetLinkDragHook()
     })
 
     it('wires notebook drag into Link so dragging an internal link carries its url', () => {

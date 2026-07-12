@@ -21,6 +21,11 @@ export function setLinkDragHook(hook: UseLinkDragHook): void {
     useLinkDragHook = hook
 }
 
+/** Restores the inert default. Test-only: keeps a registered hook from leaking across tests. */
+export function resetLinkDragHook(): void {
+    useLinkDragHook = useNoopLinkDrag
+}
+
 export function useLinkDrag(href: string | undefined): LinkDragProps {
     return useLinkDragHook(href)
 }
