@@ -54,10 +54,16 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
+def _make_session(api_key: str) -> requests.Session:
+    # `redact_values` masks the bearer token from any captured request samples or logged errors,
+    # so the credential never leaks into warehouse job telemetry.
+    return make_tracked_session(redact_values=(api_key,))
+
+
 def validate_credentials(api_key: str, region: str | None) -> bool:
     url = f"{get_base_url(region)}/api/whoami"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        response = _make_session(api_key).get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -83,7 +89,7 @@ def check_endpoint_access(api_key: str, region: str | None, endpoint: str) -> st
     """
     url = _probe_url(get_base_url(region), endpoint)
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=30)
+        response = _make_session(api_key).get(url, headers=_get_headers(api_key), timeout=30)
     except Exception:
         return None
     if response.status_code in (401, 403):
@@ -345,7 +351,7 @@ def get_rows(
     base_url = get_base_url(region)
     headers = _get_headers(api_key)
     # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    session = _make_session(api_key)
 
     if endpoint == "audit_logs":
         yield from _get_audit_log_rows(

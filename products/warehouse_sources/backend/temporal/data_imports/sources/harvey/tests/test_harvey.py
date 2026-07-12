@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
@@ -7,6 +8,7 @@ import pytest
 from freezegun import freeze_time
 from unittest import mock
 
+from parameterized import parameterized
 from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.harvey import (
@@ -97,55 +99,52 @@ def _history_event(usage_id: str, utc_time: str = "2026-07-01 10:30:00") -> dict
 
 
 class TestHelpers:
-    @pytest.mark.parametrize(
-        ("region", "expected"),
+    @parameterized.expand(
         [
-            ("us", "https://api.harvey.ai"),
-            ("eu", "https://eu.api.harvey.ai"),
-            ("au", "https://au.api.harvey.ai"),
-            ("US", "https://api.harvey.ai"),
-            (None, "https://api.harvey.ai"),
-            ("unknown", "https://api.harvey.ai"),
-        ],
+            ("us", "us", "https://api.harvey.ai"),
+            ("eu", "eu", "https://eu.api.harvey.ai"),
+            ("au", "au", "https://au.api.harvey.ai"),
+            ("uppercase", "US", "https://api.harvey.ai"),
+            ("none", None, "https://api.harvey.ai"),
+            ("unknown", "unknown", "https://api.harvey.ai"),
+        ]
     )
-    def test_get_base_url(self, region: str | None, expected: str) -> None:
+    def test_get_base_url(self, _name: str, region: str | None, expected: str) -> None:
         assert get_base_url(region) == expected
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
+    @parameterized.expand(
         [
-            ("2026-06-01T10:00:00+00:00", datetime(2026, 6, 1, 10, 0, 0, tzinfo=UTC)),
-            ("2026-06-01T10:00:00Z", datetime(2026, 6, 1, 10, 0, 0, tzinfo=UTC)),
-            ("2026-02-22 14:01:23", datetime(2026, 2, 22, 14, 1, 23, tzinfo=UTC)),
-            (datetime(2026, 6, 1, 10, 0, 0), datetime(2026, 6, 1, 10, 0, 0, tzinfo=UTC)),
-            ("not a timestamp", None),
-            (None, None),
-            (12345, None),
-        ],
+            ("iso_offset", "2026-06-01T10:00:00+00:00", datetime(2026, 6, 1, 10, 0, 0, tzinfo=UTC)),
+            ("iso_z", "2026-06-01T10:00:00Z", datetime(2026, 6, 1, 10, 0, 0, tzinfo=UTC)),
+            ("space_separated", "2026-02-22 14:01:23", datetime(2026, 2, 22, 14, 1, 23, tzinfo=UTC)),
+            ("naive_datetime", datetime(2026, 6, 1, 10, 0, 0), datetime(2026, 6, 1, 10, 0, 0, tzinfo=UTC)),
+            ("unparseable_string", "not a timestamp", None),
+            ("none", None, None),
+            ("int", 12345, None),
+        ]
     )
-    def test_parse_datetime(self, value: Any, expected: datetime | None) -> None:
+    def test_parse_datetime(self, _name: str, value: Any, expected: datetime | None) -> None:
         assert _parse_datetime(value) == expected
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
+    @parameterized.expand(
         [
-            (datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC), NOW_EPOCH),
-            (datetime(2026, 7, 1, 12, 0, 0), NOW_EPOCH),
-            (date(2026, 7, 1), NOW_EPOCH - 12 * 60 * 60),
-            (NOW_EPOCH, NOW_EPOCH),
-            (float(NOW_EPOCH), NOW_EPOCH),
-            ("2026-07-01T12:00:00+00:00", NOW_EPOCH),
-        ],
+            ("aware_datetime", datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC), NOW_EPOCH),
+            ("naive_datetime", datetime(2026, 7, 1, 12, 0, 0), NOW_EPOCH),
+            ("date", date(2026, 7, 1), NOW_EPOCH - 12 * 60 * 60),
+            ("int", NOW_EPOCH, NOW_EPOCH),
+            ("float", float(NOW_EPOCH), NOW_EPOCH),
+            ("iso_string", "2026-07-01T12:00:00+00:00", NOW_EPOCH),
+        ]
     )
-    def test_to_epoch(self, value: Any, expected: int) -> None:
+    def test_to_epoch(self, _name: str, value: Any, expected: int) -> None:
         assert _to_epoch(value) == expected
 
     def test_to_epoch_rejects_unparseable_values(self) -> None:
         with pytest.raises(ValueError):
             _to_epoch("not a timestamp")
 
-    @pytest.mark.parametrize("status_code", [429, 500, 503])
-    def test_fetch_json_raises_retryable_on_throttle_and_server_errors(self, status_code: int) -> None:
+    @parameterized.expand([("throttle", 429), ("server_error", 500), ("unavailable", 503)])
+    def test_fetch_json_raises_retryable_on_throttle_and_server_errors(self, _name: str, status_code: int) -> None:
         session = _session_with([_response({}, status_code=status_code)])
         with pytest.raises(HarveyRetryableError):
             _fetch_json_unretried(session, "https://api.harvey.ai/api/test", {}, mock.MagicMock())
@@ -157,11 +156,10 @@ class TestHelpers:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        ("status_code", "expected"),
-        [(200, True), (401, False), (500, False)],
+    @parameterized.expand(
+        [("ok", 200, True), ("unauthorized", 401, False), ("server_error", 500, False)],
     )
-    def test_status_mapping(self, status_code: int, expected: bool) -> None:
+    def test_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
         session = _session_with([_response({}, status_code=status_code)])
         with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
             assert validate_credentials("token", "us") is expected
@@ -183,25 +181,24 @@ class TestValidateCredentials:
 
 
 class TestCheckEndpointAccess:
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_path"),
+    @parameterized.expand(
         [
-            ("audit_logs", "/api/v1/logs/audit/latest"),
-            ("usage_history", "/api/v2/history/usage"),
-            ("query_history", "/api/v2/history/query"),
-            ("client_matters", "/api/v1/client_matters"),
-            ("vault_projects", "/api/v1/vault/workspace/projects"),
-        ],
+            ("audit_logs", "audit_logs", "/api/v1/logs/audit/latest"),
+            ("usage_history", "usage_history", "/api/v2/history/usage"),
+            ("query_history", "query_history", "/api/v2/history/query"),
+            ("client_matters", "client_matters", "/api/v1/client_matters"),
+            ("vault_projects", "vault_projects", "/api/v1/vault/workspace/projects"),
+        ]
     )
-    def test_probes_the_right_endpoint(self, endpoint: str, expected_path: str) -> None:
+    def test_probes_the_right_endpoint(self, _name: str, endpoint: str, expected_path: str) -> None:
         session = _session_with([_response({})])
         with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
             assert check_endpoint_access("token", "us", endpoint) is None
 
         assert expected_path in _requested_urls(session)[0]
 
-    @pytest.mark.parametrize("status_code", [401, 403])
-    def test_denial_returns_reason(self, status_code: int) -> None:
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    def test_denial_returns_reason(self, _name: str, status_code: int) -> None:
         session = _session_with([_response({}, status_code=status_code)])
         with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
             reason = check_endpoint_access("token", "us", "audit_logs")
@@ -209,8 +206,8 @@ class TestCheckEndpointAccess:
         assert reason is not None
         assert "permission" in reason
 
-    @pytest.mark.parametrize("status_code", [404, 429, 500])
-    def test_non_denial_statuses_are_reachable(self, status_code: int) -> None:
+    @parameterized.expand([("not_found", 404), ("throttle", 429), ("server_error", 500)])
+    def test_non_denial_statuses_are_reachable(self, _name: str, status_code: int) -> None:
         session = _session_with([_response({}, status_code=status_code)])
         with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
             assert check_endpoint_access("token", "us", "audit_logs") is None
@@ -220,6 +217,36 @@ class TestCheckEndpointAccess:
         session.get.side_effect = ConnectionError("boom")
         with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
             assert check_endpoint_access("token", "us", "audit_logs") is None
+
+
+class TestSessionRedaction:
+    # A dropped `redact_values` would copy the bearer token into captured request samples and logged
+    # errors, leaking the credential into warehouse job telemetry. Every request-issuing entry point
+    # must build its session with the token registered for redaction.
+    @parameterized.expand(
+        [
+            ("validate_credentials", lambda: validate_credentials("token", "us")),
+            ("check_endpoint_access", lambda: check_endpoint_access("token", "us", "audit_logs")),
+            (
+                "get_rows",
+                lambda: list(
+                    get_rows(
+                        api_key="token",
+                        region="us",
+                        endpoint="client_matters",
+                        logger=mock.MagicMock(),
+                        resumable_source_manager=_FakeManager(),  # type: ignore[arg-type]
+                    )
+                ),
+            ),
+        ]
+    )
+    def test_tracked_session_redacts_api_token(self, _name: str, run: Callable[[], Any]) -> None:
+        session = _session_with([_response({})])
+        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session) as mock_session:
+            run()
+
+        assert mock_session.call_args.kwargs["redact_values"] == ("token",)
 
 
 class TestAuditLogRows:
@@ -374,12 +401,14 @@ class TestHistoryRows:
             )
         return batches, session
 
-    @freeze_time(NOW)
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_path"),
-        [("usage_history", "/api/v2/history/usage"), ("query_history", "/api/v2/history/query")],
+    @parameterized.expand(
+        [
+            ("usage_history", "usage_history", "/api/v2/history/usage"),
+            ("query_history", "query_history", "/api/v2/history/query"),
+        ]
     )
-    def test_incremental_fetches_windows_up_to_now(self, endpoint: str, expected_path: str) -> None:
+    @freeze_time(NOW)
+    def test_incremental_fetches_windows_up_to_now(self, _name: str, endpoint: str, expected_path: str) -> None:
         last_value = datetime(2026, 7, 1, 10, 0, 0, tzinfo=UTC)
         manager = _FakeManager()
         batches, session = self._get_batches(
@@ -568,18 +597,17 @@ class TestVaultProjectRows:
 
 
 class TestHarveySourceResponse:
-    @pytest.mark.parametrize(
-        ("endpoint", "primary_keys", "partition_keys"),
+    @parameterized.expand(
         [
-            ("audit_logs", ["id"], ["timestamp"]),
-            ("usage_history", ["unique_usage_id"], ["utc_time"]),
-            ("query_history", ["unique_usage_id"], ["utc_time"]),
-            ("client_matters", ["id"], None),
-            ("vault_projects", ["id"], None),
-        ],
+            ("audit_logs", "audit_logs", ["id"], ["timestamp"]),
+            ("usage_history", "usage_history", ["unique_usage_id"], ["utc_time"]),
+            ("query_history", "query_history", ["unique_usage_id"], ["utc_time"]),
+            ("client_matters", "client_matters", ["id"], None),
+            ("vault_projects", "vault_projects", ["id"], None),
+        ]
     )
     def test_source_response_shape(
-        self, endpoint: str, primary_keys: list[str], partition_keys: list[str] | None
+        self, _name: str, endpoint: str, primary_keys: list[str], partition_keys: list[str] | None
     ) -> None:
         response = harvey_source(
             api_key="token",

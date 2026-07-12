@@ -46,6 +46,12 @@ class HarveySource(ResumableSource[HarveySourceConfig, HarveyResumeConfig]):
         return ExternalDataSourceType.HARVEY
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `region` selects the host the stored API token is sent to. Retargeting it must re-require the
+        # secret so a preserved token can't be aimed at a different regional endpoint without re-entry.
+        return ["region"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.HARVEY,

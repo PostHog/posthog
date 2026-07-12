@@ -1,7 +1,8 @@
 from typing import Any
 
-import pytest
 from unittest import mock
+
+from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
@@ -45,6 +46,10 @@ class TestHarveySource:
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.HARVEY
 
+    def test_connection_host_fields_includes_region(self) -> None:
+        # `region` selects the host the stored API token is sent to, so editing it must re-require the secret.
+        assert self.source.connection_host_fields == ["region"]
+
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog, so the public docs can render it.
         assert self.source.lists_tables_without_credentials is True
@@ -72,30 +77,32 @@ class TestHarveySource:
         assert region_field.defaultValue == "us"
         assert [option.value for option in region_field.options] == ["us", "eu", "au"]
 
-    @pytest.mark.parametrize(
-        "expected_key",
-        ["401 Client Error: Unauthorized for url", "403 Client Error: Forbidden for url"],
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url"),
+            ("forbidden", "403 Client Error: Forbidden for url"),
+        ]
     )
-    def test_non_retryable_errors(self, expected_key: str) -> None:
+    def test_non_retryable_errors(self, _name: str, expected_key: str) -> None:
         assert expected_key in self.source.get_non_retryable_errors()
 
     def test_get_schemas_returns_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
 
-    @pytest.mark.parametrize(
-        ("endpoint", "supports_incremental", "supports_append", "incremental_field"),
+    @parameterized.expand(
         [
             # Audit logs are immutable, so only append is offered.
-            ("audit_logs", False, True, "timestamp"),
-            ("usage_history", True, True, "utc_time"),
-            ("query_history", True, True, "utc_time"),
-            ("client_matters", False, False, None),
-            ("vault_projects", False, False, None),
-        ],
+            ("audit_logs", "audit_logs", False, True, "timestamp"),
+            ("usage_history", "usage_history", True, True, "utc_time"),
+            ("query_history", "query_history", True, True, "utc_time"),
+            ("client_matters", "client_matters", False, False, None),
+            ("vault_projects", "vault_projects", False, False, None),
+        ]
     )
     def test_get_schemas_sync_modes(
         self,
+        _name: str,
         endpoint: str,
         supports_incremental: bool,
         supports_append: bool,
@@ -136,12 +143,11 @@ class TestHarveySource:
         assert is_valid is False
         assert error_message == "Invalid Harvey API token"
 
-    @pytest.mark.parametrize(
-        ("access_reason", "expected_valid"),
+    @parameterized.expand(
         [
-            (None, True),
-            ("Your API token does not have permission for this endpoint.", False),
-        ],
+            ("has_access", None, True),
+            ("no_access", "Your API token does not have permission for this endpoint.", False),
+        ]
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.harvey.source.check_endpoint_access")
     @mock.patch(
@@ -149,10 +155,11 @@ class TestHarveySource:
     )
     def test_validate_credentials_with_schema_name_checks_endpoint_access(
         self,
-        mock_validate: mock.MagicMock,
-        mock_access: mock.MagicMock,
+        _name: str,
         access_reason: str | None,
         expected_valid: bool,
+        mock_validate: mock.MagicMock,
+        mock_access: mock.MagicMock,
     ) -> None:
         mock_validate.return_value = True
         mock_access.return_value = access_reason
