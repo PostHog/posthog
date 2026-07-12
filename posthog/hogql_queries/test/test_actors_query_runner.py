@@ -43,6 +43,7 @@ from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.models import User
 from posthog.models.group.util import create_group
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import UUIDT
@@ -196,7 +197,8 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team, enabled=True, access_token="shared_token"
         )
         runner = self._create_runner(ActorsQuery(select=["created_at"]))
-        runner.user = SharedLinkUser(sharing_configuration=sharing_configuration)
+        # user is typed Optional[User] but at runtime shared renders pass a SharedLinkUser.
+        runner.user = cast("User | None", SharedLinkUser(sharing_configuration=sharing_configuration))
 
         with patch(
             "posthog.hogql_queries.actors_query_runner.feature_enabled", return_value=True
