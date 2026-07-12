@@ -229,19 +229,17 @@ export const getDefaultFilters = (
     // A sort the user explicitly saved as their default wins over the flag-driven relevance default,
     // but only on the plain landing page, since specific-intent pages assume recency
     const preferredSort = hasSpecificIntent ? null : getDefaultRecordingSort()
+    // Default to sorting by relevance for the surfacing-score rollout or the relevance-sort experiment's test arm
+    const flagDefaultsToRelevance =
+        !hasSpecificIntent &&
+        (posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE) ||
+            posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT) === 'test')
     const defaults: RecordingUniversalFilters = {
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
         date_from: personUUID ? '-30d' : '-3d',
-        // Default to sorting by relevance for the surfacing-score rollout or the relevance-sort experiment's test arm
-        order: preferredSort
-            ? preferredSort.order
-            : !hasSpecificIntent &&
-                (posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE) ||
-                    posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT) === 'test')
-              ? 'surfacing_score'
-              : DEFAULT_RECORDING_FILTERS.order,
-        order_direction: preferredSort ? preferredSort.order_direction : DEFAULT_RECORDING_FILTERS.order_direction,
+        order: preferredSort?.order ?? (flagDefaultsToRelevance ? 'surfacing_score' : DEFAULT_RECORDING_FILTERS.order),
+        order_direction: preferredSort?.order_direction ?? DEFAULT_RECORDING_FILTERS.order_direction,
     }
     if (pinnedFilters) {
         defaults.filter_group = mergePinnedFilters(defaults.filter_group, pinnedFilters)
