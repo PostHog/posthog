@@ -3347,7 +3347,7 @@ wheels = [
 [[package]]
 name = "infi-clickhouse-orm"
 version = "2.1.0.post20"
-source = { git = "https://github.com/PostHog/infi.clickhouse_orm?rev=4e3996becf66bf5c26580aff12a80425d9d56fe5#4e3996becf66bf5c26580aff12a80425d9d56fe5" }
+source = { git = "https://github.com/PostHog/infi.clickhouse_orm?rev=a0c3b93f6916aeffa83686bb6ae088c54e2640c5#a0c3b93f6916aeffa83686bb6ae088c54e2640c5" }
 dependencies = [
     { name = "iso8601" },
     { name = "pytz" },
@@ -5885,7 +5885,7 @@ requires-dist = [
     { name = "hogql-parser", specifier = "==1.3.77" },
     { name = "hogql-parser-rs", specifier = "==1.3.106" },
     { name = "humanize", specifier = "~=4.12.3" },
-    { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=4e3996becf66bf5c26580aff12a80425d9d56fe5" },
+    { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=a0c3b93f6916aeffa83686bb6ae088c54e2640c5" },
     { name = "jsonref", specifier = "==1.1.0" },
     { name = "kafka-python", specifier = "==2.3.0" },
     { name = "kombu", specifier = "==5.6.2" },
